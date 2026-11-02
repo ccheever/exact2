@@ -5,7 +5,7 @@ import {readStatus, formatStatus} from '../game/status.mjs';
 import { widgetArguments, validateWidget } from './agent-widget.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { createRequire } from 'node:module';
@@ -16,7 +16,7 @@ import { boundSettings, settingChanges, settingInputs, settingLines } from '../j
 import { besidePattern } from '../host/web/beside.mjs';
 import { chooseSimulator, phone } from '../host/apple/devices.mjs';
 import { androidDevice } from './agent-android.mjs';
-import { assetCards } from '../host/web/serve.mjs';
+import { listAssets } from '../host/web/serve.mjs';
 import { bakeOutput, gpuModules, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -936,53 +936,20 @@ export function notBuildInput(dir, keep = []) {
 }
 
 const fileDigest = path => { try { return createHash('sha256').update(readFileSync(path)).digest('hex'); } catch { return null; } };
-/** Only assets/ and deck/ are copied from the app unchanged. Other baked trees have generated or mapped names. */
-function capturedStaticInputs(app, assets) {
-  const none = { covers: () => false, changed: [] }, recorded = new Map();
-  if (!Array.isArray(assets)) return none;
-  for (const card of assets) {
-    const name = card?.name;
-    if (typeof name !== 'string' || !name.includes('/') || name.includes('\\') || name.includes('\0') || name.split('/').some(part => !part || part === '.' || part === '..')
-        || !Number.isSafeInteger(card.bytes) || card.bytes < 0 || typeof card.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(card.sha256) || recorded.has(name)) return none;
-    recorded.set(name, card);
-  }
-  const roots = [], changed = [];
-  for (const tree of ['assets', 'deck']) {
-    const root = resolve(app.dir, tree), current = new Map();
-    let complete = true;
-    const walk = name => {
-      const path = resolve(app.dir, name);
-      try {
-        let before;
-        try { before = lstatSync(path); } catch (error) { if (name === tree && error.code === 'ENOENT') return; throw error; }
-        if (before.isDirectory()) {
-          for (const entry of readdirSync(path)) walk(`${name}/${entry}`);
-          const after = lstatSync(path);
-          if (!after.isDirectory() || before.dev !== after.dev || before.ino !== after.ino || before.mtimeMs !== after.mtimeMs) throw new Error('static directory changed');
-        } else if (name !== tree && before.isFile()) {
-          const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-          try {
-            const opened = fstatSync(fd);
-            if (!opened.isFile() || before.dev !== opened.dev || before.ino !== opened.ino) throw new Error('static file changed');
-            const [card] = assetCards([[name, readFileSync(fd)]]), after = fstatSync(fd), named = lstatSync(path);
-            if (!named.isFile() || named.dev !== opened.dev || named.ino !== opened.ino || opened.size !== after.size || opened.mtimeMs !== after.mtimeMs || named.size !== after.size || named.mtimeMs !== after.mtimeMs) throw new Error('static file changed');
-            current.set(name, card);
-          } finally { closeSync(fd); }
-        } else throw new Error('static tree contains a non-regular file');
-      } catch {
-        complete = false;
-        changed.push(shown(path));
-      }
-    };
-    walk(tree);
-    if (complete) roots.push(root);
-    const names = new Set([...current.keys(), ...recorded.keys()].filter(name => name.startsWith(tree + '/')));
-    for (const name of names) {
-      const was = recorded.get(name), now = current.get(name);
-      if (!was || !now || was.bytes !== now.bytes || was.sha256 !== now.sha256) changed.push(shown(resolve(app.dir, name)));
-    }
-  }
-  return { covers: path => roots.some(root => resolve(ROOT, path) === root || resolve(ROOT, path).startsWith(root + '/')), changed };
+const COPIED = /^(assets|deck)(\/|$)/;
+/** What differs in assets/ and deck/, which packaging copies into the bundle unchanged: the files as listAssets reads
+ * them now against the names, sizes and SHA-256 the bake recorded, the comparison packaging makes (verifyBakeFiles).
+ * A build script can write these files after the build starts, so their times decide nothing. listAssets skips a
+ * symbolic link, as the build-start walk does, and the bake refuses one. This reads and hashes every file listAssets
+ * lists on every drive, so large media makes each drive slower. Null when the receipt records no assets: the trees
+ * then keep the build-start rule. */
+function copiedChanges(app, recorded) {
+  if (!Array.isArray(recorded)) return null;
+  const cards = list => new Map(list.filter(card => COPIED.test(card?.name)).map(card => [card.name, card]));
+  const was = cards(recorded), now = cards(listAssets(app.dir));
+  return [...new Set([...was.keys(), ...now.keys()])]
+    .filter(name => was.get(name)?.bytes !== now.get(name)?.bytes || was.get(name)?.sha256 !== now.get(name)?.sha256)
+    .map(name => shown(resolve(app.dir, name)));
 }
 /** An Apple build's recorded inputs and direct-copy assets by digest; the app's remaining files by build-start time. */
 export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hashed`: this drive compared its inputs' bytes already
@@ -996,7 +963,8 @@ export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hash
   // (game/proof.mjs shares gameNonInput). A non-game keeps every real source.
   const game = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
   const skip = path => ignored(path) || game(path);
-  const assets = capturedStaticInputs(app, build?.compat?.embedded?.assets);
+  const copied = copiedChanges(app, build?.compat?.embedded?.assets);
+  const timed = path => !copied || !COPIED.test(relative(app.dir, resolve(ROOT, path)));
   const own = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux|web)$/.test(path) && path.startsWith(app.dir + '/') || skip(path));
   // Platform-local modules live under the host crate directory skipped above,
   // but their separate dylib's sources are absent from the binary receipt.
@@ -1021,7 +989,7 @@ export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hash
   let baked = [], unread = [];
   if (build?.linkedPlan) { const at = resolve(build.linkedPlan, 'inputs.json'); try { baked = JSON.parse(readFileSync(at, 'utf8')).paths; if (!Array.isArray(baked)) throw new Error(); } catch { baked = []; unread = [shown(at)]; } }
   const tools = info ? [...depInfoNewer(since, null, info, app.workspace), ...watchedNewer(since, baked)].filter(path => !skipped(path) && !products.has(resolve(ROOT, path))) : [];
-  return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own.filter(path => !assets.covers(path)), ...tools.filter(path => !assets.covers(path)), ...unread, ...replaced, ...assets.changed])];
+  return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own.filter(timed), ...tools.filter(timed), ...unread, ...replaced, ...(copied ?? [])])];
 }
 
 /** A web `dist/`: app and shared runtime sources newer than its build marker.
