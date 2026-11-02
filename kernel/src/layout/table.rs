@@ -5,7 +5,7 @@
 //! cell's column is the table's, whatever row holds it. A row or row group
 //! keeps no engine children; its box spans its rows, and publication places
 //! what it holds from the grid's origin, moved as the engine moved the row or
-//! group from its grid area ([`Tables::flat`], [`displacement`]). A table whose author said a `display` is
+//! group from where the grid placed it ([`Tables::flat`], [`displacement`]). A table whose author said a `display` is
 //! that box, holding an anonymous table, a node of the engine's own, as the
 //! grid (CSS 2.2 §17.2.1). The columns are `auto` tracks, the deviation
 //! `style/table.rs` declares.
@@ -182,11 +182,12 @@ impl Tables {
     }
 }
 
-/// What the engine moved `slot`, a row or row group, by from its grid area:
-/// its `position: relative` offset (CSS 2.2 §9.4.3, as the engine resolves
-/// it: percentages, `calc()`, and `right` over `left` right to left), or, for
-/// a popover laid out before it has a block of its own (absolute in the top
-/// layer), where its insets put it in that area. A row's or row group's cells
+/// What the engine moved `slot`, a row or row group, by from where its grid
+/// placed it (Taffy's `grid_origin`): its `position: relative` offset (CSS 2.2
+/// §9.4.3, as the engine resolves it: percentages, `calc()`, and `right` over
+/// `left` right to left), its alignment in its area aside, or, for a popover
+/// laid out before it has a block of its own (absolute in the top layer), how
+/// far its insets put it from its area. A row's or row group's cells
 /// are the grid's items beside it, not its children in the engine, so
 /// publication moves them by this, and they follow their row's box. Anything
 /// else (static, sticky, whose insets the host applies) moves nothing.
@@ -199,11 +200,11 @@ pub(super) fn displacement(arena: &NodeArena, tree: &LayoutTree, slot: u32) -> (
     let Some(node) = arena.taffy(slot).filter(|_| moved) else {
         return (0.0, 0.0);
     };
-    let Some(area) = tree.grid_area(node) else {
+    let Some(origin) = tree.grid_origin(node) else {
         return (0.0, 0.0);
     };
     let at = tree.layout(node).location;
-    (at.x - area.x, at.y - area.y)
+    (at.x - origin.x, at.y - origin.y)
 }
 
 /// The table `slot` is placed in: `slot` and each part between it and the

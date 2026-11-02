@@ -197,11 +197,14 @@ pub(super) fn publish(
         // (LLP 1093): placements moved without each child's layout bit.
         let full = full || hidden || republish;
         // A table that is another box places its parts from its anonymous
-        // table, which can move inside it alone.
+        // table, which can move inside it alone; a row or group places what
+        // it holds by its displacement, which can change with its frame
+        // unchanged (Taffy reports a grid origin's change as its layout's).
         let descend_all = full
             || origin_moved
             || flags.has(NodeFlags::CHILDREN_DIRTY)
-            || tree.tables.anon(slot).is_some();
+            || tree.tables.anon(slot).is_some()
+            || tree.tables.flat(slot);
         arena.set_frame(slot, frame);
         arena.consume_layout_flags(slot);
         if moved {

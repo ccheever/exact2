@@ -815,7 +815,7 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
             drop(child_style);
             // EXACT PATCH 69: the area, for a caller that places what the child holds outside it,
             // whichever box contains the child.
-            tree.set_grid_area(child, Point { x: grid_area.left, y: grid_area.top });
+            tree.set_grid_origin(child, Point { x: grid_area.left, y: grid_area.top });
 
             if contains_absolutes {
                 let area = (

@@ -364,9 +364,9 @@ impl LayoutTree {
         self.taffy.multicol_bounds(node)
     }
 
-    /// The origin of the grid area `node` was last placed in, in its grid's coordinates (patch 69).
-    pub(crate) fn grid_area(&self, node: NodeId) -> Option<taffy::geometry::Point<f32>> {
-        self.taffy.grid_area(node)
+    /// Where a grid last placed `node`'s box from, in the grid's coordinates (patch 69).
+    pub(crate) fn grid_origin(&self, node: NodeId) -> Option<taffy::geometry::Point<f32>> {
+        self.taffy.grid_origin(node)
     }
 
     /// An empty tree.

@@ -706,9 +706,13 @@ fn a_popover_rows_relative_position_moves_nothing() {
 
 /// The table of [`a_relatively_moved_row_or_group_moves_its_cells`] built in
 /// one batch, the first row (4) with `row`'s styles and, when `popover`, the
-/// popover attribute; the table right to left when `rtl`. Not laid out.
+/// popover attribute, the table (2) with `table`'s. Not laid out.
 /// 2 table, 3 tbody, 4 tr, 5 td, 6 box, 7 tr, 8 td, 9 box.
-fn table_with_row(row: &[(StyleId, StyleValue)], popover: bool, rtl: bool) -> Kernel {
+fn table_with_row(
+    row: &[(StyleId, StyleValue)],
+    popover: bool,
+    table: &[(StyleId, StyleValue)],
+) -> Kernel {
     let mut kernel = Kernel::with_monospace();
     let mut ops = vec![
         Op::CreateView {
@@ -721,7 +725,7 @@ fn table_with_row(row: &[(StyleId, StyleValue)], popover: bool, rtl: bool) -> Ke
         },
     ];
     let mut next = 2;
-    let table = tag(
+    let parts = tag(
         "table",
         vec![tag(
             "tbody",
@@ -731,7 +735,7 @@ fn table_with_row(row: &[(StyleId, StyleValue)], popover: bool, rtl: bool) -> Ke
             ],
         )],
     );
-    let child = make(&table, &mut next, &mut ops);
+    let child = make(&parts, &mut next, &mut ops);
     ops.push(Op::SetChildren {
         id: 1,
         children: vec![child],
@@ -755,12 +759,7 @@ fn table_with_row(row: &[(StyleId, StyleValue)], popover: bool, rtl: bool) -> Ke
             value: "manual".into(),
         });
     }
-    if rtl {
-        ops.push(styled(
-            2,
-            &[(StyleId::Direction, StyleValue::Text("rtl".into()))],
-        ));
-    }
+    ops.push(styled(2, table));
     ops.push(Op::AttachRoot { id: 1 });
     kernel.apply(0, 1, &ops).unwrap();
     kernel
@@ -780,7 +779,7 @@ fn a_popover_row_before_a_viewport_keeps_its_cells_on_it() {
         [(StyleId::Right, n(10.0)), (StyleId::Bottom, n(5.0))],
     ] {
         let row = [relative.clone(), insets[0].clone(), insets[1].clone()];
-        let mut k = table_with_row(&row, true, false);
+        let mut k = table_with_row(&row, true, &[]);
         k.compute_layout(1, Offer::MAX_CONTENT).unwrap();
         let [x, y, ..] = frame(&k, 4);
         assert_ne!(
@@ -804,7 +803,7 @@ fn a_popover_row_before_a_viewport_keeps_its_cells_on_it() {
             "{insets:?}: the other row's cell stays"
         );
         k.compute_layout(1, Offer::definite(400.0, 400.0)).unwrap();
-        let mut fresh = table_with_row(&row, true, false);
+        let mut fresh = table_with_row(&row, true, &[]);
         fresh
             .compute_layout(1, Offer::definite(400.0, 400.0))
             .unwrap();
@@ -833,16 +832,18 @@ fn a_relative_rows_cells_take_the_engines_offset() {
         relative.clone(),
         (StyleId::Left, StyleValue::Text("10%".into())),
     ];
-    for (row, rtl, dx) in [
-        (&both[..], false, 10.0),
-        (&both[..], true, -20.0),
-        (&percent[..], false, 2.2),
+    let ltr: Vec<(StyleId, StyleValue)> = Vec::new();
+    let rtl_table = vec![(StyleId::Direction, StyleValue::Text("rtl".into()))];
+    for (row, table, rtl, dx) in [
+        (&both[..], &ltr, false, 10.0),
+        (&both[..], &rtl_table, true, -20.0),
+        (&percent[..], &ltr, false, 2.2),
     ] {
-        let mut still = table_with_row(&[], false, rtl);
+        let mut still = table_with_row(&[], false, table);
         still
             .compute_layout(1, Offer::definite(400.0, 400.0))
             .unwrap();
-        let mut k = table_with_row(row, false, rtl);
+        let mut k = table_with_row(row, false, table);
         k.compute_layout(1, Offer::definite(400.0, 400.0)).unwrap();
         for id in [4, 5, 6] {
             let (was, now) = (frame(&still, id), frame(&k, id));
@@ -997,9 +998,92 @@ fn a_cells_vertical_align_places_its_content() {
     }
 }
 
-/// Taffy's grid reports where it placed each item's area (vendor patch 69),
-/// and places them as it did: an in-flow item at its area plus its margin and
-/// relative offset, an absolute one at its area plus its insets.
+/// A relative row with no insets moves nothing, wherever its table's
+/// `align-items` puts its (empty) box in its area: only the offset counts,
+/// laid out so from the start and after a restyle alike.
+#[test]
+fn a_relative_row_without_insets_moves_nothing_however_aligned() {
+    let center = [(StyleId::AlignItems, StyleValue::Text("center".into()))];
+    let relative = [(StyleId::PositionType, StyleValue::Text("relative".into()))];
+    let mut still = table_with_row(&[], false, &center);
+    still
+        .compute_layout(1, Offer::definite(400.0, 400.0))
+        .unwrap();
+    assert_ne!(
+        frame(&still, 4)[1],
+        frame(&still, 5)[1],
+        "the empty row is centred off its cell"
+    );
+    let mut moved = table_with_row(&relative, false, &center);
+    moved
+        .compute_layout(1, Offer::definite(400.0, 400.0))
+        .unwrap();
+    let mut restyled = table_with_row(&[], false, &center);
+    restyled
+        .compute_layout(1, Offer::definite(400.0, 400.0))
+        .unwrap();
+    restyle(&mut restyled, 2, 4, &[(StyleId::PositionType, "relative")]);
+    for id in [4, 5, 6, 8] {
+        assert_eq!(frame(&moved, id), frame(&still, id), "{id} from the start");
+        assert_eq!(
+            frame(&restyled, id),
+            frame(&still, id),
+            "{id} after a restyle"
+        );
+    }
+}
+
+/// A popover row with its block publishes its cells again when only where
+/// its table's grid places it moves (its block, and its cells' own boxes, the
+/// same): as a table laid out that way from the start.
+#[test]
+fn a_popover_rows_cells_follow_a_grid_that_moves_beneath_it() {
+    // 2 table, 3 tr, 4 td (two rows), 5 box, 6 td, 7 box, 8 tr (popover), 9 td, 10 box.
+    let table = |first: f64, padding: f64| {
+        let mut k = lay_out(N::Tag(
+            "table",
+            vec![(StyleId::PaddingLeft, padding)],
+            Vec::new(),
+            vec![
+                tag(
+                    "tr",
+                    vec![cell(&[(ROWSPAN, 2)], first, 10.0), cell(&[], 20.0, 10.0)],
+                ),
+                tag("tr", vec![cell(&[], 20.0, 10.0)]),
+            ],
+        ));
+        let popover = Op::SetProp {
+            id: 8,
+            prop: PropId::Popover,
+            value: "manual".into(),
+        };
+        k.apply(0, 2, &[popover]).unwrap();
+        k.compute_layout(1, Offer::definite(400.0, 400.0)).unwrap();
+        k
+    };
+    let mut k = table(30.0, 0.0);
+    let ops = [
+        Op::SetStyle {
+            id: 5,
+            patch: rows(&[(StyleId::Width, 20.0), (StyleId::Height, 10.0)]),
+        },
+        Op::SetStyle {
+            id: 2,
+            patch: rows(&[(StyleId::PaddingLeft, 10.0)]),
+        },
+    ];
+    k.apply(0, 3, &ops).unwrap();
+    k.compute_layout(1, Offer::definite(400.0, 400.0)).unwrap();
+    let fresh = table(20.0, 10.0);
+    for id in [2, 4, 6, 8, 9, 10] {
+        assert_eq!(frame(&k, id), frame(&fresh, id), "{id}");
+    }
+}
+
+/// Taffy's grid reports where it placed each item from (vendor patch 69), and
+/// places them as it did: an in-flow item at its area plus its margin and
+/// relative offset, from its place without the offset; an absolute one at its
+/// area plus its insets, from its area.
 #[test]
 fn the_grid_reports_each_items_area_and_places_it_as_before() {
     use taffy::{prelude::*, TaffyTree};
@@ -1066,8 +1150,12 @@ fn the_grid_reports_each_items_area_and_places_it_as_before() {
         "area, margin, offset"
     );
     assert_eq!(at(absolute), (3.0 + 7.0, 3.0 + 1.0), "area, insets");
-    let area = |id| tree.grid_area(id).map(|p| (p.x, p.y));
-    assert_eq!(area(in_flow), Some((25.0, 3.0)));
-    assert_eq!(area(absolute), Some((3.0, 3.0)));
-    assert_eq!(area(grid), None, "no grid placed the grid");
+    let origin = |id| tree.grid_origin(id).map(|p| (p.x, p.y));
+    assert_eq!(
+        origin(in_flow),
+        Some((25.0 + 4.0, 3.0)),
+        "its place without its offset"
+    );
+    assert_eq!(origin(absolute), Some((3.0, 3.0)), "its area's");
+    assert_eq!(origin(grid), None, "no grid placed the grid");
 }

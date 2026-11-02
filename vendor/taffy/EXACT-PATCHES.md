@@ -2180,27 +2180,33 @@ and a preview) measure 82 texts, 3,266 before; the 330 rows' first layout
 measures 13,530, 48,840 before; every moved row keeps its size. Every
 `browser_*` Chrome case and the layout-equality comparisons pass unchanged.
 
-## Patch 69: a grid item's area origin, for its caller — Exact's
+## Patch 69: where a grid placed an item from, for its caller — Exact's
 
 A table's row or row group keeps no engine children: its cells are the
 table grid's items beside it, and the kernel places them from the grid's
 origin, moved as the row is moved (`kernel/src/layout/table.rs`,
-`displacement`). How far the engine moved the row from its grid area — a
-relative offset as Taffy resolves it (percentages, `calc()`, `right` over
-`left` right to left), or an absolutely positioned row's insets, whichever
-box contains it — is its location less that area's origin, which only the
-grid algorithm knows. `LayoutPartialTree::set_grid_area` (default: nothing)
-receives the origin each time a grid places a child: an in-flow item's area
-in `grid::alignment::align_and_position_item`, an absolutely positioned
-child's in `compute_grid_layout`'s out-of-flow pass, in the grid's border-box
-coordinates, as `location` is. `TaffyTree` keeps it (`grid_area(node)`,
-`None` for a node no grid placed), and a replay (patch 29) writes it as the
-recorded layout did (`Event::Area`). No algorithm reads it; frames are
-unchanged.
+`displacement`). How far the engine moved the row — a relative offset as
+Taffy resolves it (percentages, `calc()`, `right` over `left` right to
+left), or an absolutely positioned row's insets, whichever box contains it —
+is its location less where the grid placed it from, which only the grid
+algorithm knows. `LayoutPartialTree::set_grid_origin` (default: nothing)
+receives that origin each time a grid places a child, in the grid's
+border-box coordinates, as `location` is: for an in-flow item
+(`grid::alignment::align_and_position_item`), its place in its area with
+its alignment and margins but without its relative offset (the same
+`align_item_within_area`, asked as `Static`); for an absolutely positioned
+child (`compute_grid_layout`'s out-of-flow pass), its grid area's origin.
+`TaffyTree` keeps it (`grid_origin(node)`, `None` for a node no grid
+placed), reports a changed origin as a changed layout
+(`take_layout_changes`), as a changed location is, so a caller that places
+by it publishes again, and a replay (patch 29) writes it as the recorded
+layout did (`Event::Origin`). No algorithm reads it; frames are unchanged.
 
 **Held by** `kernel/tests/it/table.rs`:
-`the_grid_reports_each_items_area_and_places_it_as_before` (the areas, and
-an in-flow and an absolute item placed where they were before the patch),
+`the_grid_reports_each_items_area_and_places_it_as_before` (the origins,
+and an in-flow and an absolute item placed where they were before the
+patch), `a_relative_row_without_insets_moves_nothing_however_aligned`,
+`a_popover_rows_cells_follow_a_grid_that_moves_beneath_it`,
 `a_popover_row_before_a_viewport_keeps_its_cells_on_it` and
 `a_relative_rows_cells_take_the_engines_offset`. Every `browser_*` Chrome
 case and the layout-equality comparisons pass unchanged.

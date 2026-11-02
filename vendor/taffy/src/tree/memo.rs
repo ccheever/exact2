@@ -9,7 +9,7 @@
 //! child); an answer that comes from outside the computation (a leaf's
 //! measure, a cache hit, a hidden or replaced box) is a [`Event::Query`]; what
 //! the computation writes is a [`Event::Store`], [`Event::Layout`],
-//! [`Event::Static`], [`Event::Bounds`] or [`Event::Area`].
+//! [`Event::Static`], [`Event::Bounds`] or [`Event::Origin`].
 //!
 //! The algorithms are deterministic in what they read, so a later layout of
 //! an equal root under the same input makes the same first call, and, given
@@ -84,8 +84,8 @@ pub(crate) enum Event {
     Static { node: u32, position: StaticPosition },
     /// A multi-column container's height bounds written (patch 30).
     Bounds { node: u32, min: Option<f32>, max: Option<f32> },
-    /// A grid item's area origin written (patch 69).
-    Area { node: u32, origin: Point<f32> },
+    /// A grid item's origin written (patch 69).
+    Origin { node: u32, origin: Point<f32> },
     /// The root's result.
     End { output: LayoutOutput },
 }
@@ -152,7 +152,7 @@ impl Event {
             (Event::Bounds { node: a, min: x, max: y }, Event::Bounds { node: b, min: u, max: v }) => {
                 a == b && x == u && y == v
             }
-            (Event::Area { node: a, origin: x }, Event::Area { node: b, origin: y }) => a == b && x == y,
+            (Event::Origin { node: a, origin: x }, Event::Origin { node: b, origin: y }) => a == b && x == y,
             (Event::End { output: a }, Event::End { output: b }) => a == b,
             _ => false,
         }

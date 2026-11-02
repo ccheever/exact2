@@ -201,8 +201,8 @@ pub struct TaffyTree<NodeContext = ()> {
     static_positions: SecondaryMap<DefaultKey, StaticPosition>,
     // EXACT PATCH 30: each multi-column container's height bounds, as its final layout resolved them.
     multicol_bounds: SecondaryMap<DefaultKey, (Option<f32>, Option<f32>)>,
-    // EXACT PATCH 69: the origin of the grid area each grid item was last placed in.
-    grid_areas: SecondaryMap<DefaultKey, Point<f32>>,
+    // EXACT PATCH 69: where each grid item's box was last placed from (`grid_origin`).
+    grid_origins: SecondaryMap<DefaultKey, Point<f32>>,
 
     // EXACT PATCH 29: the layouts of marked roots, by what they read.
     memo: Memo,
@@ -675,7 +675,7 @@ where
                 }
                 Event::Static { node, position } => self.set_static_position(nodes[*node as usize], *position),
                 Event::Bounds { node, min, max } => self.set_multicol_bounds(nodes[*node as usize], *min, *max),
-                Event::Area { node, origin } => self.set_grid_area(nodes[*node as usize], *origin),
+                Event::Origin { node, origin } => self.set_grid_origin(nodes[*node as usize], *origin),
                 Event::End { output } => break Some(*output),
                 Event::Visit { .. } | Event::Query { .. } => {
                     let root = (at == memo.first).then_some(inputs);
@@ -921,13 +921,18 @@ where
     }
 
     #[inline(always)]
-    fn set_grid_area(&mut self, node_id: NodeId, origin: Point<f32>) {
+    fn set_grid_origin(&mut self, node_id: NodeId, origin: Point<f32>) {
         if let Some(rec) = self.rec.as_mut() {
             if let Some(node) = rec.index(node_id) {
-                rec.events.push(Event::Area { node, origin });
+                rec.events.push(Event::Origin { node, origin });
             }
         }
-        self.taffy.grid_areas.insert(node_id.into(), origin);
+        // A changed origin is a changed layout to the caller, as a changed location is.
+        let key = node_id.into();
+        if self.taffy.grid_origins.insert(key, origin) != Some(origin) && !self.taffy.changed_layout_indices.contains_key(key) {
+            self.taffy.changed_layout_indices.insert(key, self.taffy.changed_layouts.len());
+            self.taffy.changed_layouts.push(node_id);
+        }
     }
 
     #[inline(always)]
@@ -1123,7 +1128,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
             hoisted_absolutes: SecondaryMap::new(),
             static_positions: SecondaryMap::new(),
             multicol_bounds: SecondaryMap::new(),
-            grid_areas: SecondaryMap::new(),
+            grid_origins: SecondaryMap::new(),
             memo: Memo::default(),
         }
     }
@@ -1215,7 +1220,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
         self.hoisted_absolutes.clear();
         self.static_positions.clear();
         self.multicol_bounds.clear();
-        self.grid_areas.clear();
+        self.grid_origins.clear();
     }
 
     /// Remove a specific node from the tree and drop it
@@ -1245,7 +1250,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
         self.hoisted_absolutes.remove(key);
         self.static_positions.remove(key);
         self.multicol_bounds.remove(key);
-        self.grid_areas.remove(key);
+        self.grid_origins.remove(key);
         if let Some(index) = self.changed_layout_indices.remove(key) {
             self.changed_layouts.swap_remove(index);
             if let Some(&moved) = self.changed_layouts.get(index) {
@@ -1572,10 +1577,11 @@ impl<NodeContext> TaffyTree<NodeContext> {
         self.multicol_bounds.get(node.into()).copied().unwrap_or_default()
     }
 
-    /// EXACT PATCH 69: the origin of the grid area `node` was last placed in, in its grid's
-    /// border-box coordinates (as its `location`); `None` for a node no grid placed.
-    pub fn grid_area(&self, node: NodeId) -> Option<Point<f32>> {
-        self.grid_areas.get(node.into()).copied()
+    /// EXACT PATCH 69: where a grid last placed `node`'s box from, in the grid's border-box
+    /// coordinates (as its `location`): an in-flow item's place without its relative offset,
+    /// an absolutely positioned child's grid area's origin; `None` for a node no grid placed.
+    pub fn grid_origin(&self, node: NodeId) -> Option<Point<f32>> {
+        self.grid_origins.get(node.into()).copied()
     }
 
     /// Forget recorded layouts when a calc handle's environment changes.
