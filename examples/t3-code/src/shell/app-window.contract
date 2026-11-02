@@ -607,6 +607,10 @@ component T3Window
     chatLocal("save-complete", `${data.saveRequest.nonce}`, name)
   action saveDismissed
     chatLocal("save-complete", `${data.saveRequest.nonce}`, "")
+  // Whether the system opened the latest external link (`openURL(url, id)`, server-browser-members.contract), for the
+  // data module's ElectronShell.openExternal (external-open.ts).
+  action externalOpenAnswered(value: string)
+    chatLocal("external-open-answer", `${data.externalOpen.serial}`, value)
   // A ref list scrolled toward its end (ref-paging.contract RefPageScroll): ref-paging.ts loads its next page.
   action refScrollEnd(name: string)
     chatLocal("ref-scroll-end", name, "")
@@ -1056,6 +1060,7 @@ component T3Window
     main navigationKey="t3-code" navigationBack="" navigate=historyGo testId="t3-code" -exact-menu-remove="close-all show-tab-bar show-all-tabs develop back forward paste-and-match-style find spelling-and-grammar substitutions transformations app-help" -exact-menu-keys="close-window=none" focusin=windowFocused focusout=windowBlurred keycapture=modifierDown keyup=modifierUp paste=modifiersPasted tabindex=-1 pointerdown=outsidePressDown pointerup=outsidePressUp pointermove=interacted wheel=interacted viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas) font-family=settingsCore.interfaceFont -webkit-font-smoothing=(data.look.smoothing ? "antialiased" : "auto") color=(settingsCore.palette.text == "" ? "light-dark(#18181b, #f5f5f5)" : settingsCore.palette.text) id="t3-code" data-paint="canvas text" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : (("text" == "" ? "" : "text") != "" ? ("text" == "" ? "" : "text") : ""))
       // Save file's target (app.contract saveNow): the Save panel's chosen name or dismissal lands here.
       input id="save-file" testId="save-file" display="none" change=saveChosen cancel=saveDismissed autocorrect="off"
+      input id="external-open-answer" display="none" change=externalOpenAnswered autocorrect="off"
       // The skill chip details' Escape, the window's first node so it is the oldest shortcut that declares Escape
       // (composer-chip-popover.contract ChipPopoverEscape); outside the SSH prompt's inert
       // background, so it gives the key up while the prompt shows, as the details under it did.

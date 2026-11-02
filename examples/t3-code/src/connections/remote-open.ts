@@ -182,7 +182,7 @@ export async function openInEditorHere(client: T3Client, native: Native, cwd: st
   if (remote.state.mode === 'remote-links') {
     const url = buildRemoteOpenUrl({ editor, ...remote.state.host, absolutePath: cwd, isFile: options.isFile === true });
     if (url === undefined) return false;
-    if (!openExternal(url)) return false;
+    if (!(await openExternal(url))) return false;
     await markRemoteHintSeen(native);
     return true;
   }
