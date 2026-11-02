@@ -29,7 +29,10 @@ export const commands = (say, agentMode = () => false) => ({
   // the one scheme allowlist every navigation takes (navigation.js `navigableURL`),
   // or one of a scheme app.json's `open_url.schemes` declares (`exact.openSchemes`),
   // which the browser asks about before it hands it to the app registered for it.
-  openURL: u => {
+  // `change` at `id` hears `opened` for a URL handed to the browser, which says
+  // nothing of what then opened it (a `noopener` open returns null), and
+  // `failed` for one refused here; after the commands, as an event.
+  openURL: (u, id) => {
     let to = null, declared = false;
     try { const url = new URL(u); declared = declaredScheme(url.protocol); if (declared || ["http:", "https:", "mailto:", "tel:"].includes(url.protocol)) to = url.href; } catch {}
     if (to && declared && agentMode()) say(`openURL ${to.slice(0, to.indexOf(":"))}: ${to.slice(0, 200)} (journaled, not opened under the agent)`);
@@ -37,6 +40,7 @@ export const commands = (say, agentMode = () => false) => ({
     // The app's own settings page (LLP 1133.002 D11): a browser has none to open.
     else if (u === "app-settings:") say("openURL refused: app-settings: has no page on the web; a site's permissions are the browser's own (its address bar, its settings)");
     else say(`openURL refused: ${JSON.stringify(String(u).slice(0, 80))} is not an absolute http, https, mailto or tel URL, nor of a scheme app.json's open_url.schemes declares`);
+    if (id != null) queueMicrotask(() => liveById(String(id))?.dispatchEvent(new CustomEvent("change", { detail: to ? "opened" : "failed" })));
   },
   // The inverse of `message=`: text into the named surface, every post in
   // order, held until the GPU glue loads and drains `pendingPosts`

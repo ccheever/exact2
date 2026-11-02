@@ -336,7 +336,8 @@ test('registry online scaffold and complete password example work through test w
     run([join(sdk, 'scripts/exact.mjs'), 'new', app, '--snapback', '--online', '--port', String(port)]);
     assert.match(readFileSync(join(app, 'app.ts'), 'utf8'), /db.read\(api.recent, args\)/);
     assert.match(readFileSync(join(app, 'app.ts'), 'utf8'), /db.send\(api.post, args\)/);
-    server = spawn(binary, ['dev', '--port', String(port), '--no-watch'], {cwd: project, env, stdio: ['ignore', 'pipe', 'pipe']});
+    // A password-only app's dev keeps its development doors (`fresh`) closed unless asked, as the README says.
+    server = spawn(binary, ['dev', '--port', String(port), '--no-watch', '--unsafe-dev-doors'], {cwd: project, env, stdio: ['ignore', 'pipe', 'pipe']});
     await new Promise((ok, fail) => {
       let log = ''; const timer = setTimeout(() => fail(new Error(log)), 30_000);
       const read = bytes => {log += bytes; if (/SNAPBACK4_READY|^http:\/\/127\.0\.0\.1:\d+\s*$/m.test(log)) {clearTimeout(timer); ok();}};

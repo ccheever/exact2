@@ -13,6 +13,8 @@ extension NodeView {
             italic: (style["font_style"]?.string) == "italic", lineHeight: usedLineHeight, ink: color("text_color", SystemColor.canvasText))
         look.secondaryOpacity = UIColor.secondaryLabel.resolvedColor(with: f.traitCollection).cgColor.alpha
         look.atoms = markdownAtoms
+        look.atoms.hovered = f.hoveredAtom ?? -1
+        look.node = self
         look.paragraphDirs = props["paragraphDirs"] ?? ""
         look.rtl = markdownRTL
         if let content = f.textLayoutManager?.textContentManager as? NSTextContentStorage, content.delegate !== editor { content.delegate = editor }

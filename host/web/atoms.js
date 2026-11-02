@@ -4,20 +4,82 @@
 // the reader's `renderMarkup` (navigation.js) loads it when a piece is an
 // atom. It registers itself as `exact.atoms` for the glue and the agent.
 
+// The platform's pill, which a kind's look and a face's paint replace.
+const PLATFORM = 'padding:0 .3em;border-radius:.3em;background-color:light-dark(#e1e7f3,#3b4252);color:inherit;';
+const sheets = new WeakMap();
+/** The pills' sheet on `el`'s root (its document or shadow root): the
+ * platform's look, then a rule per kind's look that the pills of that look
+ * share, so a kind's `:hover` and `:checked` paint are CSS's own state rules
+ * and a face's paint, set on the pill, wins over them all. */
+function sheetOf(el) {
+  // A field not yet placed takes its document's.
+  const placed = el.getRootNode?.(), root = placed && 'adoptedStyleSheets' in placed ? placed : el.ownerDocument ?? document;
+  const Sheet = (root.ownerDocument ?? root).defaultView?.CSSStyleSheet;
+  if (!Sheet || !('adoptedStyleSheets' in root)) return null;
+  let entry = sheets.get(root);
+  try {
+    if (!entry) {
+      entry = { sheet: new Sheet(), looks: new Map() };
+      entry.sheet.insertRule(`.exact-atom{${PLATFORM}}`);
+      sheets.set(root, entry);
+    }
+    // Adopted again if the page replaced the list since.
+    if (!root.adoptedStyleSheets.includes(entry.sheet)) root.adoptedStyleSheets = [...root.adoptedStyleSheets, entry.sheet];
+  } catch { return null; }
+  return entry;
+}
+
+/** A kind's look (D3, D4) as a class on `el`'s root: its measured `padding`
+ * and `border` (the kind's row in `atoms`), then its own paint, its
+ * `:hover` paint, and its `:checked` paint while the selection is exactly
+ * the atom (`data-atom-selected`), each CSS text from `atomStyles`. A border
+ * keeps the line's height: its top and bottom are taken back in the margin. */
+export function atomLook(el, kind = {}, own = '', hover = '', checked = '') {
+  let metrics = '';
+  if (kind?.padding) metrics += `padding-inline:${kind.padding};`;
+  if (kind?.border > 0) metrics += `border:${kind.border}px solid;margin-block:-${kind.border}px;`;
+  const entry = sheetOf(el);
+  // No sheet to hold it: the platform's look and the kind's own paint on the pill.
+  if (!entry) return { inline: PLATFORM + metrics + (own ?? '') };
+  if (!metrics && !own && !hover && !checked) return '';
+  // An atom's ring is solid: the compiler admits no other line (LLP 1045.000 D3).
+  [own, hover, checked] = [own, hover, checked].map(css => css && css.includes('outline-width') ? css + ';outline-style:solid' : css);
+  const key = [metrics + own, hover, checked].join('\n');
+  let name = entry.looks.get(key);
+  if (!name) {
+    name = `exact-atom-look-${entry.looks.size + 1}`;
+    entry.looks.set(key, name);
+    const { sheet } = entry, at = `.exact-atom.${name}`;
+    try {
+      if (metrics || own) sheet.insertRule(`${at}{${metrics}${own}}`, sheet.cssRules.length);
+      if (hover) sheet.insertRule(`${at}:hover{${hover}}`, sheet.cssRules.length);
+      if (checked) sheet.insertRule(`${at}[data-atom-selected]{${checked}}`, sheet.cssRules.length);
+    } catch {}
+  }
+  return name;
+}
+
+/** A field's or a text's kinds by name, from its `data-atoms`. */
+export function kindsOf(el) {
+  const out = {};
+  try { for (const row of JSON.parse(el.getAttribute('data-atoms') || '[]')) out[row.name] = row; } catch {}
+  return out;
+}
+
 /** An inline atom's pill (D4, D8): modeled on the macOS token, one line at
  * the line's text height, its label cut with an ellipsis at the line's width;
- * its kind's `color` and `background-color` (`css`) win, and its face's
- * (`a.color`, `a.backgroundColor`) over those. It lays out its icon and then
- * its label in its line's direction, which it inherits, or in the one its
- * face pins (`a.direction`, `ltr` or `rtl`). A button, or a link as
+ * its kind's look (`look`, from `atomLook`) wins, and its face's
+ * paint (`a.color`, `a.backgroundColor`) over that. It lays out its icon and
+ * then its label in its line's direction, which it inherits, or in the one
+ * its face pins (`a.direction`, `ltr` or `rtl`). A button, or a link as
  * declared, named by its face's `a.ariaLabel` or else its label, and
  * described by its title; its icon is not read. `editing` makes it the
  * editor's island: no tab stop, no source of its own. Its `data-atom-*`
  * attributes are what a press reports. */
-export function atomBox(a, css = '', editing = false) {
+export function atomBox(a, look = '', editing = false) {
   const box = document.createElement('span');
   const set = (name, value) => value && box.setAttribute(name, value);
-  box.className = 'exact-atom';
+  box.className = typeof look === 'string' && look ? `exact-atom ${look}` : 'exact-atom';
   Object.assign(box.dataset, { exactAtom: a.kind, atomSource: a.source, atomHref: a.href ?? '', atomStart: a.start, atomEnd: a.end });
   box.setAttribute('role', a.role === 'link' ? 'link' : 'button');
   set('aria-label', a.ariaLabel || a.label);
@@ -27,8 +89,7 @@ export function atomBox(a, css = '', editing = false) {
   else box.tabIndex = 0;
   if (a.direction === 'ltr' || a.direction === 'rtl') box.dir = a.direction;
   box.style.cssText = 'display:inline-block;box-sizing:border-box;max-width:100%;vertical-align:bottom;overflow:hidden;text-overflow:ellipsis;'
-    + 'white-space:nowrap;text-indent:0;padding:0 .3em;border-radius:.3em;background-color:light-dark(#e1e7f3,#3b4252);color:inherit;'
-    + 'cursor:default;user-select:none;-webkit-user-select:none;' + css;
+    + 'white-space:nowrap;text-indent:0;cursor:default;user-select:none;-webkit-user-select:none;' + (look?.inline ?? '');
   // One value each, so a colour the browser does not take leaves the kind's.
   if (a.color) box.style.setProperty('color', a.color);
   if (a.backgroundColor) box.style.setProperty('background-color', a.backgroundColor);
@@ -45,14 +106,15 @@ export function atomBox(a, css = '', editing = false) {
 /** A reader piece's pill: its detail `[kind, role, icon, title, href,
  * source, start, end, color, backgroundColor, direction, ariaLabel]`, its
  * label `text`, in the piece's scale, weight and flags (italic 1, strike 4),
- * its kind's paint from the text's `data-atom-styles` and its face's over
- * it. */
+ * its kind's look from the text's `data-atoms` and `data-atom-styles` and
+ * its face's paint over it. */
 export function readerAtom(el, text, detail, scale = 1, weight = 0, flags = 0) {
   const [kind, role, icon, title, href, source, start, end, color = '', backgroundColor = '', direction = '', ariaLabel = ''] = detail;
   let styles = {};
   try { styles = JSON.parse(el.getAttribute('data-atom-styles') || '{}'); } catch {}
   presses(el);
-  const box = atomBox({ kind, role, label: text, icon, title, href, source, start, end, color, backgroundColor, direction, ariaLabel }, styles[kind] ?? '');
+  const look = atomLook(el, kindsOf(el)[kind], styles[kind], styles[`${kind}:hover`], styles[`${kind}:checked`]);
+  const box = atomBox({ kind, role, label: text, icon, title, href, source, start, end, color, backgroundColor, direction, ariaLabel }, look);
   if (scale !== 1) box.style.fontSize = `${scale}em`;
   if (weight) box.style.fontWeight = weight;
   if (flags & 1) box.style.fontStyle = 'italic';

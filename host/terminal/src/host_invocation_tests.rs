@@ -135,3 +135,31 @@ fn caltrain_builds_in_the_terminal_and_refuses_activity_sends_at_runtime() {
         assert!(!host.runner.has_pending());
     }
 }
+
+/// `openURL(url, id)`: `change` at `id` hears whether the URL was handed to
+/// the system's opener, `opened`, or refused, `failed`.
+#[test]
+fn an_open_is_answered_at_the_named_element() {
+    let source = r#"component App
+  state heard = ""
+  action page
+    openURL("https://example.com/", "opened")
+  action file
+    openURL("file:///etc/hosts", "opened")
+  action answered(value: string)
+    heard = heard + value + " "
+  view
+    column
+      input id="opened" display="none" change=answered
+      text "x"
+"#;
+    let mut host =
+        Host::boot(contract::compile(source).unwrap(), (), Mode::Inline, 40, 10).unwrap();
+    host.act("page");
+    host.act("file");
+    assert_eq!(host.outbound, ["https://example.com/"]);
+    assert_eq!(
+        host.runner.slot("heard"),
+        Some(&exact_plan::Value::from("opened failed "))
+    );
+}
