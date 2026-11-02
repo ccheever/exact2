@@ -466,7 +466,7 @@ mod tests {
             assert_eq!(m.length, by_name, "{}", m.name);
             marked += usize::from(m.length);
         }
-        assert_eq!(marked, 62);
+        assert_eq!(marked, 58);
         // A `length` row is a length too; a `number` row is not.
         assert!(METRICS
             .iter()

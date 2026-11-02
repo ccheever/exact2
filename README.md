@@ -330,6 +330,18 @@ on each host in its own session; for a copy you launched yourself, use
 `exact run markdown README.md`, or `exact install markdown` to put `mdview` on your
 `PATH`. `exact list` shows what's here.
 
+### Feedback
+
+An app's `AGENTS.md` asks its agent to record friction in one line, `bun exact.mjs
+feedback note "<what happened>"`. A failed or slow drive, build or verify, and a passing
+`test` or `verify`, end with one line naming it, at most once a day per project. A note stays in the app's
+`.exact/` with exact2's commit, the last command's verb, exit code and duration, and the
+OS; never any command output, or the app's code or files. It goes to Expo (`https://exact-diaries.ccheever-0f6.workers.dev`) only when
+the project's answer allows: `always`, or a yes to `ask`, the default, after
+`bun exact.mjs feedback` shows exactly what would go. `bun exact.mjs feedback never`
+stops it for a project; `EXACT_FEEDBACK=0` silences the nudges and refuses every send
+on the machine. [docs/diary.md](docs/diary.md) has the details.
+
 ## Contract
 
 An agent building an app starts at [start-here.md](docs/start-here.md), the only

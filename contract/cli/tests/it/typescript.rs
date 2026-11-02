@@ -595,7 +595,15 @@ fn checked_backend_projection_requires_every_contract_key_and_narrows_nullable_v
     let fixture = Fixture::new();
     fixture.write(
         "projection.ts",
-        include_str!("../../../../snapback4/online/projection.ts"),
+        // The Snapback client's projection helper, as it ships.
+        r#"/** Project a backend row onto a finite Contract shape. Keys must cover every
+ * target field, and the row must supply those fields with the target's types. */
+export function pick<T extends object>() {
+  return <const K extends readonly (keyof T)[]>(row: T, ...keys: K & ([Exclude<keyof T, K[number]>] extends [never] ? unknown : ['pick: include every target field'])): T => {
+    return Object.fromEntries(keys.map(key => [key, row[key]])) as T;
+  };
+}
+"#,
     );
     let checked = fixture.check(
         r#"
