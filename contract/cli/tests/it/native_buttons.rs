@@ -861,6 +861,15 @@ fn a_bare_default_style_refusal_reports_its_first_reason() {
             || message.starts_with("to keep the native button, remove `");
         assert_eq!(native, !matches!(reason, "href" | "canvas"), "{message}");
     }
+    // The symbol's size is the image's own `font-size`: the button's sizes a
+    // title, and a symbol alone does not read it.
+    let (_, message) = refused(
+        "button buttonStyle=\"glass\" aria-label=\"Add\"\n  image \"symbol:add\" font=\"-exact-title3\"",
+    );
+    assert_eq!(
+        message,
+        "a native button's `image` takes no `font`; write a custom `button` for other face rows. A native button's face is `text`s and a symbol `image`, the symbol sized by `font-size` on the `image` (`font-size=\"-exact-title3\"`); for a custom face, remove `buttonStyle` (or write `appearance=\"none\"` without it)"
+    );
 }
 
 #[test]
