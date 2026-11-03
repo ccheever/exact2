@@ -6,8 +6,9 @@ import QuartzCore
 /// time and work, kept as 30 seconds of tenth-of-a-second columns. Each plot's gridlines and lines
 /// are one opaque layer, wider than the plot by five seconds of axis. The frame hooks only store each
 /// frame; `present()`, after them, moves the layers left by whole device pixels and redraws only the
-/// columns that changed, and every five seconds the layers are drawn whole again. Without frames
-/// nothing moves or draws. Shared by iOS and macOS.
+/// columns that changed, and every five seconds the layers are drawn whole again. While the card
+/// follows the time, the layers move with it between frames too, until 30 seconds pass without one.
+/// Shared by iOS and macOS.
 final class FrameHealthChart {
     /// A tenth of a second of frames.
     struct Column {
@@ -25,8 +26,15 @@ final class FrameHealthChart {
     static let columnSeconds = 0.1, span = 30.0, reach = 5.0, average = 0.5
     /// Held only while the card reads, from `start()` to `stop()`
     private(set) var columns: [Column] = []
-    /// The newest frame's timestamp, at the plots' right edges
+    /// The newest frame's timestamp
     private(set) var newest = 0.0
+    /// The time at the plots' right edges: the newest frame's, or later while the card follows the time
+    private(set) var head = 0.0
+    /// The time at the right edges as the layers last showed it
+    private var shown = 0.0
+    /// Whether the card follows the time, and the timer that moves the plots between frames while it does
+    private var following = false
+    private(set) var clock: Timer?
     /// This run's frame timestamps over the last half second, a ring of `count` from `first`, oldest
     /// first: the moving average's intervals lie between them
     private(set) var times: [Double] = []
@@ -41,7 +49,7 @@ final class FrameHealthChart {
     }
     private let windows = [CALayer(), CALayer()], lines = [Lines(), Lines()]
     /// What the layers show: each shown plot, the scale from its points to the host's, the palette,
-    /// and the newest frame's time when they were last drawn whole, at the plots' right edges
+    /// and the time at the plots' right edges when they were last drawn whole
     private var plots: [Int: FrameHealthCardDrawing.Plot] = [:]
     private var scale: CGFloat = 1, palette: FrameHealthCardDrawing.Palette?, base = 0.0
 
@@ -73,7 +81,8 @@ final class FrameHealthChart {
 
     /// Free the frames and the layers' pictures, as the card stops reading.
     func stop() {
-        (columns, times, first, count, newest, pending, plots) = ([], [], 0, 0, 0, nil, [:])
+        follow(false)
+        (columns, times, first, count, newest, head, shown, pending, plots) = ([], [], 0, 0, 0, 0, 0, nil, [:])
         for (window, layer) in zip(windows, lines) {
             window.isHidden = true
             layer.contents = nil
@@ -105,6 +114,8 @@ final class FrameHealthChart {
             times[0] = start
         }
         newest = start
+        head = max(head, start)
+        if following { startClock() }
         // Redraw from the line into the previous frame's column: once a later frame begins, that column's lines
         // end at its edge, not at its frame
         changed(lineStart(before)...index)
@@ -128,8 +139,39 @@ final class FrameHealthChart {
     func reset() {
         endRun()
         for i in columns.indices { columns[i] = Column() }
-        (newest, pending) = (0, nil)
+        (newest, head, pending) = (0, 0, nil)
         redraw()
+    }
+
+    // MARK: Time
+
+    /// Follow the time while the card reads unpaused: between frames, the plots move with it a column at a time, so a
+    /// spell without frames widens as it passes. Once its newest frame has left the plots, they are flat and nothing
+    /// moves until the next frame. The timer runs only while the card follows and frames lie within the plots.
+    func follow(_ on: Bool) {
+        following = on
+        if on { startClock() } else { clock?.invalidate(); clock = nil }
+    }
+
+    private func startClock() {
+        guard clock == nil, following, !columns.isEmpty, newest > 0 else { return }
+        let timer = Timer(timeInterval: Self.columnSeconds, repeats: true) { [weak self] timer in
+            guard let self else { timer.invalidate(); return }
+            self.tick(at: CACurrentMediaTime())
+        }
+        timer.tolerance = Self.columnSeconds / 5
+        RunLoop.main.add(timer, forMode: .common)
+        clock = timer
+    }
+
+    /// Move the plots to `now`, unless a frame moved them within the last column. Once the newest frame has left the
+    /// plots, stop moving them.
+    func tick(at now: Double) {
+        guard newest > 0 else { clock?.invalidate(); clock = nil; return }
+        guard now > head, now - newest >= Self.columnSeconds else { return }
+        head = now
+        present()
+        if now - newest >= Self.span { clock?.invalidate(); clock = nil }
     }
 
     private static func index(_ time: Double) -> Int64 { Int64((time / columnSeconds).rounded(.down)) }
@@ -154,19 +196,22 @@ final class FrameHealthChart {
 
     // MARK: Layers
 
-    /// Show what frames changed since the last call: move each layer left by the time they advanced, in
+    /// Show what changed since the last call: move each layer left by the time the plots advanced, in
     /// whole device pixels, so its lines stay as sharp as they were drawn, and draw again the part that
-    /// shows the columns they changed and the marks that reach past them. Once the layers have moved
-    /// the five seconds they reach, draw them whole. Called after the frame hooks.
+    /// shows the columns frames changed and the marks that reach past them. Once the layers have moved
+    /// the five seconds they reach, draw them whole. Called after the frame hooks, and as the plots
+    /// follow the time.
     func present() {
-        guard let range = pending else { return }
+        let range = pending
         pending = nil
-        guard !plots.isEmpty else { return }
-        guard newest - base <= Self.reach else { redraw(); return }
+        guard !plots.isEmpty, range != nil || head != shown else { return }
+        shown = head
+        guard head - base <= Self.reach else { redraw(); return }
         let overhang = FrameHealthCardDrawing.overhang
         for (chart, plot) in plots {
             let layer = lines[chart], pixel = layer.contentsScale
-            layer.position.x = -(CGFloat((newest - base) / Self.span) * (plot.right - plot.left) * scale * pixel).rounded(.down) / pixel
+            layer.position.x = -(CGFloat((head - base) / Self.span) * (plot.right - plot.left) * scale * pixel).rounded(.down) / pixel
+            guard let range else { continue }
             var at = plot
             at.now = base
             let from = at.x(Double(range.lowerBound) * Self.columnSeconds) - overhang
@@ -200,9 +245,9 @@ final class FrameHealthChart {
     /// The axis five seconds take, which the layer reaches past its plot.
     private func margin(_ plot: FrameHealthCardDrawing.Plot) -> CGFloat { (plot.right - plot.left) * CGFloat(Self.reach / Self.span) }
 
-    /// Draw the layers whole from the newest frame, at the plots' right edges.
+    /// Draw the layers whole, the plots' right edges at `head`.
     private func redraw() {
-        base = newest
+        (base, shown) = (head, head)
         for (chart, _) in plots {
             lines[chart].position.x = 0
             lines[chart].setNeedsDisplay()

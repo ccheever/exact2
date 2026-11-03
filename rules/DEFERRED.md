@@ -1738,8 +1738,11 @@ also give a text summary within that size and an image of the card outside that 
 (user, 2026-10-30), and the card holds Details and Share itself, so the menus offer
 only Show and Hide (user, 2026-10-31). "Let’s do it all"
 also admits live-clock scheduling, cursor reads, the development-only passive
-native-scroll experiment and macOS card/inspector controls. Production default-on
-requires measured adapter qualification. No production inspection endpoint or
+native-scroll experiment and macOS card/inspector controls. "Let's do this in a
+zero-cost way. When the Frame Health UI is hidden there should be zero cost in release
+builds" (user, 2026-11-02) admits collection, and that experiment, in production builds
+while the frame-health card shows, and nothing while it is hidden.
+Production default-on requires measured adapter qualification. No production inspection endpoint or
 remote telemetry is added.
 
 `clock` replaces a `wait` operation on purpose. If the motion graph is closed-form under
