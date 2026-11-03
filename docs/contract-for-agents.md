@@ -2260,6 +2260,13 @@ except on a native button, which greys whole as UIKit greys a button, its
 symbol's `-exact-tint-color` too. On iOS the tint dims, whoever set it (the
 root's `accent-color` or a node's own), as UIKit greys a view's `tintColor`:
 controls, bars, text, symbols, fills, shadows and SVG paints in `AccentColor`.
+To keep the tint from dimming on a mark that must follow an accent the app
+cannot write as a value (a theme's, or one the person picks), write
+`-exact-tint-adjustment="normal"` on it or an ancestor (UIKit's
+`tintAdjustmentMode`). On a standard list row write it on the `row`, whose cell
+UIKit draws the image in; on the image it does nothing. A bar, its items and a
+tab bar keep the mode of the views UIKit holds them in, so they grey with the
+screen whatever their nodes say.
 Set the app's accent once, on the root:
 `accent-color` on the root element is the app's accent, and on iOS it is the
 window's tint, as an AccentColor asset is, so every `AccentColor`, bar, sheet

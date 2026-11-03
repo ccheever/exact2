@@ -39,9 +39,14 @@ component DimmedPixels
       // An accent written below the roots' on controls: a switch, a slider and a list row's switch
       column accent-color="-exact-system-teal" testId="teal" position="absolute" left=0 top=466 width=200 height=190
         input type="checkbox" switch checked=on change=setOn aria-label="Defrost" testId="teal-switch" position="absolute" left=10 top=0
+        // Kept from greying (`-exact-tint-adjustment`): a mark in the tint, and below a list row
+        image "symbol:sf/square.fill" color="AccentColor" font-size=24 -exact-tint-adjustment="normal" testId="kept-symbol" position="absolute" left=120 top=2 width=24 height=24
         input type="range" min=0 max=10 step=1 value=level change=setLevel aria-label="Fan" testId="teal-slider" position="absolute" left=10 top=34 width=150 height=28
         list appearance="auto" testId="teal-list" position="absolute" left=0 top=66 width=200 height=124
           section
             row testId="teal-row"
               text "Climate"
               input type="checkbox" switch checked=on change=setOn aria-label="Climate" testId="teal-row-switch"
+            row -exact-tint-adjustment="normal" testId="kept-row"
+              image "symbol:sf/square.fill" color="AccentColor"
+              text "Kept"

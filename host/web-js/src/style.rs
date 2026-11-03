@@ -1156,6 +1156,7 @@ pub fn style_writes(id: u16, timeline: bool, written: bool) -> Result<Vec<Write>
         // @ref LLP 1077 §5 — Apple's affordances: no declaration on the web
         // (its forms are declared in LLP 1001).
         StyleId::SymbolRendering
+        | StyleId::TintAdjustment
         | StyleId::SymbolPalette
         | StyleId::SymbolValue
         | StyleId::SymbolEffect
