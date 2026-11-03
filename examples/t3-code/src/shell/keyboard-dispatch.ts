@@ -142,10 +142,14 @@ export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvide
     add('filePicker.toggle', 'palette', 'files', 'Go to File');
     add('projectSearch.toggle', 'palette', 'content', 'Search Project Contents');
   };
-  if (context.paletteOpen) { overlays(); return out; }
-  if (context.modalOpen && !context.settingsOpen) return [];
-  // Settings… (⌘,) opens Settings on General from anywhere in the main window.
-  out.push({ id: 'settings.open', command: 'settings.open', chord: 'Meta+,', kind: 'settings', target: 'general', extra: '', label: 'Settings' });
+  // Settings… (⌘,) opens Settings on General from anywhere in the main window, over the palette, the welcome wizard
+  // or a dialog too: the reference's menu item navigates to the settings route whatever is open (AppSidebarLayout
+  // registerMenuAction("open-settings")). That handler navigates only from outside the settings route, so with Settings
+  // open the item runs nothing ("refuse") and the page, and a palette over it, stay as they are.
+  const settings: Dispatch = { id: 'settings.open', command: 'settings.open', chord: 'Meta+,', kind: context.settingsOpen ? 'refuse' : 'settings', target: 'general', extra: '', label: 'Settings' };
+  if (context.paletteOpen) { overlays(); out.push(settings); return out; }
+  if (context.modalOpen && !context.settingsOpen) return [settings];
+  out.push(settings);
   add('view.reopenClosed', 'panel-reopen', '', 'Reopen Closed Tab');
   if (context.settingsOpen) {
     // The settings page is the router's other location; Back leaves it.

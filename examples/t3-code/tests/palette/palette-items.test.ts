@@ -56,7 +56,7 @@ describe('pullRequest.copyNumber', () => {
     expect(item).toMatchObject({ kind: 'pr-copy', chord: 'Meta+Shift+k', target: 'PR number', extra: '#42', label: 'Copy PR Number' });
     // The palette open (isCommandPaletteOpen) or a modal leaves it out.
     expect(keyboardDispatch(c, [], '', '', { ...context, prNumber: '#42', paletteOpen: true }).some(entry => entry.command === 'pullRequest.copyNumber')).toBe(false);
-    expect(keyboardDispatch(c, [], '', '', { ...context, prNumber: '#42', modalOpen: true }).length).toBe(0);
+    expect(keyboardDispatch(c, [], '', '', { ...context, prNumber: '#42', modalOpen: true }).map(entry => entry.command)).toEqual(['settings.open']);
   });
   test('the resource passes the number as its fourteenth argument', () => {
     const args = [[], '', '', false, false, false, false, false, false, false, 1, false, 'command', '#7'];

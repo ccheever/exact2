@@ -190,7 +190,7 @@ describe('keyboard dispatch (resolveShortcutCommand)', () => {
     expect(target('chat.newLocal')!.chord).toBe('Meta+Shift+n');
     expect(target('rightPanel.close')).toBeUndefined();
     expect(keyboardDispatch(client, threads, '', '', { ...context, diffOpen: true }).some(item => item.command === 'rightPanel.close')).toBe(true);
-    expect(keyboardDispatch(client, threads, '', '', { ...context, modalOpen: true })).toEqual([]);
+    expect(keyboardDispatch(client, threads, '', '', { ...context, modalOpen: true }).map(item => item.command)).toEqual(['settings.open']);
     // The palette provider's chords (here appearance.cycle) stay live in Settings.
     expect(keyboardDispatch(client, threads, '', '', { ...context, modalOpen: true, settingsOpen: true }).map(item => item.command)).toEqual(['settings.open', 'navigation.back', 'appearance.cycle']);
   });

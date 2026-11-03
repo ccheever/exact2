@@ -353,7 +353,7 @@ describe('keyboard dispatch', () => {
     expect(find('settings.open')).toMatchObject({ chord: 'Meta+,', kind: 'settings' });
     expect(find('thread.settle')).toMatchObject({ kind: 'command', target: 'chat:settle-advance', extra: 't2' });
     const open = keyboardDispatch(c, [], '', '', { ...context, modalOpen: true, paletteOpen: true });
-    expect(open.map(item => item.command)).toEqual(['commandPalette.toggle', 'filePicker.toggle', 'projectSearch.toggle']);
+    expect(open.map(item => item.command)).toEqual(['commandPalette.toggle', 'filePicker.toggle', 'projectSearch.toggle', 'settings.open']);
   });
   test('back and forward walk the visited threads', () => {
     const c = client();

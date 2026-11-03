@@ -260,11 +260,12 @@ component ModelTrigger
         if data.modelUnavailable and not data.composer.fanout
           row height="1rem" min-width="1rem" padding-left="0.1875rem" padding-right="0.1875rem" box-sizing="border-box" align-items="center" justify-content="center" flex-shrink=0 border-radius="0.25rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff0a)" testId="model-picker-unavailable"
             text "Unavailable" font-size="0.625rem" line-height="0.625rem" font-weight=500 white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
-    // The shortcut holders (sidebar.contract's sweep pattern): on screen, a point wide, out of the tab order.
+    // The shortcut holders (sidebar.contract's sweep pattern): on screen, a point wide, out of the tab order. Shortcuts
+    // with no menu item (`-exact-menu="none"`), as the reference's menu bar lists none of the composer's.
     if not disabled and data.composer.keyEffort != ""
-      button press=modelOpenTo("effort") aria-keyshortcuts=(composerChords ? data.composer.keyEffort : "") aria-label="Effort" tabindex=-1 testId="model-picker-effort-key" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" title=""
+      button -exact-menu="none" press=modelOpenTo("effort") aria-keyshortcuts=(composerChords ? data.composer.keyEffort : "") aria-label="Effort" tabindex=-1 testId="model-picker-effort-key" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" title=""
     if not disabled and data.composer.pickerOwnsMode and data.composer.keyMode != ""
-      button press=modelOpenTo("permissions") aria-keyshortcuts=(composerChords ? data.composer.keyMode : "") aria-label="Permissions" tabindex=-1 testId="model-picker-mode-key" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" title=""
+      button -exact-menu="none" press=modelOpenTo("permissions") aria-keyshortcuts=(composerChords ? data.composer.keyMode : "") aria-label="Permissions" tabindex=-1 testId="model-picker-mode-key" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" title=""
 
 // ChatComposer's provider-unavailable control in place of the model picker.
 component ProviderUnavailable

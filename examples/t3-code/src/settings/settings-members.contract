@@ -82,6 +82,7 @@ members T3Code
   action openSettings
     sidebarHoverId = "" // the Settings button's tooltip closes on its press
     settingsEnvironmentId = settings.environmentId
+    paletteCovered = paletteOpen
     settingsOpen = true
     settingsRoute = "general"
     settingsFocusTarget = "" // a jump left from the last visit; a caller that jumps sets its own after this
@@ -394,7 +395,7 @@ members T3Code
     pendingModal = ""
     connecting = false
     projectsOpen = false
-    paletteOpen = false
+    paletteOpen = paletteOpen and settingsOpen and paletteCovered // a palette Settings covered shows again as Settings closes
     settingsOpen = false
     keybindingOpen = false
     keybindingPrevious = ""

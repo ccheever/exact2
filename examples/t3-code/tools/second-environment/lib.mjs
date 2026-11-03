@@ -9,7 +9,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect as netConnect } from "node:net";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { connect, ensureProject, LANE_SCOPES } from "../github-lane/lib.mjs";
 import { PULL_REQUEST } from "./gh-standin.mjs";
 import { AGENT, install as installStandin, refresh as refreshStandin, status as standinStatus } from "../acp-standin/install.mjs";
@@ -256,6 +256,17 @@ export function pairingUrl(paths, name, label) {
   const running = recorded(paths, name);
   if (!running) throw new Error(`${name}: no fixture server running (bun env.mjs start ${name})`);
   return `http://127.0.0.1:${routeOf(paths, name)?.port ?? running.port}/pair#token=${pairingToken(paths, name, label)}`;
+}
+/**
+ * Writes a pairing link for a real-input launch to `file`, readable by its owner only. The path must be absolute and
+ * name no `undefined` segment: a path built from an unset variable would leave the link, a live credential, in the
+ * checkout (`undefined/pair-url`).
+ */
+export function writePairingUrl(paths, name, file, url = () => pairingUrl(paths, name, "Fixture real input")) {
+  if (typeof file !== "string" || !isAbsolute(file) || file.split("/").includes("undefined")) throw new Error(`pair-url needs an absolute file, not ${file}`);
+  writeFileSync(file, `${url()}\n`, { mode: 0o600 });
+  chmodSync(file, 0o600);
+  return file;
 }
 
 /**
