@@ -6,6 +6,7 @@
 //! the app's grants; the web's wasm (`exact-snapback4-web`) brings memory
 //! persisted by the page.
 
+mod acquisition;
 pub mod backend;
 pub mod client;
 pub mod dispatch;

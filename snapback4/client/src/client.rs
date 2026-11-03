@@ -145,6 +145,7 @@ pub(crate) fn refusal(code: &str, family: &str, message: impl Into<String>) -> R
 /// What the round and the client share between steps.
 #[derive(Default)]
 pub(crate) struct Shared {
+    pub acquisition: crate::acquisition::Acquisition,
     pub opened: bool,
     pub online: Option<bool>,
     pub denied: Option<Refusal>,
@@ -376,6 +377,10 @@ impl Client {
         now: i64,
     ) -> Result<Json, String> {
         self.require_open(core)?;
+        let backend = ok(core.call(json!({"op": "backend"})))?;
+        lock(&self.shared)
+            .acquisition
+            .hint(crate::acquisition::foreground_hint(&backend, name, &args));
         ok(core.call(
             json!({"op": "query", "name": name, "viewer": self.config.viewer,
             "args": args, "now": now}),

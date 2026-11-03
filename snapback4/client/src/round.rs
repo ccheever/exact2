@@ -1,7 +1,7 @@
-//! One round: open, sync to the head, send the outbox, sync again.
+//! One round: open, publish an acquisition page and drain, then send the outbox.
 //!
 //! A transcription of Snapback 4's TypeScript client (`local.ts` `syncRound`
-//! and `flushOnce`, `local-receipts.ts`, 0.4.16) without its watches, media,
+//! and `flushOnce`, `local-receipts.ts`, plus 0.4.52's acquisition walk) without its watches, media,
 //! following, ephemeral reads, native jobs or timers: the device keeps the
 //! protocol's state (`sync_state`), and this carries it between the device
 //! and the wire. Where this differs it says so.
@@ -97,8 +97,17 @@ async fn run(io: &Io, config: &Config, shared: &Mutex<Shared>) -> Result<()> {
     // Receipts the server gave come first: before a page can retire or
     // replace their entries, and before anything is sent again.
     persist_pending(io, shared).await?;
-    sync(io, shared).await?;
-    if flush(io, shared).await? {
+    let failure = shared
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .acquisition
+        .failure
+        .clone();
+    if let Some(why) = failure {
+        return Err(denied(why));
+    }
+    let progressive = sync(io, shared).await?;
+    if flush(io, shared).await? && !progressive {
         // A settled send is observed by the next page; catch up to it now.
         sync(io, shared).await?;
     }
@@ -119,7 +128,7 @@ async fn open(io: &Io, config: &Config, shared: &Mutex<Shared>) -> Result<()> {
     match kept {
         Ok(answer) if answer.get("denied").is_none() => {}
         Err(error) if error == NEEDS_BACKEND => {
-            let backend = load_backend(io).await?;
+            let backend = load_backend(io, shared).await?;
             let answer = io
                 .raw(open_request(
                     config,
@@ -195,11 +204,18 @@ pub(crate) fn refused(why: Refusal) -> Stop {
 }
 
 /// `loadBackend`: `GET /schema`.
-async fn load_backend(io: &Io) -> Result<Json> {
+async fn load_backend(io: &Io, shared: &Mutex<Shared>) -> Result<Json> {
     let (_, body, why) = read(io.fetch(Fetch::get("/schema".into())).await)?;
     match why {
         Some(why) => Err(refused(why)),
-        None => Ok(body),
+        None => {
+            shared
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .acquisition
+                .negotiate(&body);
+            Ok(body)
+        }
     }
 }
 
@@ -218,7 +234,7 @@ fn uint(value: &Json) -> u64 {
 /// `syncRound`: page from the device's watermark to the head, observing the
 /// store's identity on every page and adopting a new backend when the
 /// generation or the store changes.
-async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<()> {
+async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
     let mut generation =
         io.device(json!({"op": "state"})).await.map_err(denied)?["generation"].clone();
     let mut after: Option<Json> = None;
@@ -226,6 +242,9 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<()> {
     let mut publication_outstanding = false;
     let mut restarting_snapshot = false;
     let mut page_limit = PAGE;
+    // Keep a shrinking request's hint and cursor; reads may change the next hint
+    // while this exchange is in flight.
+    let mut acquisition_request: Option<Json> = None;
     for _ in 0..PAGES {
         let captured = io
             .device(json!({"op": "sync_state"}))
@@ -233,6 +252,17 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<()> {
             .map_err(denied)?;
         if let Some(why) = captured.get("restore_refusal").filter(|why| !why.is_null()) {
             return Err(denied(why.clone()));
+        }
+        let needs_compatibility = shared
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .acquisition
+            .compatible
+            .is_none()
+            && crate::acquisition::state(&captured)
+                .is_some_and(|s| s["acquired"] == false && s["replacement_required"] == false);
+        if needs_compatibility {
+            load_backend(io, shared).await?;
         }
         let mut backend_required = captured["backend_required"].as_bool().unwrap_or(false);
         let requested_store = captured
@@ -242,7 +272,14 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<()> {
             .cloned()
             .unwrap_or(Json::Null);
         let mut published_store = captured.get("store_id").cloned().unwrap_or(Json::Null);
-        let snapshot_request = restarting_snapshot || after.is_some();
+        let snapshot_request = restarting_snapshot
+            || after.is_some()
+            || shared
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .acquisition
+                .replacement(&captured)
+                && captured["snapshot_catchup"] != true;
         let captured_watermark = uint(&captured["watermark"]);
         let watermark = if snapshot_request {
             0
@@ -257,12 +294,25 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<()> {
                 .as_bool()
                 .unwrap_or(catching_up);
         publication_outstanding |= watermark > captured_watermark;
+        if acquisition_request.is_none() {
+            acquisition_request = shared
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .acquisition
+                .request(&captured, snapshot_request || catching_up);
+        }
+        let progressive = acquisition_request.is_some();
         let mut body = json!({"generation": captured["generation"], "from": watermark, "limit": page_limit,
             "after": after.clone().unwrap_or(Json::Null),
             "stream": !snapshot_request && (catching_up || (after.is_none() && publication_outstanding)),
             "pending": captured["pending_ids"]});
         if requested_store.is_string() {
             body["store_id"] = requested_store;
+        }
+        if let Some(request) = &acquisition_request {
+            body.as_object_mut()
+                .unwrap()
+                .extend(request.as_object().unwrap().clone());
         }
         let (_, mut page, _) = read(io.fetch(Fetch::post("/sync".into(), body)).await)?;
         for (field, value) in [
@@ -277,7 +327,22 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<()> {
         }
         page["requested_watermark"] = json!(watermark);
         page["captured_watermark"] = json!(captured_watermark);
+        // Overwrite untrusted wire fields even on ordinary requests.
+        page["captured_acquisition"] = if acquisition_request
+            .as_ref()
+            .is_some_and(|r| r.get("acquire").is_some())
+        {
+            captured["adoption_capture"].clone()
+        } else {
+            Json::Null
+        };
         let refused = page.get("denied").filter(|why| why.is_object()).cloned();
+        let acquire_bound = acquisition_request
+            .as_ref()
+            .is_some_and(|r| r.get("acquire").is_some())
+            && refused.as_ref().is_some_and(|why| {
+                why["code"] == "E_BOUND" && why["family"] == "bound" && why["retryable"] != true
+            });
         let generation_changed = refused
             .as_ref()
             .is_some_and(|why| why["code"] == "E_SYNC_GENERATION" && why["family"] == "generation");
@@ -285,7 +350,14 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<()> {
             return Err(Stop::Offline(refused.unwrap()));
         }
         if let Some(why) = &refused {
-            if !generation_changed && !too_large(why) {
+            if !generation_changed && !too_large(why) && !acquire_bound {
+                if progressive {
+                    shared
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .acquisition
+                        .refuse(why);
+                }
                 return Err(self::refused(why.clone()));
             }
         }
@@ -335,13 +407,18 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<()> {
         if generation_changed || page_generation != generation || replaced_store || backend_required
         {
             // A new store restarts generation numbers: reload even on a match.
-            let backend = load_backend(io).await?;
+            let backend = load_backend(io, shared).await?;
             let mut adopt = json!({"op": "adopt", "backend": backend, "store_id": published_store,
                 "send_revision": page["send_revision"]});
             if !adoption_capture.is_null() {
                 adopt["adoption_capture"] = adoption_capture;
             }
             io.device(adopt).await.map_err(denied)?;
+            shared
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .acquisition
+                .reset();
             bump(shared);
             generation = backend
                 .get("generation")
@@ -350,19 +427,43 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<()> {
             after = None;
             catching_up = false;
             publication_outstanding = false;
+            acquisition_request = None;
             continue;
         }
         if let Some(why) = refused {
-            if page["snapshot"] == true && page_limit == 1 && (watermark > 0 || catching_up) {
+            if acquire_bound && !too_large(&why) {
+                shared
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .acquisition
+                    .refuse(&why);
+                return Err(self::refused(why));
+            }
+            if page["snapshot"] == true
+                && page_limit == 1
+                && (watermark > 0
+                    || catching_up
+                    || acquisition_request
+                        .as_ref()
+                        .is_some_and(|r| r["stream"] == true))
+            {
                 // Restart at the reduced limit; snapshots can split commits.
                 after = None;
                 catching_up = false;
                 restarting_snapshot = true;
+                acquisition_request = None;
                 continue;
             }
             if page_limit > 1 {
                 page_limit = (page_limit / 2).max(1);
                 continue;
+            }
+            if progressive {
+                shared
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .acquisition
+                    .refuse(&why);
             }
             return Err(self::refused(why));
         }
@@ -387,6 +488,7 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<()> {
             .await
             .map_err(denied)?;
         restarting_snapshot = false;
+        acquisition_request = None;
         if applied["touched"]
             .as_array()
             .is_none_or(|touched| !touched.is_empty())
@@ -395,6 +497,12 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<()> {
         }
         let published = applied["published"] != false;
         publication_outstanding = !published;
+        if published {
+            // Publication, including full acquisition, is solely the device's fact.
+            io.device(json!({"op": "sync_state", "capture": false}))
+                .await
+                .map_err(denied)?;
+        }
         if snapshot && more {
             after = next;
             continue;
@@ -404,8 +512,19 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<()> {
             catching_up = true;
             continue;
         }
+        if progressive {
+            if shared
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .acquisition
+                .applied(&page, published)
+            {
+                return Ok(true);
+            }
+            continue;
+        }
         if !more && published {
-            return Ok(());
+            return Ok(false);
         }
     }
     Err(denied(refusal(
