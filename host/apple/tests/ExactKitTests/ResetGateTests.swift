@@ -258,7 +258,7 @@ final class ResetGateTests: XCTestCase {
         until("the timer runs") { (try? ticks(session)) ?? 0 > 1 }
         let before = try ticks(session)
         let (held, replays, entered) = held(session) {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.25)) // the 50 ms ticker comes due, held
+            waitFor("the 50 ms ticker comes due, held") { session.runtime.heldCalls.contains { $0.hasPrefix("fireNativeTimer") } }
             _ = session.runtime.collectionFeedback(Data(), now: session.now())
             _ = session.runtime.covers([])
         }
@@ -396,7 +396,7 @@ final class ResetGateTests: XCTestCase {
             window?.setContentSize(CGSize(width: 320, height: 600))
             window?.contentView?.layoutSubtreeIfNeeded()
             #endif
-            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+            waitFor("the fit is held") { session.runtime.heldCalls.contains { ResetGate.replayed[$0]?.0 == .fit } }
         }
         XCTAssertTrue(held.contains { ResetGate.replayed[$0]?.0 == .fit }, "the fit was owed: \(held)")
         XCTAssertEqual(replays.first, .fit)
