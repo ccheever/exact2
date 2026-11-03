@@ -396,6 +396,15 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Native presentation and navigation (iOS)
 
+- **A pushed route never flies by `sharedElement`: the card stays mounted beneath.** A
+  name pairs only when one commit destroys its holder and creates another
+  (`kernel/src/handoff.rs`); a push keeps the screen beneath in the stack, so the card is
+  never destroyed and the product's photo lands without a flight. The platform's way is the
+  zoom: `navigationSource=` on the pushed route's `navigationKey` column, naming the `id`
+  on the card's `image` and on the route's own (`ZoomPushIOS.swift`, iOS 18 and later). The
+  agent's filmed screenshots skip UIKit's push and zoom: record the simulator
+  (`xcrun simctl io booted recordVideo`) and read its frames.
+
 - **A cold launch flashes the wrong colour, and no screenshot shows it.** The launch
   screen is `host.ios.launchImage` centred on `background_color` (`background_color_dark`
   in dark mode); unset, the platform's background (the grouped grey under a first route
@@ -1723,6 +1732,15 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   then captures the content column only). (Harmony, 2026-10-21.)
 
 ## Websites
+
+- **A photo that should fly between two pages stays put while the page beneath is
+  mounted.** On the web as natively, a `sharedElement` name pairs only when the leaver is
+  destroyed and the arriver created in one commit. A site that keeps every stack entry's
+  content (`for e in t.stack`) destroys nothing on a push. Keep each route's `navigationKey`
+  column mounted (the host's Back needs the route beneath) and put its content under
+  `if inApp or e.id == top(nav).id`: in a browser the card leaves as the product arrives, and
+  `shared.js` runs a view transition. A Back or Forward lands at once, without the flight
+  (`issues/20261103-web-history-traversal-forgoes-shared-element-flight.md`).
 
 - **`pages=` on a `render=build` route renders no pages in an app without a Rust render
   entry.** A route `product "/product/:id" render=build pages=productPages()` compiles, and
