@@ -22,6 +22,7 @@ import { shortcutInput } from '../settings/keybinding-settings';
 import { shortcutLabel } from '../settings/keybinding-view';
 import { snoozePresets, snoozePresetSettings } from '../sidebar/sidebar-presentation';
 import { canTurnIntoProject } from '../sidebar/sidebar-menu';
+import { leaveHiddenRoute } from '../sidebar/sidebar-commands';
 import { canSnooze, effectiveSnoozed } from '../sidebar/sidebar-model';
 import { diffNotGit } from '../diff/diff';
 import { threadNotifications, notifyStatus, notificationSounds, notificationsWaiting, reportWindowFacts, type NotifyStatus } from './shell-notify';
@@ -297,6 +298,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     await cloneToasts(client, native); // project-clones-live.ts: a toast per tracked clone, every environment
     await coordinateGuides(client, native, state.status, now);
     await threadNotifications(client, state.status, undefined, now); // every connected environment: the focus and the fleet (shell-notify.ts)
+    await leaveHiddenRoute(client, native); // the open thread leaves its route once the tag filter hides it
     if (tracking(client)) await settleLiveTraces(client, native);
   }
   slowRequests(client, now);

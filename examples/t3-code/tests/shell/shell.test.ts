@@ -274,6 +274,29 @@ describe('thread notifications', () => {
       expect(toasts(client)).toHaveLength(2);
     });
 
+    // T3 Code 30654b3e91: hiding tagged threads closes what was shown for them and raises nothing new.
+    test('the tag filter: turning it on closes a hidden thread\'s toast and notification; it raises nothing more', async () => {
+      const { notified, client, source, entry } = setup();
+      const inactive = { ...active, active: false };
+      entry.shell = { ...entry.shell, threads: [thread('b1', { title: 'Build B', tags: ['private'] }), thread('b2', { title: 'Docs' })] };
+      await threadNotifications(client, active, source);
+      entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:01:00.000Z', { title: 'Build B', tags: ['private'] }), thread('b2', { title: 'Docs' })] };
+      await threadNotifications(client, active, source);
+      entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:01:00.000Z', { title: 'Build B', tags: ['private'] }), thread('b2', { title: 'Docs', pendingRuntimeRequest: { kind: 'approval' } })] };
+      await threadNotifications(client, inactive, source);
+      expect(toasts(client).map(toast => toast.description)).toEqual(['Build B']);
+      expect(notified.posts().map(post => post.tag)).toEqual(['env-b:b2']);
+      entry.config = { settings: { hideTaggedThreads: true, hiddenThreadTags: ['private'] } };
+      await threadNotifications(client, inactive, source);
+      expect(toasts(client)).toEqual([]);
+      // b2 carries no hidden tag: its notification stays.
+      expect(notified.calls.filter(call => call.call === 'close')).toEqual([]);
+      entry.shell = { ...entry.shell, threads: [thread('b1', { title: 'Build B', tags: ['private'], pendingRuntimeRequest: { kind: 'approval' } }), thread('b2', { title: 'Docs', tags: ['private'], pendingRuntimeRequest: { kind: 'approval' } })] };
+      await threadNotifications(client, inactive, source);
+      expect(notified.calls.filter(call => call.call === 'close').map(call => call.tag)).toEqual(['env-b:b2']);
+      expect(notified.posts().map(post => post.tag)).toEqual(['env-b:b2']);
+    });
+
     test('unfocused: the system notification is tagged with B and opens B\'s thread', async () => {
       const { notified, client, source, entry } = setup();
       const inactive = { ...active, active: false };

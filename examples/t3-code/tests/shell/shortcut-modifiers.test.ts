@@ -246,12 +246,12 @@ describe('Shift alone shows a row\'s quick actions (PullRequestSpeedActions)', (
 });
 
 describe('a thread row shows its jump label only while the hints show', () => {
-  for (const [file, name, marker] of [['src/sidebar/sidebar-row.contract', 'ThreadRow', 'text t.jump font-family']] as const) {
+  for (const [file, name, marker] of [['src/sidebar/sidebar-row.contract', 'ThreadRow', 'SidebarJumpHint(label=t.jump)']] as const) {
     test(`${name}: threadJumpHints and a label`, () => {
       const component = contractComponent(file, name), state = component.state();
-      // The row's other props and derives at rest: each name the view reads before the label is '' (no hover, no card).
+      // The card row's other props and derives at rest: each name the view reads before the label is '' (no hover).
       const drawn = (threadJumpHints: boolean, jump: string) => {
-        const scope: Env = { threadJumpHints, presets: [], KmItem: (item: Env) => item, t: new Proxy({ jump } as Env, { get: (row, key) => (key in row ? row[key as string] : '') }) };
+        const scope: Env = { threadJumpHints, presets: [], KmItem: (item: Env) => item, t: new Proxy({ jump, card: true } as Env, { get: (row, key) => (key in row ? row[key as string] : '') }) };
         for (let tries = 0; tries < 100; tries++) {
           try { return component.drawn(marker, state, scope); } catch (error) {
             const missing = /^(\w+) is not defined$/.exec((error as Error).message)?.[1];

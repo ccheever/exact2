@@ -12,6 +12,7 @@ import { bulkMenuState, canArchive, rowConfig, threadMenuState } from './sidebar
 import { wall, latestWall, shownWall, adoptCommandTime, closeDialog, localDate, openSnoozeDialog, resolveCustomSnooze, sidebarPrefs, sidebarSession, undoLive, undoSummary, SETTLED_TAIL_PAGE_COUNT, type UndoAction } from './sidebar-state';
 import { calendarLocal } from './snooze-calendar';
 export { clock, undoLive } from './sidebar-state';
+import { routeHiddenByTags } from './thread-tag-filter';
 import { partition, pickableScopes, projectScopes, renderedRows, shouldCreateNewThreadInCurrentProject, scopedRowKey, threadSortOrder, undoLabel, workingInbox } from './sidebar-view';
 import { pickSearchResult, showPendingFind } from './sidebar-search';
 import { announce, cancelAnnouncement } from '../shell/announce';
@@ -468,6 +469,15 @@ export async function sidebarRefreshed(client: T3Client, nativeHandle: Native): 
 /** After a thread opens: the server visit lands at once for an unseen completion, and a message result finds its message. */
 export function sidebarOpened(client: T3Client, nativeHandle: Native): void { visitOpenThread(client, nativeHandle); showPendingFind(client); }
 
+/** The index route: a draft for the most recently active project that is not archived. */
+async function openIndex(client: T3Client, nativeHandle: Native): Promise<void> {
+  const latest = projectScopes(client).find(group => !group.archived), member = latest ? client.shell.projects.find(project => latest.ids.has(str(project.id))) : undefined;
+  await (client as unknown as Navigator).openDraft?.(nativeHandle, str(member?.id ?? client.projectId));
+}
+/** ThreadRouteView's `<Navigate to="/" />` for a thread the tag filter hides (thread-tag-filter.ts routeHiddenByTags). */
+export async function leaveHiddenRoute(client: T3Client, nativeHandle: Native): Promise<void> {
+  if (routeHiddenByTags(client)) await openIndex(client, nativeHandle);
+}
 const menuState = (client: T3Client, thread: Obj) => threadMenuState(client, thread, false, projectScopes(client), wall(client));
 
 /** The sidebar's local ops: view state that never reaches the server. */
@@ -484,14 +494,15 @@ export async function sidebarLocal(client: T3Client, _native: Native, op: string
     else if (id === 'working') prefs.workingExpanded = !prefs.workingExpanded;
   } else if (op === 'more') session.settledVisible += SETTLED_TAIL_PAGE_COUNT;
   // A pick shows that project alone ("All projects" every one); Shift+click or Shift+Enter adds or removes it, the menu
-  // open. A selection made under one scope can hold threads the next one hides.
+  // open. A selection made under one scope can hold threads the next one hides; the list outlives the scope and does
+  // not anchor, so a new list starts at the top.
   else if (op === 'scope') {
     prefs.scopes = pickableScopes(client).some(group => group.key === value) ? [value] : [];
-    session.scopeOpen = false; session.scopeQuery = ''; session.selection = []; session.anchor = '';
+    session.scopeOpen = false; session.scopeQuery = ''; session.selection = []; session.anchor = ''; session.listTopSeq++;
   } else if (op === 'scope-toggle') {
     if (!pickableScopes(client).some(group => group.key === value)) return '';
     prefs.scopes = prefs.scopes.includes(value) ? prefs.scopes.filter(key => key !== value) : [...prefs.scopes, value];
-    session.selection = []; session.anchor = '';
+    session.selection = []; session.anchor = ''; session.listTopSeq++;
   }
   else if (op === 'scope-open') { session.scopeOpen = value === 'close' ? false : !session.scopeOpen; session.scopeQuery = ''; }
   else if (op === 'scope-query') session.scopeQuery = value;
@@ -579,9 +590,7 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
     return 'sidebar:new-thread';
   }
   if (op === 'home') {
-    // The index route opens a draft for the most recently active project that is not archived.
-    const latest = projectScopes(client).find(group => !group.archived), member = latest ? client.shell.projects.find(project => latest.ids.has(str(project.id))) : undefined;
-    try { await (client as unknown as Navigator).openDraft?.(nativeHandle, str(member?.id ?? client.projectId)); }
+    try { await openIndex(client, nativeHandle); }
     catch (error) { toast(client, 'Could not open threads', error); return ''; }
     return 'sidebar:new-thread';
   }
@@ -655,7 +664,7 @@ async function runChoice(client: T3Client, nativeHandle: Native, storage: Files,
       pushToast(client, { kind: 'success', title: 'Project created', description: str(thread.title) });
       return '';
     }
-    case 'filter-by-project': prefs.scopes = prefs.scopes.includes(scopeKey) ? [] : [scopeKey]; session.selection = []; session.anchor = ''; return '';
+    case 'filter-by-project': prefs.scopes = prefs.scopes.includes(scopeKey) ? [] : [scopeKey]; session.selection = []; session.anchor = ''; session.listTopSeq++; return '';
     case 'copy-path': {
       const path = isBackground(client, id) ? backgroundThreadPath(client, id) : str(thread.worktreePath) || str(client.shell.projects.find(project => project.id === thread.projectId)?.workspaceRoot);
       if (!path) { pushToast(client, { kind: 'error', title: 'Path unavailable', description: 'This thread does not have a workspace path to copy.' }); return ''; }

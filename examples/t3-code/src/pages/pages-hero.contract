@@ -11,6 +11,7 @@ use dbStep from "../diff/diff.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 use Tip from "../shell/shell-tip.contract"
 use SidebarIcon from "../sidebar/sidebar-icons.contract"
+use CnMachineIcon from "../settings/settings-b-kit.contract"
 
 shape HeroProject
   id: string
@@ -23,6 +24,9 @@ shape HeroProject
   canPin: bool
   pinned: bool
   pinTitle: string
+  // ProjectEnvironmentBadge while the projects span environments: "On X" or "Also on X" ("" for none), and its machine.
+  envBadge: string
+  envMachine: string
 shape HeroName
   id: string
 shape PagesHome
@@ -298,6 +302,10 @@ component HeroPicker
                   if project.canPin
                     button press=command("pageslocal:hero-pin", project.id, "", 0) hover=pinHover(project.id) tabindex=-1 aria-hidden=true title=project.pinTitle testId=`hero-project-pin-${project.id}` width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.5rem" border-width=0 background-color=(pinOver == project.id ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(project.pinned or highlight == project.id ? 1 : 0) display="flex" flex-direction="row" align-items="center" justify-content="center"
                       SidebarIcon(name=(project.pinned and pinOver == project.id ? "pin-off" : "pin"), size=14, color=(pinOver == project.id ? "light-dark(#18181b, #f3f3f3)" : "light-dark(#71717b, #a1a1a1)"))
+                  // ProjectEnvironmentBadge, after the pin.
+                  if project.envBadge != ""
+                    box role="img" aria-label=project.envBadge title=project.envBadge testId=`hero-project-env-${project.id}` margin-left="auto" flex-shrink=0 display="flex" align-items="center"
+                      CnMachineIcon(kind=project.envMachine, size=14, color="light-dark(#71717b, #a1a1a1)")
               if needle == ""
                 button id="hero-add-project" press=pickRow("add-project") hover=hoverRow("add-project") role="option" aria-selected=false aria-label="Add project" testId="hero-add-project" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" border-width=0 background-color=(highlight == "add-project" ? "light-dark(#18181b17, #f5f5f517)" : "#00000000") display="flex" flex-direction="row" align-items="center"
                   PgIcon(name="folder-plus", size=16, color="light-dark(#71717b, #a1a1a1)")

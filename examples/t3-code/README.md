@@ -1241,8 +1241,8 @@ source, each result read back from the accessibility tree or the clipboard). All
   and a plain word in each, as ⌘C then reads (12 of 12).
 - After F2 and then Escape in the sidebar, the focus went to the window, and F6 never entered the
   sidebar after that: from the composer it stopped at the terminal (4 presses). In the oracle, Escape
-  returns the focus to the row and F6 reaches it. Once the rename field has gone, the row's treeitem
-  now takes the focus back, and F6 enters the sidebar at that treeitem (`shell-members.contract`).
+  returns the focus to the row and F6 reaches it. Once the rename field has gone, the row's button
+  now takes the focus back, and F6 enters the sidebar at that row (`shell-members.contract`).
   Checked again: Tab from Search to a row, F2, a typed character, then Escape leaves the title
   unchanged and the focus on the row (2 of 2). F6 from the composer then reaches the row first (2 of
   2); further presses go Conversation, composer, row.

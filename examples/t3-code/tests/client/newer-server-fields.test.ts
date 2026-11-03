@@ -10,6 +10,7 @@ import { failure } from '../../src/transport/transport-wire';
 import { rpcPermissions } from '../../src/connections/command-permissions';
 import { scopedSettingPatch, writingStyleOf } from '../../src/settings/scoped-settings';
 import { canSnooze, pendingInput, raisedHand, sidebarStatus } from '../../src/sidebar/sidebar-model';
+import { sideChatRequest } from '../../src/sidebar/subagent-requests';
 import { mergeUsage, providersWithUsage } from '../../src/usage/pages-usage';
 import { readDiscoveredServers } from '../../src/browser/browser-targets';
 import { readPreviewEvent } from '../../src/browser/browser-automation';
@@ -192,11 +193,15 @@ describe('forward compatibility', () => {
 });
 
 describe('client behaviour', () => {
-  test('an async question keeps a working thread Working, and still blocks snoozing', () => {
+  // T3 Code 955e2bfbb5 (entities.test.ts): any question moves a running thread out of Working.
+  test('an async question moves a working thread out of Working, and blocks snoozing', () => {
     const asking = (status: string, blocking?: boolean): Obj => ({ id: 't', status, latestRunId: 'r', pendingRuntimeRequest: { id: 'q', kind: 'user_input', createdAt: at, ...(blocking === undefined ? {} : { blocking }) } });
-    expect([pendingInput(asking('running', false)), sidebarStatus(asking('running', false))]).toEqual([false, 'working']);
+    for (const blocking of [false, true, undefined]) {
+      expect([pendingInput(asking('running', blocking)), sidebarStatus(asking('running', blocking))]).toEqual([true, 'input']);
+    }
     expect([pendingInput(asking('waiting', false)), sidebarStatus(asking('waiting', false))]).toEqual([true, 'input']);
-    expect(sidebarStatus(asking('running'))).toBe('input');
+    // A side chat's async question rolls up to its parent while the side chat works.
+    expect(sideChatRequest({ ...asking('running', false), lineage: { sideChat: true } })).toBe('user_input');
     expect(canSnooze(asking('running', false), Date.parse(at))).toBe(false);
     expect(raisedHand(asking('running', false))).toBe(true);
   });

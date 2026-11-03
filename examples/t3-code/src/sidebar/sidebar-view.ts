@@ -10,7 +10,7 @@ import { chordWinners } from '../shell/keyboard-dispatch';
 import { canPinProjectGroup, orderWhileOpen } from './project-pin';
 import { PLATFORM } from '../settings/desktop-shell-favicon';
 import { machineKind } from '../connections/connections';
-import { fleet, fleetThreads, parseFleetThreadId, fleetRunningTerminalIds, remoteThread } from '../connections/settings-b-fleet'; // settings-b: background environments' threads
+import { fleet, fleetThreads, parseFleetThreadId, fleetRunningTerminalIds, projectEnvironmentBadge, remoteThread } from '../connections/settings-b-fleet'; // settings-b: background environments' threads
 import type { T3Client } from '../client/client';
 import { knownSessions } from '../terminal/terminal-drawer-view';
 import { selectRunningSubprocessTerminalIds } from '../terminal/terminal-session';
@@ -26,7 +26,7 @@ import { cachedDisplayNames as displayNames, groupLabel, logicalKey } from './pr
 import { SIDEBAR_PROBES, textMeasure } from '../shared/laid-out-widths';
 import type { Probe } from '../composer/composer-menus';
 export { grayIdentity } from './sidebar-glyph';
-import { ageLabel, capabilities, canSnooze, isWoke, lastVisited, recedes, sectionOf, settledTimestamp, sidebarStatus, sidebarVisible,
+import { ageLabel, capabilities, canSnooze, isSidebarEnvironmentDisconnected, isWoke, lastVisited, recedes, sectionOf, settledTimestamp, sidebarStatus, sidebarVisible,
   snoozeWakeLabel, sortActive, sortByReturn, sortPinned, sortSettled, sortSnoozed, sortWorkingThreadsBySend, threadTimeLabel, topStatus, unseenCompletion,
   statusSince, wokeAt, workingDuration, type SidebarSection } from './sidebar-model';
 import { sidebarPrBadge } from '../panel/pr-surface';
@@ -48,6 +48,9 @@ import { inboxReturns } from './thread-inbox';
 import { autoDirection } from './title-direction';
 import { textDirection } from '../shared/text-direction';
 import { splitForMiddleTruncate } from '../details/middle-truncate';
+import { paintOf } from '../appearance/settings-appearance-look';
+import { rowThreadKey, threadTagFilter } from './thread-tag-filter';
+import { alpha, palette } from '../appearance/settings-appearance';
 
 type Identity = (name: string) => { projectMark: string; projectInk: string; projectSurface: string };
 type Badge = (provider: Obj | undefined, providers: Obj[]) => { providerBadge: string; providerBadgeColor: string };
@@ -71,6 +74,8 @@ export interface SidebarThread {
   age: string; badge: string; stacked: boolean; badgeIcon: string; badgeState: string; section: string; status: string; selected: boolean; routeThread: boolean; searchFirst: boolean;
   matchLabel: string; matchUser: boolean; matchParts: SearchPart[];
   card: boolean; metaEmpty: boolean; statusIcon: string; statusColor: string; duration: string; titleColor: string; titleWeight: number;
+  /** --secondary-label: the row's metadata (project, branch, age, PR number). */
+  metaInk: string;
   recede: boolean; pinned: boolean; canPin: boolean; canSettle: boolean; canSnooze: boolean; canUnsettle: boolean; canWake: boolean;
   wakeLabel: string; woke: boolean; branch: string; worktree: boolean; draft: boolean; jump: string; renaming: boolean; multi: boolean;
   regenerating: boolean; label: string; hoverKey: string; rowKey: string; glyph: ProjectGlyph;
@@ -84,7 +89,11 @@ export interface SidebarThread {
 }
 /** A row of the sidebar's tree (lib/sidebarTree.ts), by its element id: a shelf header's rows name it as their parent. */
 export interface SidebarTreeRow { id: string; parent: string; expanded: string }
-export interface SidebarScope { key: string; label: string; mark: string; ink: string; surface: string; selected: boolean; all: boolean; glyph: ProjectGlyph; canPin: boolean; pinned: boolean; pinTitle: string }
+export interface SidebarScope {
+  key: string; label: string; mark: string; ink: string; surface: string; selected: boolean; all: boolean; glyph: ProjectGlyph; canPin: boolean; pinned: boolean; pinTitle: string;
+  /** ProjectEnvironmentBadge while the projects span environments: "On X" or "Also on X" ('' for none), and its machine. */
+  envBadge: string; envMachine: string;
+}
 export interface SidebarDraft { id: string; projectName: string; mark: string; ink: string; surface: string; preview: string; glyph: ProjectGlyph; menu: MenuRow[] }
 export interface SidebarView {
   drafts: SidebarDraft[];
@@ -113,11 +122,26 @@ export interface SidebarView {
   updateDialog: ReturnType<typeof updateEverythingDialog>;
   /** The open row, while it is listed (each mount of the view scrolls to it), and again while a route change owes it. */
   revealRow: string; revealPending: string;
+  /** Moves when the project filter changes: the list scrolls back to its top. */
+  listTop: number;
+  /** --secondary-label, for the draft rows' project names. */
+  metaInk: string;
 }
 
 const FOREGROUND = 'light-dark(#18181b, #f3f3f3)';
-/** --secondary-label: row metadata, a step below read titles (#8f8f8f on the dark sidebar). */
-const SECONDARY = 'light-dark(#71717b, #8f8f8f)';
+/**
+ * The sidebar's --secondary-label: row metadata, a step below read titles (#8f8f8f on the stock dark sidebar, the
+ * theme's own in either mode), as `light-dark()` under the System appearance.
+ */
+export function sidebarSecondaryInk(client: T3Client): string {
+  const { prefs, custom, mode } = paintOf(client);
+  return palette(prefs, custom, mode).sidebarSecondary;
+}
+/** A colour, or each half of a `light-dark()` pair, at an opacity. */
+function faded(color: string, amount: number): string {
+  const pair = /^light-dark\((#[0-9a-fA-F]+), (#[0-9a-fA-F]+)\)$/.exec(color);
+  return pair ? `light-dark(${alpha(pair[1]!, amount)}, ${alpha(pair[2]!, amount)})` : alpha(color, amount);
+}
 const MUTED = 'light-dark(#71717b, #a3a3a3)';
 const timestamp = (value: unknown) => { const time = Date.parse(str(value)); return Number.isFinite(time) ? time : -Infinity; };
 
@@ -211,13 +235,28 @@ export function partition(client: T3Client, now: number): Partition {
   const working = client.local.clientSettings?.sidebarWorkingShelfEnabled === true;
   const threads = [...client.shell.threads, ...fleetThreads()];
   const inbox = workingInbox(client).observe(working ? threads : null, now);
+  // belongsInSidebarWorkingShelf: a thread on a disconnected environment is listed outside the Working shelf.
+  const down = disconnectedEnvironments(client), isWorking = (thread: Obj) => !down.has(threadEnvironmentId(client, thread)) && inbox.isWorking(thread);
   const result: Partition = { pinned: [], active: [], working: [], snoozed: [], settled: [] };
+  const tagHidden = threadTagFilter(client).keys;
   for (const thread of threads) {
     if (!sidebarVisible(thread) || scope && !scope.has(str(thread.projectId))) continue;
-    result[sectionOf(thread, caps, now, working, inbox.isWorking)].push(thread);
+    if (tagHidden.size && tagHidden.has(rowThreadKey(client, str(thread.id)))) continue; // hideTaggedThreads
+    result[sectionOf(thread, caps, now, working, isWorking)].push(thread);
   }
   return { pinned: sortPinned(result.pinned), active: working ? sortByReturn(result.active, inbox.returnedAt) : sortActive(result.active),
     working: sortWorkingThreadsBySend(result.working), snoozed: sortSnoozed(result.snoozed), settled: sortSettled(result.settled) };
+}
+
+const threadEnvironmentId = (client: T3Client, thread: Obj) => parseFleetThreadId(str(thread.id))?.environmentId ?? client.environmentId;
+/** The environments isSidebarEnvironmentDisconnected names: This machine's connection and each background one's. */
+function disconnectedEnvironments(client: T3Client): Set<string> {
+  const down = new Set<string>();
+  if (isSidebarEnvironmentDisconnected(client.connection, client.shellLive)) down.add(client.environmentId);
+  for (const entry of fleet.entries.values()) {
+    if (entry.environmentId !== client.environmentId && isSidebarEnvironmentDisconnected(entry.phase, entry.synchronized === entry.generation)) down.add(entry.environmentId);
+  }
+  return down;
 }
 
 /** Rows as painted: collapsed shelves keep only the open thread; the settled tail pages. */
@@ -242,11 +281,11 @@ export function renderedRows(client: T3Client, parts: Partition): { thread: Obj;
  * The title's ink (SidebarThreadRow title span). A settled row's whole content is secondary at rest unless it is open
  * (variantAction "unsettle"); a receding card title is foreground/75 and inks up on hover in the row.
  */
-function titleInk(card: boolean, section: SidebarSection, recede: boolean, unread: boolean, woke: boolean, status: string, active: boolean): string {
-  if (section === 'settled' && !active) return SECONDARY;
+function titleInk(card: boolean, section: SidebarSection, recede: boolean, unread: boolean, woke: boolean, status: string, active: boolean, secondary: string): string {
+  if (section === 'settled' && !active) return secondary;
   return card
     ? recede ? 'light-dark(#18181bbf, #f3f3f3bf)' : status === 'failed' && !unread && !woke ? 'light-dark(#18181bf2, #f3f3f3f2)' : FOREGROUND
-    : recede ? SECONDARY : active || woke || status === 'input' ? FOREGROUND : unread ? MUTED : 'light-dark(#71717bb3, #8f8f8fb3)';
+    : recede ? secondary : active || woke || status === 'input' ? FOREGROUND : unread ? MUTED : faded(secondary, 0.7);
 }
 
 /** Sidebar.tsx prBadge: the thread's links (resolveThreadPullRequestBadge), else, with no current link, the pull request
@@ -306,7 +345,7 @@ function threadConfig(client: T3Client, thread: Obj): Obj {
   if (!ref || ref.environmentId === client.environmentId) return client.config;
   return obj([...fleet.entries.values()].find(entry => entry.environmentId === ref.environmentId)?.config);
 }
-function row(client: T3Client, thread: Obj, section: SidebarSection, now: number, helpers: SidebarHelpers, extra: { searchFirst: boolean; jump: string; searching: boolean; menu: MenuRow[]; spans: boolean; match?: Obj }): SidebarThread {
+function row(client: T3Client, thread: Obj, section: SidebarSection, now: number, helpers: SidebarHelpers, extra: { searchFirst: boolean; jump: string; searching: boolean; menu: MenuRow[]; spans: boolean; secondary: string; match?: Obj }): SidebarThread {
   const caps = capabilities(client.config), prefs = sidebarPrefs(client), session = sidebarSession(client);
   const environment = threadConfig(client, thread), providers = arr(environment.providers);
   const project = client.shell.projects.find(candidate => candidate.id === thread.projectId);
@@ -343,14 +382,14 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     ...prBadge, // resolveThreadPullRequestBadge (pr-surface.ts), else the branch's pull request
     section, status: pill?.label ?? '', selected: active, routeThread, searchFirst: extra.searchFirst,
     ...searchMatch(extra.match, session.searchFoundFor), // a row listed for its message
-    card, statusIcon: pill?.icon ?? '', statusColor: pill?.color ?? SECONDARY,
+    card, statusIcon: pill?.icon ?? '', statusColor: pill?.color ?? extra.secondary, metaInk: extra.secondary,
     // metaLineEmpty: only the trailing icons would remain, so a card drops its third line and they join the title.
     metaEmpty: !str(thread.branch) && !scratch && !prBadge.badge && terminalCount === 0,
     duration: started ? workingDuration(now - Date.parse(started)) : '',
     workingSince: started ? Date.parse(started) : 0, remoteMachine: remote?.machine ?? '',
     scratchMachine: scratch?.machine ?? '', scratchLabel: scratch?.label ?? '',
     searchPr: searchPr?.text ?? '', searchPrIcon: searchPr?.icon ?? '', searchPrState: searchPr?.state ?? '', searchPrLabel: searchPr?.label ?? '',
-    titleColor: titleInk(card, section, recede, unread, woke, status, active), titleWeight: recede ? 400 : 500, recede,
+    titleColor: titleInk(card, section, recede, unread, woke, status, active, extra.secondary), titleWeight: recede ? 400 : 500, recede,
     pinned: thread.pinnedAt != null, canPin: caps.pinning,
     canSettle: caps.settlement && card, canSnooze: caps.snooze && card && canSnooze(thread, now),
     snoozePresets: caps.snooze && card && canSnooze(thread, now) ? snoozePresets(now, client.local.deviceSettings.timestampFormat, snoozePresetSettings(environment)) : [],
@@ -364,7 +403,7 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     hoverKey: extra.searching ? id : rowHoverKey(client, id, section), glyph, // a moved row's stale hover never matches again
     rowKey: scopedRowKey(client, id),
     // On a utility page no row is open (the route is not a thread): the open row paints as any other.
-    idleRecede, idleTitleColor: titleInk(card, section, idleRecede, unread, woke, status, false), idleTitleWeight: idleRecede ? 400 : 500,
+    idleRecede, idleTitleColor: titleInk(card, section, idleRecede, unread, woke, status, false, extra.secondary), idleTitleWeight: idleRecede ? 400 : 500,
     tips: extra.searching ? [] : rowTips({ card, draft: !routeThread && !!(client.local.drafts[draftKey] ?? '').trim(), pinned: thread.pinnedAt != null, canPin: caps.pinning, woke,
       canSnooze: caps.snooze && card && canSnooze(thread, now), canSettle: caps.settlement && card, canWake: caps.snooze && section === 'snoozed', canUnsettle: caps.settlement && section === 'settled' }, textMeasure(client.presentation)),
     ...hoverDetails(client, thread, providers, instance, helpers),
@@ -446,9 +485,9 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
   // A background environment's row has its menu too, by that environment's capabilities (handleThreadContextMenu).
   const menuOf = (thread: Obj): MenuRow[] => searching ? []
     : session.selection.includes(str(thread.id)) ? bulk : menuRows(threadMenuItems(threadMenuState(client, thread, false, scopes, now)));
-  const spans = projectsSpanEnvironments(client);
+  const spans = projectsSpanEnvironments(client), secondary = sidebarSecondaryInk(client);
   const threads = rows.map(({ thread, section, match }, index) => row(client, thread, section, now, helpers,
-    { searchFirst: searching && index === searchIndex, jump: jumps[index] ?? '', searching, menu: menuOf(thread), spans, match }));
+    { searchFirst: searching && index === searchIndex, jump: jumps[index] ?? '', searching, menu: menuOf(thread), spans, secondary, match }));
   const total = parts.pinned.length + parts.active.length + parts.working.length + parts.snoozed.length + parts.settled.length;
   const shownSettled = Math.min(parts.settled.length, session.settledVisible + (parts.settled.slice(session.settledVisible).some(thread => thread.id === routeRowThreadId(client)) ? 1 : 0));
   const hidden = parts.settled.length - shownSettled;
@@ -498,6 +537,8 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       tree: searching ? [] : sidebarTree(threads, parts, prefs, total, draftRows(client, helpers.projectIdentity), prefs.settledExpanded && hidden > 0),
       treeCurrent: !searching && threads.some(thread => thread.id === routeRowThreadId(client)) ? `thread-${routeRowThreadId(client)}` : '',
       ...revealRows(client, rows, searching),
+      listTop: session.listTopSeq,
+      metaInk: secondary,
     },
   };
 }
@@ -559,12 +600,14 @@ const groupTitle = (group: { key?: string; name: string; members: Obj[] }): stri
  * no project. Each group offers its pin (ProjectPinButton) where it can be pinned, titled with the thread pin shortcut.
  */
 function scopeItems(client: T3Client, query: string, selected: readonly string[], scopes: { key: string; name: string; members: Obj[]; pinned: boolean }[], identity: Identity): SidebarScope[] {
-  const needle = query.trim().toLowerCase(), shortcut = shortcutLabel(client, 'thread.pin');
-  const items: SidebarScope[] = [{ key: '', label: 'All projects', mark: '', ink: '', surface: '', selected: selected.length === 0, all: true, glyph: groupGlyph(client, undefined, identity), canPin: false, pinned: false, pinTitle: '' },
+  const needle = query.trim().toLowerCase(), shortcut = shortcutLabel(client, 'thread.pin'), spans = projectsSpanEnvironments(client);
+  const items: SidebarScope[] = [{ key: '', label: 'All projects', mark: '', ink: '', surface: '', selected: selected.length === 0, all: true, glyph: groupGlyph(client, undefined, identity), canPin: false, pinned: false, pinTitle: '', envBadge: '', envMachine: '' },
     ...scopes.map(group => {
       const mark = identity(groupTitle(group)), action = `${group.pinned ? 'Unpin' : 'Pin'} ${group.name}`;
+      const badge = spans ? projectEnvironmentBadge(client, group.members) : null;
       return { key: group.key, label: group.name, mark: mark.projectMark, ink: mark.projectInk, surface: mark.projectSurface, selected: selected.includes(group.key), all: false,
-        glyph: groupGlyph(client, group, identity), canPin: canPinProjectGroup(client, group.members), pinned: group.pinned, pinTitle: shortcut ? `${action} (${shortcut})` : action };
+        glyph: groupGlyph(client, group, identity), canPin: canPinProjectGroup(client, group.members), pinned: group.pinned, pinTitle: shortcut ? `${action} (${shortcut})` : action,
+        envBadge: badge?.description ?? '', envMachine: badge?.machine ?? '' };
     })];
   return needle ? items.filter(item => !item.all && item.label.toLowerCase().includes(needle)) : items;
 }

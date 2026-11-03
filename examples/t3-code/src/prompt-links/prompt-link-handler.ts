@@ -1,5 +1,5 @@
 // T3 Code 6d450a4284 (MIT, LICENSE-T3): components/promptLinks/{NewThreadLinkView,ThreadLinkPrompt}.tsx, and
-// components/desktop/DesktopWebLinkCoordinator.tsx (its commit links at 2359643cff) for a web link, a commit link, an
+// components/desktop/DesktopWebLinkCoordinator.tsx (its commit links at 2359643cff, its launch hold at 5d3d78ab93) for a web link, a commit link, an
 // HTML file or a `t3code://pair` link the system hands the app.
 // The connection fleet supplies the reference's environment registry; draft and checkout operations are shared with the app.
 import type { T3Client } from '../client/client';
@@ -18,7 +18,7 @@ import { cloneDestination } from '../palette/palette-add';
 import { startTrackedClone } from '../shell/project-clones-live';
 import { pushToast } from '../shell/toast';
 import { findPromptLinkProject, findPromptLinkPullRequestThread, resolvePromptLinkModelSelection } from './prompt-link-model';
-import { primary as localPrimary, primaryEnvironmentId } from '../connections/local-primary';
+import { primaryEnvironmentId } from '../connections/local-primary';
 import { parseCommitUrl } from '../diff/diff-commits';
 import { parseChangeRequestUrl } from '../palette/palette-linkpr';
 import { placeLinkedPrompt, warnAboutHiddenCharacters } from './linked-prompt';
@@ -45,12 +45,12 @@ const NO_MODIFIERS = { meta: false, ctrl: false, shift: false, alt: false };
 /**
  * DesktopWebLinkCoordinator receiveLink: a server publishes its config before its projects, so a source control link
  * handed over at launch waits until every environment's projects are in (allReachableShellsLiveAtom), lest it miss
- * its project; without the local environment that never settles, so it does not wait. A `t3code://` link waits too,
- * as its route does (NewThreadLinkView reads the same atom). Any other link waits only for the connection.
+ * its project, the local environment switched off or not. A `t3code://` link waits too, as its route does
+ * (NewThreadLinkView reads the same atom). Any other link waits only for the connection.
  */
 export function promptLinksReady(client: T3Client, value: string): boolean {
   if (!client.ready) return false;
-  const holds = !!promptLinkAppPath(value) || (prLinksOpenInApp(client) && !localPrimary.disabled
+  const holds = !!promptLinkAppPath(value) || (prLinksOpenInApp(client)
     && (parseChangeRequestUrl(value) !== null || parseCommitUrl(value) !== null));
   return !holds || allShellsBootstrapped(client);
 }

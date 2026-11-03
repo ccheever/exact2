@@ -27,6 +27,7 @@ import { autoBalanceState } from '../composer/auto-balance';
 import { threadDetailsMenu, threadDetailsVisibility } from './thread-details-items';
 import { NO_SERVERS, threadServersView, watchThreadServers } from './thread-servers'; // ThreadServersPanel
 import { NO_USAGE, threadContext, threadUsage } from './thread-details-usage'; // ThreadDetailsUsage, ThreadDetailsContext
+import { lineageTags } from '../sidebar/thread-tag-filter';
 
 /** EDITORS in contracts/editor.ts order; `file-manager` is Finder on macOS (editorLabelForPlatform). */
 export const EDITORS: [string, string][] = EDITOR_DEFINITIONS.map(editor => [editor.id, editor.label]);
@@ -181,6 +182,6 @@ export async function shellDetails(client: T3Client, native: Native | null | und
     prRows: await prRowsView(client, native, { status, threadId, now, projectId: str(project?.id), rightGap, inline: inline && !open, visible }),
     automations: await threadAutomations(client, native, thread ? threadId : '', now), // thread-automations.ts: ThreadAutomationsPanel
     ...(thread ? lineageView(client.shell.threads, client.threadId === threadId ? client.projection : null, threadId, arr(client.config.providers), now,
-      workflows, phasesOpen, phasesClosed, client.writable, nativeParent) : noLineage),
+      workflows, phasesOpen, phasesClosed, client.writable, nativeParent, lineageTags(client)) : noLineage),
   };
 }

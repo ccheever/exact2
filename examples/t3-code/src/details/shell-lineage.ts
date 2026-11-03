@@ -193,7 +193,7 @@ const createdAt = (node: Node | undefined) => { const at = Date.parse(str(node?.
  */
 export function lineageView(threads: Obj[], projection: Obj | null, threadId: string, providers: Obj[], now: number,
   expanded: string[] = [], phasesOpen: string[] = [], phasesClosed: string[] = [], writable = true,
-  nativeParent: { threadId: string; status: string } | null = null) {
+  nativeParent: { threadId: string; status: string } | null = null, tags: { hidden: (threadId: string) => boolean; hiding: boolean } = { hidden: () => false, hiding: false }) {
   const graph = relationshipGraph(threads, projection);
   const mergeTarget = mergeTargetOf(projection);
   const agents = new Map(arr(projection?.subagents).filter(agent => str(agent.childThreadId)).map(agent => [str(agent.childThreadId), agent]));
@@ -205,7 +205,11 @@ export function lineageView(threads: Obj[], projection: Obj | null, threadId: st
   }
   const pin = (row: { threadId: string; edge: Edge }) => isParentRelationship(row.edge, threadId) ? 0 : row.threadId === mergeTarget ? 1 : 2;
   // orderWebThreadLineageRows: parent, merge target, then newest first; missing shells sink.
-  const ordered = immediateRelationships(graph, threadId).sort((left, right) => {
+  // The tag filter: a hidden relation leaves, and while hiding so does an unloaded parent, fork or transfer, which may be
+  // hidden; unloaded subagent children (idle, left out of the shell) follow this visible thread, so they stay.
+  const tagHidden = (row: { threadId: string; edge: Edge }) => tags.hidden(row.threadId)
+    || (tags.hiding && graph.nodes.get(row.threadId)?.missing === true && (row.edge.kind !== 'subagent' || isParentRelationship(row.edge, threadId)));
+  const ordered = immediateRelationships(graph, threadId).filter(row => !tagHidden(row)).sort((left, right) => {
     const rank = pin(left) - pin(right);
     if (rank) return rank;
     const a = createdAt(graph.nodes.get(left.threadId)), b = createdAt(graph.nodes.get(right.threadId));
@@ -269,7 +273,7 @@ export function lineageView(threads: Obj[], projection: Obj | null, threadId: st
     return entries;
   });
   const mergeRun = latestMergeBackRun(projection);
-  const parentTitle = mergeTarget ? str(graph.nodes.get(mergeTarget)?.thread?.title) : '';
+  const parentTitle = mergeTarget && !tags.hidden(mergeTarget) ? str(graph.nodes.get(mergeTarget)?.thread?.title) : '';
   return {
     // The Side chats section's rows are not Lineage's; Disconnect lives in Lineage's heading, so a thread with only side
     // chats still shows it.

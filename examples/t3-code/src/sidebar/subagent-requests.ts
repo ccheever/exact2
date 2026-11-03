@@ -1,12 +1,11 @@
 // A delegated subagent or a side chat waiting on the user shows on the threads above it,
-// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 2359643cff:
+// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 2359643cff (sideChatRequest at 5d3d78ab93):
 // packages/client-runtime/src/state/threadShell.ts (isChildRunLive,
 // subagentRequest, sideChatRequest, pendingSubagentRequestsByThread, childThreadInputsAtom,
 // childThreadInputsTitle). Subagent and side chat rows are hidden in the sidebar, so their
 // parents carry the request: status, notifications, snooze and the composer.
 import { obj, str, type Obj } from '../client/domain';
 import { isProviderSubagent } from '../composer/composer-controls-subagent';
-import { pendingInput } from './sidebar-model';
 
 export type PendingSubagentRequest = 'approval' | 'user_input';
 
@@ -27,15 +26,11 @@ export function subagentRequest(thread: Obj): PendingSubagentRequest | null {
   return kind === 'user_input' ? 'user_input' : 'approval';
 }
 
-/**
- * A side chat asks its user directly, so questions roll up to the parent as well as approvals, when its own row would
- * show them.
- */
+/** A side chat asks its user directly, so questions roll up to the parent as well as approvals. */
 export function sideChatRequest(thread: Obj): PendingSubagentRequest | null {
   const kind = thread.pendingRuntimeRequest == null ? undefined : str(obj(thread.pendingRuntimeRequest).kind);
   if (kind === undefined || kind === 'auth_refresh' || obj(thread.lineage).sideChat !== true) return null;
-  if (kind !== 'user_input') return 'approval';
-  return pendingInput(thread) ? 'user_input' : null;
+  return kind === 'user_input' ? 'user_input' : 'approval';
 }
 
 const byArray = new WeakMap<Obj[], Map<string, PendingSubagentRequest>>();

@@ -57,7 +57,7 @@ describe('the rename field closing', () => {
 });
 
 describe('the row takes the focus back once the field has gone', () => {
-  test('the root holds the row until the sidebar\'s rename ends, then focuses its treeitem', () => {
+  test('the root holds the row until the sidebar\'s rename ends, then focuses its button', () => {
     const focused: string[] = [];
     const state: Env = { renameReturn: '', workspaceArea: 'sidebar' };
     root.call('sidebarRenameClosed', state, {}, ['t1']);
@@ -76,10 +76,10 @@ describe('the row takes the focus back once the field has gone', () => {
     expect([state.renameReturn, focused]).toEqual(['', []]);
   });
 
-  test('the row\'s treeitem is the button whose id the root focuses', () => {
+  test('the row\'s button is the one whose id the root focuses, in the Tab order', () => {
     const rows = appText('src/sidebar/sidebar-row.contract').split('\n').filter(line => line.includes('button cursor="pointer" id=`thread-${t.id}`'));
     expect(rows.length).toBe(2); // the card row and the compact row
-    for (const row of rows) expect(row).toContain('role="treeitem"');
+    for (const row of rows) expect(row).not.toContain('tabindex=');
   });
 });
 

@@ -107,7 +107,7 @@ describe('F6 between workspace areas', () => {
     w.enter('composer', 'composer');
     w.move(1); w.move(1); w.move(1);
     expect([w.state.workspaceArea, w.focused.at(-1)]).toEqual(['sidebar', 'thread-t1']);
-    // The row a focus id names is a treeitem button; the row's outer column takes no focus.
+    // The row a focus id names is its button; the row's outer column takes no focus.
     expect(w.focused).not.toContain('row-t1');
   });
 
