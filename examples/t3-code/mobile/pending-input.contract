@@ -4,6 +4,7 @@ component PendingInputCard
     data: PendingInputView
     colors: PendingInputColors
     maxHeight: number
+    reducedMotion: bool
     act: action
     coverage: action
   state collapsed = false
@@ -38,7 +39,7 @@ component PendingInputCard
           t3-symbol symbol-name="stop.fill" symbol-tint=colors.dangerForeground width=14 height=14
       column position="absolute" left=0 right=0 bottom=0 height=maxHeight overflow="hidden" justify-content="flex-end" pointer-events=(collapsed ? "none" : "auto") aria-hidden=collapsed
         column position="relative" max-height=maxHeight gap=8.75 padding=14 border-radius=20 border-width=1 border-style="solid" border-color=colors.border background-color=colors.card
-          translate=`0px ${collapsed ? cardHeight : 0}px` transition="translate 220ms ease-out" testId="pending-input-card"
+          translate=`0px ${collapsed ? cardHeight : 0}px` transition=(reducedMotion ? "none" : "translate 220ms ease-out") testId="pending-input-card"
           view id=`question-card-bounds-${data.cardId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=measured
           button appearance="none" press=toggle text-align="left" aria-label="Collapse user input" testId="pending-input-collapse"
             row align-items="start" gap=7

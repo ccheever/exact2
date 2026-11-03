@@ -613,6 +613,15 @@ describe('bake and command boundary', () => {
     expect((await mobileCommand(['environment-ssh-connect'], native, unusedStorage)).message).toContain('desktop app');
     expect(requests).toEqual([]);
   });
+  test('thread usage recovery converts a failed URL open into a command message', async () => {
+    const native: Native = { available: true, watch() {}, later: async request => {
+      if (obj(request).op === 'mobileOpenURL') return { ok: false, generation: 0, error: { kind: 'transport', message: 'Browser unavailable', uncertain: false } };
+      throw new Error('unexpected native work');
+    } };
+    await expect(mobileCommand(['pageslocal:chatgpt-usage'], native, unusedStorage)).resolves.toMatchObject({
+      message: 'The usage URL was not opened.',
+    });
+  });
 });
 
 describe('mobile environment editing', () => {

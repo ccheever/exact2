@@ -6,6 +6,12 @@ import type { Native } from './shared/protocol';
 import { mobileStreamOwner } from './browser-mobile-owner';
 import { applyBrowserEvent, applyBrowserList, emptyBrowserTabs, normalizeMobilePreviewUrl } from './browser-mobile-model';
 import { mobileBrowserRead, mobileBrowserSnapshot, mobileBrowserAction, mobileBrowserEvents, mobileBrowserStatus, BROWSER_EVENTS } from './browser-mobile-data';
+import { appText } from '../tests/support/app-files';
+
+test('browser and device fullscreen routes request hidden system bars from the host', () => {
+  const app = appText('mobile/app.contract');
+  expect(app).toContain('navigationSystemBars=((entry.name == "threadBrowser" or entry.name == "threadDevices") ? "hidden" : "auto")');
+});
 
 function fixture() {
   const client = new T3Client(); client.origin = 'https://preview.test'; client.environmentId = 'env'; client.threadId = 'thread'; client.generation = 4;

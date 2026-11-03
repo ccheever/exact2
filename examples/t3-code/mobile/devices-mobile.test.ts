@@ -8,6 +8,7 @@ import { mobileStreamOwner } from './browser-mobile-owner';
 import { mobileDevicesRead, mobileDevicesAction, mobileDevicesSnapshot, mobileDevicesEvents } from './devices-mobile-data';
 import { threadDevicePreviews } from './devices-mobile-model';
 import { createShakeDetector } from './devices-mobile-shake';
+import { appText } from '../tests/support/app-files';
 
 test('same Android serial on different hosts resolves its owning host and device', () => {
   const rows = threadDevicePreviews({ sessions: [{ hostId: 'b', deviceId: 'serial', threadId: 't', platform: 'android' }], hosts: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }],
@@ -59,6 +60,17 @@ test('device retry markers reopen the shared subscription without changing its r
  mobileDevicesEvents([{seq:1,generation:4,key:DEVICE_STATE_KEY,subscriptionId:'4-9',value:{_retryDue:true}}],client);
  expect(mobileDevicesSnapshot(owner,client).needsRefresh).toBe(true);await mobileDevicesRead(owner,native,client);
  expect(calls.filter(call=>call.op==='subscribe')).toHaveLength(2);expect(mobileDevicesSnapshot(owner,client).needsRefresh).toBe(false);
+});
+
+test('device controls use the source glass surface and fade without intercepting the hidden handle', () => {
+  const source = appText('mobile/devices-mobile.contract');
+  expect(source).toContain('t3-composer-material position="absolute" inset=0');
+  expect(source).toContain('material-radius=32');
+  expect(source).toContain('material-tint=colors.glassTint');
+  expect(source).toContain('material-surface=colors.glassFallback');
+  expect(source).toContain('transition=(reducedMotion ? "none" : "opacity 160ms linear")');
+  expect(source).toContain('pointer-events=(data.controlsVisible ? "auto" : "none")');
+  expect(source).toContain('if not data.controlsVisible');
 });
 
 
