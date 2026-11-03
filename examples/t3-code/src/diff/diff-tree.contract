@@ -1,6 +1,7 @@
-// The Diff panel's file tree, measured against T3 Code 1e2ecbd975 DiffFileTree.tsx (MIT; see
+// The Diff panel's file tree, measured against T3 Code 5d3d78ab93 DiffFileTree.tsx (MIT; see
 // LICENSE-T3): a "Files" header with the count and Collapse/Expand all folders, then @pierre/trees'
-// compact rows, folders open and flattened (diff-tree.ts lays them out). A file press reveals the
+// compact rows with their file icons and git status colours, folders open and flattened (diff-tree.ts
+// lays them out). A file press reveals the
 // file in the diff: it opens, a lazy file is asked for (diff-review.ts), the list scrolls to it.
 use Snapshot from "../shared/shapes.contract"
 use DiffTreeRow from "../shared/shapes.contract"
