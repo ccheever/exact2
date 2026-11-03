@@ -382,7 +382,7 @@ mod find_tests {
         assert_eq!(runs.len(), 3);
         for run in &runs[..2] {
             let Value::Record(run) = run else { panic!() };
-            let Value::List(parts) = &run[11] else {
+            let Value::List(parts) = &run[14] else {
                 panic!()
             };
             let Value::Record(part) = &parts[0] else {
@@ -427,7 +427,7 @@ mod find_tests {
             panic!()
         };
         assert_eq!(
-            parts(&code[23]),
+            parts(&code[24]),
             [
                 ("needle".into(), 1.0, 0.0),
                 (" = ".into(), 0.0, 6.0),
@@ -441,14 +441,14 @@ mod find_tests {
             panic!()
         };
         assert_eq!(
-            lines[24],
+            lines[25],
             Value::list([0.0, 1.0, 3.0, 3.0, 3.0].map(Value::Number).to_vec())
         );
         // A block without a match is one part, and has no lines' index.
         let Value::Record(plain) = &blocks("```ts\nplain\ntext\n```")[0] else {
             panic!()
         };
-        assert_eq!(plain[24], Value::list(Vec::new()));
+        assert_eq!(plain[25], Value::list(Vec::new()));
         // A run's count from the run's start, not the block's.
         let Value::Record(prose) = &blocks("**bold** needle")[0] else {
             panic!()
@@ -460,7 +460,7 @@ mod find_tests {
             panic!()
         };
         assert_eq!(
-            parts(&second[11]),
+            parts(&second[14]),
             [(" ".into(), 0.0, 0.0), ("needle".into(), 1.0, 1.0)]
         );
     }
@@ -500,9 +500,9 @@ mod find_tests {
             assert!(blocks
                 .iter()
                 .all(|block| matches!(block, Value::Record(fields)
-                    if fields.len() == 25 && matches!(fields[18], Value::Number(_))
-                        && fields[19].is_str() && matches!(fields[23], Value::List(_))
-                        && matches!(fields[24], Value::List(_)))));
+                    if fields.len() == 26 && matches!(fields[18], Value::Number(_))
+                        && fields[19].is_str() && fields[23].is_str() && matches!(fields[24], Value::List(_))
+                        && matches!(fields[25], Value::List(_)))));
         }
     }
     #[test]
@@ -538,16 +538,17 @@ mod find_tests {
         let Value::Record(block) = &blocks[0] else {
             panic!("block")
         };
-        assert_eq!(block.len(), 25);
+        assert_eq!(block.len(), 26);
         assert!(matches!(block[18], Value::Number(_)));
         assert!(block[19].is_str());
-        assert!(matches!(block[23], Value::List(_)));
+        assert!(block[23].is_str());
         assert!(matches!(block[24], Value::List(_)));
+        assert!(matches!(block[25], Value::List(_)));
         let Value::List(runs) = &block[7] else {
             panic!("runs")
         };
         assert!(runs.iter().all(|run| matches!(run, Value::Record(fields)
-            if fields.len() == 12 && matches!(fields[11], Value::List(_)))));
+            if fields.len() == 15 && matches!(fields[14], Value::List(_)))));
         assert!(runs.iter().any(|run| matches!(run, Value::Record(fields)
             if fields[5].as_str() == Some(href) && fields[1].as_str() == Some("Thread"))));
     }

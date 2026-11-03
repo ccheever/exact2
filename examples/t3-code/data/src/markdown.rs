@@ -723,7 +723,7 @@ fn chat_document(
             if let Value::Record(fields) = &table {
                 let mut fields = fields.to_vec();
                 fields.push(Value::str(directions[index]));
-                fields.extend([Value::str(""), Value::Number(0.0), Value::Number(0.0)]);
+                fields.extend([Value::str(""), Value::Number(0.0), Value::Number(0.0), Value::str("")]);
                 table = Value::record(fields);
             }
             blocks.push(table);
@@ -735,7 +735,7 @@ fn chat_document(
             unreachable!()
         };
         let mut fields = fields.to_vec();
-        // The parser's `dark`, `width` and `height` follow the chat block's own fields (ChatBlock).
+        // The parser's `dark`, `width`, `height` and `align` follow the chat block's own fields (ChatBlock).
         let image = fields.split_off(9);
         fields.push(Value::Number(gap));
         let flow = flow_tokens(block);
