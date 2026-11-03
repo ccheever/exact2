@@ -328,14 +328,14 @@ component Blocks
     length: number
   view
     if block.kind == "heading"
-      text role="heading" aria-level=block.depth font-size="1em" font-weight=400 testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=22 padding-bottom=6 box-sizing="border-box" color="strongInk" line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
+      text role="heading" aria-level=block.depth font-size="1em" font-weight=400 testId=`block-${block.id}` text-align=(block.align != "" ? block.align : "start") width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=22 padding-bottom=6 box-sizing="border-box" color="strongInk" line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
         if spoken
           Marked(words=block.runs.map(r => r.text).join(""), at=at, length=length, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700))
         else
           Runs(runs=block.runs, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700))
     else
       if block.kind == "paragraph"
-        text testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=6 padding-bottom=8 box-sizing="border-box" color="ink" line-height=1.625
+        text testId=`block-${block.id}` text-align=(block.align != "" ? block.align : "start") width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=6 padding-bottom=8 box-sizing="border-box" color="ink" line-height=1.625
           if spoken
             Marked(words=block.runs.map(r => r.text).join(""), at=at, length=length, size=16, weight=400)
           else
@@ -392,7 +392,8 @@ component Blocks
                               Runs(runs=c.runs, size=13, weight=400)
                 else
                   if block.kind == "image"
-                    column testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=10 padding-bottom=12 gap=6 box-sizing="border-box"
+                    // A `<p>` or `<div>` `align` places it in the column as `text-align` places an inline image.
+                    column testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=10 padding-bottom=12 gap=6 box-sizing="border-box" align-items=(block.align == "center" ? "center" : block.align == "right" ? "flex-end" : "stretch")
                       image (dark and block.dark != "" ? block.dark : block.href) width="100%" max-width=(block.width > 0 ? `${block.width}px` : "none") object-fit="contain" aria-label=block.text
                       if block.text != ""
                         text block.text font-size=12 color="faintInk"

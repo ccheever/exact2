@@ -372,7 +372,8 @@ impl Parser<'_> {
     /// of its images, or each one's alt text.
     fn html_image(&mut self) -> bool {
         let rest = &self.text[self.at..self.frame.end];
-        if !self.html.images || !crate::html::starts_image(rest) {
+        let links = self.html.links();
+        if !self.html.images || !crate::html::starts_image(rest, links.is_some()) {
             return false;
         }
         let mut limit = rest.len().min(crate::html::MARKUP_LIMIT);
@@ -381,7 +382,8 @@ impl Parser<'_> {
         }
         // The paragraph's end closes a picture left open.
         let ends = limit == rest.len() && self.frame.end == self.text.len();
-        let Some(markup) = crate::html::element(&rest[..limit], self.html.schemes, ends) else {
+        let Some(markup) = crate::html::element(&rest[..limit], self.html.schemes, links, ends)
+        else {
             return false;
         };
         for image in markup.images {

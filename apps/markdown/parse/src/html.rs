@@ -6,9 +6,16 @@
 //! `data-dark-src`, `data-light-src` and `data-local-src`, and of a
 //! `<picture>` only the `<source>`s whose `media` is a `prefers-color-scheme`
 //! query, the one choice a reader can make without a browser. The images may
-//! sit inside elements that draw nothing of their own (`<div>`, `<p>`, …).
-//! Nothing else in the markup is read, and markup holding anything else is
-//! not images: the caller shows it literally, as it shows all other raw HTML.
+//! sit inside elements that draw nothing of their own (`<div>`, `<p>`, …),
+//! whose `align` is read as the CSS `text-align` HTML maps it to, and, for a
+//! caller that draws images inside a line, inside an `<a href>`, whose link
+//! they then carry. Nothing else in the markup is read, and markup holding
+//! anything else is not images: the caller shows it literally, as it shows
+//! all other raw HTML.
+//!
+//! An `<img>` is inline content, so the markup's images are laid out in line
+//! boxes ([`Line`]): those that follow one another with no `<p>`, `<div>` or
+//! `<br>` between are drawn side by side.
 
 use crate::entities::decode;
 
@@ -33,6 +40,32 @@ pub struct Image {
     pub dark: String,
     /// The same for `data-light-src` and `(prefers-color-scheme: light)`.
     pub light: String,
+    /// The `href` of the `<a>` around it, empty when there is none or it
+    /// names a scheme the caller does not allow (the sanitizer drops such an
+    /// `href`, and its image is drawn with no link).
+    pub link: String,
+    /// Whether white space comes before it on its line, which HTML draws as
+    /// one space between it and what is before it.
+    pub spaced: bool,
+}
+
+/// One line box of a markup's images: `images[start..end]`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Line {
+    /// The index of its first image.
+    pub start: usize,
+    /// One past its last image.
+    pub end: usize,
+    /// The CSS `text-align` HTML maps the `align` of the innermost `<p>` or
+    /// `<div>` around it that has one to: `left`, `right`, `center` or
+    /// `justify`, or empty.
+    pub align: String,
+    /// Whether no `<p>`, `<div>` or `<br>` comes before it in the markup, so
+    /// it goes on with the line of what the markup follows.
+    pub continues: bool,
+    /// Whether none comes after it either, so the markup that follows may
+    /// go on with it.
+    pub open: bool,
 }
 
 /// How far one run of image markup may reach: a `<picture>` with a few
@@ -50,16 +83,24 @@ const WRAPPERS: [&str; 6] = ["div", "p", "center", "figure", "strong", "em"];
 /// The wrappers whose start tag closes an open `<p>`, as HTML's does.
 const CLOSES_P: [&str; 4] = ["div", "p", "center", "figure"];
 
+/// The wrappers that are blocks of their own after the sanitizer: their
+/// images start a line and end it. It drops `<center>` and `<figure>`,
+/// keeping what is inside them, and `<strong>`, `<em>` and `<a>` are inline.
+const BLOCKS: [&str; 2] = ["div", "p"];
+
 /// What one element's markup at the start of a text draws.
 #[derive(Debug, Default)]
 pub struct Markup {
     /// The images, in order.
     pub images: Vec<Image>,
+    /// The line boxes the images are drawn in, in order.
+    pub lines: Vec<Line>,
     /// The byte length of the markup.
     pub len: usize,
-    /// The elements the end of the text closed, innermost last: their end
-    /// tags may follow later in the document.
-    pub open: Vec<String>,
+    /// The elements the end of the text closed, innermost last, each with
+    /// the `text-align` its `align` gives what it holds (see [`Line`]):
+    /// their end tags may follow later in the document.
+    pub open: Vec<(String, String)>,
 }
 
 /// The images that the element at the start of `text` draws: one `<img>`,
@@ -69,29 +110,43 @@ pub struct Markup {
 /// the markup (a blank line, the end of a paragraph or document), which
 /// closes the elements left open, as the end of an HTML parser's input does;
 /// otherwise an unfinished element is none. `schemes` are the URL schemes a
-/// source may name (see [`allowed`]).
-pub fn element(text: &str, schemes: &[&str], ends: bool) -> Option<Markup> {
+/// source may name (see [`allowed`]). With `links`, the schemes an `<a>`'s
+/// `href` may name, an `<a>` holding only images is read too; without, it is
+/// anything else, as a reader that draws images only as blocks would lose
+/// its link.
+pub fn element(text: &str, schemes: &[&str], links: Option<&[&str]>, ends: bool) -> Option<Markup> {
     let first = tag(text)?;
-    let starts = first.name == "img" || first.name == "picture" || wrapper(&first.name);
+    let link = links.is_some() && first.name == "a";
+    let starts = first.name == "img" || first.name == "picture" || wrapper(&first.name) || link;
     if first.closing || !starts {
         return None;
     }
-    let inline = matches!(first.name.as_str(), "strong" | "em");
+    let inline = matches!(first.name.as_str(), "strong" | "em" | "a");
     let mut markup = Markup::default();
     let mut open: Vec<Open> = Vec::new();
+    // Each image's line: a `<p>` or `<div>` starting or ending, or a `<br>`,
+    // starts the next one.
+    let mut line = 0;
+    let mut lines = Vec::new();
+    let mut spaced = false;
     let mut next = Some(first);
     let mut at = 0;
     loop {
         let tag = match next.take() {
             Some(tag) => tag,
             None => {
-                at += space(&text[at..]);
+                let skipped = space(&text[at..]);
+                spaced |= skipped > 0;
+                at += skipped;
                 if let Some(len) = comment(&text[at..]) {
                     at += len;
                     continue;
                 }
                 if at == text.len() && ends {
-                    markup.open = open.iter().map(|o| o.name.clone()).collect();
+                    markup.open = open
+                        .iter()
+                        .map(|o| (o.name.clone(), o.align.clone()))
+                        .collect();
                     close(&mut open, 0, &mut markup.images, schemes);
                     break;
                 }
@@ -102,11 +157,24 @@ pub fn element(text: &str, schemes: &[&str], ends: bool) -> Option<Markup> {
         let picture = open.last_mut().and_then(|o| o.picture.as_mut());
         match (tag.name.as_str(), tag.closing, picture) {
             ("img", false, picture) => {
-                let (image, authored) = image(&tag, schemes);
+                let (mut image, authored) = image(&tag, schemes);
                 if let Some(picture) = picture.filter(|p| p.first.is_none()) {
                     picture.first = Some(markup.images.len());
                     picture.authored = authored;
                 }
+                image.link = open
+                    .iter()
+                    .rev()
+                    .find_map(|o| o.link.clone())
+                    .unwrap_or_default();
+                image.spaced = spaced && lines.last().is_some_and(|(l, _)| *l == line);
+                spaced = false;
+                let align = open
+                    .iter()
+                    .rev()
+                    .map(|o| o.align.as_str())
+                    .find(|a| !a.is_empty());
+                lines.push((line, align.unwrap_or_default().to_string()));
                 markup.images.push(image);
             }
             ("source", false, Some(picture)) => picture.source(&tag),
@@ -115,13 +183,38 @@ pub fn element(text: &str, schemes: &[&str], ends: bool) -> Option<Markup> {
                 if CLOSES_P.contains(&name) {
                     if let Some(p) = open.iter().rposition(|o| o.name == "p") {
                         close(&mut open, p, &mut markup.images, schemes);
+                        line += 1;
                     }
                 }
-                open.push(Open::new(name, None));
+                let mut element = Open::new(name, None);
+                if BLOCKS.contains(&name) {
+                    line += 1;
+                    element.align = text_align(name, tag.attribute("align"));
+                }
+                open.push(element);
             }
-            ("br", false, None) => {}
+            ("a", false, None) if links.is_some() => {
+                // An `<a>` inside an `<a>` is one HTML would close first.
+                if open.iter().any(|o| o.link.is_some()) {
+                    return None;
+                }
+                let href = tag.attribute("href").unwrap_or_default();
+                let allowed = links.is_some_and(|links| protocol_allowed(&href, links));
+                let mut element = Open::new("a", None);
+                element.link = Some(if allowed { href } else { String::new() });
+                open.push(element);
+            }
+            ("br", false, None) => line += 1,
             (name, true, _) => match open.iter().rposition(|o| o.name == name) {
-                Some(index) => close(&mut open, index, &mut markup.images, schemes),
+                Some(index) => {
+                    if open[index..]
+                        .iter()
+                        .any(|o| BLOCKS.contains(&o.name.as_str()))
+                    {
+                        line += 1;
+                    }
+                    close(&mut open, index, &mut markup.images, schemes)
+                }
                 // A stray `</p>` is an empty paragraph; HTML ignores any
                 // other end tag that closes nothing.
                 None if name == "p" => return None,
@@ -136,20 +229,60 @@ pub fn element(text: &str, schemes: &[&str], ends: bool) -> Option<Markup> {
     if inline && markup.images.is_empty() {
         return None;
     }
+    for (index, (id, align)) in lines.iter().enumerate() {
+        if index > 0 && lines[index - 1].0 == *id {
+            if let Some(last) = markup.lines.last_mut() {
+                last.end = index + 1;
+            }
+            continue;
+        }
+        markup.lines.push(Line {
+            start: index,
+            end: index + 1,
+            align: align.clone(),
+            continues: *id == 0,
+            open: false,
+        });
+    }
+    if let (Some(last), Some((id, _))) = (markup.lines.last_mut(), lines.last()) {
+        last.open = *id == line;
+    }
     markup.len = at;
     Some(markup)
 }
 
-/// Whether `text` starts with an `<img` or `<picture` tag, the cheap test
-/// before [`element`] where only an image may start.
-pub fn starts_image(text: &str) -> bool {
-    starts_tag(text, &["img", "picture"])
+/// The `text-align` HTML's rendering maps a `<p>`'s or `<div>`'s `align` to
+/// (HTML §15.3.3, §15.3.6): `left`, `right`, `center` (a `<div>`'s `middle`
+/// too) and `justify`, compared without case; any other value is none.
+fn text_align(name: &str, align: Option<String>) -> String {
+    let align = align.unwrap_or_default().trim().to_ascii_lowercase();
+    match align.as_str() {
+        "left" | "right" | "center" | "justify" => align,
+        "middle" if name == "div" => "center".to_string(),
+        _ => String::new(),
+    }
+}
+
+/// Whether `text` starts with an `<img` or `<picture` tag, or with links an
+/// `<a` one, the cheap test before [`element`] where only an image may start.
+pub fn starts_image(text: &str, links: bool) -> bool {
+    starts_tag(text, &["img", "picture"]) || (links && starts_tag(text, &["a"]))
 }
 
 /// Whether `line` starts with a tag that may begin image markup: `<img`,
-/// `<picture` or a wrapper's.
-pub fn starts_element(line: &str) -> bool {
-    starts_image(line) || starts_tag(line, &WRAPPERS)
+/// `<picture`, a wrapper's, or with links `<a`.
+pub fn starts_element(line: &str, links: bool) -> bool {
+    starts_image(line, links) || starts_tag(line, &WRAPPERS)
+}
+
+/// Whether `line` starts a CommonMark HTML block (spec 0.31 §4.6) of the
+/// tags image markup may start with: a `<div>`, `<p>`, `<center>` or
+/// `<figure>` tag (condition 6), or one whole tag alone on its line
+/// (condition 7). Markup that starts none is inline HTML in a paragraph,
+/// which HTML lays out as a `<p>` of its own.
+pub fn starts_block(line: &str) -> bool {
+    let line = line.trim_start();
+    starts_tag(line, &CLOSES_P) || tag(line).is_some_and(|tag| line[tag.len..].trim().is_empty())
 }
 
 /// The names of the end tags `line` consists of, innermost first, when it
@@ -252,6 +385,7 @@ fn image(tag: &Tag, schemes: &[&str]) -> (Image, [bool; 2]) {
         height: pixels(tag.attribute("height")),
         dark: dark.unwrap_or_default(),
         light: light.unwrap_or_default(),
+        ..Image::default()
     };
     (image, authored)
 }
@@ -266,10 +400,13 @@ fn pixels(value: Option<String>) -> u32 {
     }
 }
 
-/// An element still open while its markup is read.
+/// An element still open while its markup is read: a `<picture>`'s
+/// sources, a block's `text-align`, an `<a>`'s link (empty when refused).
 struct Open {
     name: String,
     picture: Option<Picture>,
+    align: String,
+    link: Option<String>,
 }
 
 impl Open {
@@ -277,6 +414,8 @@ impl Open {
         Open {
             name: name.to_string(),
             picture,
+            align: String::new(),
+            link: None,
         }
     }
 }
