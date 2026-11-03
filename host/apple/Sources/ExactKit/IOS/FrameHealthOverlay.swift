@@ -639,17 +639,25 @@ final class FrameHealthCardView: UIView {
     var shareFrame: CGRect { view(layout.share) }
 
     // Pass redraws to the face, since the card's own layer draws nothing
-    override func setNeedsDisplay() { faceView.setNeedsDisplay() }
-    override func setNeedsDisplay(_ rect: CGRect) { faceView.setNeedsDisplay(rect) }
+    // The face's layer draws the whole face whatever part changed; a view that draws nothing of its own ignores
+    // `setNeedsDisplay()`, so the layer is asked directly
+    override func setNeedsDisplay() { faceView.layer.setNeedsDisplay() }
+    override func setNeedsDisplay(_ rect: CGRect) { faceView.layer.setNeedsDisplay() }
 
     private final class Face: UIView {
         weak var card: FrameHealthCardView?
-        /// Render the face as an image, which Core Animation commits in the update that asks for it; drawn into a backing
-        /// store by `draw(_:)`, it would take UIKit another update a refresh later to show each drawing (LLP 1079.000 §7.4)
-        override func display(_ layer: CALayer) {
-            let format = UIGraphicsImageRendererFormat(for: traitCollection)
-            (format.scale, format.opaque) = (layer.contentsScale, true)
-            layer.contents = UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in card?.drawFace() }.cgImage
+        override class var layerClass: AnyClass { Picture.self }
+
+        /// It renders the face as an image, which Core Animation commits in the update that asks for it; drawn into a
+        /// backing store by `draw(_:)`, the face would take UIKit another update a refresh later to show each drawing
+        /// (LLP 1079.000 §7.4).
+        final class Picture: CALayer {
+            override func display() {
+                guard let face = delegate as? Face, let card = face.card, bounds.width > 0, bounds.height > 0 else { return }
+                let format = UIGraphicsImageRendererFormat(for: face.traitCollection)
+                (format.scale, format.opaque) = (contentsScale, true)
+                contents = UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in card.drawFace() }.cgImage
+            }
         }
     }
 

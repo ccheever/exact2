@@ -544,6 +544,42 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertEqual(moved.close, square.close)
     }
 
+    func testTheCardsFaceShowsItsTitleAndButtons() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window for the frame-health card")
+        }
+        let health = FrameHealth(enabled: true)
+        defer { health.destroy() }
+        let overlay = FrameHealthOverlay(health: health)
+        let window = hosted(overlay, in: scene, size: CGSize(width: 430, height: 900))
+        window.overrideUserInterfaceStyle = .light
+        overlay.setVisible(true)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        // The face renders itself as an image; what it shows is what the card's layers hold
+        let card = overlay.card, layout = FrameHealthCardFace.Layout(width: card.bounds.width / card.scale)
+        let width = Int(card.bounds.width), height = Int(card.bounds.height)
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        bytes.withUnsafeMutableBytes { buffer in
+            let ctx = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+            ctx.translateBy(x: 0, y: CGFloat(height))
+            ctx.scaleBy(x: 1, y: -1)
+            card.layer.render(in: ctx)
+        }
+        // Text and symbols draw in the label's colours on the card's white ground in light mode
+        func inked(_ rect: CGRect) -> Int {
+            let r = rect.applying(CGAffineTransform(scaleX: card.scale, y: card.scale)).integral
+            var n = 0
+            for y in max(0, Int(r.minY))..<min(height, Int(r.maxY)) {
+                for x in max(0, Int(r.minX))..<min(width, Int(r.maxX)) where bytes[(y * width + x) * 4] < 160 { n += 1 }
+            }
+            return n
+        }
+        XCTAssertGreaterThan(inked(layout.title), 30, "the title shows")
+        XCTAssertGreaterThan(inked(layout.close), 5, "Close shows its symbol")
+        overlay.setVisible(false)
+    }
+
     func testTheCardFollowsDarkModeWithoutBeingMoved() throws {
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
             throw missing("scene", "a real host window whose appearance changes")
