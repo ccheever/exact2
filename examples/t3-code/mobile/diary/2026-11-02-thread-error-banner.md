@@ -17,5 +17,5 @@ The shared `threadErrorView` seam already centralizes usage-limit suppression, w
 - install / first build: smooth
 - editing app.contract / app.ts: smooth
 - iOS build: smooth
-- driving the app: pending runtime launch check
+- driving the app: smooth on the iOS simulator; the empty Threads route launched and exposed its controls
 - properties: smooth
