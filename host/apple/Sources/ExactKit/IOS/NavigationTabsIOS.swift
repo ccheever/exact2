@@ -318,8 +318,9 @@ extension NavigationHost {
         guard let bar = tabController?.tabBar else { return }
         if let tabs = tabItemsSource?.0, tabs.tablist === list, tabs.tabs.indices.contains(routerTab) {
             let selected = tabs.tabs[routerTab]
-            if selected.ownColor("tint_color") != nil,
-               let light = selected.undimmedChannels("tint_color", dark: false), let dark = selected.undimmedChannels("tint_color", dark: true) {
+            // A tint of its own; the tint itself, where the tab has no `ownAccent`, is the bar's to inherit, as below
+            if selected.ownColor("tint_color") != nil, selected.style["tint_color"]?.tintAlpha != 1 || selected.ownAccent != nil,
+               let light = selected.carriedChannels("tint_color", dark: false), let dark = selected.carriedChannels("tint_color", dark: true) {
                 let wanted = [light, dark]
                 guard tabTint != wanted || !tabTintOwn else { return }
                 tabTint = wanted
@@ -343,7 +344,7 @@ extension NavigationHost {
             bar.tintColor = nil
             return
         }
-        let wanted = [source?.channels("accent_color", dark: false), source?.channels("accent_color", dark: true)]
+        let wanted = [source?.carriedChannels("accent_color", dark: false), source?.carriedChannels("accent_color", dark: true)]
         guard wanted != tabTint || tabTintOwn else { return }
         tabTint = wanted
         tabTintOwn = false
@@ -353,7 +354,7 @@ extension NavigationHost {
         // bar's container has the tint the bar would inherit.
         bar.tintColor = source.map { source in
             UIColor { [weak source, weak bar] traits in
-                source?.channels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) }
+                source?.carriedChannels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) }
                     ?? bar?.superview?.tintColor ?? .systemBlue
             }
         }

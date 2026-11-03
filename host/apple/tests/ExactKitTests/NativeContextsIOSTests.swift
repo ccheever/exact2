@@ -158,7 +158,8 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(pin.image?.isSymbolImage, true, "a custom action's symbol is a system image, not a snapshot")
         XCTAssertEqual(delete.accessibilityLabel, "Delete", "its title names it")
         XCTAssertEqual(mute.accessibilityLabel, "Hide alerts")
-        XCTAssertEqual(mute.backgroundColor, TextEngine.color([88, 86, 214, 255]), "the accent its author wrote on it")
+        let srgb = try XCTUnwrap(mute.backgroundColor?.cgColor.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil)?.components)
+        for (got, want) in zip(srgb, [88.0 / 255, 86.0 / 255, 214.0 / 255, 1]) { XCTAssertEqual(Double(got), want, accuracy: 0.002, "the accent its author wrote on it") }
         XCTAssertEqual(configuration.actions[4].backgroundColor, UIContextualAction(style: .normal, title: nil) { _, _, _ in }.backgroundColor,
                        "UIKit's grey: an accent the action only inherits is not its own")
         var pressed: [UInt32] = []

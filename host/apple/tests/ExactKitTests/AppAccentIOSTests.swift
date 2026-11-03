@@ -28,6 +28,13 @@ final class AppAccentIOSTests: XCTestCase {
         _ = c?.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)).getRed(&r, green: &g, blue: &b, alpha: &a)
         return [r, g, b].map { (Double($0) * 255).rounded() }
     }
+    /// `c` as it draws in `view`, its red, green, blue (0...255) and alpha (0...1): UIKit's tint
+    /// (`UIColor.tintColor`) resolves by the traits of the view it is drawn in
+    private func rgba(_ c: UIColor?, in view: UIView) -> [Double] {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        _ = c?.resolvedColor(with: view.traitCollection).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return [r, g, b].map { (Double($0) * 255).rounded() } + [(Double(a) * 100).rounded() / 100]
+    }
 
     func testTheRootsAccentIsTheWindowsTint() throws {
         let p = presenter(view(1, style: ["accent_color": red]) + view(2) + [["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
@@ -198,22 +205,199 @@ final class AppAccentIOSTests: XCTestCase {
 
     /// A control whose `accent-color` is `AccentColor` resolves the tint it
     /// inherits when it is configured: configured out of the window, as an
-    /// unselected tab's content is, it has UIKit's default, and in the window
-    /// it takes the app's accent there. Behind an alert it keeps the accent,
-    /// which UIKit dims.
+    /// unselected tab's content is, the tint it will draw in, the app's
+    /// accent, which it keeps in the window and follows when the window's tint
+    /// changes. Behind an alert it keeps the accent, which UIKit dims.
     func testAControlConfiguredOutOfTheWindowTakesTheAccentInIt() throws {
         let p = presenter(view(1, style: ["accent_color": red]) + [["op": "roots", "ids": [1]]], faces: [2: tintedFace])
         XCTAssertEqual(rgb(window.tintColor), [232, 28, 36])
         p.viewport.removeFromSuperview()
         p.apply(wireBatch(tintedButton(2) + [["op": "roots", "ids": [1, 2]]]))
         let button = try XCTUnwrap(p.controls.controls[2] as? NativeButtonIOS)
-        XCTAssertEqual(rgb(button.written?.accent), rgb(UIView().tintColor), "out of the window it has UIKit's default tint")
+        XCTAssertEqual(rgb(button.written?.accent), [232, 28, 36], "out of the window it has the app's accent")
         window.addSubview(p.viewport)
-        XCTAssertEqual(rgb(button.written?.accent), [232, 28, 36], "in the window it takes the app's accent")
+        XCTAssertEqual(rgb(button.written?.accent), [232, 28, 36], "in the window it keeps the app's accent")
+        window.tintColor = .systemGreen
+        XCTAssertEqual(rgb(button.written?.accent), rgb(.systemGreen), "it follows the window's tint")
+        window.tintColor = UIColor(red: 232 / 255, green: 28 / 255, blue: 36 / 255, alpha: 1)
         p.viewport.tintAdjustmentMode = .dimmed
         XCTAssertEqual(rgb(button.written?.accent), [232, 28, 36], "behind an alert it keeps the accent")
         p.viewport.tintAdjustmentMode = .automatic
         XCTAssertEqual(rgb(button.written?.accent), [232, 28, 36])
+    }
+
+    /// A bar drawn in the tint it inherits (an `accent-color` of `AccentColor`), and a bar's or a
+    /// spinner's colour made from the tint (a `Highlight` accent) or naming it (a spinner's own
+    /// `color` of `AccentColor`), configured out of the window: each is UIKit's tint
+    /// (`SystemColor.tint`), at its alpha, so in the window it draws the app's accent and follows
+    /// the window's tint when it changes. A bar's `Highlight` is its `progressTintColor`, which
+    /// UIKit greys behind an alert.
+    func testAProgressConfiguredOutOfTheWindowTakesTheAccentInIt() throws {
+        let p = presenter(view(1, style: ["accent_color": red]) + [["op": "roots", "ids": [1]]])
+        p.viewport.removeFromSuperview()
+        let tint: [String: Any] = ["sys": "@tint", "c": [[0, 122, 255, 255], [10, 132, 255, 255]]]
+        let highlight: [String: Any] = ["sys": "@tint/0.2", "c": [[0, 122, 255, 51], [10, 132, 255, 51]]]
+        var inked = progress(4, [:], accent: highlight)
+        inked[0]["style"] = ["text_color": tint, "written": ["text_color"]]
+        p.apply(wireBatch(progress(2, ["value": "0.5"], accent: highlight) + progress(3, [:], accent: highlight) + inked
+            + progress(5, ["value": "0.5"], accent: tint) + [["op": "roots", "ids": [1, 2, 3, 4, 5]]]))
+        let bar = try XCTUnwrap(p.controls.bars[2]), spinner = try XCTUnwrap(p.controls.spinners[3]), ink = try XCTUnwrap(p.controls.spinners[4])
+        let inheriting = try XCTUnwrap(p.controls.bars[5])
+        XCTAssertTrue(bar.progressTintColor === SystemColor.tint(0.2), "a fifth of UIKit's tint")
+        XCTAssertNil(inheriting.progressTintColor, "UIKit draws the bar in its tint")
+        XCTAssertTrue(spinner.color === SystemColor.tint(0.2))
+        XCTAssertEqual(ink.color, UIColor.tintColor)
+        window.addSubview(p.viewport)
+        let drawn = { [self.rgba(bar.progressTintColor, in: bar), self.rgba(spinner.color, in: spinner), self.rgba(ink.color, in: ink), self.rgba(inheriting.tintColor, in: inheriting)] }
+        XCTAssertEqual(drawn(), [[232, 28, 36, 0.2], [232, 28, 36, 0.2], [232, 28, 36, 1], [232, 28, 36, 1]], "in the window, the app's accent")
+        window.tintColor = .systemGreen
+        let green = rgb(.systemGreen)
+        XCTAssertEqual(drawn(), [green + [0.2], green + [0.2], green + [1], green + [1]], "a changed tint")
+        p.viewport.tintAdjustmentMode = .dimmed
+        XCTAssertNotEqual(Array(rgba(bar.progressTintColor, in: bar).prefix(3)), green, "behind an alert UIKit greys the bar's colour")
+        p.viewport.tintAdjustmentMode = .automatic
+    }
+
+    /// A tab bar standing in for a tablist draws its selected item in that tab's colour,
+    /// and a segmented control its tablist's background, here colours that are the tint:
+    /// a native tab's `accent-color`, a symbol tab's symbol's own `color` and a tablist's
+    /// `background-color` of `AccentColor`. Configured out of the window, the bars inherit
+    /// the tint and the background is UIKit's, so in the window they draw the app's accent,
+    /// and the window's tint when it changes.
+    func testATablistsControlConfiguredOutOfTheWindowTakesTheAccentInIt() throws {
+        let tint: [String: Any] = ["sys": "@tint", "c": [[0, 122, 255, 255], [10, 132, 255, 255]]]
+        var home = ButtonFace(); home.symbol = "house"; home.title = "Home"
+        var saved = ButtonFace(); saved.symbol = "star"; saved.title = "Saved"
+        let p = presenter(view(1, style: ["accent_color": red]) + [["op": "roots", "ids": [1]]], faces: [11: home, 12: saved])
+        p.viewport.removeFromSuperview()
+        func tab(_ id: Int, kind: String, selected: Bool, style: [String: Any] = [:]) -> [String: Any] {
+            ["op": "create", "id": id, "kind": kind, "handlers": ["press"], "style": style,
+             "props": (kind == "control" ? ["type": "button"] : [:]).merging(["accessibilityRole": "tab", "accessibilitySelected": selected ? "true" : "false"]) { $1 }]
+        }
+        p.apply(wireBatch([
+            ["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "tablist"]],
+            tab(11, kind: "control", selected: true, style: ["appearance": "auto", "accent_color": tint]),
+            tab(12, kind: "control", selected: false, style: ["appearance": "auto"]),
+            ["op": "create", "id": 20, "kind": "view", "props": ["accessibilityRole": "tablist"]],
+            tab(21, kind: "button", selected: true),
+            tab(22, kind: "button", selected: false),
+            ["op": "create", "id": 23, "kind": "image", "props": ["imageSource": "symbol:sf/house", "symbolName": "house"], "style": ["text_color": tint, "written": ["text_color"]]],
+            ["op": "create", "id": 24, "kind": "text", "props": ["text": "Home"]],
+            ["op": "create", "id": 25, "kind": "image", "props": ["imageSource": "symbol:sf/star", "symbolName": "star"]],
+            ["op": "create", "id": 26, "kind": "text", "props": ["text": "Saved"]],
+            ["op": "children", "id": 10, "ids": [11, 12]],
+            ["op": "children", "id": 21, "ids": [23, 24]],
+            ["op": "children", "id": 22, "ids": [25, 26]],
+            ["op": "children", "id": 20, "ids": [21, 22]],
+            ["op": "create", "id": 30, "kind": "view", "props": ["accessibilityRole": "tablist"], "style": ["background_color": tint, "written": ["background_color"]]],
+            tab(31, kind: "button", selected: true),
+            tab(32, kind: "button", selected: false),
+            ["op": "create", "id": 33, "kind": "text", "props": ["text": "Day"]],
+            ["op": "create", "id": 34, "kind": "text", "props": ["text": "Week"]],
+            ["op": "children", "id": 31, "ids": [33]],
+            ["op": "children", "id": 32, "ids": [34]],
+            ["op": "children", "id": 30, "ids": [31, 32]],
+            ["op": "roots", "ids": [1, 10, 20, 30]],
+            ["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 300.0, "h": 50.0],
+            ["op": "frame", "id": 11, "x": 0.0, "y": 0.0, "w": 150.0, "h": 50.0],
+            ["op": "frame", "id": 12, "x": 150.0, "y": 0.0, "w": 150.0, "h": 50.0],
+            ["op": "frame", "id": 20, "x": 0.0, "y": 60.0, "w": 300.0, "h": 50.0],
+            ["op": "frame", "id": 30, "x": 0.0, "y": 120.0, "w": 300.0, "h": 32.0],
+        ]))
+        let bars = try [10, 20].map { id in try XCTUnwrap(p.views[UInt32(id)]?.subviews.first { $0 is UITabBar }, "tablist \(id) is a tab bar") }
+        let control = try XCTUnwrap(p.segments.control(of: 30), "tablist 30 is a segmented control")
+        // The tint itself is no bar's own: each inherits its tablist's, and the background is UIKit's tint
+        for bar in bars { XCTAssertTrue(bar.tintColor === bar.superview?.tintColor, "the bar inherits its tint") }
+        XCTAssertEqual(control.backgroundColor, UIColor.tintColor)
+        let colours = { bars.map { self.rgba($0.tintColor, in: $0) } + [self.rgba(control.backgroundColor, in: control)] }
+        window.addSubview(p.viewport)
+        for colour in colours() { XCTAssertEqual(colour, [232, 28, 36, 1], "in the window, the app's accent") }
+        window.tintColor = .systemGreen
+        for colour in colours() { XCTAssertEqual(colour, rgb(.systemGreen) + [1], "a changed tint") }
+    }
+
+    /// A pushed route's bar is projected before the route is in the window. Its title's and
+    /// its bar item's `color` of `AccentColor` are UIKit's tint, the window's from the push on.
+    func testAPushedRoutesBarTakesTheAccentFromThePushOn() throws {
+        let session = try navigation("ACCENT_BARS", tint: .systemRed)
+        let p = session.presenter
+        let open = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "open" })
+        p.press(open.id)
+        // Each state from the push until its transition ends, read at every turn of the run loop
+        var seen: [[[Double]]] = [], pushed = false
+        let end = Date().addingTimeInterval(30)
+        repeat {
+            if let nav = p.navigation.primaryNavigation, nav.viewControllers.count == 2, let item = nav.topViewController?.navigationItem {
+                pushed = true
+                let colours = [item.standardAppearance?.titleTextAttributes[.foregroundColor] as? UIColor, item.rightBarButtonItems?.first?.tintColor]
+                XCTAssertTrue(colours.allSatisfy { $0 == UIColor.tintColor }, "UIKit's tint")
+                let state = colours.map { rgba($0, in: nav.navigationBar) }
+                if seen.last != state { seen.append(state) }
+            }
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.001))
+        } while !(pushed && !p.navigation.inTransition) && Date() < end
+        XCTAssertTrue(pushed, "the route is pushed")
+        XCTAssertEqual(seen, [[rgb(.systemRed) + [1], rgb(.systemRed) + [1]]], "the title and the item in the window's tint from the push on")
+    }
+
+    /// A session booted from fixture `key`'s plan in a window whose tint is `tint`, its first
+    /// route shown.
+    private func navigation(_ key: String, tint: UIColor) throws -> ExactSession {
+        let session = ExactApp.shared.makeSession(label: "accent-\(key)-\(UUID().uuidString)")
+        addTeardownBlock { session.destroy() }
+        let view = ExactView(session: session), host = UIViewController()
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.rootViewController = host
+        window.tintColor = tint
+        window.makeKeyAndVisible()
+        host.view.addSubview(view)
+        XCTAssertNil(session.boot(plan: try fixturePlan(key), size: window.bounds.size).error)
+        view.frame = host.view.bounds
+        view.layoutIfNeeded()
+        let end = Date().addingTimeInterval(30)
+        while !(session.presenter.navigation.primaryNavigation?.topViewController is RouteController), Date() < end {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        return session
+    }
+
+    /// An embedder that sets the tint of a view it holds the session in is the tint there, in
+    /// the window and out of it, whatever the roots' accent: a spinner's own `color` of
+    /// `AccentColor`, UIKit's tint, draws in it, not in the accent the session's window takes.
+    func testAnEmbeddersTintHoldsOutOfTheWindow() throws {
+        let p = presenter(view(1, style: ["accent_color": red]) + [["op": "roots", "ids": [1]]])
+        let holder = UIView(frame: window.bounds)
+        holder.tintColor = .systemGreen
+        p.viewport.removeFromSuperview()
+        holder.addSubview(p.viewport)
+        let tint: [String: Any] = ["sys": "@tint", "c": [[0, 122, 255, 255], [10, 132, 255, 255]]]
+        var inked = progress(2, [:], accent: tint)
+        inked[0]["style"] = ["text_color": tint, "written": ["text_color"]]
+        p.apply(wireBatch(inked + [["op": "roots", "ids": [1, 2]]]))
+        let spinner = try XCTUnwrap(p.controls.spinners[2])
+        XCTAssertEqual(rgba(spinner.color, in: spinner), rgb(.systemGreen) + [1], "out of the window, the embedder's tint")
+        window.addSubview(holder)
+        XCTAssertEqual(rgba(spinner.color, in: spinner), rgb(.systemGreen) + [1], "in the window, the embedder's tint")
+    }
+
+    /// The canvas is the first root's background (`paintCanvas`): one of `AccentColor`,
+    /// painted out of the window, is the window's tint in it.
+    func testACanvasPaintedOutOfTheWindowTakesTheTintInIt() throws {
+        let p = presenter([])
+        window.tintColor = .systemRed
+        p.viewport.removeFromSuperview()
+        let tint: [String: Any] = ["sys": "@tint", "c": [[0, 122, 255, 255], [10, 132, 255, 255]]]
+        p.apply(wireBatch(view(1, style: ["background_color": tint, "written": ["background_color"]]) + [["op": "roots", "ids": [1]]]))
+        window.addSubview(p.viewport)
+        XCTAssertEqual(rgb(p.viewport.backgroundColor), rgb(.systemRed), "in the window, the window's tint")
+    }
+
+    /// A `progress`, with a `value` a bar and without one a spinner, whose `accent-color`
+    /// is `accent`.
+    private func progress(_ id: Int, _ props: [String: String], accent: [String: Any]) -> [[String: Any]] {
+        [["op": "create", "id": id, "kind": "control", "props": ["type": "progress", "accessibilityRole": "progressbar"].merging(props) { $1 },
+          "handlers": [], "style": ["accent_color": accent]],
+         ["op": "frame", "id": id, "x": 0.0, "y": 0.0, "w": 160.0, "h": 16.0]]
     }
 
     /// A control that is leaving keeps the accent it had when the tint

@@ -23,10 +23,7 @@ enum ButtonConfigurationIOS {
     /// which UIKit draws from the view's tint rather than as a colour of its
     /// own; one derived from it (`Highlight`, `@tint/0.2`) keeps its alpha
     /// as a colour of its own.
-    static func followsAccent(_ value: BatchValue?) -> Bool {
-        guard case .object(let o)? = value else { return false }
-        return o["sys"]?.string == "@tint"
-    }
+    static func followsAccent(_ value: BatchValue?) -> Bool { value?.tintAlpha == 1 }
     static func color(_ value: BatchValue?, traits: UITraitCollection, accent: UIColor?) -> UIColor? {
         value?.cgColor(dark: traits.userInterfaceStyle == .dark,
             contrast: traits.accessibilityContrast == .high, tint: accent).map { UIColor(cgColor: $0) }

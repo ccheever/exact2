@@ -172,16 +172,19 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
         #endif
         view.backgroundColor = UIColor { [weak self] traits in
             let dark = traits.userInterfaceStyle == .dark
-            let colour = modal ? self?.ownBackdrop(dark: dark) : self?.backdrop(dark: dark)
+            let colour = modal ? self?.ownBackdrop(dark: dark, in: traits) : self?.backdrop(dark: dark, in: traits)
             return colour.map { TextEngine.color($0) } ?? (modal ? .clear : system)
         }
     }
 
-    /// The route's own background, if it paints one.
-    private func ownBackdrop(dark: Bool) -> [Double]? {
+    /// The route's own background, if it paints one; in `traits`, as the view's dynamic colour
+    /// resolves it, the tint by the view's (`channels(_:in:)`).
+    private func ownBackdrop(dark: Bool, in traits: UITraitCollection? = nil) -> [Double]? {
         if node.groundIsSheets { return nil }
-        // As written, never greyed: the view keeps the colour its provider gave (TintDimmingIOS.swift)
-        return node.undimmedChannels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil }
+        return Self.painted(node, dark: dark, in: traits)
+    }
+    private static func painted(_ node: NodeView, dark: Bool, in traits: UITraitCollection?) -> [Double]? {
+        (traits.map { node.channels("background_color", in: $0) } ?? node.channels("background_color", dark: dark)).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil }
     }
 
     /// What shows behind the route where it paints nothing: its own
@@ -189,9 +192,9 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     /// tabpanel's, then the boxes up to the root — as the web shows them
     /// through a transparent route (LLP 1116 D2: a root's
     /// `-exact-grouped-background` under every screen).
-    func backdrop(dark: Bool) -> [Double]? {
-        let painted = { (n: NodeView) in n.undimmedChannels("background_color", dark: dark).flatMap { $0.count < 4 || $0[3] > 0 ? $0 : nil } }
-        if let own = ownBackdrop(dark: dark) { return own }
+    func backdrop(dark: Bool, in traits: UITraitCollection? = nil) -> [Double]? {
+        let painted = { (n: NodeView) in Self.painted(n, dark: dark, in: traits) }
+        if let own = ownBackdrop(dark: dark, in: traits) { return own }
         guard let host, let root = host.container else { return nil }
         var next: UIView? = host.logicalParent(of: node)
         while let v = next {

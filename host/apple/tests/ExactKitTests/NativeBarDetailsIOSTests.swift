@@ -89,7 +89,6 @@ final class NativeBarDetailsIOSTests: XCTestCase {
         seal.applyStyle(["tint_color": [[255, 0, 0, 255], [0, 255, 0, 255]], "written": ["tint_color"]])
         header.addSubview(row); row.addSubview(heading); row.addSubview(seal)
         header.tintAdjustmentMode = .dimmed
-        XCTAssertTrue(seal.dimsItsPaint, "the seal is on a dimmed control's face")
         let group = try XCTUnwrap(HeaderTitle(header: header, heading: heading, tap: nil, apart: []))
         let view = HeaderTitleView(host: p.navigation)
         view.title.textColor = .label

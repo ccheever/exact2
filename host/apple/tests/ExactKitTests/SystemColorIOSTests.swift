@@ -172,8 +172,9 @@ final class SystemColorIOSTests: XCTestCase {
         XCTAssertEqual(beside.channels("background_color"), channels(.systemBlue, beside.traitCollection))
     }
 
-    /// The view's own tint reaches a plain text run, its shadow, a box
-    /// shadow and a palette symbol, and a tint change rebuilds the glyph.
+    /// The view's own tint reaches a plain text run, its shadow and a box
+    /// shadow, and a palette symbol's colour of the tint is UIKit's tint,
+    /// which UIKit resolves by the view it draws the symbol in.
     func testEveryResolverTakesTheViewsTint() throws {
         let p = Presenter()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 300, height: 300))
@@ -200,9 +201,8 @@ final class SystemColorIOSTests: XCTestCase {
         let shade = try XCTUnwrap(node.boxShadows.first?.color.components).map { Double($0) * 255 }
         XCTAssertEqual(shade.count, 4)
         for (got, want) in zip(shade, red) { XCTAssertEqual(got, want, accuracy: 0.01, "a box shadow") }
-        let configuration = node.symbolConfiguration(UIImage.SymbolConfiguration(pointSize: 17))
-        p.viewport.tintColor = .systemGreen
-        XCTAssertFalse(node.symbolConfiguration(UIImage.SymbolConfiguration(pointSize: 17)).isEqual(configuration), "the palette follows the view tint")
+        let base = UIImage.SymbolConfiguration(pointSize: 17)
+        XCTAssertTrue(node.symbolConfiguration(base).isEqual(base.applying(UIImage.SymbolConfiguration(paletteColors: [UIColor.tintColor]))), "the palette is UIKit's tint")
     }
 
     func testMarkdownAndPlainTextResolveTheSameViewTintAndTraits() throws {

@@ -144,7 +144,7 @@ private struct TabBarFace: Equatable {
             self.symbol = symbol
             self.title = title
             label = tab.props["accessibilityLabel"] ?? title
-            tint = tab.channels("accent_color").map { TextEngine.color($0) }
+            tint = tab.ownTintColor("accent_color", outside: true)
             return
         }
         let children = tab.container.subviews.compactMap { $0 as? NodeView }
@@ -156,7 +156,7 @@ private struct TabBarFace: Equatable {
         self.symbol = image.faceSymbol ?? ""
         title = label.accessibleText
         self.label = tab.props["accessibilityLabel"] ?? title
-        tint = image.ownUIColor("text_color")
+        tint = image.ownColor("text_color") == nil ? nil : image.ownTintColor("text_color", outside: true)
     }
 }
 
@@ -561,7 +561,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         if control.superview !== owner { owner.addSubview(control) }
         assign(control, \.isEnabled, available(owner))
         // The authored colour belongs to UIKit's control, within its native height and corners.
-        assign(control, \.backgroundColor, owner.undimmedChannels("background_color", dark: owner.drawsDark).map { TextEngine.color($0) })
+        assign(control, \.backgroundColor, owner.uiColor("background_color"))
         owner.applyBoxLayer()
         owner.setNeedsDisplay()
         control.accessibilityLabel = owner.props["accessibilityLabel"]

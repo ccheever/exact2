@@ -149,6 +149,29 @@ final class SearchScopeIOSTests: XCTestCase {
         until("the scope bar is back") { route.search?.controller.searchBar.scopeButtonTitles?.count == 3 }
     }
 
+    /// The bar's search field takes its node's own `accent-color` as UIKit's field's tint, which
+    /// UIKit does not carry to the bar: its text, placeholder and caret in the tint resolve by it
+    func testASearchFieldTakesItsOwnAccentAsItsTint() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the bar is a scene window's") }
+        let (session, route) = try fixture()
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let field = try XCTUnwrap(route.navigationItem.searchController).searchBar.searchTextField
+        let source = try node(session, "search")
+        func project() { session.presenter.navigation.prepareRoutes(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav) }
+        func rgb() -> [CGFloat] {
+            var (r, g, b, a): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+            _ = field.tintColor.resolvedColor(with: field.traitCollection).getRed(&r, green: &g, blue: &b, alpha: &a)
+            return [r, g, b]
+        }
+        let green: BatchValue = .array([.number(0), .number(200), .number(0), .number(255)])
+        source.applyStyle(source.style.merging(["accent_color": green]) { $1 })
+        project()
+        for (got, want) in zip(rgb(), [0, 200.0 / 255, 0]) { XCTAssertEqual(got, want, accuracy: 0.01, "the node's own green: \(rgb())") }
+        source.applyStyle(source.style.filter { $0.key != "accent_color" })
+        project()
+        XCTAssertNotEqual(rgb(), [0, 200.0 / 255, 0], "the bar's again")
+    }
+
     func testAFilterThatIsNotAScopeKeepsItsSegmentedControl() throws {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the bar is a scene window's") }
         guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("the scope bar is the iPhone's (D5)") }

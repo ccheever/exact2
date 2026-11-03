@@ -69,8 +69,7 @@ final class DialogSheetController: UIViewController, UIGestureRecognizerDelegate
     #endif
 
     override func loadView() {
-        // Keeping its tint undimmed for the dialog's nodes (`RestsTint`)
-        let view = RestingTintView()
+        let view = UIView()
         #if os(tvOS)
         view.backgroundColor = .white
         #else

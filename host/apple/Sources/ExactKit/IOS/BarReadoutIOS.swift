@@ -82,8 +82,8 @@ final class ReadoutView: UIView {
         if face != self.face {
             self.face = face
             for view in stack.arrangedSubviews { view.removeFromSuperview() }
-            for ((part, alpha), line) in zip(zip(face.parts, face.opacities), face.lineHeights) {
-                let view = Self.view(of: part)
+            for (((part, alpha), line), share) in zip(zip(zip(face.parts, face.opacities), face.lineHeights), face.shares) {
+                let view = Self.view(of: part, share: share)
                 view.alpha = alpha
                 if let line, view is UILabel { view.heightAnchor.constraint(equalToConstant: line).isActive = true }
                 stack.addArrangedSubview(view)
@@ -110,17 +110,21 @@ final class ReadoutView: UIView {
         return UIColor { TextEngine.color(pair[$0.userInterfaceStyle == .dark ? 1 : 0]) }
     }
 
-    private static func view(of part: ChipFace.Part) -> UIView {
+    /// The view of a part, in UIKit's tint where its colour is the tint (`share`, `SystemColor.tint`)
+    private static func view(of part: ChipFace.Part, share: Double?) -> UIView {
         switch part {
         case .dot(let size, let fill, let corners):
-            let dot = ReadoutDot(color: ink(fill), corners: corners)
+            let dot = ReadoutDot(color: share.map(SystemColor.tint) ?? ink(fill), corners: corners)
             dot.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([dot.widthAnchor.constraint(equalToConstant: size.width), dot.heightAnchor.constraint(equalToConstant: size.height)])
             return dot
         case .symbol(let name, let points, let tint):
             let image = UIImageView(image: FaceSymbol.image(name, points: points, configuration: UIImage.SymbolConfiguration(pointSize: points)))
-            // Keep UIKit from dimming the status's symbol beside its words, as a status in the content keeps it (TintDimmingIOS.swift)
-            image.tintColor = ink(tint); image.tintAdjustmentMode = .normal
+            // The tint, which UIKit draws and dims, a share of it as a palette's colour (a view's own
+            // tint made from the one above it is not followed); a colour of its own, which UIKit leaves as it is
+            if let share {
+                if share < 1 { image.preferredSymbolConfiguration = UIImage.SymbolConfiguration(paletteColors: [SystemColor.tint(share)]) }
+            } else { image.tintColor = ink(tint); image.tintAdjustmentMode = .normal }
             return image
         case .text(let text, let font, let color):
             let label = UILabel()
@@ -128,7 +132,7 @@ final class ReadoutView: UIView {
             label.font = font
             // The platform's body (no font written) follows the text size.
             label.adjustsFontForContentSizeCategory = font.fontDescriptor.object(forKey: .textStyle) != nil
-            label.textColor = ink(color)
+            label.textColor = share.map(SystemColor.tint) ?? ink(color)
             return label
         }
     }
@@ -146,6 +150,8 @@ private final class ReadoutDot: UIView {
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (dot: ReadoutDot, _: UITraitCollection) in dot.setNeedsDisplay() }
     }
     required init?(coder: NSCoder) { nil }
+    /// Drawn again when its tint changes: its colour may be the tint
+    override func tintColorDidChange() { super.tintColorDidChange(); setNeedsDisplay() }
     override func draw(_ rect: CGRect) {
         color.setFill()
         UIBezierPath(cgPath: BorderPaint.roundedRect(bounds, corners, shape: nil)).fill()

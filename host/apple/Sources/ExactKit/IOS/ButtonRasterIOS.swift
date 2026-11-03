@@ -49,7 +49,7 @@ extension ControlHost {
     func refreshRaster(_ owner: NodeView) {
         guard owner.buttonRasterView != nil, presenter.views[owner.id] === owner, let button = controls[owner.id] as? NativeButtonIOS else { return }
         button.written = nil
-        configureNative(button, owner, accent: owner.channels("accent_color").map { TextEngine.color($0) })
+        configureNative(button, owner, accent: owner.carriedAccent)
     }
 }
 #endif

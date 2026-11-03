@@ -50,8 +50,16 @@ final class GroupedCell: UICollectionViewListCell {
     }
     func redrawPath() {
         guard let pathSymbol, var c = contentConfiguration as? UIListContentConfiguration else { return }
-        c.image = FaceSymbol.image(pathSymbol, points: Self.pathPoints(traitCollection))
+        c.image = inked(FaceSymbol.image(pathSymbol, points: Self.pathPoints(traitCollection)))
         contentConfiguration = c
+    }
+    /// The colour of its own its standard row's image is drawn in, nil for the cell's tint, which
+    /// UIKit draws a cell's image in and greys behind a sheet or an alert
+    var imageInk: UIColor?
+    /// `image` drawn in `imageInk`, which UIKit draws as it is (`.alwaysOriginal`), dynamic colours
+    /// per trait; else as it is, for the cell's tint
+    func inked(_ image: UIImage?) -> UIImage? {
+        imageInk.flatMap { ink in image?.withTintColor(ink, renderingMode: .alwaysOriginal) } ?? image
     }
     /// Its standard row's content. UIKit's list content view hides a label
     /// a new configuration drops but keeps its text, which UIKit's
