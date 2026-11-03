@@ -9,6 +9,8 @@ import { dismissThreadError } from '../composer/requests';
 import { clearRowDrops } from '../sidebar/row-drop';
 import { composerTakesFocus } from '../sidebar/row-thread';
 import { heroCarry, heroLand, ensureScratchProject } from '../pages/pages-home';
+import { openPrimaryScratch, scratchEnvironmentId, scratchEnvironments } from '../composer/scratch-project';
+import { primaryEnvironmentId } from '../connections/local-primary';
 import { homeTarget } from '../pages/home-landing';
 import { obj, str, messages } from './domain';
 import { ClientError, type Native, type Files } from './protocol';
@@ -71,6 +73,17 @@ export async function threadOps(this: T3Client, op: string, id: string, value: s
         return true;
       }
       if (named) id = named.threadId;
+      // The hero's "or start without a project" on another machine's folder (useScratchProject's target, the primary
+      // first): the window moves to that project's draft, as the palette's New thread without a project does.
+      if (op === 'pages:hero-scratch' && !this.threadId) {
+        const target = scratchEnvironmentId(scratchEnvironments(this), primaryEnvironmentId(), this.environmentId || null);
+        const opened = target !== null && target !== this.environmentId ? await openPrimaryScratch(this, native!) : null;
+        if (opened && opened.environmentId !== this.environmentId) {
+          const focused = await focusFleetProject(this, native, opened.environmentId, opened.projectId);
+          this.adoptStatus(focused.value, focused.generation);
+          return true;
+        }
+      }
       const carry = op.startsWith('pages:hero-') ? await heroCarry(this, op.slice(11), id, () => ensureScratchProject(this, native!)) : null;
       if (carry) id = carry.projectId;
       if (id && !this.shell.projects.some(project => project.id === id)) return true;

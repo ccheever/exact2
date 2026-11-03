@@ -34,10 +34,10 @@ describe('the project heading', () => {
 });
 
 describe('a scratch thread', () => {
-  test('names "No project" in its header crumb, and its project otherwise', async () => {
+  test('names "No project" in its header crumb with the scratch glyph, and its project otherwise', async () => {
     const { client } = await opened();
-    expect(snapshot(client).projectName).toBe('Example');
+    expect([snapshot(client).projectName, snapshot(client).projectScratch]).toEqual(['Example', false]);
     client.config.scratchWorkspaceRoot = '/repo';
-    expect(snapshot(client).projectName).toBe('No project');
+    expect([snapshot(client).projectName, snapshot(client).projectScratch]).toEqual(['No project', true]);
   });
 });

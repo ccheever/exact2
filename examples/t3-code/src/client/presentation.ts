@@ -124,6 +124,7 @@ export function snapshot(client: T3Client, now = 0, displayMode = '', formatLoca
   noteSubagentRequests(client.shell.threads); // the sidebar's parents carry their hidden subagents' requests (subagent-requests.ts)
   const fullScreen = displayMode === 'fullscreen'; // the viewport's display mode, not a native fact
   const project = client.shell.projects.find(project => project.id === client.projectId);
+  const projectScratch = isScratch(project, str(client.config.scratchWorkspaceRoot).trim());
   const providers = arr(client.config.providers);
   const provider = providers.find(provider => provider.instanceId === client.providerId);
   // The composer's trigger, options and send follow the instance and model the turn runs on (composer-provider-selection.ts).
@@ -157,7 +158,7 @@ export function snapshot(client: T3Client, now = 0, displayMode = '', formatLoca
     uncertain: pending?.uncertain === true,
     uncertainMessage: pending?.uncertain ? `${pending.description} may already have reached T3. Reconnect and check the thread before retrying.` : '',
     sidebarWidth: client.local.sidebarWidth, sidebarMinWidth: sidebarMinimumWidth(client.local.clientSettings?.fontSizeInterface, fullScreen), controlsLeft: workspaceControlsLeft(client.local.clientSettings?.fontSizeInterface, fullScreen), sidebarOpen: client.local.sidebarOpen, query: client.query,
-    projectId: client.projectId, projectName: isScratch(project, str(client.config.scratchWorkspaceRoot).trim()) ? 'No project' : str(project?.title, 'Choose a project'), threadId: client.threadId, // ChatHeader: a scratch thread's crumb
+    projectId: client.projectId, projectName: projectScratch ? 'No project' : str(project?.title, 'Choose a project'), projectScratch, threadId: client.threadId, // ChatHeader: a scratch thread's crumb
     threadTitle: str(obj(client.projection.thread).title, 'New thread'),
     // The header title keyed by its text: a reused one-line text keeps drawing the previous title clipped to the new width.
     threadHeading: [str(obj(client.projection.thread).title, 'New thread')].map(title => ({ id: title, label: title })),

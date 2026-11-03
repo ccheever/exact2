@@ -452,14 +452,16 @@ export function entryDisplayLabel(entry: WorkEntry, root: string): string {
   const heading = (entry.toolTitle || entry.label).replace(/\s+(?:complete|completed)\s*$/i, '').trim();
   return `${heading.charAt(0).toUpperCase()}${heading.slice(1)}`;
 }
-export function singleToolCallLabel(entry: WorkEntry, root: string): string {
+/** A lone tool call's label: MessagesTimeline.logic singleToolCallLabel reads its path with no workspace root, so a read
+ *  shows the path as the tool gave it ("Read README.md"). */
+export function singleToolCallLabel(entry: WorkEntry): string {
   if (entry.itemType === 'reasoning') return entry.detail?.trim().replace(/\s+/g, ' ') || 'Thought';
   const presentation = toolPresentation(entry);
   if (presentation) return presentation.displayName;
   const title = dynamicTitle(entry);
   if (title) return title;
   if (entry.itemType === 'web_search') return entry.toolTitle ?? 'Web search';
-  return entryDisplayLabel(entry, root);
+  return entryDisplayLabel(entry, '');
 }
 export function liveEntryLabel(entry: WorkEntry, root: string, active: boolean): string {
   const status = ['failed', 'declined', 'stopped', 'idle'].includes(entry.status) ? entry.status : active || entry.status === 'inProgress' ? 'inProgress' : 'completed';

@@ -16,8 +16,8 @@ import { canPinProjectGroup, setProjectGroupPinned } from '../sidebar/project-pi
 import { pinChord, projectsSpanEnvironments, shortcutLabel as commandShortcutLabel } from '../sidebar/sidebar-view';
 import { projectEnvironmentBadge } from '../connections/settings-b-fleet';
 import { visibleShell } from '../sidebar/thread-tag-filter';
-import { openScratchProject } from '../composer/scratch-project';
-import { primary, withoutPrimaryDuplicates } from '../connections/local-primary'; // "This machine": the primary counts as an environment
+import { openScratchProject, scratchEnvironmentId, scratchEnvironments } from '../composer/scratch-project';
+import { primary, primaryEnvironmentId, withoutPrimaryDuplicates } from '../connections/local-primary'; // "This machine": the primary counts as an environment
 import { homeWaiting } from './home-landing';
 import { effectiveShortcut } from '../shell/shortcut-labels';
 import { shortcutInput } from '../settings/keybinding-settings';
@@ -153,6 +153,9 @@ export async function pagesHome(client: T3Client, native: Native | null | undefi
   const root = client.ready ? scratchRoot(client.config) : '';
   const project = client.shell.projects.find(candidate => candidate.id === client.projectId);
   const scratchDraft = isScratchProject(project, root);
+  // DraftHeroHeadline's scratchTargetEnvironmentId: the primary's folder first, so a project on another machine
+  // still offers "or start without a project" when this Mac has the folder.
+  const offered = client.ready && scratchEnvironmentId(scratchEnvironments(client), primaryEnvironmentId(), client.environmentId || null) !== null;
   const projects = client.ready ? heroPickerRows(client, heroGroups(client, heroProjects({ shell: visibleShell(client), projectId: client.projectId, config: client.config }))) : []; // one row per logical project, by its group's name
   const resolved = !!project;
   const headline = heroHeadline({ scratchDraft, resolved, canChoose: projects.length > 0 });
@@ -166,11 +169,11 @@ export async function pagesHome(client: T3Client, native: Native | null | undefi
       projects: client.shell.projects.length, projectId: client.projectId, threadId: client.threadId,
       missingThread: !client.thread && !client.shell.threads.some(thread => thread.id === client.threadId) }),
     headline, projectName, projectNames: [{ id: projectName }], projects, pinChord: pinChord(client),
-    noProjectItem: !!root, scratchDraft,
+    noProjectItem: offered, scratchDraft,
     // "or start without a project" sits under the heading only while a real project (or choice) shows.
-    scratchLine: !!root && !scratchDraft && (resolved || projects.length > 0),
-    scratchStart: !!root,
-    noProjectsDescription: root ? 'Add a project, or start without one.' : 'Add a project to start your first thread.',
+    scratchLine: offered && !scratchDraft && (resolved || projects.length > 0),
+    scratchStart: offered,
+    noProjectsDescription: offered ? 'Add a project, or start without one.' : 'Add a project to start your first thread.',
     savedEnvironments: saved, firstRunPending,
     pullRequests: obj(obj(client.config.environment).capabilities).pullRequests === true,
     noEnvironmentDescription: noEnvironmentDescription(primary.disabled),

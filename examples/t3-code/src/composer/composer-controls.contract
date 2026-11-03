@@ -536,7 +536,8 @@ component ComposerFooter
   derive tipShift = (data.composer.toolbarRight > 0 ? max(0, sendCenter + data.composer.sendTipWidth / 2 - (viewportWidth - 5)) : 0)
   derive modeOut = data.composer.modeOverflow
   view
-    row width="100%" height="2.5rem" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" align-items="center" position="relative" id=`${composerScope}frame-toolbar` resize=frameMoved testId=`${composerScope}composer-toolbar`
+    // ChatComposer's footer: px-2 pb-2, and pt-2 while a question waits on an answer.
+    row width="100%" height=(data.questions.length > 0 ? "2.75rem" : "2.5rem") padding-left="0.5rem" padding-right="0.5rem" padding-top=(data.questions.length > 0 ? "0.5rem" : "0px") padding-bottom="0.5rem" box-sizing="border-box" align-items="center" position="relative" id=`${composerScope}frame-toolbar` resize=frameMoved testId=`${composerScope}composer-toolbar`
       // The labels' natural widths (composer-label-probes.contract), read by footerLayout.
       TextProbes(probes=data.composer.menuProbes)
       ComposerLabelProbes(model=(data.composer.fanout ? data.composer.fanoutLabel : data.modelShortLabel == "" ? "Choose model" : data.modelShortLabel), traits=data.composer.effortWord, runtime=data.composer.runtimeLabel, plan=(data.composer.planVisible ? (data.composer.planActive ? "Plan" : "Build") : ""))
