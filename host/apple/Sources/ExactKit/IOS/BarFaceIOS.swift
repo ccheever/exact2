@@ -34,6 +34,10 @@ struct ChipFace: Equatable {
     /// `line-height`), nil where unsaid: a readout's label is that tall,
     /// its line centred in it as CSS's half-leading does.
     let lineHeights: [CGFloat?]
+    /// Each part's share of the tint where its colour is the tint the bar has (`AccentColor` 1,
+    /// `Highlight` 0.2; not a node's `ownAccent`), nil otherwise: a readout's view draws it in
+    /// UIKit's tint, which follows the bar's and dims with it, where an image is baked by `carriedTint`.
+    let shares: [Double?]
     let gap: CGFloat
     /// The scheme it is drawn in. A bar item sized from one variant of a
     /// light/dark image asset kept that size for the other (a dark capsule
@@ -58,27 +62,27 @@ struct ChipFace: Equatable {
         guard !button.isNativeButton, let engine = engine ?? button.text else { return nil }
         let traits = traits ?? button.traitCollection
         let bold = traits.legibilityWeight == .bold
-        var parts: [Part] = [], opacities: [CGFloat] = [], lineHeights: [CGFloat?] = [], dotted = false, typed = false, gap: CGFloat?
+        var parts: [Part] = [], opacities: [CGFloat] = [], lineHeights: [CGFloat?] = [], shares: [Double?] = [], dotted = false, typed = false, gap: CGFloat?
         func pair(_ node: NodeView, _ key: String) -> [[Double]] {
-            [node.undimmedChannels(key, dark: false) ?? [0, 0, 0, 1], node.undimmedChannels(key, dark: true) ?? [1, 1, 1, 1]]
+            [node.carriedChannels(key, dark: false) ?? [0, 0, 0, 1], node.carriedChannels(key, dark: true) ?? [1, 1, 1, 1]]
         }
         // A childless box (often a flat leaf, a layer and no view,
         // FlatLeavesIOS) with no authored size in points has none to draw.
         // Its fill resolves in `host`'s traits and names the tint by
-        // `host`'s, undimmed, as `pair` reads its colours: the face is
-        // baked and kept (TintDimmingIOS.swift).
+        // `host`'s carried tint, as `pair` reads its colours.
         func dot(_ style: NodeStyle, _ alpha: CGFloat, host: NodeView) {
             guard let width = style["width"]?.number, let height = style["height"]?.number, width > 0, height > 0,
                   let fill = style["background_color"] else { return }
             let size = CGSize(width: width, height: height)
             dotted = true
             let rect = CGRect(origin: .zero, size: size)
-            let tint = host.undimmedTint(for: fill), contrast = host.drawsHighContrast, elevated = host.drawsElevated
+            let tint = fill.namesTint ? host.carriedTint : nil, contrast = host.drawsHighContrast, elevated = host.drawsElevated
             let sides = [false, true].map { fill.channels(dark: $0, contrast: contrast, elevated: elevated, tint: tint) ?? [0, 0, 0, 0] }
             parts.append(.dot(size, sides,
                               BorderPaint.reduced(BorderPaint.radii(style, in: rect), in: rect)))
             opacities.append(alpha)
             lineHeights.append(nil)
+            shares.append(host.ownAccent == nil ? fill.tintAlpha : nil)
         }
         // `inked`: an ancestor up to the button wrote the colour its text inherits.
         func walk(_ node: NodeView, fonted: Bool, inked: Bool, alpha: CGFloat) {
@@ -122,10 +126,12 @@ struct ChipFace: Equatable {
                 parts.append(.text(text, font, inked ? pair(child, "text_color") : nil))
                 opacities.append(alpha)
                 lineHeights.append(child.wrote("line_height") ? child.usedLineHeight : nil)
+                shares.append(inked && child.ownAccent == nil ? child.style["text_color"]?.tintAlpha : nil)
             } else if child.kind == "image", let name = child.faceSymbol {
                 parts.append(.symbol(name, child.number("font_size", PageFacts.defaultRootFontSize), inked ? pair(child, "text_color") : nil))
                 opacities.append(alpha)
                 lineHeights.append(nil)
+                shares.append(inked && child.ownAccent == nil ? child.style["text_color"]?.tintAlpha : nil)
             } else if (child.presenter?.flats.children(of: child.id) ?? child.container.subviews.compactMap { ($0 as? NodeView)?.id }).isEmpty,
                       child.style["background_color"] != nil {
                 dot(child.style, alpha, host: child)
@@ -141,6 +147,7 @@ struct ChipFace: Equatable {
         self.parts = parts
         self.opacities = opacities
         self.lineHeights = lineHeights
+        self.shares = shares
         self.gap = gap ?? 0
         dark = button.drawsDark
         self.bold = bold
@@ -154,7 +161,7 @@ struct ChipFace: Equatable {
             case .symbol(let name, let points, let tint): return "s\(name)\(points)\(tint)"
             case .text(let text, let font, let color): return "t\(text)\(font.fontName)\(font.pointSize)\(color)"
             }
-        }.joined(separator: "|") + "|\(opacities)|\(lineHeights)|\(gap)|\(dark)|\(bold)"
+        }.joined(separator: "|") + "|\(opacities)|\(lineHeights)|\(shares)|\(gap)|\(dark)|\(bold)"
     }
 
     /// The face drawn, its unwritten ink the bar's (`tint`, what a plain

@@ -159,26 +159,32 @@ final class BarReadoutIOSTests: XCTestCase {
         XCTAssertEqual(dotAlone.intrinsicContentSize.width, 7, accuracy: 0.01, "no words, no inset")
     }
 
-    /// A bar item's own colour that names the tint takes its button's tint, undimmed while UIKit dims
-    /// tints: the item keeps the colour it is given
-    func testABarItemsTintColourIsItsButtonsUndimmed() throws {
+    /// A bar item's own colour that is the tint is UIKit's tint, which follows the bar's and dims
+    /// with it; a share of the tint (`Highlight`) is a colour of the button's tint, undimmed while
+    /// UIKit dims tints: the item keeps the colour it is given
+    func testABarItemsTintColourIsUIKitsTintOrMadeFromItsButtons() throws {
         let p = route([["op": "create", "id": 4, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "Edit"],
                         "style": ["text_color": ["sys": "@tint", "c": [0, 122, 255, 255]], "written": ["text_color"]]],
-                       text(5, "Edit")], kids: [4], more: [["op": "children", "id": 4, "ids": [5]]])
+                       text(5, "Edit"),
+                       ["op": "create", "id": 6, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "Mark"],
+                        "style": ["text_color": ["sys": "@tint/0.2", "c": [0, 122, 255, 51]], "written": ["text_color"]]],
+                       text(7, "Mark")], kids: [4, 6], more: [["op": "children", "id": 4, "ids": [5]], ["op": "children", "id": 6, "ids": [7]]])
         window.tintColor = UIColor(red: 1, green: 0, blue: 0, alpha: 1)
-        func tint() throws -> [Double] {
+        func item(_ id: UInt32) throws -> HeaderShape.Item {
             let shape = try XCTUnwrap(HeaderShape(route: try XCTUnwrap(p.views[1]), back: nil, projected: true))
-            let item = try XCTUnwrap(shape.trailing.first { $0.id == 4 }, "the button is a bar item: \(shape.trailing.map(\.id))")
-            return try XCTUnwrap(item.tint?.first, "the item has a colour of its own")
+            return try XCTUnwrap(shape.trailing.first { $0.id == id }, "the button is a bar item: \(shape.trailing.map(\.id))")
         }
-        for (got, want) in zip(try tint(), [255.0, 0, 0, 255]) { XCTAssertEqual(got, want, accuracy: 2, "the button's red tint") }
-        window.tintAdjustmentMode = .dimmed
-        defer { window.tintAdjustmentMode = .automatic }
-        for (got, want) in zip(try tint(), [255.0, 0, 0, 255]) { XCTAssertEqual(got, want, accuracy: 2, "the red tint, undimmed, while dimmed") }
+        XCTAssertTrue(try item(4).followsTint, "the tint itself: UIKit's")
+        XCTAssertNil(try item(4).tint)
+        func share() throws -> [Double] { try XCTUnwrap(item(6).tint?.first, "a share of the tint is a colour of its own") }
+        for (got, want) in zip(try share(), [255.0, 0, 0, 51]) { XCTAssertEqual(got, want, accuracy: 2, "a fifth of the button's red tint") }
+        p.viewport.tintAdjustmentMode = .dimmed
+        defer { p.viewport.tintAdjustmentMode = .automatic }
+        for (got, want) in zip(try share(), [255.0, 0, 0, 51]) { XCTAssertEqual(got, want, accuracy: 2, "a fifth of the red tint, undimmed, while dimmed") }
     }
 
-    /// A status's symbol keeps its colour behind a sheet or an alert, as its words keep theirs: UIKit
-    /// would dim it as a tint (TintDimmingIOS.swift)
+    /// A status's symbol in a colour of its own keeps it behind a sheet or an alert, as its words
+    /// keep theirs: UIKit would grey it as the symbol's tint, which it leaves as it is (`.normal`)
     func testAStatusSymbolKeepsItsColourWhileDimmed() throws {
         let green: [Double] = [52, 199, 89, 255]
         let inked: [String: Any] = ["text_color": green, "written": ["text_color"]]
@@ -196,6 +202,45 @@ final class BarReadoutIOSTests: XCTestCase {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         XCTAssertTrue(symbol.tintColor.resolvedColor(with: symbol.traitCollection).getRed(&r, green: &g, blue: &b, alpha: &a))
         for (got, want) in zip([r, g, b, a].map { Double($0) * 255 }, green) { XCTAssertEqual(got, want, accuracy: 2, "the symbol keeps its green while dimmed") }
+    }
+
+    /// A readout's parts in the tint are UIKit's tint, which follows the bar's and greys with it:
+    /// its words' colour and its symbol, which has no tint of its own
+    func testAReadoutsPartsInTheTintAreUIKitsTint() throws {
+        let inked: [String: Any] = ["text_color": ["sys": "@tint", "c": [0, 122, 255, 255]], "written": ["text_color"]]
+        let p = route([status(4, style: inked), ["op": "create", "id": 5, "kind": "image", "props": ["imageSource": "symbol:sf/lock.fill", "symbolName": "lock.fill"], "style": inked],
+                       text(6, "Locked", style: inked)],
+                      kids: [4], more: [["op": "children", "id": 4, "ids": [5, 6]]])
+        let route = RouteController(try XCTUnwrap(p.views[1]))
+        let shape = try XCTUnwrap(HeaderShape(route: route.node, back: nil, projected: true))
+        let view = try XCTUnwrap(p.navigation.barItems(shape.trailing, route).first?.customView as? ReadoutView)
+        window.addSubview(view)
+        p.navigation.showReadouts(shape, in: route)
+        let symbol = try XCTUnwrap(view.stack.arrangedSubviews.compactMap { $0 as? UIImageView }.first, "the readout shows its symbol")
+        let words = try XCTUnwrap(view.stack.arrangedSubviews.compactMap { $0 as? UILabel }.first, "the readout shows its words")
+        XCTAssertEqual(words.textColor, UIColor.tintColor, "its words in UIKit's tint")
+        XCTAssertTrue(symbol.tintColor === view.tintColor, "its symbol in the tint it inherits")
+        view.tintAdjustmentMode = .dimmed
+        defer { view.tintAdjustmentMode = .automatic }
+        XCTAssertEqual(symbol.tintAdjustmentMode, .dimmed, "UIKit greys the symbol")
+    }
+
+    /// A readout's words in the tint under the readout's own `accent-color` are that accent, which
+    /// UIKit does not carry to the bar: a colour of its own there
+    func testAReadoutsPartsUnderItsOwnAccentAreThatAccent() throws {
+        let green: [Double] = [52, 199, 89, 255]
+        let inked: [String: Any] = ["text_color": ["sys": "@tint", "c": [0, 122, 255, 255]], "written": ["text_color"]]
+        let p = route([status(4, style: ["accent_color": green]), text(6, "Locked", style: inked)],
+                      kids: [4], more: [["op": "children", "id": 4, "ids": [6]]])
+        let route = RouteController(try XCTUnwrap(p.views[1]))
+        let shape = try XCTUnwrap(HeaderShape(route: route.node, back: nil, projected: true))
+        let view = try XCTUnwrap(p.navigation.barItems(shape.trailing, route).first?.customView as? ReadoutView)
+        window.addSubview(view)
+        p.navigation.showReadouts(shape, in: route)
+        let words = try XCTUnwrap(view.stack.arrangedSubviews.compactMap { $0 as? UILabel }.first, "the readout shows its words")
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        XCTAssertTrue(try XCTUnwrap(words.textColor).resolvedColor(with: words.traitCollection).getRed(&r, green: &g, blue: &b, alpha: &a))
+        for (got, want) in zip([r, g, b, a].map { Double($0) * 255 }, green) { XCTAssertEqual(got, want, accuracy: 2, "the readout's own green") }
     }
 
     /// The bar item's view: the author's direction with padding kept on

@@ -12,11 +12,10 @@ import AppKit
 
 /// What the core asks of the Markdown capability.
 package protocol MarkdownCapability: AnyObject {
-    /// `source` as display runs over `base` (the node's run); `color` its ink,
-    /// `linkColor` a link's and `atomColor` an atom's where it is not `color`.
+    /// `source` as display runs over `base` (the node's run); `color` its ink.
     /// `boldText`: Bold Text weights `base` (LLP 1115.000 D12.3), so a
     /// piece's own weight (bold) takes the same step.
-    func expand(_ source: String, base: Run, color: [Double]?, linkColor: [Double]?, atomColor: [Double]?, boldText: Bool, atoms: MarkdownAtoms) -> [Run]
+    func expand(_ source: String, base: Run, color: [Double]?, boldText: Bool, atoms: MarkdownAtoms) -> [Run]
     /// A text area's `source` as its editor lays it out, over `base`, for
     /// measuring: each atom's pill a box no wider than `width`, its runs'
     /// fonts by `font`.

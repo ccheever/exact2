@@ -76,6 +76,9 @@ final class NodePaintExtras {
 }
 
 final class NodeExtras {
+    /// The tint its authored `accent-color` gives its subtree (`applyAccentTint`), and its shares
+    var authoredAccentTint: UIColor? { didSet { accentShares = [:] } }
+    var accentShares: [Double: UIColor] = [:]
     var pressContact: PressContact?
     var inlinePressed: UInt32?
     /// A Markdown link pressed in this text: its target, followed on release over it.
@@ -281,6 +284,16 @@ extension NodeView {
     var clipBox: PlainView? { get { extras?.clipBox } set { if newValue != nil || extras != nil { more.clipBox = newValue } } }
     var layoutOffset: CGPoint { get { extras?.layoutOffset ?? .zero } set { if newValue != .zero || extras != nil { more.layoutOffset = newValue } } }
     var stickyOffset: CGPoint { get { extras?.stickyOffset ?? .zero } set { if newValue != .zero || extras != nil { more.stickyOffset = newValue } } }
+    var authoredAccentTint: UIColor? { get { extras?.authoredAccentTint } set { if newValue != nil || extras != nil { more.authoredAccentTint = newValue } } }
+    /// `authoredAccentTint` at `share` (`Highlight`), one object per share until the accent changes
+    func authoredAccentTint(at share: Double) -> UIColor? {
+        guard let accent = authoredAccentTint else { return nil }
+        guard share < 1 else { return accent }
+        if let made = extras?.accentShares[share] { return made }
+        let made = accent.withAlphaComponent(share)
+        more.accentShares[share] = made
+        return made
+    }
     /// How far a keyboard toolbar rides up with the keyboard (KeyboardToolbarIOS).
     var keyboardLift: CGFloat { get { extras?.keyboardLift ?? 0 } set { if newValue != 0 || extras != nil { more.keyboardLift = newValue } } }
     var layoutResize: CGSize { get { extras?.layoutResize ?? .zero } set { if newValue != .zero || extras != nil { more.layoutResize = newValue } } }
@@ -485,13 +498,7 @@ extension NodeView {
     /// inherits as text does.
     var fieldInk: UIColor {
         guard isNativeTextControl else { return color("text_color", SystemColor.canvasText) }
-        // A native editor's own colour as written, with the tint undimmed: UIKit leaves its text colour as set (TintDimmingIOS.swift)
-        return showsOwnTextColor ? undimmedCGColor("text_color").map { UIColor(cgColor: $0) } ?? SystemColor.canvasText : ThemeRoles.color("FieldText", in: self, or: SystemColor.canvasText)
-    }
-    /// The colour this node's author wrote for row `key`, with the tint undimmed, for UIKit to draw
-    /// with (TintDimmingIOS.swift); nil where the author wrote none
-    func ownUIColor(_ key: String) -> UIColor? {
-        ownColor(key) == nil ? nil : undimmedCGColor(key).map { UIColor(cgColor: $0) }
+        return showsOwnTextColor ? uiColor("text_color") ?? SystemColor.canvasText : ThemeRoles.color("FieldText", in: self, or: SystemColor.canvasText)
     }
 }
 extension NodeView {

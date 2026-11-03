@@ -80,8 +80,8 @@ struct HeaderTitle: Equatable {
                     headingImages.append(child)
                     let tinted = child.ownColor("tint_color") != nil
                     titleGlyphs.append(TitleGlyph(name: name, before: before,
-                        light: tinted ? child.undimmedChannels("tint_color", dark: false) : nil,
-                        dark: tinted ? child.undimmedChannels("tint_color", dark: true) : nil))
+                        light: tinted ? child.carriedChannels("tint_color", dark: false) : nil,
+                        dark: tinted ? child.carriedChannels("tint_color", dark: true) : nil))
                 }
             }
         }
@@ -500,7 +500,7 @@ extension NavigationHost {
             return
         }
         let view = c.titleView ?? HeaderTitleView(host: self)
-        view.title.textColor = shape.heading?.ownUIColor("text_color") ?? .label
+        view.title.textColor = shape.heading?.ownUIColor("text_color", outside: true) ?? .label
         view.update(group, title: shape.title)
         if c.titleView !== view {
             c.titleView = view

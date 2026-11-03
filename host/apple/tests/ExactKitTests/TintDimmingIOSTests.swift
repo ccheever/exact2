@@ -2,15 +2,263 @@
 import UIKit
 import XCTest
 @testable import ExactKit
-import ExactMarkdown
 
-/// A control's face greys as one while UIKit dims tints behind a sheet or an alert, and comes
-/// back when the dimming ends; a status outside a control keeps its colour, and a link in the
-/// tint dims as UIKit's do (TintDimmingIOS.swift). Each grey is UIKit's own for that colour, read
-/// from a view it dims. UIKit, so a simulator runs it: bun host/apple/build.mjs --test --ios
+/// While UIKit dims tints behind a sheet or an alert, the tint greys wherever it is drawn, as UIKit
+/// greys a view's `tintColor`, and a colour of its own keeps it (HIG, Color: a colour that says a
+/// control is interactive is not one for what is not). UIKit draws the colours Exact hands it in
+/// the tint (`SystemColor.tint`); Exact paints its own from the view's `tintColor` again as UIKit
+/// reports the change. UIKit, so a simulator runs it: bun host/apple/build.mjs --test --ios
 final class TintDimmingIOSTests: XCTestCase {
     private var window: UIWindow!
     private let red = [255, 59, 48, 255], green = [52, 199, 89, 255], blue = [0, 122, 255, 255]
+    private let tint: [String: Any] = ["sys": "@tint", "c": [0, 122, 255, 255]]
+
+    /// A colour of its own keeps it while dimmed, on a control's face too: a pressable box's fill
+    /// and shadow, its label, a label in display-p3, a path icon in its colour and a hued HDR fill
+    func testAColourOfItsOwnKeepsItWhileDimmed() throws {
+        let p3: [String: Any] = ["c": [255, 0, 0, 255], "cs": [["s": "display-p3", "v": [1.0, 0.0, 0.0, 1.0]]]]
+        let glow: [[String: Any]] = [["o": [0.0, 2.0], "b": 6.0, "c": green]]
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "button", "handlers": ["press"],
+             "style": ["background_color": blue, "box_shadow": glow, "written": ["background_color", "box_shadow"]]],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Delete"], "style": ["text_color": red]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Wide"], "style": ["text_color": p3]],
+        ] + icon(4, ["text_color": red]) + [
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+            ["op": "frame", "id": 1, "x": 10.0, "y": 10.0, "w": 240.0, "h": 44.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
+            ["op": "frame", "id": 3, "x": 100.0, "y": 0.0, "w": 100.0, "h": 22.0],
+            ["op": "roots", "ids": [1]],
+        ])
+        let button = try XCTUnwrap(p.views[1]), label = try XCTUnwrap(p.views[2]), wide = try XCTUnwrap(p.views[3]), symbol = try symbolView(p.views[4])
+        let hdr: [String: Any] = ["cs": [["s": "srgb-linear", "v": [4.0, 0.5, 0.5, 1.0]]], "c": [255, 188, 188, 255]]
+        p.apply(wireBatch([["op": "create", "id": 5, "kind": "view", "handlers": ["press"], "style": ["background_color": hdr, "written": ["background_color"]]],
+                           ["op": "frame", "id": 5, "x": 10.0, "y": 60.0, "w": 100.0, "h": 44.0], ["op": "roots", "ids": [1, 5]]]))
+        let bright = try XCTUnwrap(p.views[5])
+        dim(p, true)
+        bright.layer.displayIfNeeded()
+        XCTAssertEqual(try XCTUnwrap(bright.layer.backgroundColor).components, [4, 0.5, 0.5, 1], "a hued HDR fill, in its own space as written")
+        assertChannels(try fill(button), blue, "the button's fill")
+        assertChannels(try shadow(button), green, "the button's shadow")
+        assertChannels(try runChannels(label), red, "the button's red label")
+        XCTAssertEqual(Array(try runChannels(wide).dropFirst(4)), [1, 1, 0, 0, 1], "the display-p3 label in its own space (`textChannels`' code 1)")
+        assertChannels(try components(symbol.tintColor.cgColor), red, "the icon's colour")
+        XCTAssertEqual(symbol.tintAdjustmentMode, .normal, "UIKit leaves the icon's own colour as it is")
+        dim(p, false)
+    }
+
+    /// The tint greys wherever it is drawn, as UIKit greys it, and comes back: a pressable box's fill
+    /// and its label, text outside any control (a status), a shadow, and text first shown while dimmed
+    func testTheTintGreysWhereverItIsDrawn() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["press"], "style": ["background_color": tint, "written": ["background_color"]]],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Go"], "style": ["text_color": tint]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Parked"], "style": ["text_color": tint]],
+            ["op": "create", "id": 4, "kind": "view",
+             "style": ["background_color": green, "box_shadow": [["o": [0.0, 2.0], "b": 6.0, "c": tint]], "written": ["background_color", "box_shadow"]]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 50.0, "w": 100.0, "h": 22.0],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 80.0, "w": 100.0, "h": 40.0],
+            ["op": "roots", "ids": [1, 3, 4]],
+        ])
+        p.viewport.tintColor = color(red)
+        let button = try XCTUnwrap(p.views[1]), label = try XCTUnwrap(p.views[2]), status = try XCTUnwrap(p.views[3]), box = try XCTUnwrap(p.views[4])
+        func check(_ expected: [Int], _ when: String) throws {
+            assertChannels(try fill(button), expected, "the button's fill \(when)")
+            assertChannels(try runChannels(label), expected, "its label \(when)")
+            assertChannels(try runChannels(status), expected, "the status \(when)")
+            assertChannels(try shadow(box), expected, "the shadow \(when)")
+        }
+        try check(red, "before the dimming")
+        dim(p, true)
+        let grey = uikitGrey(red, uikitAlpha: true)
+        try check(grey, "while dimmed")
+        p.apply(wireBatch([
+            ["op": "create", "id": 5, "kind": "text", "props": ["text": "Locked"], "style": ["text_color": tint]],
+            ["op": "frame", "id": 5, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
+            ["op": "children", "id": 4, "ids": [5]],
+        ]))
+        assertChannels(try runChannels(XCTUnwrap(p.views[5])), grey, "a status first shown while dimmed")
+        dim(p, false)
+        try check(red, "once the dimming ends")
+    }
+
+    /// A symbol in the tint has no tint of its own: UIKit draws it in the tint its node inherits and
+    /// greys it. One in its own colour keeps it.
+    func testASymbolInTheTintIsUIKitsToGrey() throws {
+        let p = presenter(icon(1, ["text_color": tint]) + icon(2, ["text_color": red]) + [["op": "roots", "ids": [1, 2]]])
+        p.viewport.tintColor = color(green)
+        let inTint = try symbolView(p.views[1]), own = try symbolView(p.views[2])
+        assertChannels(try components(inTint.tintColor.cgColor), green, "the symbol in the tint its node inherits")
+        dim(p, true)
+        XCTAssertEqual(inTint.tintAdjustmentMode, .dimmed, "UIKit dims the symbol in the tint")
+        XCTAssertEqual(own.tintAdjustmentMode, .normal, "and leaves the one in its own colour")
+        assertChannels(try components(inTint.tintColor.cgColor), uikitGrey(green, uikitAlpha: true), "the symbol in UIKit's grey")
+        assertChannels(try components(own.tintColor.cgColor), red, "the symbol in its own colour")
+        dim(p, false)
+        assertChannels(try components(inTint.tintColor.cgColor), green, "the symbol in the tint once the dimming ends")
+    }
+
+    /// The colours Exact hands UIKit in the tint are UIKit's tint (`UIColor.tintColor`), a share of it
+    /// for `Highlight`, one object each, which UIKit resolves where it draws: a native field's text
+    /// and placeholder in the tint grey with it, and its written ones keep their colour
+    func testTheColoursHandedToUIKitInTheTintAreItsTint() throws {
+        // A session's presenter: a field takes its font and colour from its text engine
+        let session = ExactApp.shared.makeSession(label: "tint-field-\(UUID().uuidString)")
+        defer { session.destroy() }
+        let p = session.presenter
+        mount(p)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["press"]],
+            ["op": "create", "id": 2, "kind": "input", "handlers": ["change"], "props": ["value": "Garage"], "style": ["text_color": red, "written": ["text_color"]]],
+            ["op": "create", "id": 3, "kind": "input", "handlers": ["change"], "props": ["value": "Home"], "style": ["text_color": tint, "written": ["text_color"]]],
+            ["op": "create", "id": 4, "kind": "input", "handlers": ["change"], "props": ["value": "Work"],
+             "style": ["text_color": ["sys": "@tint/0.2", "c": [0, 122, 255, 51]], "written": ["text_color"]]],
+            ["op": "create", "id": 5, "kind": "input", "handlers": ["change"], "props": ["placeholder": "Garage"], "style": ["placeholder_color": red]],
+            ["op": "create", "id": 6, "kind": "input", "handlers": ["change"], "props": ["placeholder": "Home"], "style": ["placeholder_color": tint]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4, 5, 6]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 200.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 34.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 40.0, "w": 200.0, "h": 34.0],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 80.0, "w": 200.0, "h": 34.0],
+            ["op": "frame", "id": 5, "x": 0.0, "y": 120.0, "w": 200.0, "h": 34.0],
+            ["op": "frame", "id": 6, "x": 0.0, "y": 160.0, "w": 200.0, "h": 34.0],
+            ["op": "roots", "ids": [1]],
+        ]))
+        p.viewport.tintColor = color(red)
+        let home = try XCTUnwrap(p.views[3]), work = try XCTUnwrap(p.views[4])
+        XCTAssertEqual(home.uiColor("text_color"), UIColor.tintColor, "the tint itself")
+        XCTAssertTrue(work.uiColor("text_color") === work.uiColor("text_color"), "a share of the tint, one object")
+        let fields = try [2, 3, 4].map { try XCTUnwrap(p.views[UInt32($0)]?.field, "input \($0) is a native field") }
+        let text = { (field: UITextField) in try self.components(XCTUnwrap(field.textColor).resolvedColor(with: field.traitCollection).cgColor) }
+        assertChannels(try text(fields[1]), red, "the field's text in the tint")
+        assertChannels(try text(fields[2]), [255, 59, 48, 51], "the field's text at a fifth of the tint")
+        let placeholders = try [5, 6].map { try XCTUnwrap(p.views[UInt32($0)]?.field, "input \($0) is a native field") }
+        let placeholder = { (field: UITextField) -> [Double] in
+            let colour = try XCTUnwrap(field.attributedPlaceholder?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor)
+            return try self.components(colour.resolvedColor(with: field.traitCollection).cgColor)
+        }
+        dim(p, true)
+        let grey = uikitGrey(red, uikitAlpha: true)
+        assertChannels(try placeholder(placeholders[0]), red, "a written placeholder colour while dimmed")
+        assertChannels(try placeholder(placeholders[1]), grey, "a placeholder in the tint while dimmed")
+        assertChannels(try text(fields[0]), red, "the field's written text while dimmed")
+        assertChannels(try text(fields[1]), grey, "the field's text in the tint while dimmed")
+        assertChannels(try text(fields[2]), Array(grey.prefix(3)) + [51], "the field's text at a fifth of UIKit's grey while dimmed")
+        dim(p, false)
+        assertChannels(try text(fields[1]), red, "the field's text in the tint once the dimming ends")
+    }
+
+    /// Text in the tint in a dark subtree takes its light ancestor's accent in its own appearance,
+    /// and greys from it while dimmed
+    func testADarkSubtreeTakesItsAncestorsAccentInItsOwnAppearance() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view", "style": ["accent_color": [green, red]]],
+            ["op": "create", "id": 2, "kind": "view", "style": ["color_scheme": "dark"]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Locked"], "style": ["text_color": tint]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "children", "id": 2, "ids": [3]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
+            ["op": "roots", "ids": [1]],
+        ])
+        let status = try XCTUnwrap(p.views[3])
+        XCTAssertTrue(status.drawsDark, "the subtree is dark")
+        assertChannels(try runChannels(status), red, "the accent's dark side")
+        dim(p, true)
+        assertChannels(try runChannels(status), uikitGrey(red, uikitAlpha: true), "UIKit's grey of the accent's dark side")
+        dim(p, false)
+    }
+
+    /// The page's canvas shows a root's fill in the tint as the root paints it: grey while dimmed,
+    /// and in the tint again after
+    func testTheCanvasGreysWithARootsFillInTheTint() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view", "style": ["background_color": tint, "written": ["background_color"]]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+            ["op": "roots", "ids": [1]],
+        ])
+        p.viewport.tintColor = color(red)
+        let root = try XCTUnwrap(p.views[1])
+        let canvas = { try self.components(XCTUnwrap(p.viewport.backgroundColor).resolvedColor(with: p.viewport.traitCollection).cgColor) }
+        assertChannels(try canvas(), red, "the canvas in the tint")
+        dim(p, true)
+        let grey = uikitGrey(red, uikitAlpha: true)
+        assertChannels(try fill(root), grey, "the root's fill while dimmed")
+        assertChannels(try canvas(), grey, "the canvas while dimmed")
+        dim(p, false)
+        assertChannels(try canvas(), red, "the canvas once the dimming ends")
+    }
+
+    /// A symbol drawn in its configuration's colours, a palette in the tint, has no tint of its own:
+    /// the tint UIKit resolves the palette by is the node's, which it dims
+    func testAPaletteInTheTintTakesTheNodesTint() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "image", "props": ["imageSource": "symbol:sf/cloud.sun.fill", "symbolName": "cloud.sun.fill"],
+             "style": ["font_size": 24.0, "symbol_rendering": "palette", "symbol_palette": [tint]]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 24.0, "h": 24.0],
+            ["op": "roots", "ids": [1]],
+        ])
+        p.viewport.tintColor = color(green)
+        let symbol = try symbolView(p.views[1])
+        assertChannels(try components(symbol.tintColor.cgColor), green, "the symbol's view in the node's tint, not the label's")
+        dim(p, true)
+        XCTAssertEqual(symbol.tintAdjustmentMode, .dimmed, "UIKit dims it")
+        dim(p, false)
+    }
+
+    /// A route's backdrop in the tint is UIKit's tint where the controller's view draws it, grey
+    /// while dimmed; under the route's own `accent-color`, which UIKit does not carry to that view,
+    /// that accent
+    func testARoutesBackdropInTheTintIsTheTintItDrawsIn() throws {
+        let p = presenter([
+            ["op": "create", "id": 9, "kind": "view"],
+            ["op": "create", "id": 1, "kind": "view", "props": ["navigationKey": "home"], "style": ["background_color": tint, "written": ["background_color"]]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["navigationKey": "away"],
+             "style": ["accent_color": green, "background_color": tint, "written": ["accent_color", "background_color"]]],
+            ["op": "children", "id": 9, "ids": [1, 2]],
+            ["op": "frame", "id": 9, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+            ["op": "roots", "ids": [9]],
+        ])
+        p.viewport.tintColor = color(red)
+        let home = RouteController(try XCTUnwrap(p.views[1])), away = RouteController(try XCTUnwrap(p.views[2]))
+        for route in [home, away] { route.loadViewIfNeeded(); p.viewport.addSubview(route.view) }
+        let backdrop = { (route: RouteController) in
+            try self.components(XCTUnwrap(route.view.backgroundColor).resolvedColor(with: route.view.traitCollection).cgColor)
+        }
+        assertChannels(try backdrop(home), red, "the tint it draws in")
+        assertChannels(try backdrop(away), green, "the route's own accent")
+        dim(p, true)
+        assertChannels(try backdrop(home), uikitGrey(red, uikitAlpha: true), "UIKit's grey while dimmed")
+        dim(p, false)
+    }
+
+    /// The tint as a value for what UIKit keeps (`carriedTint`) is the node's own tint, undimmed while
+    /// UIKit dims it, and out of a window the roots' accent, which the window will take
+    func testTheCarriedTintIsTheNodesUndimmed() throws {
+        let p = presenter([
+            ["op": "create", "id": 1, "kind": "view", "style": ["accent_color": green]],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Parked"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
+            ["op": "roots", "ids": [1]],
+        ])
+        let node = try XCTUnwrap(p.views[2])
+        assertChannels(try components(node.carriedTint.cgColor), green, "its tint")
+        dim(p, true)
+        assertChannels(try components(node.carriedTint.cgColor), green, "its tint undimmed while dimmed")
+        dim(p, false)
+        p.viewport.removeFromSuperview()
+        p.apply(wireBatch([["op": "create", "id": 3, "kind": "text", "props": ["text": "Away"]], ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 10.0, "h": 10.0],
+                           ["op": "roots", "ids": [1, 3]]]))
+        assertChannels(try components(XCTUnwrap(p.views[3]).carriedTint.cgColor), green, "out of a window, the roots' accent")
+    }
 
     /// A native button's accent, written or the tint's, stays in its stored tint while dimmed, so
     /// the button shows it again when the dimming ends: UIKit greys the tint itself
@@ -36,73 +284,6 @@ final class TintDimmingIOSTests: XCTestCase {
         }
     }
 
-    /// A custom button's fill, its red label, a label in display-p3 and its coloured shadow take
-    /// UIKit's grey for each, and their own colours back when the dimming ends
-    func testACustomControlsFaceGreysAsOne() throws {
-        let p3: [String: Any] = ["c": [255, 0, 0, 255], "cs": [["s": "display-p3", "v": [1.0, 0.0, 0.0, 1.0]]]]
-        let glow: [[String: Any]] = [["o": [0.0, 2.0], "b": 6.0, "c": green]]
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "button", "handlers": ["press"],
-             "style": ["background_color": blue, "box_shadow": glow, "written": ["background_color", "box_shadow"]]],
-            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Delete"], "style": ["text_color": red]],
-            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Wide"], "style": ["text_color": p3]],
-            ["op": "children", "id": 1, "ids": [2, 3]],
-            ["op": "frame", "id": 1, "x": 10.0, "y": 10.0, "w": 200.0, "h": 44.0],
-            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
-            ["op": "frame", "id": 3, "x": 100.0, "y": 0.0, "w": 100.0, "h": 22.0],
-            ["op": "roots", "ids": [1]],
-        ])
-        let button = try XCTUnwrap(p.views[1]), label = try XCTUnwrap(p.views[2]), wide = try XCTUnwrap(p.views[3])
-        assertChannels(try fill(button), blue, "the fill before the dimming")
-        assertChannels(try shadow(button), green, "the shadow before the dimming")
-        dim(p, true)
-        assertChannels(try fill(button), uikitGrey(blue), "the button's fill")
-        assertChannels(try shadow(button), uikitGrey(green), "the button's shadow")
-        assertChannels(try runChannels(label), uikitGrey(red), "the button's red label")
-        let dimmedWide = try runChannels(wide)
-        assertChannels(try components(TextEngine.color(dimmedWide).cgColor), uikitGrey(UIColor(displayP3Red: 1, green: 0, blue: 0, alpha: 1), alpha: 255), "a label in display-p3, greyed from its own space as UIKit greys it: \(dimmedWide)")
-        dim(p, false)
-        assertChannels(try fill(button), blue, "the fill once the dimming ends")
-        assertChannels(try shadow(button), green, "the shadow once the dimming ends")
-        assertChannels(try runChannels(label), red, "the label once the dimming ends")
-        let restored = try runChannels(wide)
-        XCTAssertEqual(restored.count, 9, "the display-p3 label is in its own space again: \(restored)")
-        XCTAssertEqual(Array(restored.dropFirst(4)), [1, 1, 0, 0, 1], "display-p3 (`textChannels`' space code 1) and its channels")
-    }
-
-    /// A custom slider, which a pointer and keys drive and nothing presses, is a control: its face
-    /// greys
-    func testACustomSliderGreysAsAControl() throws {
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointermove", "pointerup", "key"],
-             "props": ["accessibilityRole": "slider"], "style": ["background_color": blue, "written": ["background_color"]]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
-            ["op": "roots", "ids": [1]],
-        ])
-        let slider = try XCTUnwrap(p.views[1])
-        dim(p, true)
-        assertChannels(try fill(slider), uikitGrey(blue), "the slider's fill")
-        dim(p, false)
-        assertChannels(try fill(slider), blue, "the slider's fill once the dimming ends")
-    }
-
-    /// The colour a node hands UIKit as its own (`ownUIColor`: a tab bar's tint, an alert's, a
-    /// title's) is as written while dimmed: UIKit dims it itself, and keeps it once the dimming ends
-    func testTheColourHandedToUIKitIsAsWrittenWhileDimmed() throws {
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "view", "handlers": ["press"]],
-            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Today"], "style": ["text_color": red, "written": ["text_color"]]],
-            ["op": "children", "id": 1, "ids": [2]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
-            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
-            ["op": "roots", "ids": [1]],
-        ])
-        let label = try XCTUnwrap(p.views[2])
-        dim(p, true)
-        assertChannels(try runChannels(label), uikitGrey(red), "the label Exact paints greys")
-        assertChannels(try components(XCTUnwrap(label.ownUIColor("text_color")).cgColor), red, "the colour handed to UIKit")
-        dim(p, false)
-    }
 
     /// A neutral colour stays exactly as written on a dimmed face: an HDR white fill keeps its range
     func testANeutralHDRFillKeepsItsRangeWhileDimmed() throws {
@@ -123,598 +304,6 @@ final class TintDimmingIOSTests: XCTestCase {
         dim(p, false)
     }
 
-    /// Boxes drawn flat in a control's layer grey with it, one alone and a run of alike ones that
-    /// one shape layer draws, and take their colour back
-    func testFlatBoxesInAControlGreyWithIt() throws {
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "view", "handlers": ["press"]],
-            ["op": "create", "id": 2, "kind": "view", "style": bar(green)],
-            ["op": "create", "id": 3, "kind": "view", "style": bar(blue)],
-            ["op": "create", "id": 4, "kind": "view", "style": bar(blue)],
-            ["op": "children", "id": 1, "ids": [2, 3, 4]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
-            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 20.0, "h": 20.0],
-            ["op": "frame", "id": 3, "x": 40.0, "y": 0.0, "w": 20.0, "h": 20.0],
-            ["op": "frame", "id": 4, "x": 60.0, "y": 0.0, "w": 20.0, "h": 20.0],
-            ["op": "roots", "ids": [1]],
-        ])
-        let row = try XCTUnwrap(p.views[1]), leaf = try XCTUnwrap(p.flats.leaves[2], "the box is drawn flat")
-        XCTAssertNotNil(p.flats.leaves[3], "and so are the two alike")
-        assertChannels(try runFill(row), blue, "the run before the dimming")
-        dim(p, true)
-        assertChannels(try components(XCTUnwrap(leaf.layer.backgroundColor)), uikitGrey(green), "the flat box")
-        assertChannels(try runFill(row), uikitGrey(blue), "the run of flat boxes")
-        dim(p, false)
-        assertChannels(try components(XCTUnwrap(leaf.layer.backgroundColor)), green, "the flat box once the dimming ends")
-        assertChannels(try runFill(row), blue, "the run once the dimming ends")
-    }
-
-    /// A colour a face writes and the same colour from the tint grey alike, at their own alpha
-    func testALiteralAndATintColourOnOneFaceGreyAlike() throws {
-        let faint = [0, 122, 255, 51]
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "view", "handlers": ["press"]],
-            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Written"], "style": ["text_color": faint]],
-            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Tinted"], "style": ["text_color": ["sys": "@tint/0.2", "c": faint]]],
-            ["op": "children", "id": 1, "ids": [2, 3]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
-            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
-            ["op": "frame", "id": 3, "x": 100.0, "y": 0.0, "w": 100.0, "h": 22.0],
-            ["op": "roots", "ids": [1]],
-        ])
-        p.viewport.tintColor = color(blue)
-        let written = try XCTUnwrap(p.views[2]), tinted = try XCTUnwrap(p.views[3])
-        assertChannels(try runChannels(tinted), faint, "the tint at a fifth before the dimming")
-        dim(p, true)
-        assertChannels(try runChannels(written), uikitGrey(faint), "the written colour")
-        assertChannels(try runChannels(tinted), uikitGrey(faint), "the same colour from the tint")
-        dim(p, false)
-        assertChannels(try runChannels(tinted), faint, "the tint at a fifth once the dimming ends")
-    }
-
-    /// Boxes drawn flat in a control that is already dimmed paint greyed, one alone and a run, and
-    /// take their colour when the dimming ends
-    func testFlatBoxesAddedToADimmedControlPaintGreyed() throws {
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "view", "handlers": ["press"]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
-            ["op": "roots", "ids": [1]],
-        ])
-        dim(p, true)
-        p.apply(wireBatch([
-            ["op": "create", "id": 2, "kind": "view", "style": bar(green)],
-            ["op": "create", "id": 3, "kind": "view", "style": bar(blue)],
-            ["op": "create", "id": 4, "kind": "view", "style": bar(blue)],
-            // Placed where their frames already put them, so placing them moves nothing
-            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 20.0, "h": 20.0],
-            ["op": "frame", "id": 3, "x": 40.0, "y": 0.0, "w": 20.0, "h": 20.0],
-            ["op": "frame", "id": 4, "x": 60.0, "y": 0.0, "w": 20.0, "h": 20.0],
-            ["op": "children", "id": 1, "ids": [2, 3, 4]],
-        ]))
-        let row = try XCTUnwrap(p.views[1]), leaf = try XCTUnwrap(p.flats.leaves[2], "the box is drawn flat")
-        assertChannels(try components(XCTUnwrap(leaf.layer.backgroundColor)), uikitGrey(green), "a flat box added while dimmed")
-        assertChannels(try runFill(row), uikitGrey(blue), "a run of flat boxes added while dimmed")
-        // Moved, still dimmed, to a box that is no control, where it stands just as it did
-        p.apply(wireBatch([
-            ["op": "create", "id": 5, "kind": "view"],
-            ["op": "frame", "id": 5, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
-            ["op": "children", "id": 1, "ids": [3, 4]],
-            ["op": "children", "id": 5, "ids": [2]],
-            ["op": "roots", "ids": [1, 5]],
-        ]))
-        XCTAssertTrue(p.flats.leaves[2] === leaf, "the box is the same flat leaf")
-        assertChannels(try components(XCTUnwrap(leaf.layer.backgroundColor)), green, "a flat box moved out of the dimmed control")
-        dim(p, false)
-        assertChannels(try components(XCTUnwrap(leaf.layer.backgroundColor)), green, "the flat box once the dimming ends")
-        assertChannels(try runFill(row), blue, "the run once the dimming ends")
-    }
-
-    /// Text and a symbol in the tint outside a control keep the tint as it rests: shown first while
-    /// dimmed, after their accent changes while dimmed, and with no accent, their embedder's tint
-    func testAStatusOutsideAControlKeepsItsTintWhileDimmed() throws {
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "view", "style": ["accent_color": green]],
-            ["op": "create", "id": 5, "kind": "text", "props": ["text": "Parked"], "style": ["text_color": ["sys": "@tint", "c": blue]]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
-            ["op": "frame", "id": 5, "x": 0.0, "y": 50.0, "w": 100.0, "h": 22.0],
-            ["op": "roots", "ids": [1, 5]],
-        ])
-        p.viewport.tintColor = color(red)
-        let parked = try XCTUnwrap(p.views[5])
-        assertChannels(try runChannels(parked), red, "text in the embedder's tint before the dimming")
-        dim(p, true)
-        p.apply(wireBatch([
-            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Locked"], "style": ["text_color": ["sys": "@tint", "c": blue]]],
-            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
-        ] + icon(3, ["text_color": ["sys": "@tint", "c": blue]]) + [["op": "children", "id": 1, "ids": [2, 3]]]))
-        let status = try XCTUnwrap(p.views[2]), symbol = try symbolView(p.views[3])
-        assertChannels(try runChannels(status), green, "a status first shown while dimmed")
-        assertChannels(try components(symbol.tintColor.cgColor), green, "a symbol first shown while dimmed")
-        XCTAssertEqual(symbol.tintAdjustmentMode, .normal, "UIKit leaves the symbol's ink as its node says")
-        assertChannels(try runChannels(parked), red, "text with no accent keeps its embedder's tint")
-        p.apply(wireBatch([["op": "style", "id": 1, "style": ["accent_color": blue]]]))
-        assertChannels(try runChannels(status), blue, "the status after its accent changed while dimmed")
-        assertChannels(try components(symbol.tintColor.cgColor), blue, "the symbol after its accent changed while dimmed")
-        dim(p, false)
-    }
-
-    /// Text in the tint in a dark subtree takes its light ancestor's accent in its own appearance
-    /// while dimmed, as the accent's dynamic tint resolves there before
-    func testADarkSubtreeKeepsItsAncestorsAccentInItsOwnAppearance() throws {
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "view", "style": ["accent_color": [green, red]]],
-            ["op": "create", "id": 2, "kind": "view", "style": ["color_scheme": "dark"]],
-            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Locked"], "style": ["text_color": ["sys": "@tint", "c": blue]]],
-            ["op": "children", "id": 1, "ids": [2]],
-            ["op": "children", "id": 2, "ids": [3]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
-            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
-            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
-            ["op": "roots", "ids": [1]],
-        ])
-        let status = try XCTUnwrap(p.views[3])
-        XCTAssertTrue(status.drawsDark, "the subtree is dark")
-        assertChannels(try runChannels(status), red, "the accent's dark side before the dimming")
-        dim(p, true)
-        assertChannels(try runChannels(status), red, "the accent's dark side while dimmed")
-        dim(p, false)
-    }
-
-    /// A native field's placeholder in a pressable row keeps its colour while dimmed, a written one
-    /// and one from the tint alike: UIKit leaves a field's placeholder as set
-    func testANativeFieldsPlaceholderInAControlKeepsItsColour() throws {
-        // A session's presenter: a field takes its font and colours from its text engine
-        let session = ExactApp.shared.makeSession(label: "dim-placeholder-\(UUID().uuidString)")
-        defer { session.destroy() }
-        let p = session.presenter
-        mount(p)
-        p.apply(wireBatch([
-            ["op": "create", "id": 1, "kind": "view", "handlers": ["press"]],
-            ["op": "create", "id": 2, "kind": "input", "handlers": ["change"], "props": ["placeholder": "Garage"], "style": ["placeholder_color": red]],
-            ["op": "create", "id": 3, "kind": "input", "handlers": ["change"], "props": ["placeholder": "Home"], "style": ["placeholder_color": ["sys": "@tint", "c": blue]]],
-            ["op": "children", "id": 1, "ids": [2, 3]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 80.0],
-            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 34.0],
-            ["op": "frame", "id": 3, "x": 0.0, "y": 40.0, "w": 200.0, "h": 34.0],
-            ["op": "roots", "ids": [1]],
-        ]))
-        let fields = try [2, 3].map { try XCTUnwrap(p.views[UInt32($0)]?.field, "input \($0) is a native field") }
-        let ink = { (field: UITextField) -> [Double] in
-            let placeholder = try XCTUnwrap(field.attributedPlaceholder, "the field shows its placeholder")
-            let color = try XCTUnwrap(placeholder.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor)
-            return try self.components(color.resolvedColor(with: field.traitCollection).cgColor)
-        }
-        let written = try ink(fields[0]), tinted = try ink(fields[1])
-        assertChannels(written, red, "the written placeholder colour")
-        XCTAssertGreaterThan((tinted[0...2].max() ?? 0) - (tinted[0...2].min() ?? 0), 24, "the tint has a hue to lose: \(tinted)")
-        dim(p, true)
-        assertChannels(try ink(fields[0]), red, "the written placeholder colour while dimmed")
-        assertChannels(try ink(fields[1]), tinted.map { Int($0.rounded()) }, "the placeholder colour from the tint while dimmed")
-        dim(p, false)
-    }
-
-    /// Text in the tint outside a control keeps the tint while dimmed when nothing set one: the
-    /// window's, which the viewport takes as it joins the window
-    func testAStatusInTheDefaultTintKeepsItWhileDimmed() throws {
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "text", "props": ["text": "Locked"], "style": ["text_color": ["sys": "@tint", "c": blue]]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
-            ["op": "roots", "ids": [1]],
-        ])
-        let status = try XCTUnwrap(p.views[1]), before = try runChannels(status)
-        XCTAssertGreaterThan((before[0...2].max() ?? 0) - (before[0...2].min() ?? 0), 24, "the default tint has a hue to lose: \(before)")
-        dim(p, true)
-        assertChannels(try runChannels(status), before.map { Int($0.rounded()) }, "the default tint while dimmed")
-        dim(p, false)
-    }
-
-    /// Text in the tint outside a control keeps its embedder's tint while dimmed when native
-    /// navigation holds the document fixed in its `DocumentMount`, beside the viewport, as
-    /// `ExactView` mounts them
-    func testAStatusInAFixedDocumentKeepsItsEmbeddersTint() throws {
-        let p = Presenter()
-        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
-        window.overrideUserInterfaceStyle = .light
-        let embedder = UIView(frame: window.bounds)
-        embedder.tintColor = color(red)
-        window.addSubview(embedder)
-        p.viewport.frame = embedder.bounds
-        embedder.addSubview(p.viewport)
-        embedder.addSubview(p.documentMount)
-        window.makeKeyAndVisible()
-        p.apply(wireBatch([
-            ["op": "create", "id": 1, "kind": "text", "props": ["text": "Locked"], "style": ["text_color": ["sys": "@tint", "c": blue]]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
-            ["op": "roots", "ids": [1]],
-        ]))
-        p.hostDocument(fixed: true)
-        XCTAssertTrue(p.documentFixed, "the document is in its mount")
-        let status = try XCTUnwrap(p.views[1])
-        assertChannels(try runChannels(status), red, "the embedder's tint before the dimming")
-        embedder.tintAdjustmentMode = .dimmed
-        window.layoutIfNeeded()
-        assertChannels(try runChannels(status), red, "the embedder's tint while dimmed")
-        embedder.tintAdjustmentMode = .automatic
-    }
-
-    /// Text in the tint in a route keeps the tint its route's view had undimmed while dimmed: a
-    /// sheet's route, as a navigation controller's, is mounted in its `PresentationMount`
-    func testAStatusInARoutesViewKeepsItsTintWhileDimmed() throws {
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "view", "props": ["navigationKey": "sheet"]],
-            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Locked"], "style": ["text_color": ["sys": "@tint", "c": blue]]],
-            ["op": "children", "id": 1, "ids": [2]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
-            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
-            ["op": "roots", "ids": [1]],
-        ])
-        let embedder = UIView(frame: window.bounds)
-        embedder.tintColor = color(red)
-        window.addSubview(embedder)
-        let route = RouteController(try XCTUnwrap(p.views[1]))
-        route.loadViewIfNeeded()
-        embedder.addSubview(route.view)
-        let status = try XCTUnwrap(p.views[2])
-        XCTAssertTrue(status.isDescendant(of: route.view), "the route's nodes are in its view")
-        assertChannels(try runChannels(status), red, "the embedder's tint before the dimming")
-        embedder.tintAdjustmentMode = .dimmed
-        window.layoutIfNeeded()
-        assertChannels(try runChannels(status), red, "the embedder's tint while dimmed")
-        embedder.tintAdjustmentMode = .automatic
-    }
-
-    /// Text in the tint in a lifted popover keeps the tint its layer had undimmed while dimmed: the
-    /// layer keeps it, as a route's view does
-    func testAStatusInAPopoverLayerKeepsItsTintWhileDimmed() throws {
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "text", "props": ["text": "Parked"], "style": ["text_color": ["sys": "@tint", "c": blue]]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
-            ["op": "roots", "ids": [1]],
-        ])
-        let embedder = UIView(frame: window.bounds)
-        embedder.tintColor = color(red)
-        window.addSubview(embedder)
-        let layer = PopoverLayer(presenter: p, order: 0, popover: UIView())
-        embedder.addSubview(layer)
-        let status = try XCTUnwrap(p.views[1])
-        layer.addSubview(status)
-        assertChannels(try runChannels(status), red, "the embedder's tint before the dimming")
-        embedder.tintAdjustmentMode = .dimmed
-        window.layoutIfNeeded()
-        assertChannels(try runChannels(status), red, "the embedder's tint while dimmed")
-        embedder.tintAdjustmentMode = .automatic
-    }
-
-    /// Text in the tint flying in its controller's view keeps that view's tint while an alert dims the
-    /// view and not the window, whose tint is another: the flight's layer keeps it as a mount does,
-    /// and still goes when its flight lands
-    func testAStatusInAFlightKeepsItsTintWhileDimmed() throws {
-        // Every node carries a testId, so none is drawn as a flat leaf of its parent: a flight needs views
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "view", "props": ["testId": "n1"]],
-            ["op": "create", "id": 2, "kind": "view", "props": ["testId": "n2"]],
-            ["op": "create", "id": 3, "kind": "view", "props": ["testId": "n3"]],
-            ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
-            ["op": "frame", "id": 2, "x": 0.0, "y": 100.0, "w": 400.0, "h": 100.0],
-            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
-        ])
-        let controller = UIViewController()
-        window.rootViewController = controller
-        window.tintColor = color(green)
-        controller.view.frame = window.bounds
-        controller.view.tintColor = color(red)
-        controller.view.addSubview(p.viewport)
-        p.apply(wireBatch([
-            ["op": "flight", "id": 4, "from": 2], ["op": "destroy", "id": 2],
-            ["op": "create", "id": 4, "kind": "text", "props": ["testId": "n4", "text": "Sent"], "style": ["text_color": ["sys": "@tint", "c": blue]]],
-            ["op": "children", "id": 3, "ids": [4]],
-            ["op": "frame", "id": 4, "x": 0.0, "y": 250.0, "w": 200.0, "h": 50.0],
-            ["op": "present", "id": 4, "property": "flight", "x": 0.5, "y": 0.0]]))
-        let status = try XCTUnwrap(p.views[4])
-        let layer = try XCTUnwrap((status.superview as? FlightClip)?.superview as? FlightLayer, "the status flies")
-        XCTAssertTrue(layer.superview === controller.view, "in its controller's view")
-        assertChannels(try runChannels(status), red, "the controller's tint before the dimming")
-        // An alert dims its presenting controller's view and leaves the window undimmed
-        controller.view.tintAdjustmentMode = .dimmed
-        window.layoutIfNeeded()
-        assertChannels(try runChannels(status), red, "the controller's tint while dimmed")
-        controller.view.tintAdjustmentMode = .automatic
-        p.apply(wireBatch([["op": "land", "id": 4]]))
-        XCTAssertNil(layer.superview, "the layer goes with its flight, its probe in it")
-    }
-
-    /// Text in the tint in a dialog's sheet keeps the tint the sheet had undimmed while an alert over
-    /// the sheet dims it and its window: the sheet's view keeps it, as a route's does
-    func testAStatusInADialogSheetKeepsItsTintWhileTheSheetIsDimmed() throws {
-        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
-            throw missing("scene", "a sheet's view joins its window only in a scene")
-        }
-        let p = Presenter(), controller = UIViewController()
-        window = UIWindow(windowScene: scene)
-        window.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
-        window.tintColor = color(red)
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        defer { p.menus.reset(); window.isHidden = true }
-        p.viewport.frame = controller.view.bounds
-        controller.view.addSubview(p.viewport)
-        p.apply(wireBatch([
-            ["op": "create", "id": 1, "kind": "view", "props": ["id": "page"]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 800.0],
-            ["op": "create", "id": 2, "kind": "view", "props": ["id": "form", "semanticTag": "dialog"]],
-            ["op": "frame", "id": 2, "x": 10.0, "y": 300.0, "w": 300.0, "h": 180.0],
-            ["op": "create", "id": 3, "kind": "text", "props": ["text": "Locked"], "style": ["text_color": ["sys": "@tint", "c": blue]]],
-            ["op": "frame", "id": 3, "x": 20.0, "y": 20.0, "w": 100.0, "h": 22.0],
-            ["op": "children", "id": 2, "ids": [3]], ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
-        ]))
-        p.dialogCommand("showModal", "form")
-        let sheet = try XCTUnwrap(controller.presentedViewController as? DialogSheetController, "the dialog's sheet")
-        until("the sheet is shown") { sheet.view.window != nil && !p.menus.inTransition }
-        let status = try XCTUnwrap(p.views[3])
-        XCTAssertTrue(status.isDescendant(of: sheet.view), "the status is in the dialog's sheet")
-        assertChannels(try runChannels(status), red, "the window's tint before the dimming")
-        // UIKit dims the presenting controller's view under an alert: here the sheet's
-        window.tintAdjustmentMode = .dimmed
-        sheet.view.tintAdjustmentMode = .dimmed
-        window.layoutIfNeeded()
-        XCTAssertEqual(status.tintAdjustmentMode, .dimmed, "the status is dimmed")
-        assertChannels(try runChannels(status), red, "the window's tint while the sheet is dimmed")
-        sheet.view.tintAdjustmentMode = .automatic
-        window.tintAdjustmentMode = .automatic
-    }
-
-    /// Text in the tint outside a control takes its embedder's tint as it is now while dimmed: one
-    /// changed while dimmed, and one the session joined while already dimmed
-    func testAStatusFollowsItsEmbeddersTintWhileDimmed() throws {
-        let ops: [[String: Any]] = [
-            ["op": "create", "id": 1, "kind": "text", "props": ["text": "Locked"], "style": ["text_color": ["sys": "@tint", "c": blue]]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
-            ["op": "roots", "ids": [1]],
-        ]
-        let p = presenter(ops)
-        let embedder = UIView(frame: window.bounds)
-        embedder.tintColor = color(red)
-        window.addSubview(embedder)
-        embedder.addSubview(p.viewport)
-        let status = try XCTUnwrap(p.views[1])
-        assertChannels(try runChannels(status), red, "the embedder's tint")
-        embedder.tintAdjustmentMode = .dimmed
-        embedder.tintColor = color(green)
-        window.layoutIfNeeded()
-        assertChannels(try runChannels(status), green, "the embedder's tint changed while dimmed")
-        // A second session joins the embedder while it is dimmed
-        let later = Presenter()
-        later.viewport.frame = embedder.bounds
-        later.apply(wireBatch(ops))
-        embedder.addSubview(later.viewport)
-        window.layoutIfNeeded()
-        assertChannels(try runChannels(XCTUnwrap(later.views[1])), green, "a session joining the dimmed embedder")
-        embedder.tintAdjustmentMode = .automatic
-    }
-
-    /// A node that becomes a control while dimmed greys the nodes beneath it, and they take their
-    /// colours back as it stops being one; so does a node moved into a control and out again
-    func testANodeBecomingAControlWhileDimmedGreysItsFace() throws {
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "view"],
-            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Lock"], "style": ["text_color": red, "written": ["text_color"]]],
-            ["op": "create", "id": 3, "kind": "view", "handlers": ["press"]],
-            ["op": "children", "id": 1, "ids": [2]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
-            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 22.0],
-            ["op": "frame", "id": 3, "x": 0.0, "y": 50.0, "w": 200.0, "h": 44.0],
-            ["op": "roots", "ids": [1, 3]],
-        ])
-        let text = try XCTUnwrap(p.views[2])
-        dim(p, true)
-        assertChannels(try runChannels(text), red, "outside a control while dimmed")
-        p.apply(wireBatch([["op": "props", "id": 1, "set": ["accessibilityRole": "button"]]]))
-        assertChannels(try runChannels(text), uikitGrey(red), "its box became a button while dimmed")
-        p.apply(wireBatch([["op": "props", "id": 1, "clear": ["accessibilityRole"]]]))
-        assertChannels(try runChannels(text), red, "its box stopped being one while dimmed")
-        p.apply(wireBatch([["op": "children", "id": 1, "ids": []], ["op": "children", "id": 3, "ids": [2]]]))
-        assertChannels(try runChannels(text), uikitGrey(red), "moved into a control while dimmed")
-        p.apply(wireBatch([["op": "children", "id": 3, "ids": []], ["op": "children", "id": 1, "ids": [2]]]))
-        assertChannels(try runChannels(text), red, "moved out of it while dimmed")
-        dim(p, false)
-    }
-
-    /// A keyframed background on a control's face greys while dimmed, at the point in its timeline
-    /// it had reached, and takes its colours back when the dimming ends
-    func testAKeyframedBackgroundOnAFaceGreysAndComesBack() throws {
-        let spec: [String: Any] = ["id": "pulse", "k": "backgroundColor", "s": 0.0, "dl": 0.0, "d": 1.0, "n": -1.0,
-                                   "t": [0.0, 1.0], "v": [red, blue], "c": [], "fill": 3.0]
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "view", "handlers": ["press"], "style": ["background_color": red, "written": ["background_color"]]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
-            ["op": "roots", "ids": [1]],
-            ["op": "animations", "id": 1, "specs": [spec]],
-        ])
-        let layer = try XCTUnwrap(p.views[1]).layer
-        func track() throws -> (colors: [[Double]], begin: CFTimeInterval) {
-            let animation = try XCTUnwrap(layer.animation(forKey: "pulse") as? CAKeyframeAnimation, "the background track is installed")
-            let colors = try (animation.values ?? []).map { try components($0 as! CGColor) }
-            return (colors, animation.beginTime)
-        }
-        let before = try track()
-        assertChannels(before.colors[0], red, "the track's first colour")
-        dim(p, true)
-        let dimmed = try track()
-        assertChannels(dimmed.colors[0], uikitGrey(red), "the first colour while dimmed")
-        assertChannels(dimmed.colors[1], uikitGrey(blue), "the second colour while dimmed")
-        XCTAssertEqual(dimmed.begin, before.begin, accuracy: 1e-6, "at the same point in its timeline")
-        dim(p, false)
-        let after = try track()
-        assertChannels(after.colors[0], red, "the first colour once the dimming ends")
-        XCTAssertEqual(after.begin, before.begin, accuracy: 1e-6, "still at the same point")
-    }
-
-    /// A symbol in a custom control greys with it, and its colour comes back
-    func testASymbolInAControlGreysWithIt() throws {
-        let p = presenter([["op": "create", "id": 1, "kind": "view", "handlers": ["press"]]]
-                          + icon(2, ["text_color": red]) + [
-            ["op": "children", "id": 1, "ids": [2]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
-            ["op": "roots", "ids": [1]],
-        ])
-        let symbol = try symbolView(p.views[2])
-        assertChannels(try components(symbol.tintColor.cgColor), red, "the symbol before the dimming")
-        dim(p, true)
-        assertChannels(try components(symbol.tintColor.cgColor), uikitGrey(red), "the symbol in a dimmed control")
-        dim(p, false)
-        assertChannels(try components(symbol.tintColor.cgColor), red, "the symbol once the dimming ends")
-    }
-
-    /// A link in the tint in a paragraph outside a control greys, as a `UITextView`'s link does,
-    /// while the paragraph's other text keeps its colour; a link in a fixed colour keeps it, beside
-    /// one in the tint too
-    func testALinkInTheTintDims() throws {
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "text"],
-            ["op": "create", "id": 4, "kind": "text"],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 22.0],
-            ["op": "frame", "id": 4, "x": 0.0, "y": 30.0, "w": 300.0, "h": 22.0],
-            ["op": "roots", "ids": [1, 4]],
-        ])
-        var tinted = InlineStyle(), plain = InlineStyle(), fixed = InlineStyle()
-        tinted.colorRef = .object(["sys": .string("@tint"), "c": [0, 122, 255, 255]])
-        plain.run.color = red.map(Double.init)
-        fixed.run.color = green.map(Double.init)
-        p.applyParagraph(1, [
-            InlineText(id: 2, parent: 1, props: ["text": "Read the "], style: plain, handlers: [], paints: true),
-            InlineText(id: 3, parent: 1, props: ["text": "terms", "href": "https://example.com/terms"], style: tinted, handlers: [], paints: true),
-            InlineText(id: 6, parent: 1, props: ["text": " and the policy", "href": "https://example.com/policy"], style: fixed, handlers: [], paints: true),
-        ])
-        p.applyParagraph(4, [InlineText(id: 5, parent: 4, props: ["text": "privacy", "href": "https://example.com/privacy"], style: fixed, handlers: [], paints: true)])
-        let paragraph = try XCTUnwrap(p.views[1]), other = try XCTUnwrap(p.views[4])
-        p.viewport.tintColor = color(blue)
-        assertChannels(try runChannels(paragraph, 1), blue, "the link before the dimming")
-        assertChannels(try runChannels(other), green, "the fixed-colour link before the dimming")
-        dim(p, true)
-        assertChannels(try runChannels(paragraph, 0), red, "the paragraph's own text")
-        assertChannels(try runChannels(paragraph, 1), uikitGrey(blue, uikitAlpha: true), "the link, as UIKit dims it")
-        assertChannels(try runChannels(other), green, "the fixed-colour link")
-        assertChannels(try runChannels(paragraph, 2), green, "a fixed-colour link beside one in the tint")
-        dim(p, false)
-        assertChannels(try runChannels(paragraph, 1), blue, "the link once the dimming ends")
-    }
-
-    /// A Markdown link in the tint greys as UIKit dims it outside a control, and so does an atom in
-    /// the tint a press acts on, their shadow and stroke in the tint included; the paragraph's own
-    /// text and an atom no press acts on keep the tint, and an atom in its kind's own colour keeps that
-    func testAMarkdownLinkAndAPressedAtomDimAndOtherAtomsKeepTheirInk() throws {
-        ExactMarkdown.install()
-        let props: [String: Any] = [
-            "markup": "markdown", "text": "Ask [Quote](t3-citation:1), [Memo](t3-note:2) or [go](https://example.com)",
-            "atoms": #"[{"name":"citation","link":"t3-citation:"},{"name":"note","link":"t3-note:"}]"#,
-            "atomStyles": ##"{"citation":[[75,"#ff3b30"]]}"##,
-            "atomFaces": #"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"The quoted passage"},{"source":"[Memo](t3-note:2)","label":"A memo","icon":"","title":"The memo"}]"#,
-        ]
-        let tinted: [String: Any] = ["sys": "@tint", "c": blue]
-        let ink: [String: Any] = ["text_color": tinted, "text_shadow": ["o": [1.0, 1.0], "b": 0.0, "c": tinted], "text_stroke_width": 1.0, "text_stroke_color": tinted]
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "text", "props": props, "style": ink],
-            ["op": "create", "id": 2, "kind": "text", "props": props, "handlers": ["atompress"], "style": ink],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 22.0],
-            ["op": "frame", "id": 2, "x": 0.0, "y": 30.0, "w": 400.0, "h": 22.0],
-            ["op": "roots", "ids": [1, 2]],
-        ])
-        p.viewport.tintColor = color(blue)
-        func piece(_ id: UInt32, _ text: String) throws -> [Double] {
-            let runs = try XCTUnwrap(p.views[id]).paragraphSpec().runs
-            return try XCTUnwrap(runs.first { $0.text.contains(text) }?.color, "a piece with \"\(text)\" has a colour")
-        }
-        // A run's own shadow, or the paragraph's where every run casts the same (`gatherShadows`)
-        func shadowAndStroke(_ id: UInt32, _ text: String) throws -> (shadow: [Double], stroke: [Double]) {
-            let spec = try XCTUnwrap(p.views[id]).paragraphSpec()
-            let run = try XCTUnwrap(spec.runs.first { $0.text.contains(text) }, "a piece with \"\(text)\"")
-            return (Array(try XCTUnwrap(run.shadow ?? spec.shadow, "its shadow").dropFirst(3)), Array(try XCTUnwrap(run.stroke, "its stroke").dropFirst()))
-        }
-        assertChannels(try piece(1, "quote"), red, "the atom before the dimming")
-        assertChannels(try piece(2, "memo"), blue, "the pressed atom before the dimming")
-        dim(p, true)
-        let grey = uikitGrey(blue, uikitAlpha: true)
-        for id: UInt32 in [1, 2] {
-            assertChannels(try piece(id, "Ask"), blue, "the paragraph's own text in \(id)")
-            assertChannels(try piece(id, "quote"), red, "the atom in its kind's colour in \(id)")
-            assertChannels(try piece(id, "go"), grey, "the link in \(id), as UIKit dims it")
-        }
-        assertChannels(try piece(1, "memo"), blue, "an atom no press acts on")
-        assertChannels(try piece(2, "memo"), grey, "an atom a press acts on, as a link")
-        for (id, text, expected, what) in [(UInt32(1), "memo", blue, "an atom no press acts on"), (2, "memo", grey, "an atom a press acts on"), (1, "go", grey, "the link")] {
-            let (shadow, stroke) = try shadowAndStroke(id, text)
-            assertChannels(shadow, expected, "\(what)'s shadow in the tint")
-            assertChannels(stroke, expected, "\(what)'s stroke in the tint")
-        }
-        dim(p, false)
-        assertChannels(try piece(1, "go"), blue, "the link once the dimming ends")
-        assertChannels(try piece(2, "memo"), blue, "the pressed atom once the dimming ends")
-    }
-
-    /// A link in a neutral tint greys as UIKit dims that tint, its alpha included, as a text view's
-    /// link does
-    func testALinkInANeutralTintDimsAsUIKitDimsIt() throws {
-        let grey = [142, 142, 147, 255]
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "text"],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 22.0],
-            ["op": "roots", "ids": [1]],
-        ])
-        var tinted = InlineStyle()
-        tinted.colorRef = .object(["sys": .string("@tint"), "c": [142, 142, 147, 255]])
-        p.applyParagraph(1, [InlineText(id: 2, parent: 1, props: ["text": "terms", "href": "https://example.com/terms"], style: tinted, handlers: [], paints: true)])
-        let paragraph = try XCTUnwrap(p.views[1])
-        p.viewport.tintColor = color(grey)
-        dim(p, true)
-        assertChannels(try runChannels(paragraph), uikitGrey(grey, uikitAlpha: true), "the link, as UIKit dims a grey tint")
-        dim(p, false)
-        assertChannels(try runChannels(paragraph), grey, "the link once the dimming ends")
-    }
-
-    /// A link at a fifth of the tint greys to a fifth of UIKit's dimmed tint: UIKit scales a
-    /// translucent tint's alpha when it dims it
-    func testALinkAtAFifthOfTheTintKeepsItsShareWhileDimmed() throws {
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "text"],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 22.0],
-            ["op": "roots", "ids": [1]],
-        ])
-        var faint = InlineStyle()
-        faint.colorRef = .object(["sys": .string("@tint/0.2"), "c": [0, 122, 255, 51]])
-        p.applyParagraph(1, [InlineText(id: 2, parent: 1, props: ["text": "terms", "href": "https://example.com/terms"], style: faint, handlers: [], paints: true)])
-        let paragraph = try XCTUnwrap(p.views[1])
-        p.viewport.tintColor = color(blue)
-        dim(p, true)
-        let dimmed = uikitGrey(blue, uikitAlpha: true)
-        assertChannels(try runChannels(paragraph), Array(dimmed[0...2]) + [Int((Double(dimmed[3]) * 0.2).rounded())], "a fifth of UIKit's dimmed tint")
-        dim(p, false)
-        assertChannels(try runChannels(paragraph), [0, 122, 255, 51], "a fifth of the tint once the dimming ends")
-    }
-
-    /// A filtered box's picture copies the paint beneath it, so it draws again when a control beneath
-    /// it greys and when it takes its colour back
-    func testAFilteredBoxAboveAControlDrawsAgainWithTheTint() throws {
-        let sub: [Double] = [-10, -10, 20, 20]
-        let program = sub + [1] + [0, -1, -3] + sub + [0, 2, 2]
-        guard SvgFilterGPU.runs(program.map(Float.init)) else { throw missing("metal", "no GPU filter path") }
-        let p = presenter([
-            ["op": "create", "id": 1, "kind": "view", "style": ["filter": ["p": program]]],
-            ["op": "create", "id": 2, "kind": "view", "handlers": ["press"], "style": ["background_color": blue, "written": ["background_color"]]],
-            ["op": "children", "id": 1, "ids": [2]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 44.0],
-            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 44.0],
-            ["op": "roots", "ids": [1]],
-        ])
-        XCTAssertNotNil(p.views[1]?.boxFilter?.picture, "the box is pictured")
-        until("the first picture lands") { !p.boxFilters.drawing }
-        dim(p, true)
-        XCTAssertTrue(p.boxFilters.drawing, "the picture draws again as the control greys")
-        until("that picture lands") { !p.boxFilters.drawing }
-        dim(p, false)
-        XCTAssertTrue(p.boxFilters.drawing, "and again as the control takes its colour back")
-        until("the last picture lands") { !p.boxFilters.drawing }
-    }
 
     /// A filtered box's picture draws again when a link in the tint beneath it greys, outside any
     /// control, and when it takes its colour back: here a paragraph that draws itself, with no raster
@@ -746,6 +335,7 @@ final class TintDimmingIOSTests: XCTestCase {
         until("the last picture lands") { !p.boxFilters.drawing }
     }
 
+
     /// A pressable route's backdrop, which its controller's view keeps, takes its fill as written
     /// while dimmed, so the view shows it once the dimming ends
     func testAPressableRoutesBackdropIsAsWrittenWhileDimmed() throws {
@@ -762,8 +352,9 @@ final class TintDimmingIOSTests: XCTestCase {
         assertChannels(try components(XCTUnwrap(route.view.layer.backgroundColor)), blue, "the backdrop once the dimming ends")
     }
 
-    /// A run in the tint beneath a link it stands in, and one a press acts on, grey as links do,
-    /// while the paragraph's plain text keeps its colour
+
+    /// A run in the tint beneath a link it stands in, and one a press acts on, grey, while the
+    /// paragraph's plain text in a colour of its own keeps it
     func testANestedLinkAndAPressedRunDimAsLinks() throws {
         let p = presenter([
             ["op": "create", "id": 1, "kind": "text"],
@@ -789,6 +380,7 @@ final class TintDimmingIOSTests: XCTestCase {
         assertChannels(try runChannels(paragraph, 0), blue, "the run beneath a link once the dimming ends")
     }
 
+
     /// The page's canvas, which the viewport keeps, takes a pressable root's fill as written: a
     /// batch while dimmed leaves it coloured
     func testThePageCanvasKeepsAPressableRootsFillWhileDimmed() throws {
@@ -806,42 +398,6 @@ final class TintDimmingIOSTests: XCTestCase {
         assertChannels(try canvas(), blue, "the canvas once the dimming ends")
     }
 
-    /// A native field in a pressable row is UIKit's to dim: its written text colour stays while the
-    /// row's own fill greys, a colour from the tint and one at a fifth of it included
-    func testANativeFieldInAControlKeepsItsTextColour() throws {
-        // A session's presenter: a field takes its font and colour from its text engine
-        let session = ExactApp.shared.makeSession(label: "dim-field-\(UUID().uuidString)")
-        defer { session.destroy() }
-        let p = session.presenter
-        mount(p)
-        p.apply(wireBatch([
-            ["op": "create", "id": 1, "kind": "view", "handlers": ["press"], "style": ["background_color": blue, "written": ["background_color"]]],
-            ["op": "create", "id": 2, "kind": "input", "handlers": ["change"], "props": ["value": "Garage"], "style": ["text_color": red, "written": ["text_color"]]],
-            ["op": "create", "id": 3, "kind": "input", "handlers": ["change"], "props": ["value": "Home"],
-             "style": ["text_color": ["sys": "@tint", "c": blue], "written": ["text_color"]]],
-            ["op": "create", "id": 4, "kind": "input", "handlers": ["change"], "props": ["value": "Work"],
-             "style": ["text_color": ["sys": "@tint/0.2", "c": [0, 122, 255, 51]], "written": ["text_color"]]],
-            ["op": "children", "id": 1, "ids": [2, 3, 4]],
-            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 120.0],
-            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 34.0],
-            ["op": "frame", "id": 3, "x": 0.0, "y": 40.0, "w": 200.0, "h": 34.0],
-            ["op": "frame", "id": 4, "x": 0.0, "y": 80.0, "w": 200.0, "h": 34.0],
-            ["op": "roots", "ids": [1]],
-        ]))
-        let row = try XCTUnwrap(p.views[1])
-        let fields = try [2, 3, 4].map { try XCTUnwrap(p.views[UInt32($0)]?.field, "input \($0) is a native field") }
-        let text = { (field: UITextField) in try self.components(XCTUnwrap(field.textColor).resolvedColor(with: field.traitCollection).cgColor) }
-        assertChannels(try text(fields[0]), red, "the field's text before the dimming")
-        let tinted = try text(fields[1]), faint = try text(fields[2])
-        XCTAssertGreaterThan((tinted[0...2].max() ?? 0) - (tinted[0...2].min() ?? 0), 24, "the tint has a hue to lose: \(tinted)")
-        XCTAssertEqual(faint[3], 51, accuracy: 2, "a fifth of the tint")
-        dim(p, true)
-        assertChannels(try fill(row), uikitGrey(blue), "the row's fill")
-        assertChannels(try text(fields[0]), red, "the field's text while dimmed")
-        assertChannels(try text(fields[1]), tinted.map { Int($0.rounded()) }, "the field's text from the tint while dimmed")
-        assertChannels(try text(fields[2]), faint.map { Int($0.rounded()) }, "the field's text at a fifth of the tint while dimmed")
-        dim(p, false)
-    }
 
     private func presenter(_ ops: [[String: Any]], faces: [UInt32: ButtonFace] = [:]) -> Presenter {
         let p = Presenter()
@@ -858,11 +414,6 @@ final class TintDimmingIOSTests: XCTestCase {
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
         window.makeKeyAndVisible()
-    }
-
-    /// A box the host sends flat: only its fill and size, which its author wrote
-    private func bar(_ fill: [Int]) -> [String: Any] {
-        ["width": 20.0, "height": 20.0, "background_color": fill, "text_color": [0, 0, 0, 255], "written": ["background_color"]]
     }
 
     /// A path icon in its colour (IconPathTests)
@@ -885,16 +436,6 @@ final class TintDimmingIOSTests: XCTestCase {
     private func dim(_ p: Presenter, _ on: Bool) {
         p.viewport.tintAdjustmentMode = on ? .dimmed : .automatic
         window.layoutIfNeeded()
-    }
-
-    /// UIKit's grey for a colour in any space, at `alpha` (0...255)
-    private func uikitGrey(_ colour: UIColor, alpha: Int) -> [Int] {
-        let probe = UIView()
-        probe.tintColor = colour
-        probe.tintAdjustmentMode = .dimmed
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        probe.tintColor.getRed(&r, green: &g, blue: &b, alpha: &a)
-        return [r, g, b].map { Int(($0 * 255).rounded()) } + [alpha]
     }
 
     /// The grey UIKit gives a tint of `c` while it dims tints, at `c`'s own alpha or at UIKit's
@@ -923,13 +464,6 @@ final class TintDimmingIOSTests: XCTestCase {
         let caster = try XCTUnwrap(node.shadowCaster, "the node casts a shadow")
         let cast = ([caster] + (caster.sublayers ?? [])).compactMap { $0.shadowOpacity > 0 ? $0.shadowColor : nil }
         return try components(XCTUnwrap(cast.first, "a layer casts it"))
-    }
-
-    /// The fill of the shape layer that draws a run of alike flat boxes in `node`
-    private func runFill(_ node: NodeView) throws -> [Double] {
-        func shapes(_ layer: CALayer) -> [CAShapeLayer] { ((layer as? CAShapeLayer).map { [$0] } ?? []) + (layer.sublayers ?? []).flatMap(shapes) }
-        let run = try XCTUnwrap(shapes(node.layer).first { $0.fillColor != nil }, "a shape layer draws the run")
-        return try components(XCTUnwrap(run.fillColor))
     }
 
     private func symbolView(_ node: NodeView?) throws -> UIImageView {

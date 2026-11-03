@@ -285,6 +285,25 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertFalse(inherited[0] > 0.9 && inherited[2] < 0.4, "the same red, only inherited, leaves UIKit's tint: \(inherited)")
     }
 
+    /// An alert's tint of the tint itself is the tint its first action draws in, a theme's
+    /// `AccentColor` included: the alert's window carries neither a theme's tint nor an embedder's
+    func testAnAlertsTintOfTheTintIsItsFirstActionsTint() throws {
+        let tint: [String: Any] = ["sys": "@tint", "c": [[0, 122, 255, 255], [10, 132, 255, 255]]]
+        let (p, controller, _) = confirmation(label: "Keep?", texts: ["A message."], actions: ["Keep"], cancel: true, bareLead: ["text_color": tint, "written": ["text_color"]])
+        defer {
+            dismiss(p, controller)
+            _ = ThemeRoles.apply(wireBatch([["op": "roles", "roles": [String: Any]()]]), root: p.root)
+            p.applyThemeTint()
+        }
+        _ = ThemeRoles.apply(wireBatch([["op": "roles", "roles": ["AccentColor": [0, 200, 0, 255]]]]), root: p.root)
+        p.applyThemeTint()
+        XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
+        let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+        var (r, g, b, a): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        XCTAssertTrue(try XCTUnwrap(alert.view.tintColor).getRed(&r, green: &g, blue: &b, alpha: &a))
+        for (got, want) in zip([r, g, b], [0, 200.0 / 255, 0]) { XCTAssertEqual(got, want, accuracy: 0.01, "the theme's green: \([r, g, b])") }
+    }
+
     /// A prompt (`kernel/src/confirmation.rs`): an alert-shaped alertdialog
     /// with an `input` is the alert with UIKit's text field, which stands in
     /// for the authored field: its value and placeholder, a keystroke the

@@ -52,8 +52,14 @@ extension ControlHost {
             // `var(--exact-accent, AccentColor)` does (LLP 1121 D9, stage 9 F1).
             // (Resolved in the spinner's appearance, as the painters resolve it.)
             let kept = written || owner.style["accent_color"]?.namesTint != true ? nil
-                : authoredAbove(owner).flatMap { above in above.style["accent_color"].flatMap { $0.channels(dark: owner.drawsDark, contrast: owner.drawsHighContrast, elevated: owner.drawsElevated, tint: above.ownTint(for: $0)) } }.map { TextEngine.color($0) }
-            let accent = (written ? owner.channels("accent_color").map { TextEngine.color($0) } : nil) ?? kept ?? ThemeRoles.color("AccentColor", in: spinner)
+                : authoredAbove(owner).flatMap { above in
+                    // Beneath that accent's view, the tint it carries down at the accent's share, which UIKit
+                    // draws and dims; else (a sheet's or a menu's logical parent) the accent's colour
+                    owner.isDescendant(of: above) ? SystemColor.tint(above.style["accent_color"]?.tintAlpha ?? 1)
+                        : above.style["accent_color"]?.channels(dark: owner.drawsDark, contrast: owner.drawsHighContrast, elevated: owner.drawsElevated,
+                                                                tint: above.carriedTint).map { TextEngine.color($0) }
+                }
+            let accent = (written ? owner.accentUIColor() : nil) ?? kept ?? ThemeRoles.color("AccentColor", in: spinner)
             assign(spinner, \.color, own ?? accent ?? Self.platformInk)
             assign(spinner, \.isHidden, owner.cssVisibilityHidden)
             assign(spinner, \.accessibilityIdentifier, owner.props["testId"])
@@ -119,7 +125,8 @@ extension ControlHost {
             let box = owner.contentBox()
             let height = bar.intrinsicContentSize.height
             assign(bar, \.frame, CGRect(x: box.minX, y: box.midY - height / 2, width: box.width, height: height))
-            assign(bar, \.progressTintColor, owner.channels("accent_color").map { TextEngine.color($0) })
+            // UIKit draws the progress in the bar's tint and dims it; a share of it is the progress's colour
+            assign(bar, \.progressTintColor, owner.accentShare)
             assign(bar, \.isHidden, owner.cssVisibilityHidden)
             assign(bar, \.accessibilityIdentifier, owner.props["testId"])
             assign(bar, \.accessibilityLabel, owner.props["accessibilityLabel"])
@@ -144,7 +151,7 @@ extension ControlHost {
     /// The agent's `native.control` for a progress.
     func progressObservation(_ node: NodeView) -> [String: Any]? {
         if let bar = bars[node.id] {
-            return ["view": "UIProgressView", "progress": Double(bar.progress), "tinted": bar.progressTintColor != nil,
+            return ["view": "UIProgressView", "progress": Double(bar.progress), "tinted": node.channels("accent_color") != nil,
                     "size": [Agent.r2(bar.bounds.width), Agent.r2(bar.bounds.height)]]
         }
         guard let s = spinners[node.id] else { return nil }
