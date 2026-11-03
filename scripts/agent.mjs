@@ -1414,7 +1414,9 @@ export async function main(argv, injected = {}) {
         case 'reload': if (args.length) throw new MalformedOperation('reload takes no arguments'); r = await reloadWeb(s); break;
         case 'logs': if (args.some(a => a !== '--all')) throw new MalformedOperation('logs [--all]'); r = await s.logs({all: args.includes('--all')}); break;
         case 'layout': r = await s.layout(...layoutArgs(args)); break;
-        case 'screenshot':
+        case 'screenshot': { // a drive's flag written in the step (`"screenshot x.png --scale 3"`) is named, not read as a form
+          const flag = args.findIndex((a) => a.startsWith('--')), value = /^\d/.test(args[flag + 1] ?? '') ? 1 : 0; // `--scale 3`: a number is the flag's
+          if (flag >= 0) throw new MalformedOperation(`screenshot: ${args[flag]} is a flag of the drive, not of the step: write it before the steps, as \`${host} ${args.slice(flag, flag + 1 + value).join(' ')} "${['screenshot', ...args.filter((_, i) => i < flag || i > flag + value)].join(' ')}"\``); }
           if (args.includes('compare') || args[2] === 'from') r = await (args[2] === 'from' ? worldLook : compareScreenshot)(s, args); // `from`: a world's look frame (LLP 1127.000 D3)
           else if (args[1] === 'over') {
             if (args[3] !== 'every' || !(args.length === 5 || args.length === 6 && args[5] === 'window')) throw new MalformedOperation('screenshot <png|apng> over <ms> every <ms> [window]');

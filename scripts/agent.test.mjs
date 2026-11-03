@@ -123,6 +123,10 @@ test('malformed input is labelled before delivery; a state refusal is not', asyn
   await assert.rejects(() => main(['web', 'resize banana'], { open: async () => ({ close() {} }) }), e => e.malformed === true);
   // A deep link is `type` on the navigation root (euxy FRICTION 11): the refusal names that form.
   await assert.rejects(() => main(['web', 'open euxy://p/1'], { open: async () => ({ close() {} }) }), e => e.malformed === true && e.message.includes('`type <root> euxy://p/1`'));
+  // A drive's flag inside the step was read as a form ("screenshot: unknown form 3"): the refusal names where it goes.
+  await assert.rejects(() => main(['web', 'screenshot x.png --scale 3 window'], { open: async () => ({ close() {} }) }),
+    e => e.malformed === true && e.message.endsWith('screenshot: --scale is a flag of the drive, not of the step: write it before the steps, as `web --scale 3 "screenshot x.png window"`'));
+  await assert.rejects(() => main(['web', 'screenshot x.png --json'], { open: async () => ({ close() {} }) }), e => e.malformed === true && e.message.endsWith('as `web --json "screenshot x.png"`'));
 });
 
 test('accepted pointer, wheel, media and zero-time forms still reach the carrier', async () => {
