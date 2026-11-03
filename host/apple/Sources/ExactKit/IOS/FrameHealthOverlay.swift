@@ -319,7 +319,7 @@ final class FrameHealthCardView: UIView {
     var scale: CGFloat = 1 { didSet { if scale != oldValue { setNeedsDisplay(); updateAccessibility(); updatePlots() } } }
     /// The charts, fed by each frame while the card reads, and the scales and view their labels were
     /// last drawn for
-    private(set) lazy var chart = FrameHealthChart(in: layer)
+    private(set) lazy var chart = FrameHealthChart(in: content.layer)
     private var chartLabels: [Double?] = []
     /// The chart filling the chart area after a tap: 0 frame rate, 1 frame time
     private(set) var expanded: Int?
@@ -340,10 +340,14 @@ final class FrameHealthCardView: UIView {
     /// takes no safe-area inset, since the card can rest past the safe area
     let detailsScroll = UIScrollView()
     private let detailsView = DetailsView()
+    /// The face, Details and the charts, clipped to the card's outline by a view of their own: the card's layer keeps
+    /// its border, the hairline, and neither draws nor clips. Under a corner configuration's corners a border fades
+    /// around them where its own layer clips drawn content (iOS 27.1).
+    private let content = UIView()
+    private let faceView = Face()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        isOpaque = true
         detailsScroll.isHidden = true
         detailsScroll.showsVerticalScrollIndicator = false
         detailsScroll.showsHorizontalScrollIndicator = false
@@ -355,16 +359,22 @@ final class FrameHealthCardView: UIView {
         }
         detailsScroll.isOpaque = true
         detailsScroll.addSubview(detailsView)
-        addSubview(detailsScroll)
-        // The drawing fills the bounds; the layer clips it to the card's rounded outline, which in a
+        faceView.card = self
+        faceView.isUserInteractionEnabled = false
+        content.addSubview(faceView)
+        content.addSubview(detailsScroll)
+        addSubview(content)
+        // The drawing fills the bounds; the content clips it to the card's rounded outline, which in a
         // corner of the screen follows the screen's own rounding, so that rounding never cuts the card
-        if #available(iOS 26.0, *) {
-            cornerConfiguration = .corners(radius: .containerConcentric(minimum: 12))
-        } else {
-            layer.cornerRadius = 12
-            layer.cornerCurve = .continuous
+        for view in [self, content] {
+            if #available(iOS 26.0, *) {
+                view.cornerConfiguration = .corners(radius: .containerConcentric(minimum: 12))
+            } else {
+                view.layer.cornerRadius = 12
+                view.layer.cornerCurve = .continuous
+            }
         }
-        layer.masksToBounds = true
+        content.layer.masksToBounds = true
         isMultipleTouchEnabled = false
         resolveColors()
         // Colors resolve again as soon as the appearance changes: UIKit updates a view's traits lazily,
@@ -379,12 +389,29 @@ final class FrameHealthCardView: UIView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    private var layout: FrameHealthCardFace.Layout { .init(width: bounds.width / scale, compact: compact, showsDetails: state.showsDetails) }
+    var layout: FrameHealthCardFace.Layout {
+        .init(width: bounds.width / scale, compact: compact, showsDetails: state.showsDetails, corners: topCorners)
+    }
+    /// The radii of the card's top corners in the face's points, whole: they change only as the card comes to or leaves
+    /// a corner of the screen, where it follows the screen's rounding
+    private var topCorners: (topLeft: CGFloat, topRight: CGFloat) = (12, 12)
     private func face(_ point: CGPoint) -> CGPoint { CGPoint(x: point.x / scale, y: point.y / scale) }
     private func view(_ rect: CGRect) -> CGRect { rect.applying(CGAffineTransform(scaleX: scale, y: scale)) }
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        content.frame = bounds
+        faceView.frame = bounds
+        // Redraw the header only when a top corner's radius changes: UIKit lays the card out again when it moves, with
+        // its corners already for where it is
+        if #available(iOS 26.0, *) {
+            let corners = (topLeft: (effectiveRadius(corner: .topLeft) / scale).rounded(),
+                           topRight: (effectiveRadius(corner: .topRight) / scale).rounded())
+            if corners != topCorners {
+                topCorners = corners
+                setNeedsDisplay(view(CGRect(x: 0, y: 0, width: layout.width, height: 44)))
+            }
+        }
         layoutDetails()
         updateAccessibility()
         updatePlots()
@@ -459,12 +486,21 @@ final class FrameHealthCardView: UIView {
     /// Where Share is drawn, for the share sheet's popover
     var shareFrame: CGRect { view(layout.share) }
 
-    override func draw(_ rect: CGRect) {
+    // Pass redraws to the face, since the card's own layer draws nothing
+    override func setNeedsDisplay() { faceView.setNeedsDisplay() }
+    override func setNeedsDisplay(_ rect: CGRect) { faceView.setNeedsDisplay(rect) }
+
+    private final class Face: UIView {
+        weak var card: FrameHealthCardView?
+        override func draw(_ rect: CGRect) { card?.drawFace() }
+    }
+
+    private func drawFace() {
         guard let ctx = UIGraphicsGetCurrentContext(), let palette else { return }
         ctx.setFillColor(palette.background)
         ctx.fill(bounds)
         ctx.scaleBy(x: scale, y: scale)
-        FrameHealthCardFace.draw(ctx, width: layout.width, compact: compact, state: state, palette: palette)
+        FrameHealthCardFace.draw(ctx, layout, state: state, palette: palette)
         guard !compact, !state.showsDetails else { return }
         let area = layout.chartArea, p = presentation
         if state.table {

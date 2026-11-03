@@ -314,7 +314,12 @@ enum FrameHealthCardDrawing {
 
     /// `rect` with Apple's continuous corners of `radius`, the outline Exact's boxes draw for `-exact-continuous`
     static func continuous(_ rect: CGRect, radius: CGFloat) -> CGPath {
-        CornerShape.continuous.outline(rect, Array(repeating: CGSize(width: radius, height: radius), count: 4))
+        continuous(rect, radii: Array(repeating: radius, count: 4))
+    }
+
+    /// `rect` with Apple's continuous corners of `radii`, top-left first and clockwise
+    static func continuous(_ rect: CGRect, radii: [CGFloat]) -> CGPath {
+        CornerShape.continuous.outline(rect, radii.map { CGSize(width: $0, height: $0) })
     }
 
     /// Draw `string` with its middle at `y`, starting or ending at `x`. Wider than `limit`, it shrinks

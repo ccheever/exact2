@@ -55,7 +55,7 @@ final class FrameHealthMetricsTests: XCTestCase {
                 }
             }
         }
-        let face = picture { FrameHealthCardFace.draw($0, width: FrameHealthCardFace.width, compact: false, state: .init(), palette: p) }
+        let face = picture { FrameHealthCardFace.draw($0, layout, state: .init(), palette: p) }
         let apart = { (a: [UInt8], b: [UInt8]) in zip(a, b).filter { abs(Int($0) - Int($1)) > 64 }.count }
         XCTAssertEqual(apart(face, fills { FrameHealthCardDrawing.continuous($0, radius: $1) }), 0, "the track and the chip take the continuous outline")
         XCTAssertGreaterThan(apart(face, fills { CGPath(roundedRect: $0, cornerWidth: $1, cornerHeight: $1, transform: nil) }), 100,
@@ -813,6 +813,50 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertEqual(layout.control(at: CGPoint(x: layout.details.maxX + 1, y: 22)), .details)
         XCTAssertEqual(layout.control(at: CGPoint(x: layout.share.minX - 1, y: 22)), .share)
         XCTAssertEqual(layout.control(at: CGPoint(x: layout.title.minX + 1, y: 22)), .title, "within the title, not Close's target")
+    }
+
+    func testTheHeaderKeepsClearOfRounderTopCorners() {
+        let plain = FrameHealthCardFace.Layout(width: FrameHealthCardFace.width), width = FrameHealthCardFace.width
+        // A 51-point corner, as the folded iPhone Duo's screen gives a card in its top-right corner
+        let right = FrameHealthCardFace.Layout(width: width, corners: (12, 51))
+        XCTAssertEqual(right.share.maxX, plain.share.maxX - 0.2915 * 39, accuracy: 0.01, "Share moves in")
+        XCTAssertEqual(right.share.minX - right.details.minX, plain.share.minX - plain.details.minX, accuracy: 0.001, "and Details with it")
+        XCTAssertEqual(right.close, plain.close)
+        // Close moves in as far as the 6 points the title leaves it, and the title keeps its place
+        XCTAssertEqual(plain.title.minX - plain.close.maxX, 2 + 6, "the title stands 6 points beyond Close's 2")
+        let left = FrameHealthCardFace.Layout(width: width, corners: (51, 12))
+        XCTAssertEqual(left.close.minX, plain.close.minX + 6, accuracy: 0.001, "Close moves in, as far as the title allows")
+        XCTAssertEqual(left.title.minX - left.close.maxX, 2, accuracy: 0.001)
+        XCTAssertEqual(FrameHealthCardFace.Layout(width: width, corners: (20, 12)).close.minX, plain.close.minX + 0.2915 * 8, accuracy: 0.01)
+        XCTAssertEqual(left.title, plain.title, "the title stays")
+        XCTAssertEqual(left.share, plain.share)
+        // The narrowest card, both corners rounded: the title's room and the moves shrink to keep the header apart
+        let both = FrameHealthCardFace.Layout(width: FrameHealthCardFace.minimumWidth, corners: (51, 51))
+        let header = [both.close, both.title, both.status, both.details, both.share]
+        for (a, b) in zip(header, header.dropFirst()) { XCTAssertLessThanOrEqual(a.maxX + 2, b.minX + 0.001, "\(a) and \(b)") }
+
+        // Close pressed in the 51-point corner, drawn at 1x across the corner alone in colors far apart
+        var p = Self.palette
+        (p.background, p.iconPressed) = (CGColor(gray: 0, alpha: 1), CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        var state = FrameHealthCardFace.State()
+        state.pressed = .close
+        let side = 48
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        pixels.withUnsafeMutableBytes { buffer in
+            guard let ctx = CGContext(data: buffer.baseAddress, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+            // The face's y runs down, as a view's does
+            ctx.translateBy(x: 0, y: CGFloat(side))
+            ctx.scaleBy(x: 1, y: -1)
+            FrameHealthCardFace.draw(ctx, left, state: state, palette: p)
+        }
+        func red(_ point: CGPoint) -> Bool {
+            let i = (Int(point.y) * side + Int(point.x)) * 4
+            return pixels[i] > 200 && pixels[i + 1] < 60
+        }
+        XCTAssertTrue(red(CGPoint(x: left.close.minX + 4, y: left.close.maxY - 4)), "the pressed fill shows")
+        // Inside the fill's own corner, but outside the card's outline inset by 2 points
+        XCTAssertFalse(red(CGPoint(x: left.close.minX + 4, y: left.close.minY + 4)), "but not past the card's rounded corner")
     }
 
     func testTheSharedTextNamesEveryFigureWithinTheReportCap() {

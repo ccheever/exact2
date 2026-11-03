@@ -455,7 +455,7 @@ final class FrameHealthCardViewMac: NSView {
         guard let ctx = NSGraphicsContext.current?.cgContext, let palette else { return }
         ctx.setFillColor(palette.background)
         ctx.fill(bounds)
-        FrameHealthCardFace.draw(ctx, width: bounds.width, compact: compact, state: state, palette: palette)
+        FrameHealthCardFace.draw(ctx, .init(width: bounds.width, compact: compact), state: state, palette: palette)
         guard !compact, !state.showsDetails else { return }
         let area = regions.chartArea, p = presentation
         if state.table {
