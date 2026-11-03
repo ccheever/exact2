@@ -6,8 +6,9 @@
 // Chrome's error page (dev-scheduler.test.mjs, 2026-10-29). Each loop here
 // waits before it listens (the test-only EXACT_DEV_LISTEN_DELAY_MS), and
 // the test connects the moment it reads the line (a wasm loop's module or
-// Rust generation's ready line likewise). A loop whose port is taken says
-// so and never says it is ready.
+// Rust generation's ready line likewise), which comes after the address the
+// loop says once it listens. A loop whose port is taken says so and never
+// says it is ready.
 import { afterEach, expect, onTestFinished, test } from 'bun:test';
 import { createServer } from 'node:net';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -33,15 +34,16 @@ afterEach(() => {
 const free = () => new Promise(ok => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => ok(port)); }); });
 
 // The JS loop (Caltrain), the wasm loop's own compiler (theme-fixture, no app.ts) and its TypeScript
-// producer (Canvas Gallery). A wasm loop's wait (the most the knob takes) outlasts its first generation,
-// so that comes while it is not listening yet, which `GENERATED` shows: its classification, said as it
-// captures one. Without it a case would prove nothing, so it fails instead; a warm run first (`warm`), so a
-// cold build of the app's dev bin (minutes, after a rebase) does not outlast the wait. theme-fixture's design server
-// takes the app's .exact/tamber.lock: this checkout's turn on the fixture first, as design-tool-inspect's.
+// producer (Canvas Gallery). A wasm loop waits for its first generation (the knob's `generation`, 60 s at
+// most), so its ready line is due while it is not listening yet. `GENERATED`, the classification it says as it
+// captures one, shows that the generation, not the bound, ended the wait: a case the bound ended would prove
+// nothing, so it fails instead. A warm run first (`warm`), so a cold build of the app's dev bin (minutes, after
+// a rebase) does not outlast the bound. theme-fixture's design server takes the app's .exact/tamber.lock:
+// this checkout's turn on the fixture first, as design-tool-inspect's.
 const LOOPS = [
   { name: 'the JS dev loop', args: ['--app', 'caltrain'], delay: 3000 },
-  { name: 'the wasm dev loop', args: ['--app', 'theme-fixture', '--wasm'], delay: 60000, fixture: 'theme-fixture' },
-  { name: 'the wasm dev loop on a TypeScript app', args: ['--app', 'canvas-gallery', '--wasm'], delay: 60000 },
+  { name: 'the wasm dev loop', args: ['--app', 'theme-fixture', '--wasm'], delay: 'generation', fixture: 'theme-fixture' },
+  { name: 'the wasm dev loop on a TypeScript app', args: ['--app', 'canvas-gallery', '--wasm'], delay: 'generation' },
 ];
 // Its ready lines, as the resident loop and metrics.mjs hear them.
 const READY = /^(?:plan ready|module generation ready|Rust generation \w+ ready)/m;
@@ -76,11 +78,15 @@ function devLoop(loop, port, onReady = () => {}, delay = loop.delay) {
 }
 
 // The wait is a test's alone: without EXACT_TEST_TIMING=1, or out of its range, a loop listens at once.
-test('the listen delay is read only under EXACT_TEST_TIMING=1, from 1 to 60000 ms', async () => {
-  const took = async env => { const t = performance.now(); await listenDelay(env); return performance.now() - t; };
+test('the listen delay is read only under EXACT_TEST_TIMING=1, from 1 to 60000 ms or until the first generation', async () => {
+  const took = async (env, generated) => { const t = performance.now(); await listenDelay(env, generated); return performance.now() - t; };
   for (const env of [{ EXACT_DEV_LISTEN_DELAY_MS: '1500' }, { EXACT_TEST_TIMING: 'true', EXACT_DEV_LISTEN_DELAY_MS: '1500' }, { EXACT_TEST_TIMING: '1', EXACT_DEV_LISTEN_DELAY_MS: '0' }, { EXACT_TEST_TIMING: '1', EXACT_DEV_LISTEN_DELAY_MS: '60001' }, { EXACT_TEST_TIMING: '1', EXACT_DEV_LISTEN_DELAY_MS: '4e2' }])
     expect(await took(env)).toBeLessThan(500);
   expect(await took({ EXACT_TEST_TIMING: '1', EXACT_DEV_LISTEN_DELAY_MS: '1500' })).toBeGreaterThanOrEqual(1490);
+  // `generation` waits for the loop's first generation, and is ignored by a caller that has none to give
+  const generation = { EXACT_TEST_TIMING: '1', EXACT_DEV_LISTEN_DELAY_MS: 'generation' };
+  expect(await took(generation)).toBeLessThan(500);
+  expect(await took(generation, Bun.sleep(1500))).toBeGreaterThanOrEqual(1490);
 });
 
 // A wasm loop's app built once, its loop run to ready with no wait and stopped, before a case times its wait.
@@ -116,8 +122,11 @@ for (const loop of LOOPS) {
       // [::1] answers too: a status (421, its Host not a name the loop serves), not a refused connection.
       const [four, sixAnswer] = await answers;
       expect([four, typeof sixAnswer]).toEqual([200, 'number']);
-      expect(run.said()).toContain(`dev: TEST delay ${loop.delay} ms before listening (EXACT_TEST_TIMING=1)`);
+      expect(run.said()).toContain(loop.delay === 'generation' ? 'dev: TEST delay until the first generation before listening (EXACT_TEST_TIMING=1)' : `dev: TEST delay ${loop.delay} ms before listening (EXACT_TEST_TIMING=1)`);
       if (loop.args.includes('--wasm')) expect(atIndex(run.said(), GENERATED), 'a generation captured before the loop listened').toBeWithin(0, run.said().indexOf(`http://127.0.0.1:${port}/`));
+      // Its address, said once it listens, comes before its ready line: a wasm loop listens within milliseconds of
+      // its generation, too soon to count on a refused connection to catch a line said at once
+      expect(run.said().indexOf(`http://127.0.0.1:${port}/`), 'the address said before the ready line').toBeWithin(0, atIndex(run.said(), READY));
     } finally { await run.dev.stop(15_000); }
   }, 1_300_000);
 
