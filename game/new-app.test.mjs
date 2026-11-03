@@ -169,6 +169,14 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.ok(authoredApp(dir));
     assert.deepEqual(outsideWorkspaceProblems(dir), []);
     assert.deepEqual(readFileSync(resolve(dir, '.cargo/config.toml')), readFileSync(resolve(import.meta.dir, '../.cargo/config.toml')));
+    // Patches through a symlink to this checkout (one an app checkout at another depth reaches it by) name the same crates.
+    const linked = resolve(parent, 'exact2-link'), direct = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
+    symlinkSync(resolve(import.meta.dir, '..'), linked);
+    const throughLink = direct.replaceAll(`"${pathFrom(dir, resolve(import.meta.dir, '..'))}/vendor/`, `"${linked}/vendor/`);
+    assert.notEqual(throughLink, direct);
+    writeFileSync(resolve(dir, 'Cargo.toml'), throughLink);
+    assert.deepEqual(outsideWorkspaceProblems(dir), []);
+    writeFileSync(resolve(dir, 'Cargo.toml'), direct);
     const manifest = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
     writeFileSync(resolve(dir, 'Cargo.toml'), manifest.replace(/^taffy = .*\n/m, ''));
     writeFileSync(resolve(dir, 'rust-toolchain.toml'), '[toolchain]\nchannel = "1.0.0"\n');
