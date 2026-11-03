@@ -177,7 +177,10 @@ pub(crate) fn value_edit(
     if let Some(edit) = (name == "display").then(|| display_edit(text)).flatten() {
         return Some(edit);
     }
-    if let Some(edit) = (name == "font-size").then(|| font_size_edit(text)).flatten() {
+    if let Some(edit) = (name == "font-size")
+        .then(|| font_size_edit(text))
+        .flatten()
+    {
         return Some(edit);
     }
     match error {
