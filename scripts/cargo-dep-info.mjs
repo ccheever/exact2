@@ -125,10 +125,17 @@ export function unitDepInfo(message, workspace, metadata) {
     ? resolve(metadata.build_directory, relative(targetDir, real(file))) : file;
   const source = resolve(message.target.src_path);
   // rustc leaves the single output path raw, but escapes dependency paths.
+  // In a build directory copied from another checkout (Cargo still finds its
+  // units fresh), each .d file names itself at the same place under the old root.
+  let builtAt;
   const names = (dep, candidate) => {
-    const output = dep.slice(0, dep.indexOf(': '));
-    return (holds([resolve(workspace, output)], candidate) || holds(compilerPaths('unit: ' + output, workspace), candidate))
-      && holds(compilerPaths(dep, workspace), source);
+    const output = dep.slice(0, dep.indexOf(': ')), written = resolve(workspace, output);
+    if (!holds([written], candidate) && !holds(compilerPaths('unit: ' + output, workspace), candidate)) {
+      const tail = metadata && under(buildDir, real(candidate)) && sep + relative(buildDir, real(candidate));
+      if (tail && written.endsWith(tail)) builtAt ??= written.slice(0, -tail.length);
+      return false;
+    }
+    return holds(compilerPaths(dep, workspace), source);
   };
   const sameBytes = (product, file) => product === file || existsSync(product)
     && statSync(product).size === statSync(file).size && readFileSync(product).equals(readFileSync(file));
@@ -191,7 +198,8 @@ export function unitDepInfo(message, workspace, metadata) {
     if (matches.length > 1) throw new Error(`ambiguous rustc unit dep-info for ${message.target.name}`);
   }
   const searched = metadata ? `; searched target directory ${metadata.target_directory}${buildDir !== targetDir ? ` and build directory ${metadata.build_directory}` : ''}` : '';
-  throw new Error(`no matching rustc unit dep-info for ${message.target.name}${searched}; rebuild the stale Cargo unit or use a private target directory`);
+  const fix = builtAt ? `${metadata.build_directory} was built at ${builtAt}: delete it and build again` : 'rebuild the stale Cargo unit or use a private target directory';
+  throw new Error(`no matching rustc unit dep-info for ${message.target.name}${searched}; ${fix}`);
 }
 
 /** Rust's canonical source and Cargo's package roots must use the same Windows spelling. */
