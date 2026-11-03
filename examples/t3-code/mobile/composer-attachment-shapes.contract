@@ -8,6 +8,9 @@ shape ComposerAttachment
   preview: string
   removeOperation: string
   disabled: bool
+  uploadState: string
+  uploadProgress: number
+  uploadError: string
 shape ComposerAttachmentsSnapshot
   menuConfiguration: string
   previewRequest: string

@@ -30,6 +30,7 @@ import { threadOps } from './shared/client-ops-threads';
 import { mobileVcsCachedRead, mobileVcsDisplayOwner, mobileVcsFocusedScope } from './mobile-vcs-consumers';
 import type { MobileVcsRefsInput } from './mobile-vcs-cache';
 import { refBadge } from './shared/composer-controls-branch';
+import { mobileComposerAttachmentUploadSnapshot } from './composer-attachment-uploads';
 
 export interface NewTaskProjectIcon { faviconTarget: MobileProjectFaviconTarget; favicon: string; iconKind: string; iconText: string; iconColor: string; iconSurface: string; iconSize: number }
 export interface NewTaskProject extends NewTaskProjectIcon { id: string; environmentId: string; projectId: string; title: string; subtitle: string; path: string; selected: boolean; disabled: boolean; last: boolean }
@@ -112,6 +113,9 @@ export function mobileNewTask(query = '', client: T3Client = mobileClient, backg
   const environmentLabel = environments.find(environment => environment.selected)?.label
     || str(obj(client.config.environment).label) || savedLabel || 'Environment';
   const composer = { ...mobileThreadComposer(client), placeholder: 'Ask anything…' };
+  const uploads = mobileComposerAttachmentUploadSnapshot(client);
+  const uploadPending = Object.values(uploads.states).some(value => value === 'uploading');
+  const uploadFailed = Object.values(uploads.states).some(value => value === 'failed');
   const clone = mobileNewTaskCloneSnapshot(client);
   if (clone.blocked) {
     composer.canSend = false;
@@ -124,6 +128,7 @@ export function mobileNewTask(query = '', client: T3Client = mobileClient, backg
   if (client.connection !== 'connected') composer.blockedReason = '';
   composer.canSend = !!client.draft.trim() && !!client.providerId && !!client.modelId && !composer.modelUnavailable
     && client.preferencesLoaded && !client.threadId && !client.pending && !client.busy && canSelect && !clone.blocked
+    && !uploadPending && !uploadFailed
     && !mobileNewTaskTransferBusy(client, client.draftKey) && (client.connection !== 'connected' || composer.canOperate
       && mobileModelSelectionReady(client.config, { instanceId: client.providerId, model: client.modelId }))
     && (scratch || context.envMode !== 'worktree' || !!context.branch);

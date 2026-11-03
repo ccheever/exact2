@@ -65,6 +65,7 @@ import { MOBILE_SERVER_ROUTES, mobileServerSettings, mobileServerSettingsCommand
 import { settingsProviderNative, mobileProviderAccounts, mobileProviderAccountsSnapshot, mobileProviderCommand, mobileProviderField } from './settings-provider';
 import { mobileMediaPrepare, mobileMediaForget } from './media-preview';
 import { mobileComposerAttachmentAction, mobileComposerAttachmentPreviews } from './composer-attachments';
+import { mobileComposerAttachmentUploadsStart } from './composer-attachment-uploads';
 import {mobileComposerAttachmentMenuAction,mobileComposerAttachmentMenuSnapshot} from './composer-attachment-menu';
 // @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#decision
 import { applyMobileComposerBehavior } from './composer-behavior';
@@ -557,7 +558,8 @@ const sources: Sources = {
   },
   composerAttachments: (args, _store, storage, nativeInput) => {
     if (newTaskGuard('composerAttachments', args)?.() === false) return { menuConfiguration:'', contentOwner: '', previewRequest: '', items: [], canPick: false, supportsFiles: false, remaining: 0, error: '' };
-    sourceNative('composerAttachments', args, nativeInput);
+    const native = sourceNative('composerAttachments', args, nativeInput);
+    if (native && storage) mobileComposerAttachmentUploadsStart(mobileClient, native, storage);
     return mobileComposerAttachmentMenuSnapshot(mobileClient,{visit:str(args[4]),url:str(args[5]),active:args[6]===true},Number(args[3]));
   },
   composerPreviewsPrepare: (args, _store, storage, nativeInput) => {
