@@ -660,10 +660,12 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   the axis at once where CSS slerps. Linux draws a 3D box as a picture warped
   on the CPU.
 - **Apple's affordances** ([LLP 1077 §5](1077-css-visual-properties-native-draws-cheaply.rfc.md)),
-  rows 162–170, are not CSS: `-exact-symbol-rendering`, `-exact-symbol-palette`,
+  rows 162–170 and 228, are not CSS: `-exact-symbol-rendering`, `-exact-symbol-palette`,
   `-exact-symbol-value`, `-exact-symbol-effect` (with the `symbolEffectValue` prop),
   `-exact-press-haptic` (host-owned as `-exact-press-scale`), `-exact-content-transition`,
-  `-exact-scroll-edge-effect`, `-exact-hover-effect` and `-exact-smart-invert`. Each draws on the
+  `-exact-scroll-edge-effect`, `-exact-hover-effect`, `-exact-smart-invert` and
+  `-exact-tint-adjustment` (UIKit's `tintAdjustmentMode`; no host but iOS and
+  tvOS dims a tint). Each draws on the
   platform that has it; the web writes no declaration for them and draws a
   symbol monochrome. `-exact-press-haptic` alone has a web arm: the pressed
   element's `--exact-press-haptic`, which the input glue plays at the press

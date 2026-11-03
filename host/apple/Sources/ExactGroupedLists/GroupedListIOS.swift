@@ -711,9 +711,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         // Changed native parts configure the cell again. A custom row keeps
         // its own live views; mount carries their current box into the cell.
-        // A standard row whose symbol's authored tint or written colour, or
-        // whose authored `min-height`, changed is too (D7).
-        let looking: [UInt32: BatchValue?] = Dictionary(uniqueKeysWithValues: snapshot.itemIdentifiers.map { ($0, .array([tint(of: $0) ?? .null, minimum(of: $0).map { .number(Double($0)) } ?? .null])) })
+        // A standard row whose symbol's authored tint or written colour, whose
+        // authored `min-height` (D7) or whose `-exact-tint-adjustment` changed is too.
+        let looking: [UInt32: BatchValue?] = Dictionary(uniqueKeysWithValues: snapshot.itemIdentifiers.map { ($0, .array([tint(of: $0) ?? .null, minimum(of: $0).map { .number(Double($0)) } ?? .null,
+                                                                                                                       host.presenter.views[$0]?.style["tint_adjustment"] ?? .null])) })
         // A row whose card changed (its section gained or lost one, or the
         // row moved between sections) is configured again.
         let wasCarded = Dictionary(previous.sections.flatMap { s in s.rows.map { ($0.view, s.card) } }, uniquingKeysWith: { a, _ in a })
@@ -1045,6 +1046,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private func configure(_ cell: GroupedCell, _ id: UInt32) {
         cell.row = id
         cell.target = rows[id]?.target
+        // The row's `-exact-tint-adjustment` is its cell's, as a hand-built app sets the cell's
+        cell.tintAdjustmentMode = .init(host.presenter.views[id]?.style["tint_adjustment"])
         guard let row = rows[id] else { return }
         interact(cell, id)
         // A card-less section's rows sit on the list's background; a

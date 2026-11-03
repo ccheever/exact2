@@ -103,6 +103,19 @@ final class DimmedPixelsIOSTests: XCTestCase {
         }
     }
 
+    /// `-exact-tint-adjustment="normal"` keeps the tint as it is behind the alert, as UIKit's `.normal`
+    /// keeps its twin's: a mark in the tint and a list row's symbol in it, the column's teal throughout
+    func testBehindAnAlertATintKeptNormalStaysAsItIs() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "an alert presents only in a scene's window") }
+        let s = try stage()
+        let mark = try s.centre("kept-symbol"), twin = try s.centre("kept-symbol", twin: true), row = try s.rowSymbol("kept-row")
+        for (picture, when) in [(s.before, "before the alert"), (s.behind, "behind it"), (s.after, "after it")] {
+            assertPixel(picture.at(mark), rgb(.systemTeal), "the mark \(when)")
+            assertPixel(picture.at(twin), rgb(.systemTeal), "its twin \(when)")
+            assertPixel(picture.at(row), rgb(.systemTeal), "the row's symbol \(when)")
+        }
+    }
+
     /// A filled button's face, label and symbol in a colour of its own (a remote control's) are a
     /// hand-built `UIButton.Configuration.filled()`'s before, behind and after the alert: UIKit greys
     /// the whole button, its symbol's green too
@@ -262,6 +275,10 @@ final class DimmedPixelsIOSTests: XCTestCase {
         let tealSlider = UISlider()
         tealSlider.value = 0.5
         place(tealSlider, "teal-slider", in: teal)
+        let kept = UIImageView(image: UIImage(systemName: "square.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 24)))
+        kept.contentMode = .center
+        kept.tintAdjustmentMode = .normal
+        place(kept, "kept-symbol", in: teal)
         root.layoutIfNeeded()
         return twins
     }

@@ -9,8 +9,10 @@ pub(super) fn push(out: &mut String, id: StyleId, press: bool) -> bool {
         TintColor | ExitAnimation | DragTimeline | AnimationTimeline | AnimationRange
         | TimelineScope | LayoutTransition | PressScale | PressHaptic | ControlSize
         | ControlCornerStyle | Fit | LineClamp | RotateAxis | TranslateZ | TranslatePercent
-        | SymbolRendering | SymbolPalette | SymbolValue | SymbolEffect | ContentTransition
-        | ScrollEdgeEffect | HoverEffect | SmartInvert | AnimationTrigger => return false,
+        | SymbolRendering | TintAdjustment | SymbolPalette | SymbolValue | SymbolEffect
+        | ContentTransition | ScrollEdgeEffect | HoverEffect | SmartInvert | AnimationTrigger => {
+            return false
+        }
         // `scale` remains the feedback product; an unset own factor is one.
         Scale if press => out.push_str("--exact-scale:1;"),
         AccentColor => out.push_str("accent-color:unset;--exact-accent:unset;"),

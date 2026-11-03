@@ -270,6 +270,19 @@ extension BatchValue {
     }
 }
 
+extension UIView.TintAdjustmentMode {
+    /// A node's `-exact-tint-adjustment` (LLP 1077 D19) as UIKit's mode for its views, or a list row's
+    /// cell: `normal` keeps the tint as it is behind a sheet or an alert; `auto`, or none, is
+    /// `.automatic`, the superview's, as UIKit carries a mode down
+    package init(_ row: BatchValue?) {
+        switch row?.string {
+        case "normal": self = .normal
+        case "dimmed": self = .dimmed
+        default: self = .automatic
+        }
+    }
+}
+
 extension SystemColor {
     nonisolated(unsafe) private static var tints: [Double: UIColor] = [:]
     /// The tint at `alpha` as UIKit draws it (`UIColor.tintColor`): resolved by the tint of the view
@@ -317,6 +330,13 @@ extension NodeView {
         // The canvas, which shows the first root's background
         if superview === presenter?.root { presenter?.paintCanvas() }
         presenter?.controls.tintChanged(self)
+    }
+
+    /// The node's tint rows, applied where they changed from `old`: its accent (`applyAccentTint`) and
+    /// its `-exact-tint-adjustment`, UIKit's `tintAdjustmentMode` (LLP 1077 D19), which UIKit carries down
+    func applyTint(from old: NodeStyle) {
+        if old["accent_color"] != style["accent_color"] { applyAccentTint() }
+        if old["tint_adjustment"] != style["tint_adjustment"] { tintAdjustmentMode = .init(style["tint_adjustment"]) }
     }
 
     /// An authored `accent-color` is its subtree's tint (LLP 1116.001 D2),
