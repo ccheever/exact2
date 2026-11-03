@@ -1013,7 +1013,11 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     for (const f of ['web-t1-the-greeting-loads.png', 'web-t2-the-header-s-button-likes-it.png', 'web-relaunch.png']) assert.ok(existsSync(resolve(dir, '.exact/verify', f)), f);
     // `--shots out/shots` made the directory and copied every one, under the names verify keeps (LLP 1116.008 D2).
     const kept = readdirSync(resolve(dir, '.exact/verify')).filter((f) => f.endsWith('.png')).sort();
-    assert.equal(kept.length, 7);
+    // And each page read at the largest text size, named after its screen's; the tour's by the line of the test it followed.
+    const large = kept.filter((f) => /-largest(?:-\d+)?\.png$/.test(f));
+    assert.equal(kept.length - large.length, 7);
+    for (const f of ['web-390x844-largest.png', 'web-t1-the-greeting-loads-largest.png', 'web-t2-the-header-s-button-likes-it-largest.png', 'web-relaunch-largest.png']) assert.ok(large.includes(f), f);
+    assert.ok(large.some((f) => /^web-line\d+-[a-z0-9-]+-largest\.png$/.test(f)), large.join(' '));
     assert.deepEqual(readdirSync(resolve(dir, 'out/shots')).sort(), kept);
     assert.ok(readFileSync(resolve(dir, 'out/shots/web-relaunch.png')).equals(readFileSync(resolve(dir, '.exact/verify/web-relaunch.png'))));
     assert.match(clean.stdout, /^screenshots \(\.exact\/verify, copied to out\/shots\): /m);
@@ -1060,7 +1064,7 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     const json = verify('--json');
     assert.equal(json.status, 0, json.stderr);
     const r = JSON.parse(json.stdout);
-    assert.deepEqual([r.host, r.built, r.tests.passed, r.tests.failed, r.problems, r.exit, r.screenshots.length, r.compiler.length], ['web', null, 2, 0, 2, 0, 7, 1]);
+    assert.deepEqual([r.host, r.built, r.tests.passed, r.tests.failed, r.problems, r.exit, r.screenshots.filter((p) => !/-largest(?:-\d+)?\.png$/.test(p)).length, r.compiler.length], ['web', null, 2, 0, 2, 0, 7, 1]);
     // Each screen at each width and scheme: the first screen, the two test ends (in their own sessions), the relaunch.
     const onScreen = (screen) => r.checks.filter((c) => c.screen === screen).map((c) => `${c.size.join('x')} ${c.scheme} ${c.findings.map((f) => f.kind).join(',')}`);
     for (const screen of ['first screen', 'the greeting loads', "the header's button likes it", 'relaunch']) assert.deepEqual(onScreen(screen), ['390x844 light contrast', '390x844 dark ', '1280x900 light contrast', '1280x900 dark '], screen);
@@ -1237,6 +1241,41 @@ test('the tour at the largest text size: only what the visited screens did not s
     '  clipped  again\'s label "Again" [48,839 133×66]: again cuts 17 px of its width',
   ] }];
   assert.deepEqual(tourNews(visited, toured), [{ screen: 'line 36 of "study"', lines: [toured[0].lines[1]] }]);
+});
+
+// A finding at the largest text size names a screen the normal size's captures do not show: each page read there is
+// captured too, a pixel a point as check's are, named after the screen's own capture, and listed apart in the report.
+test('the largest text size: a capture of each page it reads, named after its screen\'s, listed apart', async () => {
+  const { largestText, largeShot } = await import('./verify.mjs');
+  const { decodePng, encodePng } = await import('./png.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'verify-large-'));
+  try {
+    // A list whose second row is below the screen: the pass reads the first page, scrolls to the row, reads the second.
+    const tree = { nodes: [{ id: 1, type: 'View', props: { testId: 'row-1' } }, { id: 2, type: 'View', props: { testId: 'row-2' } }] };
+    const pages = [[{ id: 1, x: 16, y: 600, w: 100, h: 20, text: 'Total due', over: [40, 0] }], [{ id: 2, x: 16, y: 100, w: 300, h: 20, text: 'Fine' }]];
+    let page = 0;
+    const s = { host: 'web', resize: async () => {}, prefer: async () => ({}), clock: async () => {},
+      op: async ({ op }) => (op === 'tree' ? tree : { viewport: { w: 390, h: 844 }, target: 44, items: pages[page] }),
+      carrier: {
+        reveal: async (id) => { if (id !== 2) return {}; page = 1; return { scrolled: true }; },
+        // Two pixels a point, as a high-density screen draws.
+        screenshot: async (path) => { writeFileSync(path, encodePng({ width: 780, height: 1688, data: new Uint8Array(780 * 1688 * 4).fill(255) })); return { scale: 2 }; },
+      } };
+    const r = await largestText(s, 'adds a card', (vp, n) => largeShot(resolve(dir, 'web-t2-adds-a-card.png'), n));
+    assert.equal(r.lines.length, 1, r.error);
+    assert.deepEqual(r.shots, [resolve(dir, 'web-t2-adds-a-card-largest.png'), resolve(dir, 'web-t2-adds-a-card-largest-2.png')]);
+    for (const p of r.shots) assert.deepEqual((({ width, height }) => [width, height])(decodePng(readFileSync(p))), [390, 844]);
+
+    // In the report, a test end's capture at the largest size is not one of the test ends', which its name would match.
+    const at = (f) => `/app/.exact/verify/${f}`;
+    const large = [{ ...r, shots: [at('ios-402x874-largest.png')] }, { ...r, shots: [at('ios-t1-adds-a-card-largest.png'), at('ios-relaunch-largest.png')] }];
+    const shots = [...['ios-402x874-light.png', 'ios-402x874-dark.png', 'ios-t1-adds-a-card.png', 'ios-relaunch.png'].map(at), ...large.flatMap((l) => l.shots)];
+    const said = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], large, shots, ms: 1000, cwd: '/app' }).lines;
+    assert.deepEqual(said.filter((l) => /^screenshots|^ {2}test ends/.test(l)), [
+      'screenshots (.exact/verify): ios-402x874-light.png ios-402x874-dark.png',
+      '  test ends: ios-t1-adds-a-card.png; relaunch: ios-relaunch.png; largest text size: ios-402x874-largest.png ios-t1-adds-a-card-largest.png ios-relaunch-largest.png',
+    ]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 // LLP 1116.020 D4: a font size the app's Contract fixes is a finding, named where it is written, with the rem it would be;
