@@ -177,6 +177,9 @@ pub(crate) fn value_edit(
     if let Some(edit) = (name == "display").then(|| display_edit(text)).flatten() {
         return Some(edit);
     }
+    if let Some(edit) = (name == "font-size").then(|| font_size_edit(text)).flatten() {
+        return Some(edit);
+    }
     match error {
         StyleValueError::BadColor { .. } => role_hint(text, true).map(|e| e.lead(name, text)),
         StyleValueError::WrongKind { .. } => {
@@ -215,6 +218,17 @@ pub(crate) fn value_edit(
         }
         _ => None,
     }
+}
+
+/// The forms a `font-size` takes, for a CSS math function it does not
+/// (`min(1.25rem, 24px)`): its one `min()` is a text style held to a pixel cap
+/// (`exact_kernel::style::relative`, `Unit::TextStyleAtMost`).
+fn font_size_edit(text: &str) -> Option<String> {
+    let t = text.trim().to_ascii_lowercase();
+    ["min(", "max(", "clamp(", "calc("]
+        .iter()
+        .any(|f| t.starts_with(f))
+        .then(|| format!("`font-size=\"{text}\"` is not a valid `font-size`: a `font-size` is a number, a `px`, `rem` or `em` length, a text style (`-exact-title3`), or `min(<text style>, <px cap>)`, which grows with the reader's text size up to the cap (`min(-exact-title3, 24px)`)"))
 }
 
 /// The edit for a CSS `display` that has no box here (CSS Display 3 §2): an inline box, which
