@@ -73,6 +73,8 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
     ...game ? {} : { verify: ['scripts/verify.mjs', host, '--app', name] },
     ios: ['host/apple/build.mjs', '--ios', `${name}-apple`],
     mac: ['host/apple/build.mjs', `${name}-apple`],
+    // An iPhone build, uploaded to AppDrop: the link a person opens to install it.
+    share: ['scripts/share.mjs', '--app', name],
     linux: ['scripts/build-linux.mjs', name],
     windows: ['host/windows/build.mjs', name],
     // The APK on the Canvas reader, installed (LLP 1107 D1); `--headless` the Linux host for Android instead.
@@ -169,7 +171,8 @@ export async function run({ dir, name, game = false, exact2, args }) {
   if (platform) {
     const shells = await import(resolve(exact2, 'scripts/app-shells.mjs'));
     const named = shells.namesPlatform(existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')) : {}, platform);
-    const report = named ? null : await import(resolve(exact2, 'scripts/exact.mjs')).then(({ sdkReport, platformReport }) => platformReport(platform, sdkReport(process.env, { only: platform, device: rest.includes('--device') }), { device: rest.includes('--device') })).catch((error) => ({ error: String(error?.message ?? error) }));
+    const device = rest.includes('--device') || verb === 'share';
+    const report = named ? null : await import(resolve(exact2, 'scripts/exact.mjs')).then(({ sdkReport, platformReport }) => platformReport(platform, sdkReport(process.env, { only: platform, device }), { device })).catch((error) => ({ error: String(error?.message ?? error) }));
     const brought = await shells.bringPlatform(dir, platform, { report });
     if (brought.refused) { console.error(brought.refused); return log(1); }
     for (const line of brought.lines) console.error(line);

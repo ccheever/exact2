@@ -1050,14 +1050,6 @@
           }
         },
         "brownfield": { "type": "boolean" },
-        "appdrop": {
-          "description": "Publish iOS binary changes to AppDrop, after the streams (`scripts/deploy-appdrop.mjs`). `{}` makes the first such deploy create the link and write its `url` here, to commit. The update key stays out of app.json: $APPDROP_MANAGE_KEY, or the one the appdrop CLI saved. The install page offers the link for iOS when install.ios names no methods.",
-          "type": "object",
-          "properties": {
-            "url": { "type": "string", "pattern": "^https://[^/]+/d/[A-Za-z0-9]+/?$" }
-          },
-          "additionalProperties": false
-        },
         "signing": {
           "type": "object",
           "properties": {

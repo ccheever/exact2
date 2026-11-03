@@ -1809,15 +1809,20 @@ distributable IPA and EAS/AppDrop adapter above stay deferred otherwise.
 recs are ok", accepting the recommendation to waive the take for this lane and
 admit AppDrop as the remote tester-install path, TestFlight later (LLP 1030.003
 §6 Q4).
-`deploy.appdrop` makes an iOS binary row of `exact deploy --yes` build the
-`--archive --unsigned` `.ipa` against the stream's release record and publish it
-to AppDrop (creating the link the first time, writing it to app.json), and the
-install page offers the link.
-Unblocks sending one install link whose app stays current: bundles over the
-air, binaries through AppDrop. It lifts the `--unsigned` waiver's GPU refusal:
-a GPU card's digest leaves out a Mach-O's code signature (`code_digest`), so a
-re-signer keeps it and a code change still breaks it. The EAS adapter, signed
-distribution IPAs and automatic provisioning stay deferred.
+The lane is `bun exact.mjs share` (Eliot, 2026-11-02; replaces `deploy.appdrop`,
+which `exact deploy` no longer reads): it builds the `--archive --unsigned` `.ipa`
+and publishes it to AppDrop, printing the share link last on stdout, and agents are
+told to run it when an iPhone app is ready for a person to try. Each checkout keeps
+its link and the git branch it came from in the app's gitignored
+`.exact/appdrop.json`; a share from another branch refuses until `--new-link` or
+`--force` says which link it means. Unblocks sending a tester one link per branch
+with no account, committed state or AppDrop server change. It lifts the
+`--unsigned` waiver's GPU refusal: a GPU card's digest leaves out a Mach-O's code
+signature (`code_digest`), so a re-signer keeps it and a code change still breaks
+it. The EAS adapter, signed distribution IPAs and automatic provisioning stay
+deferred. **`share` (Charlie, waiver, 2026-11-02):** "Yes commit anything you think
+is good", answering Eliot's "Can merge the exact2 part that just auto-uploads to
+appdrop on the build?"
 
 **Admitted (Charlie, 2026-10-12, issue-fix ruling 5; take waived):**
 "intersect=: admit now — intersect=action {isIntersecting, intersectionRatio},
