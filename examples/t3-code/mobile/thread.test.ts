@@ -41,6 +41,13 @@ function fixture(items: Obj[] = [], projection: Obj = {}): T3Client {
 }
 
 describe('bounded transcript Markdown reuse', () => {
+  test('subagent notifications keep the source child-thread link in mobile rows', () => {
+    const notification = item('notification', 'notification', { summary: 'Subagent finished', outcome: 'completed', source: { kind: 'subagent', childThreadId: 'child' } });
+    const row = mobileThreadRows(fixture([notification], { subagents: [{ childThreadId: 'child', title: 'Subagent: worker', status: 'completed' }] }), now)
+      .find(value => value.kind === 'subagent');
+    expect(row?.activities[0]).toMatchObject({ targetId: 'child', targetLabel: 'Open subagent' });
+  });
+
   test('thread Markdown keeps prose and code selectable like the reference reader', () => {
     const source = appText('mobile/thread-markdown.contract');
     expect(source).toContain('text token.text user-select="text"');
@@ -51,6 +58,24 @@ describe('bounded transcript Markdown reuse', () => {
     const source = appText('mobile/thread-markdown.contract');
     expect(source).toContain('view display="grid" role="table"');
     expect(source).toContain('view role=(item.header ? "columnheader" : "cell")');
+  });
+
+  test('assistant image attachments keep the pinned separation and backing', () => {
+    const source = appText('mobile/thread.contract');
+    expect(source).toContain('margin-top=(user ? 0 : 5.25)');
+    expect(source).toContain('background-color=(user ? "transparent" : colors.subtleStrong)');
+    expect(source).toContain('border-radius=(user ? 14 : 18)');
+  });
+
+  test('thread Markdown uses the pinned opaque rule for code and table chrome', () => {
+    const source = appText('mobile/thread-markdown.contract');
+    expect(source).toContain('border-color=colors.markdownBorder');
+    expect(source).toContain('border-bottom-color=colors.markdownBorder');
+    expect(source).toContain('border-top-color=colors.markdownBorder');
+    expect(source).toContain('border-left-color=colors.markdownBorder');
+    expect(source).not.toContain('border-color=(user ? colors.userCodeBackground : colors.codeBackground)');
+    expect(source).not.toContain('border-bottom-color=(user ? colors.userCodeBackground : colors.codeBackground)');
+    expect(source).not.toContain('border-color=colors.borderSubtle');
   });
 
   test('completed Duo table response presents cells and alignment without changing Copy or adjacent code', () => {
@@ -536,7 +561,7 @@ describe('mobile V2 transcript presentation', () => {
     expect(transcriptRows(client).some(row => row.id === key('first'))).toBe(false);
     await chatLocal(client, { available: true } as Native, 'fold', 'r1', '');
     const expanded = mobileThreadRows(client, now);
-    expect(expanded.map(row => row.kind)).toEqual(['user', 'assistant', 'work', 'entry', 'assistant', 'entry', 'assistant']);
+    expect(expanded.map(row => row.kind)).toEqual(['user', 'assistant', 'work', 'group', 'assistant', 'group', 'assistant']);
     expect(expanded.filter(row => row.id === key('first'))).toHaveLength(1);
     expect(expanded.find(row => row.id === key('middle'))?.body).toBe('Checking status next.');
     expect(expanded[2]).toMatchObject({ toggleId: 'r1', expanded: true });
@@ -625,8 +650,12 @@ describe('mobile V2 transcript presentation', () => {
     expect(mobileThreadRows(client, now)[1]).toMatchObject({ toggleOp: 'chatlocal:fold', toggleId: 'r1', expanded: false });
     await chatLocal(client, { available: true } as Native, 'fold', 'r1', '');
     await chatLocal(withoutCheckpoint, { available: true } as Native, 'fold', 'r1', '');
-    const rows = mobileThreadRows(client, now);
+    let rows = mobileThreadRows(client, now);
     expect(rows).toEqual(mobileThreadRows(withoutCheckpoint, now));
+    const editGroup = rows.find(row => row.kind === 'group');
+    expect(editGroup).toBeDefined();
+    await chatLocal(client, { available: true } as Native, 'group', editGroup!.toggleId, '');
+    rows = mobileThreadRows(client, now);
     const edit = rows.flatMap(row => row.activities).find(activity => activity.id === JSON.stringify(['t1', 'edit']));
     expect(edit?.body).toContain('src/app.ts');
     expect(rows.some(row => row.kind === 'checkpoint')).toBe(false);
@@ -647,6 +676,9 @@ describe('mobile V2 transcript presentation', () => {
     expect(folded.map(row => row.kind)).toEqual(['user', 'work', 'assistant']);
     expect(folded[1]).toMatchObject({ toggleOp: 'chatlocal:fold', toggleId: 'r1', expanded: false });
     await chatLocal(client, { available: true } as Native, 'fold', 'r1', '');
+    const group = mobileThreadRows(client, now).find(row => row.kind === 'group');
+    expect(group).toBeDefined();
+    await chatLocal(client, { available: true } as Native, 'group', group!.toggleId, '');
     expect(mobileThreadRows(client, now).some(row => row.activities.some(activity => activity.body === 'bun test'))).toBe(true);
   });
   test('duration labels use supplied clock and streaming answers have no metadata', () => {

@@ -76,7 +76,7 @@ export function mobileHomeChrome(input: HomeChromeInput, sources: HomeSource[] =
 }
 
 export type HomeChromeEvent =
-  | { kind: 'search' | 'environment' | 'project'; value: string }
+  | { kind: 'search' | 'environment' | 'project' | 'tab'; value: string }
   | { kind: 'settings' | 'environments' | 'compose'; value: '' };
 /** Decode only known native actions. Scope values are validated again by mobileHomeChrome. */
 export function decodeHomeChromeEvent(text: string): HomeChromeEvent | null {
@@ -85,7 +85,7 @@ export function decodeHomeChromeEvent(text: string): HomeChromeEvent | null {
   if (!value || typeof value !== 'object') return null;
   const event = value as Record<string, unknown>;
   if (typeof event.value !== 'string') return null;
-  if (event.kind === 'search' || event.kind === 'environment' || event.kind === 'project') return { kind: event.kind, value: event.value };
+  if (event.kind === 'search' || event.kind === 'environment' || event.kind === 'project' || event.kind === 'tab') return { kind: event.kind, value: event.value };
   if (event.kind === 'settings' || event.kind === 'environments' || event.kind === 'compose') return { kind: event.kind, value: '' };
   return null;
 }

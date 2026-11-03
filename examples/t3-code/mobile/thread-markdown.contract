@@ -14,10 +14,10 @@ component ThreadMarkdown
           column margin-top=10.5 margin-bottom=10.5
             min-width=0 max-width="100%" align-self="stretch"
             overflow="hidden" border-radius=7 border-width=1 border-style="solid"
-            border-color=(user ? colors.userCodeBackground : colors.codeBackground)
+            border-color=colors.markdownBorder
             background-color=(user ? colors.userCodeBackground : colors.codeBackground)
             row align-items="center" justify-content="space-between" gap=7
-              border-bottom-width=1 border-bottom-style="solid" border-bottom-color=(user ? colors.userCodeBackground : colors.codeBackground)
+              border-bottom-width=1 border-bottom-style="solid" border-bottom-color=colors.markdownBorder
               padding-top=3.5 padding-bottom=3.5 padding-left=12.25 padding-right=5.25
               text (block.language == "" ? "text" : block.language) flex=1 min-width=0 line-clamp=1 font-family="Menlo" font-size=13 line-height="19px"
                 text-transform="uppercase" opacity=0.7 color=(user ? colors.userCodeForeground : colors.codeForeground)
@@ -32,12 +32,12 @@ component ThreadMarkdown
         else if block.kind == "table"
           view display="flex" align-items="flex-start" min-width=0 max-width="100%" overflow-x="auto" overflow-y="hidden" overscroll-behavior="contain" scrollbar-width="none" box-sizing="border-box" margin-top=4 margin-bottom=12
             view display="grid" role="table" flex="none" min-width=(block.columns * 60) grid-template-columns=`repeat(${block.columns}, fit-content(320px))`
-              border-radius=8 border-width="-exact-hairline" border-style="solid" border-color=colors.borderSubtle
+              border-radius=8 border-width="-exact-hairline" border-style="solid" border-color=colors.markdownBorder
               for item in block.rows key=item.id
                 for cell, index in item.cells key=cell.id
                   view role=(item.header ? "columnheader" : "cell") min-width=60 max-width=320 box-sizing="border-box" padding-left=10 padding-right=10 padding-top=7 padding-bottom=7
-                    border-top-width=(item.header ? 0 : "-exact-hairline") border-top-style="solid" border-top-color=colors.borderSubtle
-                    border-left-width=(index == 0 ? 0 : "-exact-hairline") border-left-style="solid" border-left-color=colors.borderSubtle
+                    border-top-width=(item.header ? 0 : "-exact-hairline") border-top-style="solid" border-top-color=colors.markdownBorder
+                    border-left-width=(index == 0 ? 0 : "-exact-hairline") border-left-style="solid" border-left-color=colors.markdownBorder
                     background-color=(item.header ? user ? colors.userCodeBackground : colors.codeBackground : "transparent")
                     text user-select="text" font-family="DM Sans" font-size=16 line-height="23px" font-weight=(item.header ? 700 : 400)
                       text-align=(match block.alignments.at(index) { case some(alignment) => alignment, case none => "left" }) font-variant-numeric=(cell.numeric ? "tabular-nums" : "normal")

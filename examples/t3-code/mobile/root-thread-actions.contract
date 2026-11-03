@@ -32,7 +32,10 @@ members App
       if not pending(outboxChanged)
         send outboxChanged = outboxAction("retry", id, wallTime.epochAtZero + performanceNow())
     else if top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
-      if op == "html-render"
+      if op == "open-agent"
+        if id != "" and top(nav).name == "thread"
+          openAgent(data.environmentId, id)
+      else if op == "html-render"
         send htmlRenderChanged = htmlRenderEvent(htmlRenderContext.context, id, value, `${top(nav).id}`, htmlRenderContext.full)
       else if op == "fork-response"
         if not pending(selected) and not pending(routeSelected)

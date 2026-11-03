@@ -65,13 +65,13 @@ component ThreadHistory
           for key in [data.historyRequest] key=key
             view width=1 height=1 pointer-events="none" aria-hidden=true intersect=observe(key) intersect-margin="100% 0px"
         if active and data.historyRequest != ""
-          button appearance="none" press=loadEarlier disabled=data.historyLoading min-height=31.5 padding-left=14 padding-right=14 padding-top=7 padding-bottom=7 border-radius=9999 border-width=1 border-style="solid" border-color=colors.border background-color=colors.subtle aria-label="Load earlier activity" testId="thread-history-load-earlier"
-            row align-items="center" gap=5.25
+          button appearance="none" press=loadEarlier disabled=data.historyLoading opacity=(data.historyLoading ? 0.5 : 1) min-height=31.5 padding-left=14 padding-right=14 padding-top=7 padding-bottom=7 border-radius=9999 border-width=1 border-style="solid" border-color=colors.historyBorder background-color=colors.subtle aria-label="Load earlier activity" testId="thread-history-load-earlier"
+            row align-items="center" gap=7
               if data.historyLoading
-                t3-archive-spinner spinner-tint=colors.iconSubtle width=16 height=16
+                t3-archive-spinner spinner-tint=colors.primary width=16 height=16
               else
-                t3-symbol symbol-name="chevron.up" symbol-weight="regular" symbol-tint=colors.iconSubtle width=12 height=12
-              text (data.historyLoading ? "Loading earlier activity…" : "Load earlier activity") font-size=14 line-height="19px" font-weight=500 color=colors.primary
+                t3-symbol symbol-name="chevron.up" symbol-weight="regular" symbol-tint=colors.primary width=12 height=12
+              text (data.historyLoading ? "Loading earlier activity…" : "Load earlier activity") font-size=14 line-height="19px" font-weight=500 color=colors.foreground
         if data.historyError != ""
           text data.historyError role="status" testId="history-error" text-align="center" font-size=13 line-height="17px" color=colors.iconSubtle
 
@@ -162,7 +162,7 @@ component ThreadMessage
           if row.body.length > 0
             ThreadMarkdown(blocks=row.blocks, user=false, action=action, colors=colors)
           for activity in row.activities key=activity.id
-            ThreadToolRow(activity=activity, workWidth=workWidth, action=action, colors=colors)
+            ThreadToolRow(activity=activity, workWidth=workWidth, action=action, openMedia=openMedia, colors=colors)
 
 component ThreadCopy
   props
@@ -183,7 +183,7 @@ component ThreadAttachment
   view
     button appearance="none" press=openMedia(media.id) padding=0 text-align="left" aria-label=media.name
       if media.kind == "image" and media.url.length > 0
-        image media.url width="100%" aspect-ratio=1.3 object-fit="cover" border-radius=(user ? 14 : 18) aria-label=media.name
+        image media.url width="100%" aspect-ratio=1.3 object-fit="cover" margin-top=(user ? 0 : 5.25) border-radius=(user ? 14 : 18) background-color=(user ? "transparent" : colors.subtleStrong) aria-label=media.name
       else
         row align-items="center" gap=7 padding=7 border-radius=14 background-color=colors.subtle
           t3-symbol symbol-name=(media.kind == "video" ? "play.rectangle" : media.kind == "image" ? "photo" : "doc") symbol-weight="regular" symbol-tint=colors.iconSubtle width=18 height=18

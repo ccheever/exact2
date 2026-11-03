@@ -10,6 +10,7 @@ import { mobileThreadActivity } from './thread-work';
 import { mobileThreadRows } from './thread';
 import { chatLocal, transcriptRows } from './shared/timeline-presentation';
 import { mobileThreadColors } from './design';
+import { cachedToolImageUrl, toolImageUrls, toolImages } from './timeline-tool-images';
 const now = Date.parse('2026-10-07T12:00:00Z');
 const time = '2026-10-07T12:00:00Z';
 const activity: Activity = { id: '["source","item"]', label: 'Tool', body: '', output: '', result: '', icon: 'terminal', timestamp: time, failed: false, expandable: true, detailOpen: true };
@@ -27,11 +28,43 @@ function clientFor(rows: Obj[]) {
 const native: Native = { available: true, watch() {}, async later() { return { ok: true, value: {}, generation: 1 }; } };
 const files: Files = { fs: { async mkdir() {}, async readFile() { return new ArrayBuffer(0); }, async atomicWriteFile() {} } };
 
+test('subagent lifecycle activities retain their child thread navigation target', () => {
+  const row = projected({ type: 'subagent', childThreadId: 'child-thread', title: 'Subagent: worker', status: 'completed' });
+  expect(mobileThreadActivity({ ...activity, targetId: 'child-thread' }, row, clientFor([row]), now, false, '', 'visit')).toMatchObject({
+    targetId: 'child-thread', targetLabel: 'Open subagent',
+  });
+});
+
+test('dynamic tool output images retain source order and receive signed preview URLs', async () => {
+  const row = projected({ type: 'dynamic_tool', threadId: 'source', output: { content: [
+    { type: 'text', text: 'before' },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'one' } },
+    { type: 'image', mimeType: 'image/jpeg', data: 'two' },
+    { type: 'image', mimeType: 'image/svg+xml', data: 'ignored' },
+  ] } });
+  const client = clientFor([row]), sourceImages = toolImages(obj(row.item));
+  expect(sourceImages).toHaveLength(2);
+  expect(sourceImages.map(image => image.name)).toEqual(['Tool output image 1', 'Tool output image 2']);
+  setTurnItemOpen(client, activity.id, true);
+  const calls: Obj[] = [];
+  client.rpc = async (_native, method, payload) => { calls.push({ method, ...obj(payload) }); return { relativeUrl: `/assets/${calls.length}` }; };
+  await toolImageUrls(client, native, now);
+  expect(calls).toHaveLength(2);
+  expect(calls[0]?.resource).toEqual({ _tag: 'tool-output-image', threadId: 'source', itemId: 'item', index: 0 });
+  expect(cachedToolImageUrl(client, sourceImages[0]!.id)).toBe('https://tools.test/assets/1');
+  expect(mobileThreadActivity({ ...activity, toolImages: sourceImages }, row, client, now, false, '', 'visit').toolImages[1]).toMatchObject({
+    name: 'Tool output image 2', url: 'https://tools.test/assets/2',
+  });
+});
+
 test('recognized browser tools keep their globe through shared and mobile row projection', async () => {
   for (const toolName of ['preview_status', 'preview_open', 'unknown']) {
     const row = projected({ type: 'dynamic_tool', toolName: `mcp__t3-code__${toolName}`, input: { url: 'https://example.com' } });
     const client = clientFor([row]);
-    for (const shown of mobileThreadRows(client, now)) if (shown.toggleOp && !shown.expanded) await chatLocal(client, native, shown.toggleOp.replace('chatlocal:', ''), shown.toggleId, '');
+    for (let depth = 0; depth < 2; depth++) {
+      const shown = mobileThreadRows(client, now).find(value => value.toggleOp && !value.expanded);
+      if (shown) await chatLocal(client, native, shown.toggleOp.replace('chatlocal:', ''), shown.toggleId, '');
+    }
     const shared = transcriptRows(client).flatMap(message => message.activities ?? []).find(value => value.id === activity.id)!;
     expect(shared.icon).toBe(toolName === 'unknown' ? 'wrench' : 'browser');
     for (const dark of [false, true]) {
@@ -57,6 +90,19 @@ test('native command paragraphs appear only for an expanded command call', () =>
     const other = projected(item);
     expect(mobileThreadActivity(activity, other, clientFor([other]), now, false, '', 'visit').nativeCommandDetail).toBe(false);
   }
+});
+
+test('a lone command keeps the source work-group header and detail row', async () => {
+  const row = projected({ input: 'pwd', output: 'actual directory' }), client = clientFor([row]);
+  const fold = mobileThreadRows(client, now).find(value => value.kind === 'work');
+  expect(fold).toMatchObject({ toggleOp: 'chatlocal:fold', expanded: false });
+  await chatLocal(client, native, 'fold', fold!.toggleId, '');
+  const group = mobileThreadRows(client, now).find(value => value.kind === 'group');
+  expect(group).toMatchObject({ kind: 'group', title: 'pwd', toggleOp: 'chatlocal:group', expanded: false, activities: [] });
+  await chatLocal(client, native, 'group', group!.toggleId, '');
+  const expanded = mobileThreadRows(client, now);
+  expect(expanded.find(value => value.kind === 'group')).toMatchObject({ expanded: true });
+  expect(expanded.find(value => value.kind === 'details')?.activities).toHaveLength(1);
 });
 
 test('native command paragraphs preserve actual loading, missing, empty and error output states', async () => {
@@ -541,7 +587,10 @@ test('actual transcript keeps answered history scoped to inherited source item i
 test('expanded reasoning uses existing Markdown/code blocks while commands remain literal', async () => {
   const markdown = '**Important**\n\n- first\n\n```typescript\nconst n = 1;\n```';
   const row = projected({ type: 'reasoning', text: markdown }); const client = clientFor([row]);
-  for (const shown of mobileThreadRows(client, now)) if (shown.toggleOp && !shown.expanded) await chatLocal(client, native, shown.toggleOp.replace('chatlocal:', ''), shown.toggleId, '');
+  for (let depth = 0; depth < 2; depth++) {
+    const shown = mobileThreadRows(client, now).find(value => value.toggleOp && !value.expanded);
+    if (shown) await chatLocal(client, native, shown.toggleOp.replace('chatlocal:', ''), shown.toggleId, '');
+  }
   setTurnItemOpen(client, activity.id, true);
   const shown = mobileThreadRows(client, now).flatMap(row => row.activities)[0]!;
   expect(shown.reasoningBlocks.map(block => block.kind)).toEqual(['markdown', 'code']);
@@ -561,7 +610,10 @@ test('expanded reasoning uses existing Markdown/code blocks while commands remai
   expect(reopened.reasoningBlocks).toEqual(updated.reasoningBlocks);
   expect(reopened.reasoningBlocks).not.toBe(updated.reasoningBlocks);
   const command = projected({ input: 'echo markdown', output: markdown }); const commands = clientFor([command]);
-  for (const shown of mobileThreadRows(commands, now)) if (shown.toggleOp && !shown.expanded) await chatLocal(commands, native, shown.toggleOp.replace('chatlocal:', ''), shown.toggleId, '');
+  for (let depth = 0; depth < 2; depth++) {
+    const shown = mobileThreadRows(commands, now).find(value => value.toggleOp && !value.expanded);
+    if (shown) await chatLocal(commands, native, shown.toggleOp.replace('chatlocal:', ''), shown.toggleId, '');
+  }
   setTurnItemOpen(commands, activity.id, true);
   expect(mobileThreadRows(commands, now).flatMap(row => row.activities)[0]).toMatchObject({ reasoningBlocks: [], output: markdown });
 });

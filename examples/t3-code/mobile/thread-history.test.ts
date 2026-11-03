@@ -381,10 +381,16 @@ test('authored paging gates inactive views, preserves prepend anchors and isolat
 test('history chrome keeps one load control mounted while offline', () => {
   const history = contractComponent('mobile/thread.contract', 'ThreadHistory');
   const data = { hasMore: true, historyRequest: 'key', historyLoading: false, historyError: '' };
-  const calls: unknown[][] = [], scope = { data, active: true, action: (...args: unknown[]) => calls.push(args) };
+  const calls: unknown[][] = [], colors = { foreground: 'foreground', primary: 'primary', historyBorder: 'history-border' };
+  const scope = { data, active: true, colors, action: (...args: unknown[]) => calls.push(args) };
   expect(history.drawn('t3-archive-spinner', {}, scope)).toBe(false);
   expect(history.drawn('intersect=observe(key)', {}, scope)).toBe(true);
   expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(true);
+  expect(history.attribute('testId="thread-history-load-earlier"', 'border-color', {}, scope)).toBe('history-border');
+  expect(history.attribute('row align-items="center"', 'gap', {}, scope)).toBe(7);
+  expect(history.attribute('t3-symbol symbol-name="chevron.up"', 'symbol-tint', {}, scope)).toBe('primary');
+  expect(history.attribute('text (data.historyLoading ?', 'color', {}, scope)).toBe('foreground');
+  expect(history.attribute('testId="thread-history-load-earlier"', 'opacity', {}, scope)).toBe(1);
   data.historyRequest = '';
   expect(history.drawn('t3-archive-spinner', {}, scope)).toBe(false);
   expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(false);
@@ -400,4 +406,6 @@ test('history chrome keeps one load control mounted while offline', () => {
   expect(history.drawn('t3-archive-spinner', {}, scope)).toBe(true);
   expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(true);
   expect(history.attribute('testId="thread-history-load-earlier"', 'disabled', {}, scope)).toBe(true);
+  expect(history.attribute('testId="thread-history-load-earlier"', 'opacity', {}, scope)).toBe(0.5);
+  expect(history.attribute('t3-archive-spinner spinner-tint', 'spinner-tint', {}, scope)).toBe('primary');
 });

@@ -11,11 +11,12 @@ import { letGo, letGoAware } from './shared/let-go';
 import { draftFiles, referencedFiles } from './shared/composer-editor-files';
 import { videoMimeType } from './shared/r4-composer-video';
 import { assetUrl } from './shared/settings-b-icons';
+import { findToolImage } from './timeline-tool-images';
 
 export interface MediaPreviewSnapshot { identifier: string; name: string; kind: string; sourceJSON: string; ready: boolean; error: string; }
 interface MediaSource { identifier: string; name: string; kind: string; source: string; id: string; url: string; mimeType: string; sizeBytes: number; }
 const resolved = new WeakMap<T3Client, Map<string, MediaPreviewSnapshot>>();
-function selected(client: T3Client, scope: string, id: string): { attachment: Obj; source: string } | undefined {
+function selected(client: T3Client, scope: string, id: string): { attachment: Obj; source: string; resource?: Obj } | undefined {
   if (scope === 'composer') {
     const edit = mobileQueuedEditCurrent(client);
     if (edit) {
@@ -33,6 +34,8 @@ function selected(client: T3Client, scope: string, id: string): { attachment: Ob
     const file = files.find(item => item.id === id);
     if (file) return { attachment: { ...file, ...(imageReference ? { type: 'image' } : {}) }, source: 'draft-file' };
   } else if (scope === 'transcript') {
+    const toolImage = findToolImage(client, id);
+    if (toolImage) return { attachment: { id, type: 'image', name: toolImage.name, mimeType: 'image/png', sizeBytes: 0 }, source: 'tool-output-image', resource: toolImage.resource };
     for (const row of arr(client.projection.visibleTurnItems)) {
       const attachment = arr(obj(row.item).attachments).find(item => item.id === id);
       if (attachment && !str(attachment.name).startsWith('preview-annotation-')) return { attachment, source: 'remote' };
@@ -77,10 +80,10 @@ export async function mobileMediaPrepare(scope: string, id: string, routeKey: st
   const native = letGoAware(mobileNative(nativeInput));
   try {
     let url = '';
-    if (source === 'remote') {
+    if (source === 'remote' || source === 'tool-output-image') {
       if (client.connection !== 'connected') throw new ClientError('Reconnect to this environment and try again.');
       // Re-mint at open: a thumbnail's URL may have expired while the app was suspended.
-      const reply = obj(await client.rpc(native, 'assets.createUrl', { resource: { _tag: 'attachment', attachmentId: id,
+      const reply = obj(await client.rpc(native, 'assets.createUrl', { resource: found.resource ?? { _tag: 'attachment', attachmentId: id,
         fileName: name, ...(mimeType ? { mimeType } : {}), disposition: 'inline' } }));
       if (scopeOwner !== owner(client, scope) || !selected(client, scope, id)) throw new ClientError('The selected conversation changed.');
       url = mobileMediaURL(client.origin, str(reply.relativeUrl));

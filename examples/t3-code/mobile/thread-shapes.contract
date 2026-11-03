@@ -42,6 +42,11 @@ shape ThreadAnswerHistory
   question: string
   answer: string
   files: ThreadAnswerFile[]
+shape ThreadToolImage
+  id: string
+  name: string
+  source: string
+  url: string
 shape ThreadActivity
   id: string
   label: string
@@ -66,6 +71,9 @@ shape ThreadActivity
   answerPreview: string
   hasAnswer: bool
   answerHistory: ThreadAnswerHistory[]
+  targetId: string
+  targetLabel: string
+  toolImages: ThreadToolImage[]
   nativeWorkRow: string
   nativeWorkImage: bool
   nativeWorkDetail: bool
@@ -187,8 +195,10 @@ shape ThreadColors
   iconSubtle: string
   iconMuted: string
   border: string
+  historyBorder: string
   borderSubtle: string
   subtle: string
+  subtleStrong: string
   userBubble: string
   userForeground: string
   primary: string
@@ -201,6 +211,7 @@ shape ThreadColors
   placeholder: string
   codeBackground: string
   codeForeground: string
+  markdownBorder: string
   userCodeBackground: string
   userCodeForeground: string
   queuedIntentBorder: string

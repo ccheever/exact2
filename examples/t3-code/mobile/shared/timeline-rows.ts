@@ -235,7 +235,7 @@ export function deriveRows(input: RowInput): Row[] {
             label: liveEntryLabel(latest, input.root, true) });
           activity = true;
           if (expanded) rows.push({ kind: 'details', id: `${groupId}:details`, createdAt: entry.createdAt, entries: visible });
-        } else if (visible.length === 1 && isToolLike(visible[0]!)) {
+        } else if (visible.length === 1 && visible[0]!.questionAnswer) {
           const single = visible[0]!;
           rows.push({ kind: 'entry', id: entry.id, createdAt: entry.createdAt, entries: visible,
             label: groupAction(single) === 'edit' ? summarizeToolGroup(visible).summary : singleToolCallLabel(single, input.root) });
