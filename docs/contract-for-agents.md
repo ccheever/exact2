@@ -3278,6 +3278,9 @@ and later the separate experimental scroll source reaches `perf frames` and the 
 
 `perf frames health` exposes the metrics. `state.frameHealthUI` contains only the
 card's visibility and window-local bounds, marked as host controls outside app nodes.
+On iOS 18 and later the card's face shows every UI update of the app on its screen and
+the main thread's work, which it measures only while it shows; `perf frames` reports
+Exact's own frames (LLP 1079.000 §7.4).
 Embedders opt in by passing a host view as `DevMenu.install`'s `frameHealthContainer`.
 
 `app.json` may set `"frame_health": { "mode": "off" }` or `"core"`. Without a mode, a
@@ -3480,9 +3483,8 @@ replay remains available for functional tests and does not establish live timing
 
 The iOS/tvOS 18 native-scroll prototype observes one mounted active scroller with a
 passive `UIUpdateLink`: it leaves continuous-update, rate, latency and presentation
-preferences at their defaults. A production build runs it only while the card shows;
-running it otherwise waits on device qualification. While Exact's own frame callbacks do not run, its
-updates feed the card's charts. A hidden, zero-size host lifecycle view ends observation as soon
+preferences at their defaults. It is disabled in release/production builds pending
+device qualification. A hidden, zero-size host lifecycle view ends observation as soon
 as the scroller leaves its window; the normal end/deceleration callbacks close it too.
 This view has no hit target or accessibility element. Reads never create the observer.
 A missing earlier update phase increments `nativeUpdateSamplesLost` and skips that

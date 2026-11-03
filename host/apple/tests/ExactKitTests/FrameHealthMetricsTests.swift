@@ -259,16 +259,31 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertNil(chart.clock, "flat once the newest frame has left the plots, and nothing moves them")
         chart.frame(at: 140)
         XCTAssertNotNil(chart.clock, "until the next frame")
-        // A native update, whose period is unknown, feeds the charts while Exact's own frames do not run
-        let owner = FrameHealth(enabled: true), native = FrameHealth(enabled: true)
-        defer { owner.destroy(); native.destroy() }
-        native.publicationOwner = owner
-        native.chart = chart
-        native.record(arrival: 141, target: 141.008, period: 0, finished: 141.004)
-        XCTAssertEqual(chart.newest, 141)
-        owner.record(arrival: 142, target: 142.008, period: 0.008, finished: 142.001)
-        native.record(arrival: 143, target: 143.008, period: 0, finished: 143.004)
-        XCTAssertEqual(chart.newest, 141, "Exact's frames run, and the charts take those instead")
+        // A long spell of the main thread's work is the work of the column it ended in, against one refresh, and the
+        // plots reach it without its being a frame
+        chart.busy(start: 140.21, end: 140.27, budget: 1 / 120)
+        let spell = try XCTUnwrap(chart.columns.first { $0.index == 1402 })
+        XCTAssertEqual(spell.work, 60, accuracy: 0.01)
+        XCTAssertEqual(spell.budget, 1000 / 120, accuracy: 0.01)
+        XCTAssertEqual(spell.frame, 0, "a spell is no frame")
+        XCTAssertEqual(chart.newest, 140)
+        XCTAssertEqual(chart.latest, 140.27)
+        chart.tick(at: 140.3)
+        XCTAssertEqual(chart.head, 140.27, "not within a column of the spell, which moved them")
+        // Held, the layers keep their picture while frames arrive; let go, they show the present
+        chart.present()
+        let shown = lines[0].position.x
+        chart.hold(true, at: 140.4)
+        XCTAssertNil(chart.clock, "a held picture does not follow the time")
+        chart.frame(at: 141)
+        chart.present()
+        XCTAssertEqual(lines[0].position.x, shown)
+        XCTAssertEqual(chart.picture.latest, 140.27, "the picture is the moment it was held")
+        XCTAssertEqual(chart.latest, 141, "frames still arrive")
+        chart.hold(false, at: 150)
+        XCTAssertEqual(chart.head, 150, "the present, past what arrived while it was held")
+        XCTAssertEqual(chart.picture.latest, 141)
+        XCTAssertEqual(lines[0].position.x, 0, "drawn whole at the present")
         chart.follow(false)
         XCTAssertNil(chart.clock)
         // A dotted line's dashes keep their place in time as the plot moves on
@@ -406,7 +421,7 @@ final class FrameHealthMetricsTests: XCTestCase {
             ctx.translateBy(x: 0, y: CGFloat(height))
             ctx.scaleBy(x: 2, y: -2)
             ctx.translateBy(x: -plot.left, y: -(plot.top - 8))
-            FrameHealthCardDrawing.plotLines(ctx, chart: 1, plot: plot, columns: chart.columns, newest: chart.newest,
+            FrameHealthCardDrawing.plotLines(ctx, chart: 1, plot: plot, columns: chart.columns, latest: chart.latest,
                 palette: Self.palette, margin: 0)
         }
         // Where each dash begins along the deadline's row: one every 5 points, as along one straight line
@@ -817,6 +832,52 @@ final class FrameHealthMetricsTests: XCTestCase {
         // Lateness without a work record is unknown, not zero
         let figures = T.figures(FrameHealthCardReader.Window(), rates: rates, adaptiveSync: false)
         XCTAssertEqual([figures.fps, figures.missed, figures.late, figures.maxFrame], ["—", "—", "—", "—"])
+    }
+
+    func testTheScreensFiguresNameItsFramesAndTheMainThreadsWork() {
+        typealias T = FrameHealthCardText
+        let none = T.Rates(requestedHz: 0, periodMs: 0), idle = T.Clock(running: false, rates: none)
+        let source = T.Source.screen(refreshMs: 1000 / 120, exact: idle)
+        XCTAssertEqual(T.context(none, source: source).0, "This app's frames")
+        XCTAssertEqual(T.clock(idle), "Exact's clock idle")
+        XCTAssertEqual(T.clock(.init(running: true, rates: .init(requestedHz: 0, periodMs: 1000 / 60))), "Exact's clock at the default rate")
+        XCTAssertEqual(T.clock(.init(running: true, rates: .init(requestedHz: 120, periodMs: 1000 / 60))), "Exact asks 120 FPS, limit 60")
+        XCTAssertEqual(T.rows(source).map(\.0).prefix(2), ["Frame rate", "Late frames"], "the face gives late frames beside the rate")
+        XCTAssertEqual(T.rows(source).last?.0, "Main thread over 8.3ms")
+        XCTAssertEqual(T.caption(none, source: source, varied: false), "Late: sent after UIKit's deadline")
+        // The screen's refresh period is not stated, so its pacing is the 99th percentile frame time
+        var t = FrameHealthCardReader.Window()
+        t.counts.frames = 200; t.intervals[16] = 200
+        XCTAssertEqual(T.pacing(t, rates: none, adaptiveSync: false, source: source).0, "Frame times")
+        XCTAssertEqual(T.pacing(t, rates: none, adaptiveSync: false, source: source).1, "99% of frames under 8.5ms")
+        // Late frames count by UIKit's deadline everywhere, the simulator included; the main thread's figures are the
+        // screen's alone
+        t.counts.worked = 200; t.counts.late = 3; t.counts.long = 2; t.mainLongest = 61.2; t.read = 1
+        let screen = T.figures(t, rates: none, adaptiveSync: false, source: source)
+        XCTAssertEqual([screen.late, screen.mainLongest, screen.mainLong, screen.changes], ["3", "61.2ms", "2", "—"])
+        let exact = T.figures(t, rates: none, adaptiveSync: false)
+        XCTAssertEqual([exact.mainLongest, exact.mainLong], ["—", "—"])
+    }
+
+    func testEachReadTakesTheMainThreadsWorkAndAPausedCardsCopyReadsNoMore() {
+        let health = FrameHealth(enabled: true)
+        defer { health.destroy() }
+        let reader = FrameHealthCardReader()
+        XCTAssertTrue(reader.start(claim: false))
+        defer { reader.stop() }
+        var taken = 0
+        reader.sample(health, now: 1, force: true, main: { taken += 1; return (0.004, 0) })
+        health.record(arrival: 1.1, target: 1.11, period: 0, finished: 1.105)
+        reader.sample(health, now: 1.6, force: true, main: { taken += 1; return (0.061, 2) })
+        XCTAssertEqual(taken, 2, "each read takes the main thread's work, the baseline's too, so none carries over")
+        XCTAssertEqual(reader.window(5).mainLongest, 61, accuracy: 1e-9)
+        XCTAssertEqual(reader.window(5).counts.long, 2)
+        let copy = reader.copy()
+        XCTAssertFalse(copy.reading, "a paused card's copy holds no reader's place")
+        health.record(arrival: 1.7, target: 1.71, period: 0, finished: 1.705)
+        reader.sample(health, now: 2.2, force: true, main: { (0.001, 0) })
+        XCTAssertEqual(copy.samples.count, 1)
+        XCTAssertEqual(reader.samples.count, 2)
     }
 
     func testAProductionBuildCollectsOnlyWhileTheCardShows() {

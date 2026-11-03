@@ -14,8 +14,9 @@ enum FrameHealthCardFace {
         var status = Status.idle
         var request = ("No rate requested", "")
         var display = ""
-        /// Two rows, each a window's name, frame rate in whole frames per second, and missed frames
-        var rows = [("Last 0.5s", "—", "—"), ("Last 5s", "—", "—")]
+        /// Two rows, each a window's name, frame rate in whole frames per second, and missed frames, or late ones where
+        /// the card measures the screen, which `unit` names
+        var rows = [("Last 0.5s", "—", "—"), ("Last 5s", "—", "—")], unit = "missed"
         var pacing = ("—", "")
         /// The window pacing covers: "last 5s", or the span it actually covers
         var pacingWindow = "last 5s"
@@ -204,7 +205,7 @@ enum FrameHealthCardFace {
             D.text(ctx, row.1, x: 78 + digits, y: y, strong, p.label, .right)
             D.text(ctx, "FPS", x: 78 + digits + 3.6, y: y, body, p.label, .left)
             D.text(ctx, row.2, x: 162 + count, y: y, strong, p.label, .right)
-            D.text(ctx, "missed", x: 162 + count + 3.6, y: y, body, p.label, .left)
+            D.text(ctx, state.unit, x: 162 + count + 3.6, y: y, body, p.label, .left)
         }
         separator(ctx, y: 125, width: width, p)
         let label = "Pacing (\(state.pacingWindow))", verdict = 12 + D.width(label, body) + 3.6

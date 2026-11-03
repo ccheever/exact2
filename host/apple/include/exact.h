@@ -90,6 +90,7 @@ ExactFrameHealthHistoryStatus exact_frame_health_history_status(uint32_t id);
 ExactFrameHealthHitch exact_frame_health_hitch(uint32_t id, uint32_t index);
 void exact_frame_health_applied(uint32_t id, ExactFrameHealthWork work, uint64_t flags);
 void exact_frame_health_requested_period(uint32_t id, uint64_t period);
+void exact_frame_health_unscheduled_frames(uint32_t id);
 void exact_frame_health_context(uint32_t id, ExactFrameHealthWork work);
 /* Kinds: 0 frame intervals, 1 work, 2 refreshes (32 bins) and 3 lateness (32 bins). */
 typedef struct ExactFrameHealthDistribution { uint32_t bins[64]; } ExactFrameHealthDistribution;

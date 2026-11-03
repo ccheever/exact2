@@ -9,11 +9,10 @@ final class FrameHealthOverlayMac: NSView {
     private let reader = FrameHealthCardReader()
     /// The corner the card rests in; the window's coordinates rise, so the top is `maxY`
     private var corner = FrameHealthCardFace.Corner(maxY: true)
+    /// Paused, the card shows what it read at the pause, and goes on measuring
     private var paused = false
-    /// While paused, the request and display the frozen samples were read under
-    private var frozen: (FrameHealthCardText.Rates, FrameHealthCardText.Display)?
-    /// The generation the charts last took frames from
-    private var chartGeneration: UInt64?
+    /// While paused, what the card shows: a copy of its reader, and the request and display it was read under
+    private var frozen: (reader: FrameHealthCardReader, rates: FrameHealthCardText.Rates, display: FrameHealthCardText.Display)?
     var desiredVisible = false
     /// The session the agent report describes
     weak var session: ExactSession?
@@ -69,8 +68,6 @@ final class FrameHealthOverlayMac: NSView {
 
     deinit { occlusion.map(NotificationCenter.default.removeObserver) }
 
-    /// Sample on each publication. A pause freezes the reader, so the face, accessibility and Share
-    /// all describe the same samples; a drag only defers drawing.
     /// Shown, fitting, and in a window that is on screen and not covered, with no hidden ancestor.
     private var canBeSeen: Bool {
         guard desiredVisible, !card.isHidden, !card.isHiddenOrHasHiddenAncestor, let window else { return false }
@@ -78,12 +75,17 @@ final class FrameHealthOverlayMac: NSView {
     }
     private var occlusion: NSObjectProtocol?
 
+    /// Sample on each publication. A pause keeps what the card shows, so the face, accessibility and Share all describe
+    /// the same samples; a drag only defers drawing.
     func refresh(now: Double = CACurrentMediaTime()) {
         guard let health else { return }
         health.hudEffectiveVisible = canBeSeen
         guard canBeSeen else {
-            // Release the history; the next read after the card shows again is a fresh baseline
-            if reader.reading { reader.stop(); card.clear(); feed(false); card.chart.stop() }
+            // Release the history; the next read after the card shows again is a fresh baseline, unpaused
+            if reader.reading {
+                reader.stop(); card.clear(); health.chart = nil; card.chart.stop()
+                (paused, frozen) = (false, nil)
+            }
             return
         }
         if !reader.reading {
@@ -91,38 +93,27 @@ final class FrameHealthOverlayMac: NSView {
             guard reader.start() else { render(); return }
             card.chart.start()
             reader.sample(health, now: now, force: true)
-            feed(!paused)
-        } else if !paused {
+            health.chart = card.chart
+            card.chart.follow(true)
+        } else {
             // A stopped source changes only at lifecycle boundaries, so every one is read
             reader.sample(health, now: now, force: health.snapshot().running == 0)
         }
-        guard card.drag?.moved != true else { return }
+        // Paused, the card shows what it showed
+        guard card.drag?.moved != true, !paused else { return }
         render()
     }
 
-    /// Each frame feeds the charts while the card reads and is not paused, and they follow the time; a
-    /// pause holds them, and the first frame after it bounds no interval. A new generation during a pause clears them, as
-    /// the reader's next sample clears it.
-    private func feed(_ on: Bool) {
-        guard let health else { return }
-        let generation = health.snapshot().generation
-        if on, generation != chartGeneration { card.chart.reset() }
-        chartGeneration = generation
-        health.chart = on ? card.chart : nil
-        card.chart.endRun()
-        card.chart.follow(on)
-    }
-
     private var rates: FrameHealthCardText.Rates {
-        frozen?.0 ?? FrameHealthCardText.Rates(requestedHz: Double(health?.requestedHertz ?? 0),
+        frozen?.rates ?? FrameHealthCardText.Rates(requestedHz: Double(health?.requestedHertz ?? 0),
             periodMs: Double(reader.samples.last?.periodNs ?? health?.snapshot().period_ns ?? 0) / 1e6)
     }
 
-    private var display: FrameHealthCardText.Display { frozen?.1 ?? Self.display(window?.screen) }
+    private var display: FrameHealthCardText.Display { frozen?.display ?? Self.display(window?.screen) }
 
     private func render() {
         guard let health else { return }
-        card.update(FrameHealthCardPresentation(reader: reader, rates: rates, display: display,
+        card.update(FrameHealthCardPresentation(reader: frozen?.reader ?? reader, rates: rates, display: display,
             status: paused ? .paused : health.snapshot().running != 0 ? .live : .idle,
             unavailable: health.enabled ? reader.reading ? nil : FrameHealthReaders.full : health.unavailableReason, health: health,
             details: card.state.showsDetails))
@@ -147,12 +138,14 @@ final class FrameHealthOverlayMac: NSView {
     private func activate(_ control: FrameHealthCardFace.Control) {
         switch control {
         case .status:
-            frozen = paused ? nil : (rates, display)
+            // Paused, the card keeps what it showed and goes on measuring; resumed, it shows the present, the paused
+            // span included
+            frozen = paused ? nil : (reader.copy(), rates, display)
             paused.toggle()
-            feed(!paused)
+            card.chart.hold(paused, at: CACurrentMediaTime())
+            if !paused { card.chart.follow(true) }
             NSAccessibility.post(element: card, notification: .announcementRequested,
                 userInfo: [.announcement: paused ? "Paused" : "Resumed"])
-            // Resuming reads at once; the first sample covers the paused span and names it
             if paused { render() } else { refresh() }
         case .close: setVisible(false)
         case .title: card.showDefinitions()
@@ -188,9 +181,10 @@ final class FrameHealthOverlayMac: NSView {
         }
         switch kind {
         case .report: FrameHealthReport.prepare(health: health.reportSource, session: session) { present(String(decoding: $0, as: UTF8.self)) }
-        case .summary: present(FrameHealthCardText.summary(reader: reader, rates: rates, display: display, paused: paused, health: health).text)
+        case .summary: present(FrameHealthCardText.summary(reader: frozen?.reader ?? reader, rates: rates, display: display, paused: paused,
+            health: health).text)
         case .image:
-            let picture = FrameHealthCardText.picture(reader: reader, chart: card.chart, rates: rates, display: display, paused: paused,
+            let picture = FrameHealthCardText.picture(reader: frozen?.reader ?? reader, chart: card.chart, rates: rates, display: display, paused: paused,
                 health: health, palette: card.palette)
             if let image = picture.flatMap(NSImage.init(data:)) { present(image) }
         }

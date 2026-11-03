@@ -8,23 +8,36 @@ import ObjectiveC
 final class FrameHealthOverlay: UIView {
     fileprivate weak var health: FrameHealth?
     let card = FrameHealthCardView()
+    /// Exact's own frames, which the face shows where the screen's cannot be observed, and Details always
     private let reader = FrameHealthCardReader()
+    /// The screen's frames and the main thread's work, which the face shows while the card reads on iOS 18 and later,
+    /// and their reader, which holds no place of its own
+    private var screen: FrameHealthScreen?
+    private let screenReader = FrameHealthCardReader()
+    /// False keeps the face on Exact's own frames, as where the screen cannot be observed
+    private let measuresScreen: Bool
     /// The corner the card rests in, and its spring there after a drag
     private var corner = FrameHealthCardFace.Corner()
     private var snap: UIViewPropertyAnimator?
+    /// Paused, the card shows what it read at the pause, and goes on measuring
     private var paused = false
-    /// While paused, the request and display the frozen samples were read under
-    private var frozen: (FrameHealthCardText.Rates, FrameHealthCardText.Display)?
-    /// The generation the charts last took frames from
-    private var chartGeneration: UInt64?
+    /// While paused, what the card shows: copies of its readers, and the request, display and source they were read under
+    private var frozen: (face: FrameHealthCardReader, clock: FrameHealthCardReader, rates: FrameHealthCardText.Rates,
+                         display: FrameHealthCardText.Display, source: FrameHealthCardText.Source)?
+    /// A change waits for the app's next frame, to go out with it
+    private var needsShow = false
+    /// While the card measures the screen unpaused, it reads twice a second, so its figures follow the time when nothing
+    /// publishes, as while the app is idle
+    private var reading: Timer?
     private var keyboard: CGRect?
     private var availableFrame = CGRect.zero
     private var notifications: [NSObjectProtocol] = []
     private(set) var desiredVisible = false
     private var dragging: Bool { card.drag?.moved == true }
 
-    init(health: FrameHealth) {
+    init(health: FrameHealth, measuresScreen: Bool = true) {
         self.health = health
+        self.measuresScreen = measuresScreen
         super.init(frame: .zero)
         accessibilityIdentifier = "exact.host.frame-health-overlay"
         accessibilityViewIsModal = false
@@ -32,13 +45,14 @@ final class FrameHealthOverlay: UIView {
         isHidden = true
         addSubview(card)
         card.grabbed = { [weak self] in self?.stopSnap() }
-        card.moved = { [weak self] origin in self?.move(to: origin) }
+        card.moved = { [weak self] origin in self?.asCard { self?.move(to: origin) } }
         card.released = { [weak self] velocity in
             guard let self else { return }
             self.health?.hudDragging = false
             if let velocity { settle(velocity: velocity); render() } else { rest() }
         }
-        card.activate = { [weak self] control in self?.activate(control) }
+        card.activate = { [weak self] control in self?.asCard { self?.activate(control) } }
+        card.chart.moved = { [weak self] took in self?.moved(took: took) }
         card.expandedChanged = { [weak self] in self?.render() }
         card.accessibilityMove = { [weak self] edge in self?.move(toward: edge) ?? false }
         // The card grows with the text size
@@ -64,7 +78,10 @@ final class FrameHealthOverlay: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    deinit { notifications.forEach(NotificationCenter.default.removeObserver) }
+    deinit {
+        notifications.forEach(NotificationCenter.default.removeObserver)
+        reading?.invalidate()
+    }
 
     fileprivate func detach() {
         setVisible(false)
@@ -86,6 +103,8 @@ final class FrameHealthOverlay: UIView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        // A new window may be another scene's, which the screen's frames then come from
+        if reader.reading, let screen, screen.running, window?.windowScene !== screen.scene { stopReading() }
         refresh()
     }
 
@@ -102,55 +121,162 @@ final class FrameHealthOverlay: UIView {
         return true
     }
 
-    /// Sample on each publication. A pause freezes the reader, so the face, accessibility and Share
-    /// all describe the same samples; a drag only defers drawing.
-    func refresh(now: Double = CACurrentMediaTime()) {
+    /// Sample on each publication. A pause keeps what the card shows, so the face, accessibility and Share all describe
+    /// the same samples; a drag only defers drawing.
+    func refresh(now: Double = CACurrentMediaTime()) { asCard { read(now: now) } }
+
+    private func read(now: Double) {
         guard let health else { return }
         health.hudEffectiveVisible = canBeSeen
         guard canBeSeen else {
-            // Release the history; the next read after the card shows again is a fresh baseline
-            if reader.reading { reader.stop(); card.clear(); feed(false); card.chart.stop() }
+            if reader.reading { stopReading() }
             return
         }
         if !reader.reading {
-            // The first read is a baseline; its maxima cover time the card did not watch
             guard reader.start() else { render(); return }
-            card.chart.start()
-            reader.sample(health, now: now, force: true)
-            feed(!paused)
-        } else if !paused {
-            // A stopped source changes only at lifecycle boundaries, so every one is read
-            reader.sample(health, now: now, force: health.snapshot().running == 0)
+            startReading(now)
+        } else {
+            sample(now: now)
         }
         guard !dragging else { return }
+        show()
+    }
+
+    /// Read from no history, the face from the screen where it can be observed, and follow the time. The first read is a
+    /// baseline; its maxima cover time the card did not watch.
+    private func startReading(_ now: Double) {
+        guard let health else { return }
+        card.chart.start()
+        if measuresScreen, health.enabled, !health.virtual, let scene = window?.windowScene {
+            let screen = self.screen ?? FrameHealthScreen()
+            self.screen = screen
+            screen.chart = card.chart
+            screen.willCommit = { [weak self] in self?.committing() }
+            screen.start(scene)
+            if screen.running, screenReader.start(claim: false) {
+                screen.health.changed = { [weak self] in self?.refresh() }
+            } else { screen.stop() }
+        }
+        // The screen's frames hold Exact's, so the charts take those only without them
+        health.chart = observing ? nil : card.chart
+        sample(now: now, force: true)
+        follow(true)
+    }
+
+    /// Follow the time, or stop, as the card pauses or hides: the charts move between frames, and the face reads on its
+    /// own while it measures the screen.
+    private func follow(_ on: Bool) {
+        card.chart.follow(on)
+        reading?.invalidate()
+        reading = nil
+        guard on, observing else { return }
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            asCard {
+                guard self.sample(now: CACurrentMediaTime()), !self.dragging else { return }
+                self.show()
+            }
+        }
+        timer.tolerance = 0.1
+        RunLoop.main.add(timer, forMode: .common)
+        reading = timer
+    }
+
+    /// Stop reading and release the history, as the card hides; it shows again unpaused, from a fresh baseline.
+    private func stopReading() {
+        screen?.stop()
+        screen?.health.changed = nil
+        follow(false)
+        reader.stop()
+        screenReader.stop()
+        health?.chart = nil
+        card.clear()
+        card.chart.stop()
+        (paused, frozen, needsShow) = (false, nil, false)
+    }
+
+    /// Whether the face shows the screen's frames
+    private var observing: Bool { screen?.running == true }
+
+    /// Read the collectors at most twice a second; a stopped Exact source changes only at lifecycle boundaries, so every
+    /// one is read.
+    @discardableResult
+    private func sample(now: Double, force: Bool = false) -> Bool {
+        guard let health else { return false }
+        var read = reader.sample(health, now: now, force: force || health.snapshot().running == 0)
+        if let screen, screen.running {
+            read = screenReader.sample(screen.health, now: now, force: force, main: {
+                let main = screen.takeMainThread()
+                return (main.longest, main.long)
+            }) || read
+        }
+        return read
+    }
+
+    /// Show what changed. While the app draws, the change waits for its next frame, to go out with it; otherwise it goes
+    /// out now, in an update the screen knows is the card's own.
+    private func show() {
+        // Paused, the card shows what it showed
+        guard !paused else { return }
+        if let screen, screen.running {
+            guard !screen.drawing else { needsShow = true; return }
+            screen.ownChange()
+        }
+        render()
+        card.chart.present()
+    }
+
+    /// Within an update, before its commit: the card's waiting change and the charts' new frames go out with it.
+    private func committing() {
+        asCard {
+            showWaiting()
+            card.chart.present()
+        }
+    }
+
+    /// Between the app's frames the charts moved with the time, which took `took` seconds, a change of the card's own; a
+    /// change waiting for the app's next frame goes out with it.
+    private func moved(took: Double) {
+        screen?.card(took: took)
+        asCard { showWaiting() }
+        screen?.ownChange()
+    }
+
+    /// Do the card's own work, whose time is no part of the main thread's work it measures.
+    private func asCard(_ work: () -> Void) {
+        if let screen { screen.card(work) } else { work() }
+    }
+
+    private func showWaiting() {
+        guard needsShow, !dragging, !paused else { return }
+        needsShow = false
         render()
     }
 
-    /// Each frame feeds the charts while the card reads and is not paused, and they follow the time; a
-    /// pause holds them, and the first frame after it bounds no interval. A new generation during a pause clears them, as
-    /// the reader's next sample clears it.
-    private func feed(_ on: Bool) {
-        guard let health else { return }
-        let generation = health.snapshot().generation
-        if on, generation != chartGeneration { card.chart.reset() }
-        chartGeneration = generation
-        health.chart = on ? card.chart : nil
-        card.chart.endRun()
-        card.chart.follow(on)
-    }
-
     private var rates: FrameHealthCardText.Rates {
-        frozen?.0 ?? FrameHealthCardText.Rates(requestedHz: Double(health?.requestedHertz ?? 0),
-            periodMs: Double(reader.samples.last?.periodNs ?? health?.snapshot().period_ns ?? 0) / 1e6,
-            nativeScrolling: health?.nativeScrollActive ?? false)
+        frozen?.rates ?? FrameHealthCardText.Rates(requestedHz: Double(health?.requestedHertz ?? 0),
+            periodMs: Double(reader.samples.last?.periodNs ?? health?.snapshot().period_ns ?? 0) / 1e6)
     }
 
-    private var display: FrameHealthCardText.Display { frozen?.1 ?? Self.display(window?.screen ?? UIScreen.main) }
+    private var display: FrameHealthCardText.Display { frozen?.display ?? Self.display(window?.screen ?? UIScreen.main) }
+
+    private var source: FrameHealthCardText.Source {
+        if let frozen { return frozen.source }
+        guard let screen, screen.running else { return .exact }
+        return .screen(refreshMs: screen.refresh * 1000, exact: .init(running: (health?.snapshot().running ?? 0) != 0, rates: rates))
+    }
+
+    /// The readers the card shows: the face's, and Exact's own frames' for Details where the face shows the screen's.
+    private var shown: (face: FrameHealthCardReader, clock: FrameHealthCardReader?) {
+        if let frozen { return (frozen.face, frozen.source.screen ? frozen.clock : nil) }
+        return observing ? (screenReader, reader) : (reader, nil)
+    }
 
     private func render() {
         guard let health else { return }
-        card.update(FrameHealthCardPresentation(reader: reader, rates: rates, display: display,
-            status: paused ? .paused : health.snapshot().running != 0 || health.nativeScrollActive ? .live : .idle,
+        let source = source, shown = shown
+        card.update(FrameHealthCardPresentation(reader: shown.face, clock: shown.clock, rates: rates, display: display, source: source,
+            status: paused ? .paused : source.screen || health.snapshot().running != 0 ? .live : .idle,
             unavailable: health.enabled ? reader.reading ? nil : FrameHealthReaders.full : health.unavailableReason, health: health,
             details: card.state.showsDetails))
     }
@@ -165,14 +291,21 @@ final class FrameHealthOverlay: UIView {
     private func activate(_ control: FrameHealthCardFace.Control) {
         switch control {
         case .status:
-            frozen = paused ? nil : (rates, display)
+            // Paused, the card keeps what it showed and goes on measuring; resumed, it shows the present, the paused
+            // span included
+            if paused {
+                frozen = nil
+            } else {
+                let shown = shown
+                frozen = (shown.face.copy(), (shown.clock ?? reader).copy(), rates, display, source)
+            }
             paused.toggle()
-            feed(!paused)
+            card.chart.hold(paused, at: CACurrentMediaTime())
+            follow(!paused)
             UIAccessibility.post(notification: .announcement, argument: paused ? "Paused" : "Resumed")
-            // Resuming reads at once; the first sample covers the paused span and names it
             if paused { render() } else { refresh() }
         case .close: hideReadout()
-        case .title: DevMenu.showFrameHealthDefinitions()
+        case .title: DevMenu.showFrameHealthDefinitions(source)
         case .details:
             card.showDetails(!card.state.showsDetails)
             render()
@@ -212,10 +345,12 @@ final class FrameHealthOverlay: UIView {
         switch kind {
         case .report:
             FrameHealthReport.prepare(health: health.reportSource, session: DevMenu.session) { present(String(decoding: $0, as: UTF8.self)) }
-        case .summary: present(FrameHealthCardText.summary(reader: reader, rates: rates, display: display, paused: paused, health: health).text)
+        case .summary:
+            present(FrameHealthCardText.summary(reader: shown.face, clock: shown.clock, rates: rates, display: display, source: source,
+                paused: paused, health: health).text)
         case .image:
-            let picture = FrameHealthCardText.picture(reader: reader, chart: card.chart, rates: rates, display: display, paused: paused,
-                health: health, palette: card.palette)
+            let picture = FrameHealthCardText.picture(reader: shown.face, clock: shown.clock, chart: card.chart, rates: rates,
+                display: display, source: source, paused: paused, health: health, palette: card.palette)
             if let image = picture.flatMap(UIImage.init(data:)) { present(image) }
         }
     }
@@ -702,6 +837,15 @@ extension FrameHealthCardView {
 }
 
 final class FrameHealthDefinitionsController: UIViewController {
+    private let source: FrameHealthCardText.Source
+
+    init(_ source: FrameHealthCardText.Source) {
+        self.source = source
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "What these numbers mean"
@@ -715,7 +859,7 @@ final class FrameHealthDefinitionsController: UIViewController {
         text.adjustsFontForContentSizeCategory = true
         text.textContainerInset = UIEdgeInsets(top: 16, left: 12, bottom: 24, right: 12)
         let result = NSMutableAttributedString()
-        for (term, definition) in FrameHealthCardText.definitions {
+        for (term, definition) in FrameHealthCardText.definitions(source) {
             result.append(NSAttributedString(string: term + "\n", attributes: [.font: UIFont.preferredFont(forTextStyle: .headline),
                 .foregroundColor: UIColor.label]))
             result.append(NSAttributedString(string: definition + "\n\n", attributes: [.font: UIFont.preferredFont(forTextStyle: .body),
@@ -745,8 +889,9 @@ extension DevMenu {
         return overlay
     }
 
-    static func showFrameHealthDefinitions() {
-        let navigation = UINavigationController(rootViewController: FrameHealthDefinitionsController())
+    /// The definitions of the figures the card gives from `source`.
+    static func showFrameHealthDefinitions(_ source: FrameHealthCardText.Source) {
+        let navigation = UINavigationController(rootViewController: FrameHealthDefinitionsController(source))
         navigation.modalPresentationStyle = .pageSheet
         navigation.sheetPresentationController?.detents = [.medium(), .large()]
         navigation.sheetPresentationController?.prefersGrabberVisible = true

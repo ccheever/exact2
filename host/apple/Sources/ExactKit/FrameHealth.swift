@@ -65,8 +65,8 @@ final class FrameHealth {
     /// Each kind is in flight one at a time, so at most three frames wait.
     private var pending = [Pending?](repeating: nil, count: 3)
     var changed: (() -> Void)? { didSet { FrameHealthPublication.update(self) } }
-    /// A card's charts while it reads, fed by each frame (LLP 1079.000 §7.2), and by native scrolling's updates
-    weak var chart: FrameHealthChart? { didSet { nativeHealth?.chart = chart } }
+    /// A card's charts while it reads, fed by each frame (LLP 1079.000 §7.2)
+    weak var chart: FrameHealthChart?
     var ended: (() -> Void)?
     var hudVisible = false
     /// The card shows and can be seen; an on-demand collector collects only then
@@ -78,9 +78,8 @@ final class FrameHealth {
     var enabled: Bool { handle != 0 && (policy != .onDemand || demanded) }
     /// Whether it collects now or can when asked
     var available: Bool { unavailableCode == nil }
-    /// Whether it may observe native scrolling now: in a development build while it collects, and in a production
-    /// build only while the card shows (LLP 1079.000 §6.1)
-    var observesNativeScrolling: Bool { enabled && (policy == .onDemand || Self.developmentObserver) }
+    /// Whether it may observe native scrolling now: in a development build, while it collects (LLP 1079.000 §6.1)
+    var observesNativeScrolling: Bool { enabled && Self.developmentObserver }
 
     init(policy: Policy = FrameHealth.policy, source: String = "exact-app-display-link") {
         self.policy = policy
@@ -180,9 +179,6 @@ final class FrameHealth {
             // A rejected or idle callback ends the run; a held one is no frame
             if !accepted || outcome == 3 { chart.endRun() }
             else if outcome != 2, period > 0 { chart.frame(at: target - period, finished: outcome == 0 ? finished : nil, deadline: target) }
-            // A native update, whose period is unknown, starts as it begins; it shows only while Exact's own frame
-            // callbacks do not run, which the charts take instead
-            else if outcome == 0, period == 0, publicationOwner?.running != true { chart.frame(at: arrival, finished: finished, deadline: target) }
         }
         // Work not yet returned was registered during this callback; any other is left from one that
         // was never recorded

@@ -167,6 +167,9 @@ struct Collector {
     refreshes: Bins<32>,
     /// Finish past a late frame's deadline: 0.5 ms bins below 12 ms, then doubling.
     late_by: Bins<32>,
+    /// Frames without a schedule are timed by their arrivals: the source's arrivals are its frames' own times, and it
+    /// ends a run as it idles. Otherwise such frames have work but no times.
+    unscheduled_frames: bool,
 }
 
 impl Collector {
@@ -217,8 +220,19 @@ impl Collector {
             self.end_run();
             return true;
         }
-        // A source without a schedule (the native-scroll observer) has work but no frame times
+        // A source without a schedule has work but no frame times (the native-scroll observer), or frame times without
+        // refresh counts where its arrivals are its frames' times (the card's observer of the screen)
         let start = if period == 0 {
+            if self.unscheduled_frames && outcome != HELD {
+                // A time that does not advance bounds no interval: it ends the run
+                if self.last_timestamp != 0 && arrival <= self.last_timestamp {
+                    self.snapshot.out_of_order = self.snapshot.out_of_order.saturating_add(1);
+                    self.end_run();
+                    return false;
+                }
+                self.last_timestamp = arrival;
+                self.frame(arrival, arrival, 0);
+            }
             arrival
         } else {
             let frame = target - period;
@@ -275,12 +289,13 @@ impl Collector {
             s.interval_through_ns = arrival;
             self.maxima.longest_ns = self.maxima.longest_ns.max(interval);
             let mut saturated = !self.intervals.duration(interval, 24_000_000);
-            // Refreshes need one period; across a schedule change there is none
+            // Refreshes need one period; across a schedule change, or without a schedule, there is none
             if changed {
                 s.unclassified_intervals = s.unclassified_intervals.saturating_add(1);
                 self.previous_refreshes = 0;
-            } else {
-                let refreshes = (interval.saturating_add(period / 2) / period).max(1);
+            } else if let Some(refreshes) = interval.saturating_add(period / 2).checked_div(period)
+            {
+                let refreshes = refreshes.max(1);
                 s.skipped_refreshes = s.skipped_refreshes.saturating_add(refreshes - 1);
                 s.pacing_changes = s.pacing_changes.saturating_add(u64::from(
                     self.previous_refreshes != 0 && refreshes != self.previous_refreshes,
@@ -455,6 +470,12 @@ pub fn distribution(id: u32, kind: u32) -> Distribution {
     })
 }
 
+/// Time frames without a schedule by their arrivals, for a source whose arrivals are its frames' own times and that ends
+/// a run as it idles: the card's observer of the screen. Their intervals have no refresh counts.
+pub fn unscheduled_frames(id: u32) {
+    with(id, |c| c.unscheduled_frames = true);
+}
+
 /// Retain temporal work context without adding another source's apply/deadline population.
 pub fn context(id: u32, work: Work) {
     with(id, |c| {
@@ -593,6 +614,11 @@ macro_rules! frame_health_exports {
         pub extern "C" fn exact_frame_health_requested_period(id: u32, period: u64) {
             $crate::frame_health::requested_period(id, period);
         }
+        /// Time frames without a schedule by their arrivals.
+        #[no_mangle]
+        pub extern "C" fn exact_frame_health_unscheduled_frames(id: u32) {
+            $crate::frame_health::unscheduled_frames(id);
+        }
         /// Forward context only; this does not count another apply or deadline event.
         #[no_mangle]
         pub extern "C" fn exact_frame_health_context(id: u32, work: $crate::frame_health::Work) {
@@ -676,6 +702,53 @@ mod tests {
             c.refreshes.0[..2],
             [1, 1],
             "the interval across the change counts no refreshes"
+        );
+    }
+
+    #[test]
+    fn unscheduled_frames_are_timed_only_where_their_arrivals_are_their_times() {
+        let frames = [1_000_000_000, 1_000_000_000 + P, 1_000_000_000 + 3 * P];
+        let record = |c: &mut Collector, frame: u64| {
+            c.record(frame, frame + P, 0, frame + 1_000_000, COMPLETE, 0)
+        };
+        // The native-scroll observer's frames have work but no times
+        let mut scroll = Collector::default();
+        for frame in frames {
+            record(&mut scroll, frame);
+        }
+        assert_eq!((scroll.snapshot.worked, scroll.snapshot.intervals), (3, 0));
+        // The screen's frames are timed by their arrivals, with no refresh counts
+        let mut screen = Collector {
+            unscheduled_frames: true,
+            ..Collector::default()
+        };
+        for frame in frames {
+            record(&mut screen, frame);
+        }
+        let s = screen.snapshot;
+        assert_eq!(
+            (s.worked, s.intervals, s.active_ns, s.max_interval_ns),
+            (3, 2, 3 * P, 2 * P)
+        );
+        assert_eq!(
+            (
+                s.skipped_refreshes,
+                s.pacing_changes,
+                s.unclassified_intervals
+            ),
+            (0, 0, 0)
+        );
+        assert_eq!(screen.refreshes.0.iter().sum::<u32>(), 0);
+        assert_eq!(screen.intervals.0.iter().sum::<u32>(), 2);
+        // A time that does not advance bounds no interval, and a stop ends the run
+        assert!(!record(&mut screen, frames[2]));
+        assert_eq!(screen.snapshot.out_of_order, 1);
+        screen.stop();
+        record(&mut screen, 2_000_000_000);
+        record(&mut screen, 2_000_000_000 + P);
+        assert_eq!(
+            (screen.snapshot.intervals, screen.snapshot.max_interval_ns),
+            (3, 2 * P)
         );
     }
 

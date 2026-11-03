@@ -87,10 +87,10 @@ enum FrameHealthCardDrawing {
     static let titleFont = semibold(11)
 
     /// Draw the frame-rate chart (0), the frame-time chart (1), or both, 16 points apart, filling
-    /// `rect`, with `lines` up to their newest frame. Without them, the plots are left to the card's
+    /// `rect`, with `lines` up to their newest mark. Without them, the plots are left to the card's
     /// layers (`FrameHealthChart`).
     static func charts(_ ctx: CGContext, _ rect: CGRect, _ input: Input, expanded: Int?, palette: Palette,
-                       lines: (columns: [FrameHealthChart.Column], newest: Double)? = nil) {
+                       lines: (columns: [FrameHealthChart.Column], latest: Double)? = nil) {
         ctx.setFillColor(palette.background)
         ctx.fill(rect)
         for (chart, area, plot) in plots(rect, input, expanded: expanded) {
@@ -115,8 +115,8 @@ enum FrameHealthCardDrawing {
             }
             if let lines {
                 var plot = plot
-                plot.now = lines.newest
-                plotLines(ctx, chart: chart, plot: plot, columns: lines.columns, newest: lines.newest, palette: palette, margin: 0)
+                plot.now = lines.latest
+                plotLines(ctx, chart: chart, plot: plot, columns: lines.columns, latest: lines.latest, palette: palette, margin: 0)
             }
         }
     }
@@ -152,7 +152,7 @@ enum FrameHealthCardDrawing {
     /// plot is `margin` points wider at the right, where the frames after its last whole drawing go, and
     /// the layer reaches 8 points above it, for the carets. A column's lines reach back to the previous
     /// column with frames when its first frame continued that run; gaps are where a run ended.
-    static func plotLines(_ ctx: CGContext, chart: Int, plot: Plot, columns: [FrameHealthChart.Column], newest: Double,
+    static func plotLines(_ ctx: CGContext, chart: Int, plot: Plot, columns: [FrameHealthChart.Column], latest reach: Double,
                           palette: Palette, margin: CGFloat) {
         let clip = ctx.boundingBoxOfClipPath
         let left = max(plot.left, clip.minX), right = min(plot.right + margin, clip.maxX)
@@ -163,11 +163,11 @@ enum FrameHealthCardDrawing {
             stroke(ctx, from: CGPoint(x: left, y: line), to: CGPoint(x: right, y: line), color: color, width: 1,
                 dotted: rule == .dotted, phase: plot.dash(left))
         }
-        guard !columns.isEmpty, newest > 0 else { return }
+        guard !columns.isEmpty, reach > 0 else { return }
         // The columns whose marks reach the region, and the nearest either side that holds frames, so a
         // line into it is whole
         let step = FrameHealthChart.columnSeconds, count = Int64(columns.count)
-        let latest = Int64((newest / step).rounded(.down)), oldest = max(0, latest - count + 1)
+        let latest = Int64((reach / step).rounded(.down)), oldest = max(0, latest - count + 1)
         let held = { (i: Int64) in columns[Int(i % count)].index == i }
         var from = max(oldest, Int64((plot.time(left - overhang) / step).rounded(.down)) - 1)
         var to = min(latest, Int64((plot.time(right + overhang) / step).rounded(.down)) + 1)
@@ -180,7 +180,7 @@ enum FrameHealthCardDrawing {
         for i in from...to where held(i) {
             let column = columns[Int(i % count)]
             let x0 = column.joined ? end ?? plot.x(Double(i) * step) : plot.x(Double(i) * step)
-            let x1 = min(plot.x(Double(i + 1) * step), plot.x(newest))
+            let x1 = min(plot.x(Double(i + 1) * step), plot.x(reach))
             end = x1
             if x1 >= plot.left { shown.append((max(plot.left, x0), x1, column)) }
         }
@@ -373,7 +373,7 @@ enum FrameHealthCardDrawing {
         y += 12
         let chartWidth = size.width - 2 * margin
         charts(ctx, CGRect(x: margin, y: y, width: chartWidth, height: 200), input, expanded: nil, palette: palette,
-            lines: (chart.columns, chart.newest))
+            lines: chart.picture)
         y += 80 + 16 + 104 + 16
         for (index, row) in table.enumerated() {
             y += lineHeight
