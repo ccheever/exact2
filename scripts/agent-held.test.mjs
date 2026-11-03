@@ -128,6 +128,9 @@ test('clock until state waits on the wall clock, the clock frozen, until the val
   ops.forEach((q, i) => expect(q).toEqual(i % 2 ? { op: 'state' } : { op: 'clock', land: true }));
   // Already true: met at the first look. A list index, a negative number.
   expect(await untilClock(flipping(0).s, 'until state rows.0.n == -3 within 10')).toMatchObject({ until: 'met', value: -3 });
+  // The path as `expect state` takes it, a space before a dot: refused with the grammar alone before.
+  expect(await untilClock(flipping(0).s, 'until state rows.0 .n == -3 within 10')).toMatchObject({ until: 'met', value: -3 });
+  await expect(untilClock(flipping(60_000).s, 'until state gateway .state=="ready" within 10')).rejects.toThrow(/^clock until state gateway\.state == "ready" within 10: gateway\.state was "identifying"/);
 });
 
 test('a miss fails at its bound naming the last value; a missing field is named as one', async () => {
@@ -154,6 +157,7 @@ test('clock until state refuses what is not its form; on Apple it takes the cloc
     ['until state gateway == {} within 10', '{} is not one'],
     ['until state gateway == 1e400 within 10', '1e400 is not one'],
     ['until state gateway.state == "ready"', 'not `clock until state'],
+    ['until state gateway state == "ready" within 10', 'not `clock until state gateway state'], // a space not before a dot
     ['until state gateway.state == 1 within 0', 'a bound is 1 ms up to an hour'],
     ['until state nothing == 1 within 10', 'no state named "nothing" (gateway, rows)'],
   ]) await expect(untilClock(flipping(0).s, spec)).rejects.toThrow(says);

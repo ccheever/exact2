@@ -310,7 +310,7 @@ snapshot. The backend’s clock stays its own.
 | --- | --- | --- |
 | A node is there, or not | `expect tree has "<testId>"`, `expect tree missing "<testId>"` | `lacks`, `contains`, `not has`. It matches a `testId` only, never a label or text, unlike `tap` |
 | A node's text | `expect text "<testId>" == "the whole text"` | `contains`, `!=`. The text is compared whole, and a node with no text of its own reads its descendants' joined: a row's testId reads its buttons' labels too, so put the testId on the text node |
-| State | `expect state lib.notes.0 .title == "Milk"` (a space after a list index), `== []`, `== none`, `== true` | an expression on the right |
+| State | `expect state lib.notes.0.title == "Milk"` (two list indexes in a row take a space: `grid.0 .1`; a drive's `clock until state` takes the same path), `== []`, `== none`, `== true` | an expression on the right |
 | A failed resource or mutation request | `expect text` on the view's `match failure(x) { case some(f) => f.code, case none => "" }`; `failed(x)` accepts either slot | `failure(x).code` without extracting the option. A thrown refusal is a request failure; an authored `{ok: false}` is a normal result |
 
 ## Pitfalls that cost the most
