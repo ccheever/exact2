@@ -39,6 +39,38 @@ final class RasterRetryTests: XCTestCase {
         XCTAssertEqual(server.times.count, 1)
     }
 
+    /// A body that is an image is drawn whatever its status, as HTML's "update the image data" has it
+    /// (Google's favicon service answers its default icon with a 404).
+    func testAnImageThatComesWithA404IsDrawn() throws {
+        let (root, resolver, presenter, node, loader, window) = try fixture()
+        defer { loader.shutdown(); node.raster = nil; window.close(); try? FileManager.default.removeItem(at: root); withExtendedLifetime(presenter) {} }
+        let server = try ScriptedRasterHTTP { _, _ in .statusPicture(404) }
+        defer { server.stop() }
+        node.loadGeneration = 1
+        loader.load(node, source: "\(server.origin)/default.png", resolver: resolver)
+        settle { node.raster != nil }
+        XCTAssertEqual(loader.testAnnounced.map(\.failure), [nil], "its load, and no error")
+        XCTAssertEqual(server.times.count, 1)
+    }
+
+    /// One whose body is not an image fails as its status, and a 5xx is still asked again.
+    func testABodyThatIsNotAnImageFailsAsItsStatus() throws {
+        let (root, resolver, presenter, node, loader, window) = try fixture()
+        defer { loader.shutdown(); node.raster = nil; window.close(); try? FileManager.default.removeItem(at: root); withExtendedLifetime(presenter) {} }
+        let server = try ScriptedRasterHTTP { path, n in path.hasSuffix("busy.png") && n == 0 ? .statusPage(503) : path.hasSuffix("busy.png") ? .picture : .statusPage(404) }
+        defer { server.stop() }
+        node.loadGeneration = 1
+        loader.load(node, source: "\(server.origin)/gone.png", resolver: resolver)
+        settle { images(loader).first?["failure"] as? String == "HTTP 404" }
+        pump(0.3)
+        XCTAssertEqual(server.times.count, 1, "a 404 is not asked again")
+        XCTAssertEqual(loader.testAnnounced.map(\.failure), ["HTTP 404"])
+        node.loadGeneration = 2
+        loader.load(node, source: "\(server.origin)/busy.png", resolver: resolver)
+        settle { node.raster != nil }
+        XCTAssertEqual(server.times.count, 3, "a 503's page, then the picture")
+    }
+
     /// A link the error quotes, its own or a redirect's, loses its query (a CDN's signature).
     func testAnErrorQuotesNoLinksQuery() throws {
         let (root, resolver, presenter, node, loader, window) = try fixture()
@@ -284,7 +316,7 @@ final class RasterRetryTests: XCTestCase {
 /// Loopback HTTP/1.1 answering each request as `answer(path, n)` says, `n`
 /// the requests for that path before it; `times` when each came.
 private final class ScriptedRasterHTTP: @unchecked Sendable {
-    enum Answer { case status(Int, retryAfter: String? = nil), picture, redirect(String) }
+    enum Answer { case status(Int, retryAfter: String? = nil), picture, statusPicture(Int), statusPage(Int), redirect(String) }
     private let listener: Int32
     private let lock = NSLock()
     private var seen: [(String, Date)] = []
@@ -340,6 +372,12 @@ private final class ScriptedRasterHTTP: @unchecked Sendable {
         case .picture:
             let body = Self.picture
             response = Data("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nCache-Control: no-store\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8) + body
+        case .statusPicture(let code):
+            let body = Self.picture
+            response = Data("HTTP/1.1 \(code) Nope\r\nContent-Type: image/png\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8) + body
+        case .statusPage(let code):
+            let body = Data("<!doctype html><title>Nope</title><p>Nope.</p>".utf8)
+            response = Data("HTTP/1.1 \(code) Nope\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8) + body
         case .redirect(let location):
             response = Data("HTTP/1.1 302 Found\r\nLocation: \(location)\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
         case .status(let code, let retryAfter):

@@ -78,16 +78,20 @@ enum AtomPaint {
     }
 
     /// Each kind's measured style from its table row (`atoms`): its inline
-    /// padding, `"<n>px"` or `"<n>em"`, and its border's width in px.
-    static func metrics(_ atoms: MarkdownAtoms) -> [String: (padding: CGFloat?, em: Bool, border: CGFloat)] {
-        guard atoms.kinds.contains("\"padding\"") || atoms.kinds.contains("\"border\""),
+    /// padding, its icon's side and the gap after it, each `"<n>px"` or
+    /// `"<n>em"`, and its border's width in px.
+    static func metrics(_ atoms: MarkdownAtoms) -> [String: AtomMetrics] {
+        guard ["\"padding\"", "\"border\"", "\"iconSize\"", "\"gap\""].contains(where: atoms.kinds.contains),
               let rows = try? JSONSerialization.jsonObject(with: Data(atoms.kinds.utf8)) as? [[String: Any]] else { return [:] }
-        var out: [String: (padding: CGFloat?, em: Bool, border: CGFloat)] = [:]
+        var out: [String: AtomMetrics] = [:]
         for row in rows {
             guard let name = row["name"] as? String else { continue }
-            let text = row["padding"] as? String ?? "", em = text.hasSuffix("em")
-            let padding = Double(text.dropLast(2)).map { CGFloat($0) }
-            out[name] = (padding, em, CGFloat((row["border"] as? NSNumber)?.doubleValue ?? 0))
+            let length = { (key: String) -> (CGFloat?, Bool) in
+                let text = row[key] as? String ?? ""
+                return (Double(text.dropLast(2)).map { CGFloat($0) }, text.hasSuffix("em"))
+            }
+            let (padding, em) = length("padding"), (icon, iconEm) = length("iconSize"), (gap, gapEm) = length("gap")
+            out[name] = (padding, em, CGFloat((row["border"] as? NSNumber)?.doubleValue ?? 0), icon, iconEm, gap, gapEm)
         }
         return out
     }
@@ -115,6 +119,10 @@ enum AtomPaint {
         #endif
     }
 }
+
+/// What a kind's table row measures: its padding, border, icon size and gap
+/// (`AtomPaint.metrics`); nil where it says nothing.
+typealias AtomMetrics = (padding: CGFloat?, em: Bool, border: CGFloat, icon: CGFloat?, iconEm: Bool, gap: CGFloat?, gapEm: Bool)
 
 /// What a kind's paint rows say for one state; nil where they say nothing.
 struct AtomRows {
@@ -181,6 +189,17 @@ final class AtomAttachment: NSTextAttachment {
         #endif
     }
 
+    /// Its icon's side: its kind's `-exact-icon-size`, else the text's cap
+    /// height, as the platform's token has it.
+    private func iconSide(_ face: PlatformFont) -> CGFloat {
+        atom.iconSize.map { atom.iconSizeEm ? $0 * face.pointSize : $0 } ?? face.capHeight
+    }
+    /// The space between its icon and its label: its kind's `gap`, else a
+    /// quarter of the font's size.
+    private func iconGap(_ face: PlatformFont) -> CGFloat {
+        atom.gap.map { atom.gapEm ? $0 * face.pointSize : $0 } ?? face.pointSize * 0.25
+    }
+
     /// A picture's pixels for an icon of `size` points: three device pixels
     /// a point, sharp at every display scale.
     private static func pixels(_ size: CGFloat) -> Int { Int((size * 3).rounded(.up)) }
@@ -206,7 +225,7 @@ final class AtomAttachment: NSTextAttachment {
     /// The pill's width in `face`, before the line's bound.
     func width(_ face: PlatformFont) -> CGFloat {
         let label = ceil((atom.label as NSString).size(withAttributes: [.font: face]).width)
-        let cap = face.capHeight, room = hasIcon(cap) ? cap + face.pointSize * 0.25 : 0
+        let side = iconSide(face), room = hasIcon(side) ? side + iconGap(face) : 0
         return label + room + 2 * (padding(face) + atom.borderWidth)
     }
 
@@ -232,9 +251,10 @@ final class AtomAttachment: NSTextAttachment {
         // Exactly selected, its kind's `:checked` fill and ink win over the platform's selected look.
         let selectedLook = atom.selected && !(atom.exact && atom.ownsSelectedFill)
         let ink = atom.selected && atom.emphasized && !(atom.exact && atom.ownsSelectedInk) ? selectedInk : plainInk
-        let symbol = icon(face.capHeight), rtl = atom.rightToLeft(in: attributes)
+        let side = iconSide(face), gap = iconGap(face)
+        let symbol = icon(side), rtl = atom.rightToLeft(in: attributes)
         // A picture on its way keeps its room: the label is drawn where it stays.
-        let pending = symbol == nil && hasIcon(face.capHeight)
+        let pending = symbol == nil && hasIcon(side)
         let pad = padding(face), edge = atom.borderWidth
         let draw = { (rect: CGRect) in
             let radius = max(0, min(rect.height / 2, atom.radius ?? face.pointSize * 0.3))
@@ -252,13 +272,14 @@ final class AtomAttachment: NSTextAttachment {
             // The label's line ends at the pill's bottom, the font's descender.
             let line = face.ascender - face.descender, top = rect.maxY - line
             if let (image, tinted) = symbol {
-                let side = face.capHeight, baseline = top + face.ascender
-                var frame = CGRect(x: rtl ? trail - side : lead, y: baseline - side, width: side, height: side)
-                if !tinted {
-                    // A picture keeps its proportions in the square.
-                    let size = image.size, scale = min(side / max(size.width, 1), side / max(size.height, 1))
-                    frame = CGRect(x: frame.midX - size.width * scale / 2, y: frame.midY - size.height * scale / 2, width: size.width * scale, height: size.height * scale)
-                }
+                // Centred on half the cap height above the baseline, so one
+                // as tall as the capitals stands on the baseline.
+                let baseline = top + face.ascender
+                let square = CGRect(x: rtl ? trail - side : lead, y: baseline - (face.capHeight + side) / 2, width: side, height: side)
+                // A picture or a symbol keeps its proportions in the square.
+                let size = image.size, scale = min(side / max(size.width, 1), side / max(size.height, 1))
+                let frame = CGRect(x: square.midX - size.width * scale / 2, y: square.midY - size.height * scale / 2,
+                                   width: size.width * scale, height: size.height * scale)
                 #if os(macOS)
                 if tinted {
                     image.isTemplate = true
@@ -270,10 +291,9 @@ final class AtomAttachment: NSTextAttachment {
                 #else
                 (tinted ? image.withTintColor(ink, renderingMode: .alwaysOriginal) : image).draw(in: frame)
                 #endif
-                if rtl { trail -= side + face.pointSize * 0.25 } else { lead += side + face.pointSize * 0.25 }
+                if rtl { trail -= side + gap } else { lead += side + gap }
             } else if pending {
-                let room = face.capHeight + face.pointSize * 0.25
-                if rtl { trail -= room } else { lead += room }
+                if rtl { trail -= side + gap } else { lead += side + gap }
             }
             let style = NSMutableParagraphStyle()
             style.lineBreakMode = .byTruncatingTail
@@ -324,7 +344,7 @@ extension MarkupAtom {
     /// The atom of a styling row `[start, end, kind, label, icon, title, role, href, ink, background,
     /// direction, ariaLabel]`: its kind's paint, then its `:hover` paint when the pointer is over it
     /// and its `:checked` paint when the selection is exactly it, and its face's colours over all.
-    static func of(_ row: [Any], paint: [String: AtomRows], metrics: [String: (padding: CGFloat?, em: Bool, border: CGFloat)] = [:],
+    static func of(_ row: [Any], paint: [String: AtomRows], metrics: [String: AtomMetrics] = [:],
                    selection: NSRange, atoms: MarkdownAtoms, node: NodeView? = nil) -> (NSRange, MarkupAtom)? {
         guard row.count >= 8, let start = row[0] as? Int, let end = row[1] as? Int, end > start else { return nil }
         let text = { (i: Int) in row[i] as? String ?? "" }
@@ -339,7 +359,10 @@ extension MarkupAtom {
                               emphasized: atoms.emphasized, dark: atoms.dark, contrast: atoms.contrast,
                               direction: row.count > 10 ? text(10) : "", ariaLabel: row.count > 11 ? text(11) : "")
         (atom.exact, atom.hovered) = (exact, hovered)
-        if let measured = metrics[kind] { (atom.padding, atom.paddingEm, atom.borderWidth) = (measured.padding, measured.em, measured.border) }
+        if let measured = metrics[kind] {
+            (atom.padding, atom.paddingEm, atom.borderWidth) = (measured.padding, measured.em, measured.border)
+            (atom.iconSize, atom.iconSizeEm, atom.gap, atom.gapEm) = (measured.icon, measured.iconEm, measured.gap, measured.gapEm)
+        }
         (atom.border, atom.radius, atom.underline) = (rows.border, rows.radius, rows.underline ?? false)
         (atom.ring, atom.ringInk, atom.ringOffset) = (rows.ring ?? 0, rows.ringInk, rows.ringOffset ?? 0)
         (atom.ownsSelectedFill, atom.ownsSelectedInk) = (checked?.background != nil, checked?.ink != nil)

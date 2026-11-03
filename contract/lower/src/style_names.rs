@@ -272,6 +272,7 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("backface-visibility", "css CSS Transforms 2", AttrTarget::Styles(&[StyleId::BackfaceVisibility])),
     // @ref LLP 1077 §5 — declared rows CSS has no name for.
     ("-exact-symbol-rendering", "exact LLP 1077", AttrTarget::Styles(&[StyleId::SymbolRendering])),
+    ("-exact-tint-adjustment", "exact LLP 1077", AttrTarget::Styles(&[StyleId::TintAdjustment])),
     // @ref LLP 1121 D5 — a subtree's app modes, pinned.
     ("-exact-mode", "exact LLP 1121", AttrTarget::Styles(&[StyleId::Mode])),
     ("-exact-symbol-palette", "exact LLP 1077", AttrTarget::Styles(&[StyleId::SymbolPalette])),

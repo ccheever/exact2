@@ -625,6 +625,19 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertEqual(try rgb(.dark), [1, 0, 0, 1])
     }
 
+    /// A row's `-exact-tint-adjustment` is its cell's (LLP 1077 D19), and a change to it alone configures
+    /// the row again: under a dimmed list, `normal` keeps the cell's tint and `auto` dims it with the list
+    func testARowsTintAdjustmentIsItsCellsAndFollowsAChange() throws {
+        let p = presenter { self.model() }
+        p.apply(wireBatch([["op": "style", "id": 10, "style": ["tint_adjustment": "normal"]]]))
+        let list = try list(p).collection
+        list.tintAdjustmentMode = .dimmed
+        defer { list.tintAdjustmentMode = .automatic }
+        XCTAssertEqual(try cell(p, 10).tintAdjustmentMode, .normal, "normal: the cell keeps its tint")
+        p.apply(wireBatch([["op": "style", "id": 10, "style": ["tint_adjustment": "auto"]]]))
+        XCTAssertEqual(try cell(p, 10).tintAdjustmentMode, .dimmed, "auto: the cell dims with its list")
+    }
+
     /// LLP 1116.005 D2: the cell is the field. A touch in a custom row's
     /// cell that no control of the row takes (the cell's margin, a text
     /// under the field) goes to the row's one field, published as the cell's;

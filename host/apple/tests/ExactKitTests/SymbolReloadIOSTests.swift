@@ -45,7 +45,8 @@ final class SymbolReloadIOSTests: XCTestCase {
         let view = try XCTUnwrap(p.views[1])
         view.loadImage("a.png")
         view.loadImage("b.png")
-        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        // Wait for the sizes queued this turn: the clear is reported at once, and a size reported after it would be queued
+        waitForMainQueue("the turn's intrinsic sizes")
         XCTAssertEqual(reports.count, 2)
         XCTAssertEqual(reports.last, .some(nil))
     }

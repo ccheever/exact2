@@ -69,7 +69,18 @@ final class EdgeEffectIOSTests: XCTestCase {
         let sv = try XCTUnwrap(session.presenter.navigation.shownScroll(try node("content-\(name)")), file: file, line: line)
         XCTAssertNotNil(sv.refreshControl, "the scroller pulls to refresh", file: file, line: line)
         sv.contentOffset.y = -sv.adjustedContentInset.top + 400
-        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        // Lay the scroller out at its new offset now: UIKit adds and moves its views in that layout, and `keepPlatformViewsOver` follows it
+        sv.layoutIfNeeded()
+        if #available(iOS 26.0, *) {
+            // Match UIKit's edge effect as AgentNativeIOS.swift `inspectionAccount` does: a passthrough container holding its effect view
+            let effect = { (v: UIView) in
+                String(describing: type(of: v)) == "_UITouchPassthroughView"
+                    && v.subviews.contains { ["ScrollEdgeEffectView", "BackdropView"].contains(String(describing: type(of: $0))) }
+            }
+            waitFor("UIKit's edge effect hangs after the content") {
+                sv.subviews.lastIndex { $0 is NodeView }.map { sv.subviews[($0 + 1)...].contains(where: effect) } ?? false
+            }
+        }
         XCTAssertTrue(route.contentScrollView(for: .top) === sv, "the bar's top edge follows the scroller", file: file, line: line)
 
         XCTAssertNil(route.contentViewport, "the authored content scroller needs no document wrapper", file: file, line: line)
@@ -88,9 +99,6 @@ final class EdgeEffectIOSTests: XCTestCase {
         XCTAssertGreaterThan(content, 0, "the fixture ranks its content above depth 0", file: file, line: line)
         let last = try XCTUnwrap(sv.subviews.lastIndex { $0 is NodeView })
         let platform = sv.subviews[(last + 1)...]
-        if #available(iOS 26.0, *) {
-            XCTAssertFalse(platform.isEmpty, "UIKit's edge effect hangs after the content", file: file, line: line)
-        }
         // Later subviews draw above content at the same layer depth
         for view in platform {
             XCTAssertGreaterThanOrEqual(view.layer.zPosition, content, "\(type(of: view)) draws over the content in \(type(of: sv))", file: file, line: line)

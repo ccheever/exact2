@@ -155,10 +155,14 @@ fn refused(message: impl Into<String>) -> Failure {
 }
 
 /// A downloaded body, in a spool file removed when the last holder lets go.
+/// `status`: the failure its status is when it was not 2xx, which a body
+/// that is not an image fails as; one that is an image is drawn, as HTML's
+/// "update the image data" ignores the status.
 #[derive(Debug)]
 pub(super) struct Body {
     pub path: PathBuf,
     pub len: u64,
+    pub status: Option<Failure>,
 }
 impl Drop for Body {
     fn drop(&mut self) {
@@ -386,7 +390,7 @@ impl Downloads {
     /// Remember that `url`'s server said not before `at`: the expired let go
     /// of, and at most [`CACHE_ENTRIES`] kept, the others ending soonest
     /// first to go (never this one).
-    fn cool(&self, url: &str, at: Instant, message: &str) {
+    pub(super) fn cool(&self, url: &str, at: Instant, message: &str) {
         let mut cooling = self.cooling.lock().unwrap();
         let now = Instant::now();
         cooling.retain(|_, (until, _)| *until > now);
@@ -492,7 +496,8 @@ impl Downloads {
                 Some(load) => load.settle(result),
                 None => true,
             };
-            if let Some(body) = body.filter(|_| stood) {
+            // Only a 2xx is kept, as before a status that is not was read.
+            if let Some(body) = body.filter(|body| stood && body.status.is_none()) {
                 cache.put(&job.url, body);
             }
         }
@@ -535,11 +540,13 @@ impl Downloads {
                 .and_then(|next| clean(next.as_str()))
                 .ok_or_else(|| refused(format!("a redirect to {}", without_query(location))))?;
         };
-        if !(200..300).contains(&response.status) {
+        // A status that is not 2xx is the failure of a body that is not an
+        // image; its body is read all the same, as a browser reads it.
+        let status = (!(200..300).contains(&response.status)).then(|| {
             let message = format!("HTTP {}", response.status);
             let transient = response.status >= 500 || matches!(response.status, 408 | 429);
             if !transient {
-                return Err(refused(message));
+                return refused(message);
             }
             // Discord's CDN, and the person's own account: never asked again
             // sooner than the server says.
@@ -556,16 +563,19 @@ impl Downloads {
                     let now = Instant::now();
                     now.checked_add(wait).unwrap_or(now + MOST_RETRY_AFTER * 2)
                 });
-            return Err(Failure {
+            Failure {
                 after,
                 ..failed(message)
-            });
-        }
-        let over = || Failure {
-            refusal: Refusal::EncodedLimit,
-            message: format!("over {} encoded bytes", self.policy.limit),
-            transient: false,
-            after: None,
+            }
+        });
+        // (A status's body over the cap fails as its status.)
+        let over = || {
+            status.clone().unwrap_or_else(|| Failure {
+                refusal: Refusal::EncodedLimit,
+                message: format!("over {} encoded bytes", self.policy.limit),
+                transient: false,
+                after: None,
+            })
         };
         let declared =
             (response.headers.get("content-length")).and_then(|n| n.trim().parse::<u64>().ok());
@@ -577,7 +587,11 @@ impl Downloads {
             .join(spool_name().map_err(|e| failed(format!("no spool name: {e}")))?);
         let mut file = spool_file(&path).map_err(|e| failed(format!("no spool file: {e}")))?;
         // Removes the file on every early return.
-        let mut body = Body { path, len: 0 };
+        let mut body = Body {
+            path,
+            len: 0,
+            status: None,
+        };
         let mut chunk = vec![0; 64 * 1024];
         loop {
             let n = response
@@ -596,8 +610,9 @@ impl Downloads {
             progress();
         }
         if body.len == 0 {
-            return Err(failed("an empty response"));
+            return Err(status.unwrap_or_else(|| failed("an empty response")));
         }
+        body.status = status;
         Ok(Arc::new(body))
     }
 }

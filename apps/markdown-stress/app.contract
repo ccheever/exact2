@@ -59,6 +59,7 @@ shape Block
   dark: string
   width: number
   height: number
+  align: string
 
 shape Document
   title: string

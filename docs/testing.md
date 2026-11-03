@@ -83,7 +83,10 @@ its time counts too.
   - Swift: an expectation fulfilled by the callback, or a run-loop pass that
     returns once work has run: `RunLoop.main.run(mode: .default, before:)`.
     `RunLoop.main.run(until:)` waits out its whole slice; on a loaded Mac a
-    10 ms slice takes about 80 ms.
+    10 ms slice takes about 80 ms. The XCTests share three waits, in
+    `host/apple/tests/ExactKitTests/EventWaits.swift`: `waitFor` waits for a
+    condition, `waitForMainQueue` for the blocks already queued on the main
+    queue, and `waitForActivation` for what follows a session's first pixel.
   - Browsers: an event or a promise, or the agent's `clock settle` and virtual
     time.
   - A drive or an authored test: `clock settle` or `clock data` for what the
