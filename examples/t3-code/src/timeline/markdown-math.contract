@@ -32,7 +32,8 @@ component MathBlock
   derive rendered = mine.filter((frame) => frame.status == "rendered").length > 0
   derive formulaWidth = match first(mine) { case some(frame) => frame.width, case none => 0 }
   derive formulaHeight = match first(mine) { case some(frame) => frame.height, case none => 0 }
-  derive src = `assets/math/index.html#theme=${theme}&size=${size}&tex=${encodeURIComponent(tex)}`
+  // The theme and size are in the query too: a source that differs only in its fragment would not load the page again.
+  derive src = `assets/math/index.html?theme=${theme}&size=${size}#theme=${theme}&size=${size}&tex=${encodeURIComponent(tex)}`
   // The lane's width: the formula is a Tab stop only when it is wider and scrolls.
   state viewportWidth = 0
   derive scrollable = mathScrollable(rendered, viewportWidth, formulaWidth)

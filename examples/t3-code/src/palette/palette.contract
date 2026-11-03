@@ -546,12 +546,6 @@ component CommandPaletteBody
   derive hasContext = view.contextTitle != ""
   derive dark = scheme == "dark"
   derive listMax = view.panel == "tall" ? min(34 * rem, viewport.height * 0.76) : min(28 * rem, viewport.height * 0.7)
-  // ScrollArea scrollFade: 24pt fades at an edge with more rows beyond it.
-  derive listRoom = min(listMax, maxHeight - (90 + (hasContext ? 60 : 0)) * rem / 16)
-  derive fadePct = 2400 / max(1, min(view.listHeight, listRoom))
-  derive fadeTop = view.panel != "fill" and scroll > 0
-  derive fadeBottom = view.panel != "fill" and view.listHeight > listRoom + scroll + 1
-  derive listMask = fadeTop and fadeBottom ? `linear-gradient(to bottom, #00000000 0%, #000000 ${fadePct}%, #000000 ${100 - fadePct}%, #00000000 100%)` : (fadeTop ? `linear-gradient(to bottom, #00000000 0%, #000000 ${fadePct}%)` : (fadeBottom ? `linear-gradient(to bottom, #000000 ${100 - fadePct}%, #00000000 100%)` : "none"))
   // CommandPalette.tsx handleKeyDown takes every thread.jump.N chord in the field
   // (view.jumpKeys), prevented and stopped, and runs the displayed row that has it (⌘1–⌘9 on a project pick), if one
   // does: ⌘5 with two projects, or ⌘1 on the root page, does nothing. A new-thread chord (chat.newLocal,
@@ -636,7 +630,7 @@ component CommandPaletteBody
               if view.contextDescription != ""
                 text view.contextDescription font-size="0.75rem" line-height="1rem" color="light-dark(#71717bd9, #a1a1a1d9)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
       if view.rows.length > 0
-        scroll scrollTop=scroll mask-image=listMask flex-grow=(view.panel == "fill" ? 1 : 0) flex-shrink=1 min-height=0 max-height=(view.panel == "fill" ? 26.25 * rem : listMax) width="100%" box-sizing="border-box" testId="palette-list"
+        PaletteScroller(scroll=scroll, fade=(view.panel != "fill"), grow=(view.panel == "fill" ? 1 : 0), maxHeight=(view.panel == "fill" ? 26.25 * rem : listMax), dark=dark)
           column padding=(view.panel == "fill" ? "0px" : "0.5rem") padding-top="0.5rem" padding-bottom="0.5rem" width="100%" box-sizing="border-box" role="listbox"
             for row in view.rows key=row.key
               PaletteRowView(reduced=viewport.prefersReducedMotion, row=row, highlighted=(row.index == highlight and row.index >= 0), target=(row.index == enterIndex and row.index >= 0), busy=busy, dark=dark, run=run, hover=hover)
@@ -729,6 +723,7 @@ component PaletteThreadPicker
   inject
     dialogEntered: action
     dialogFallback: action
+    rem: number
   props
     view: PaletteView
     query: string
@@ -768,7 +763,7 @@ component PaletteThreadPicker
               text view.placeholder position="absolute" left="2.0625rem" top=0 right="0.6875rem" font-size="0.875rem" line-height="2.25rem" color="light-dark(#71717b, #a1a1a1)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" aria-hidden=true
             input id="palette-input" testId="palette-input" value=query input=edit key=onKey submit=run(tOp, tArg, tArg2) autofocus=true role="combobox" aria-label=view.placeholder aria-expanded=true autocorrect="off" spellcheck="false" disabled=view.loading width="100%" height="2.25rem" padding-left="1.9375rem" padding-right="0.6875rem" padding-top="0.5625rem" padding-bottom="0.4375rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" box-sizing="border-box" data-focus-stop=(view.loading ? "" : "enabled") outline="none" data-editable="yes"
         if view.rows.length > 0
-          scroll scrollTop=scroll flex-shrink=1 min-height=0 max-height="20rem" width="100%" box-sizing="border-box" testId="palette-list"
+          PaletteScroller(scroll=scroll, fade=false, grow=0, maxHeight=20 * rem, dark=dark)
             column padding="0.5rem" width="100%" box-sizing="border-box" role="listbox" aria-label=view.label
               for row in view.rows key=row.key
                 PaletteRowView(reduced=viewport.prefersReducedMotion, row=row, highlighted=(row.index == highlight and row.index >= 0), target=(row.index == enterIndex and row.index >= 0), busy=busy, dark=dark, run=run, hover=hover)
@@ -776,3 +771,55 @@ component PaletteThreadPicker
           column padding="0.5rem" width="100%" box-sizing="border-box"
             text view.empty text-align="center" padding-left="0.75rem" padding-right="0.75rem" padding-top="1.5rem" padding-bottom="1.5rem" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" testId="palette-empty"
         FocusGuard(guardId="pr-thread-picker-guard-end", targets=dialogTargets, popup="pull-request-thread-picker")
+
+// The list's scrollbar as v0.1.6 draws it. index.css styles every scrollbar (`::-webkit-scrollbar`: 6 pt wide, a clear
+// track, a thumb rounded 3 pt in white 8% on dark and #d9d9d9 on light, white 12% and #bfbfbf under the pointer),
+// which makes Chromium's a classic bar: shown whenever the list overflows, taking 6 pt from the list's width, its track
+// 8 pt in from each end (CommandPaletteResults' `[&::-webkit-scrollbar-track]:my-2`) and outside the fade. A host's
+// scroller has the platform's overlay bar, so the list hides it and draws this one from the scroller's offset and
+// sizes; a drag on the thumb scrolls the list. With `fade`, ScrollArea's scrollFade: 24 pt fades at an edge with more
+// rows beyond it.
+component PaletteScroller
+  props
+    scroll: number
+    fade: bool
+    grow: number
+    maxHeight: number
+    dark: bool
+  slot
+  state top = 0
+  state port = 0
+  state content = 0
+  state over = false
+  // A drag's offset, held while the palette's own offset (the arrows') stays what it was when the drag set it.
+  state pinned = -1
+  state pinnedFor = 0
+  derive overflow = content > port + 1
+  derive track = max(0, port - 16)
+  derive thumb = overflow ? max(18, track * port / content) : 0
+  derive range = max(1, content - port)
+  derive thumbTop = 8 + (track - thumb) * min(1, max(0, top / range))
+  derive fadePct = 2400 / max(1, port)
+  derive fadeTop = fade and top > 0
+  derive fadeBottom = fade and content > port + top + 1
+  derive mask = fadeTop and fadeBottom ? `linear-gradient(to bottom, #00000000 0%, #000000 ${fadePct}%, #000000 ${100 - fadePct}%, #00000000 100%)` : (fadeTop ? `linear-gradient(to bottom, #00000000 0%, #000000 ${fadePct}%)` : (fadeBottom ? `linear-gradient(to bottom, #000000 ${100 - fadePct}%, #00000000 100%)` : "none"))
+  action moved(x: number, y: number)
+    top = y
+  action portSized(w: number, h: number)
+    port = h
+  action contentSized(w: number, h: number)
+    content = h
+  action hover(on: bool)
+    over = on
+  action drag(dx: number, dy: number)
+    let next = min(range, max(0, top + dy * range / max(1, track - thumb)))
+    pinned = next
+    pinnedFor = scroll
+    top = next
+  view
+    box position="relative" display="flex" flex-direction="column" flex-grow=grow flex-shrink=1 min-height=0 max-height=maxHeight width="100%"
+      scroll scroll=moved resize=portSized scrollTop=(pinned >= 0 and scroll == pinnedFor ? pinned : scroll) scrollbar-width="none" mask-image=mask flex-grow=grow flex-shrink=1 min-height=0 width="100%" box-sizing="border-box" testId="palette-list"
+        column resize=contentSized width="100%" padding-right=(overflow ? 6 : 0) box-sizing="border-box"
+          children
+      if overflow
+        box position="absolute" right=0 top=thumbTop width=6 height=thumb border-radius=3 background-color=(dark ? (over ? "#ffffff1f" : "#ffffff14") : (over ? "#bfbfbf" : "#d9d9d9")) hover=hover pan=drag touch-action="none" z-index=1 aria-hidden=true testId="palette-scrollbar-thumb"

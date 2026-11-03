@@ -271,6 +271,8 @@ describe('mermaid fences', () => {
     const page = new URL(diagram!.srcDark, 'exact-app://app/');
     expect(page.pathname).toBe('/assets/mermaid/index.html');
     expect(Object.fromEntries(new URLSearchParams(page.hash.slice(1)))).toMatchObject({ theme: 'dark', source: flow, view: 'chat' });
+    // The two themes' pages differ outside the fragment, so an appearance change loads the page again.
+    expect(diagram!.srcLight.split('#')[0]).not.toBe(diagram!.srcDark.split('#')[0]);
     // A streaming reply draws the fences it has closed (isClosedCodeFence); the one still open stays a code block.
     const streaming = `${markdown}\n\`\`\`mermaid\ngraph TD\n  C --> D\n\`\``;
     expect(messageDiagrams(streaming).map(entry => entry.code)).toEqual([flow]);
@@ -287,6 +289,7 @@ describe('mermaid fences', () => {
     retryMermaid(code, 'dark');
     expect(diagramFor('0', code).dark.diagram).toBe('loading');
     expect(diagramFor('0', code).srcDark).not.toBe(before);
+    expect(diagramFor('0', code).srcDark.split('#')[0]).not.toBe(before.split('#')[0]);
     expect(diagramFor('0', code).light.diagram).toBe('rendered');
     // A report that is not JSON, names no source or no size changes nothing.
     for (const junk of ['nope', JSON.stringify({ status: 'rendered', width: 1, height: 1, theme: 'dark', source: '' }), JSON.stringify({ status: 'rendered', width: 0, height: 5, theme: 'dark', source: code })]) noteMermaidFrame(junk);

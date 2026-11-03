@@ -3,6 +3,7 @@
 // LICENSE-T3): the "Filter threads by project" combobox popup anchored under
 // the search field, the Archive/Delete/Unpin confirmations
 // (ConfirmDialogHost) and the custom snooze dialog (CustomSnoozeDialog.tsx).
+use TimeField from "../shared/time-field.contract"
 use Snapshot from "../shared/shapes.contract"
 use pinChordPressed from "../shared/menu-keys.contract"
 use FieldPlaceholder from "../shared/field-placeholder.contract"
@@ -279,7 +280,7 @@ component SidebarSnoozeDialog
                 SnoozeDateField(cal=data.sidebar.calendar, local=local)
               column flex=1 min-width=0 gap="0.5rem"
                 text "Time" font-size="0.875rem" font-weight=500 line-height="1rem" color="light-dark(#18181b, #f5f5f5)"
-                input type="time" value=data.sidebar.dialogTime change=local("dialog-field", "time") aria-label="Time" testId="snooze-time" box-sizing="border-box" height="2rem" padding-left="0.6875rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" color="light-dark(#18181b, #f5f5f5)" id="field-snooze-time" data-editable="yes"
+                TimeField(fieldId="field-snooze-time", value=data.sidebar.dialogTime, label="Time", width="100%", height="2rem", padding="0.6875rem", radius="0.5rem", edge="light-dark(#d4d4d8, #ffffff14)", fill="light-dark(#fcfcfc, #ffffff07)", ink="light-dark(#18181b, #f5f5f5)", shadow="0 1px 2px #0000000d", disabled=false, stop="", testId="snooze-time", commit=local("dialog-field", "time"))
           else
             row gap="0.75rem"
               column flex=1 min-width=0 gap="0.375rem"
@@ -386,11 +387,13 @@ component SidebarHoverCard
             MiddleTruncate(value=t.branch, head=t.branchHead, tail=t.branchTail, ink="light-dark(#71717b, #a1a1a1)")
         if t.hoverModel != ""
           row gap="0.5rem" align-items="center" height="1rem"
+            // ProviderInstanceIcon at size-3, grayscale, 60%: OpenAI's mark takes the card's muted ink (fill-current), the
+            // ACP registry's is black or white (ACPRegistryIcon's fill-black dark:fill-white).
             box width="0.75rem" height="0.75rem" opacity=0.6 flex-shrink=0
               if t.providerDriver == "acpRegistry"
-                AcpRegistryAgentIcon(icon=t.providerIcon, size=12, color="light-dark(#71717b, #a1a1a1)")
+                AcpRegistryAgentIcon(icon=t.providerIcon, size=12, color="light-dark(#000000, #ffffff)")
               else
-                ProviderMark(driver=t.providerDriver, size=12, color="light-dark(#71717b, #a1a1a1)")
+                ProviderMark(driver=t.providerDriver, size=12, color=(t.providerDriver == "codex" ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#000000, #ffffff)"))
             text t.hoverModel font-size="0.75rem" line-height="1rem" color="light-dark(#18181bbf, #f5f5f5bf)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
         if t.hoverHandoff != ""
           row gap="0.5rem" align-items="center" height="1rem"

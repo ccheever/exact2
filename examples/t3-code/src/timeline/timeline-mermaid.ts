@@ -58,8 +58,11 @@ export function mermaidSrc(code: string, theme: Theme, view: MermaidView = 'chat
   // The preview's page lays the diagram out for the width its opener drew it at, and the SVG scales to its box.
   if (width > 0) params.set('width', String(width));
   const attempt = attempts.get(retryKey(theme, code)) ?? 0;
-  if (attempt) params.set('attempt', String(attempt));
-  return `${MERMAID_PAGE}#${params.toString()}`;
+  // The theme and the attempt are in the query too: a source that differs only in its fragment is a move within the
+  // page's document, which runs nothing again, so an appearance change or a Retry would leave the frame unreported.
+  const load = new URLSearchParams({ theme });
+  if (attempt) load.set('attempt', String(attempt));
+  return `${MERMAID_PAGE}?${load.toString()}#${params.toString()}`;
 }
 
 /** A fence's frame in one theme on one surface as its page reported it, or loading. */

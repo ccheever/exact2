@@ -103,6 +103,7 @@ const NOT_MODAL: Record<string, string> = {
   'thread-end.contract `thread-now-details-card-${message.id}`': 'Popover (ThreadNow NoticeText, openOnHover)',
   'timeline-approval.contract `timeline-approval-why-card-${id}`': 'Popover (TimelinePendingApprovalRow, openOnHover)',
   'composer-chip-popover.contract "chip-popover"': 'Popover',
+  'time-field.contract `${testId}-popup`': 'Chromium\'s time picker popup: light-dismissed, no focus trap',
   'citation-comment.contract "citation-comment"': 'Popover (AssistantCitationChip\'s comment)',
   'diff.contract "diff-base-picker"': 'Popover',
   'markdown.contract `Terminal excerpt, ${chip.label}`': 'Popover',

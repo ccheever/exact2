@@ -1,6 +1,7 @@
 // Setting sections, rows and their controls: SettingsSection,
 // SettingsGroup, SettingsRow, ui/switch, ui/select (trigger + popup), DraftInput,
 // NumberField, the composer model/traits pickers and the scope sentence menus.
+use TimeField from "../shared/time-field.contract"
 use TraitsMenu from "./settings-traits.contract"
 use CoreIcon, CorePaintIcon from "./settings-core.contract"
 use CoreMark from "./settings-core.contract"
@@ -457,8 +458,7 @@ component SnoozePresetsEditor
               CoreSelect(stop="enabled page", rowId=`snooze-unit-${item.key}`, section=section, value=item.unitLabel, icon="", width=144, menuWidth=0, options=item.units, pal=pal, disabled=(busy or inert), dim=inert, menu=menu, openMenu=openMenu, choose=change(rowId, `unit:${item.index}`))
             else
               text "at" font-size="0.75rem" line-height="1rem" color=pal.muted
-              for timeKey in [`${item.key}:${item.time}`] key=timeKey
-                CoreField(value=item.time, rowId=`snooze-time-${item.key}`, width=128, placeholder="09:00", numeric=false, label="Time", pal=pal, disabled=(busy or inert), commit=change(rowId, `time:${item.index}`))
+              TimeField(fieldId=`setting-snooze-time-${item.key}`, value=item.time, label="Time", width="8rem", height="1.75rem", padding="0.5625rem", radius="0.5rem", edge=pal.input, fill=pal.field, ink=pal.text, shadow="0 1px 2px #0000000d", disabled=(busy or inert), stop="enabled page", testId=`setting-snooze-time-${item.key}`, commit=change(rowId, `time:${item.index}`))
           row margin-left="auto" min-width=0 align-items="center" gap="0.5rem"
             if item.previewMenu
               row min-width=0 gap="0.5rem" align-items="baseline"
