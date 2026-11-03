@@ -126,11 +126,11 @@ final class ContextMenuMacTests: XCTestCase {
         func closed(after count: Int) {
             guard !ExactEnv.agentMode else { return turn() }
             let deadline = Date(timeIntervalSinceNow: 10)
-            while (ended <= count || menuFrame() != nil) && Date() < deadline {
+            while (ended <= count || Self.shownMenuFrame() != nil) && Date() < deadline {
                 RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
             }
             XCTAssertGreaterThan(ended, count, "the menu tracked and ended")
-            XCTAssertNil(menuFrame(), "no menu window is left on screen")
+            XCTAssertNil(Self.shownMenuFrame(), "no menu window is left on screen")
             turn()
         }
         p.menus.context(source, at: .zero)
@@ -397,17 +397,6 @@ final class ContextMenuMacTests: XCTestCase {
         }
     }
 
-    /// The frame, in screen points, of this process's open menu. AppKit's
-    /// menu window is not in `NSApp.windows`; the window server lists it at
-    /// the pop-up menu level, from the primary screen's top left.
-    private func menuFrame() -> NSRect? {
-        let pid = ProcessInfo.processInfo.processIdentifier, level = Int(CGWindowLevelForKey(.popUpMenuWindow))
-        let listed = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
-        guard let info = listed.first(where: { $0[kCGWindowOwnerPID as String] as? pid_t == pid && $0[kCGWindowLayer as String] as? Int == level }),
-              let bounds = info[kCGWindowBounds as String] as? NSDictionary, let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary),
-              let primary = NSScreen.screens.first else { return nil }
-        return NSRect(x: rect.minX, y: primary.frame.maxY - rect.maxY, width: rect.width, height: rect.height)
-    }
     /// A pointer's menu is where AppKit puts a hand-built view's context menu
     /// (`menu(for:)`, `popUpContextMenu`): its top left at the pointer, the
     /// pointer just outside it and over no item, and only the author's rows
@@ -428,13 +417,13 @@ final class ContextMenuMacTests: XCTestCase {
             RunLoop.current.add(Timer(timeInterval: 0.05, repeats: false) { _ in if !done() { poll(done) } }, forMode: .common)
         }
         let center = NotificationCenter.default
-        let began = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { [unowned self] note in
+        let began = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
             guard let menu = note.object as? NSMenu else { return }
             plugIns = menu.allowsContextMenuPlugIns
             // Its window is ordered in after tracking begins; nothing says when.
             let deadline = Date(timeIntervalSinceNow: 5)
             poll {
-                frame = self.menuFrame()
+                frame = Self.shownMenuFrame()
                 guard frame != nil || Date() > deadline else { return false }
                 menu.cancelTrackingWithoutAnimation()
                 return true
@@ -446,7 +435,7 @@ final class ContextMenuMacTests: XCTestCase {
         // test's fading one included.
         func settle(_ done: () -> Bool = { true }) {
             let deadline = Date(timeIntervalSinceNow: 10)
-            while (!done() || menuFrame() != nil) && Date() < deadline {
+            while (!done() || Self.shownMenuFrame() != nil) && Date() < deadline {
                 RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
             }
         }
@@ -1459,6 +1448,15 @@ final class ContextMenuMacTests: XCTestCase {
                            ["op": "frame", "id": 50, "x": 0, "y": 0, "w": 10, "h": 20], ["op": "children", "id": 7, "ids": [107, 50]]]))
         let menu = p.menus.menu(of: try XCTUnwrap(p.views[2]))
         XCTAssertNotNil(menu.items.first { $0.title == "Copy" }?.submenu)
+    }
+}
+
+extension ContextMenuMacTests {
+    /// The frame of the menu this process shows, if any. On macOS 27.2 a menu
+    /// has a glass-effect window of its own at its level, larger than the menu
+    /// on every side, so the menu's own window is the shortest there.
+    static func shownMenuFrame() -> NSRect? {
+        NSApp.windows.filter { $0.isVisible && $0.level == .popUpMenu }.map(\.frame).min { $0.height < $1.height }
     }
 }
 #endif
