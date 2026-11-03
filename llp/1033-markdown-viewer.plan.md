@@ -684,29 +684,52 @@ the parser showed every raw HTML line literally, so an agent's screenshot
 written as `<img src="…" width="400">` was a line of markup.
 
 **What is read.** Of an `<img>`: `src`, `alt`, `width` and `height`, the
-attributes of that schema an image's drawing depends on (`html.rs`). Of a
-`<picture>`: its `<img>`s, and of its `<source>`s only those whose `media`
-is exactly `(prefers-color-scheme: dark)` or `light`, the first of each
-scheme winning, their `srcset`'s first URL being the source; a browser would
-choose the others by viewport, which a reader of blocks does not do, and
-T3 Code drops them. Nothing else is read: no `style`, `class`, event
-attribute or other element, so nothing in the markup can run or restyle the
-page.
+attributes of that schema an image's drawing depends on, and the three of
+T3 Code's own that its sanitizer keeps and its renderer reads:
+`data-dark-src` and `data-light-src`, the source for each theme, and
+`data-local-src`, which stands in for `src` (`html.rs`). Of a `<picture>`:
+its `<img>`s, and of its `<source>`s only those whose `media` is exactly
+`(prefers-color-scheme: dark)` or `light`, the first of each scheme winning,
+their `srcset`'s first URL being the source; a browser would choose the
+others by viewport, which a reader of blocks does not do, and T3 Code drops
+them. An `<img>`'s own `data-dark-src` or `data-light-src` wins over a
+source, as T3 Code moves a source only onto an image without one. Attribute
+values are decoded as an HTML tokenizer decodes them, every named character
+reference included (`entities.rs`), before a source is checked, so
+`javascript&colon;…` is refused. Nothing else is read: no `style`, `class`,
+event attribute or other element, so nothing in the markup can run or
+restyle the page.
 
-**Where it is read.** A line that starts with `<img` or `<picture`, through
-markup that may span lines up to the next blank one and whose last element
-ends its line. Each such element is an `Image` block (`dark`, `width`,
-`height` beside `href` and the alt in `text`); a picture with no `<img>`
-draws nothing. Markup holding anything else, text after an image on its
-line, or an element left open stays a literal `html` block, as all other raw
-HTML does. Such a line also ends the paragraph above it, where CommonMark
-reads the tag as inline HTML: a reader of blocks draws an image only as one.
-An `<img>` inside a line of prose stays literal.
+**Where it is read.** A line that starts with `<img`, `<picture` or a
+wrapper, through markup that may span lines up to the next blank one and
+whose last element ends its line. A wrapper is an element in which T3 Code
+still counts an image standalone, `<div>`, `<p>`, `<center>`, `<figure>`,
+`<strong>` and `<em>`, holding only images, wrappers, `<br>`s and comments;
+`<a>` is not one, since its link would be lost. Each image is an `Image`
+block (`dark`, `width`, `height` beside `href` and the alt in `text`); a
+picture or a `<div>`, `<p>`, `<center>` or `<figure>` with no `<img>` draws
+nothing, and a `<strong>` or `<em>` with none stays literal. The blank
+line or the document's end closes what is left open, as the end of an HTML
+parser's input does, so a `<picture>` whose end tag is missing (an answer
+still streaming, or a slip) is drawn; a later line of only the end tags of
+what was so closed draws nothing. Markup holding anything else stays a
+literal `html` block, as all other raw HTML does. Such a line also ends the
+paragraph above it, where CommonMark reads the tag as inline HTML: a reader
+of blocks draws an image only as one.
+
+An `<img>` or `<picture>` inside a line of prose, or followed by text on its
+line, is CommonMark's inline HTML: the line is a paragraph, and the image is
+the run the caller's `Html::inline` makes of it, given its sources as
+written, or else its alt text, as a Markdown image inside a line is. A
+picture there is closed by the paragraph's end.
 
 **What may load.** A source with no scheme, a Windows drive path, or one of
 the schemes the caller allows (`Html::schemes`): `http` and `https` by
 default, the sanitizer's `src` protocols, compared case-sensitively as it
-compares them. A refused `src` leaves the image without one; a refused
+compares them. A drive path in a `<source>` loads only where `file` is
+allowed, as T3 Code writes it as a `file:` URL, and one in `data-dark-src`
+or `data-light-src` never does, as the sanitizer reads its letter as a
+scheme. A refused `src` leaves the image without one; a refused
 `<source>` is gone, and a later one of its scheme does not take its place.
 Every allowed source goes through the caller's `link`, as a Markdown image's
 does. `Html::LITERAL` keeps all raw HTML literal, for text whose author did

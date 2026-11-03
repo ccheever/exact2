@@ -438,7 +438,12 @@ normally launched app.
 The Local environment switch, Network access and Tailscale Serve (enabled, port) live where T3 Code
 keeps them, `<T3 home>/userdata/desktop-settings.json` (`T3DesktopSettings.swift`: read once at the
 first session, sparse compact writes through a temp file and a rename), so the clone and T3 Code
-share them; the keys an older clone kept in `t3-code.json` are carried over once. The default
+share them; the keys an older clone kept in `t3-code.json` are carried over once. Where an
+administrator's managed policy (`/Library/Application Support/T3Code/policy.json` or the
+`com.t3tools.t3code` configuration profile) leaves `remote` out of `limits.clients`, or cannot be
+read, the server starts local-only without Serve, as DesktopServerExposure does, and the saved
+choices stay for when the policy allows them (`T3ManagedPolicy`, `T3LocalNetwork.swift`). The
+server starts before any TypeScript runs, so this check is the module's. The default
 endpoint stays in `t3-code.json` (the reference's renderer localStorage); a created link's
 credential stays in memory.
 While the embedded server runs, `t3 app <dir>`

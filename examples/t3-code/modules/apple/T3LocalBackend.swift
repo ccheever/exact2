@@ -723,6 +723,7 @@ final class T3LocalBackend: @unchecked Sendable {
     /// why not. A server that is switched off or refused only keeps the envelope for its next start.
     func restart(exposure next: T3LocalExposure, done: @escaping (String?) -> Void) {
         installQueue.async { [self] in
+            let next = next.withinPolicy()
             lock.lock(); exposure = next; let current = manager; lock.unlock()
             T3LocalNetwork.shared.invalidate()
             publish { Self.describe(next, into: &$0) }

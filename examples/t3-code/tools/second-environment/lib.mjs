@@ -276,10 +276,14 @@ export const SEEDS = {
     // The stand-in edits files in a turn (its checkpoint has a diff) and asks before an edit (an approval).
     { repo: "agent-edits", origin: "https://github.com/t3-fixture/agent-edits.git", threads: [],
       turns: [{ title: "Turn with file edits", prompt: "Edit the notes" }, { title: "Edit awaiting approval", prompt: "Ask before editing the notes", approval: true }],
-      // `seed --more-turns`: a second approval (one to approve, one to decline), an answer in italics, and a turn the
+      // `seed --more-turns`: a second approval (one to approve, one to decline), an answer in italics, an answer of raw
+      // HTML images, an answer a tool call follows, a message naming the stand-in's skill (its chip), and a turn the
       // stand-in holds running until `install.mjs release` (or a steer or Stop cancels it).
       moreTurns: [{ title: "Second edit awaiting approval", prompt: "Ask before editing the notes", approval: true },
-        { title: "Italic answer", prompt: "Show the italic sample" }, { title: "Turn held open", prompt: "Hold the turn", hold: true }] },
+        { title: "Italic answer", prompt: "Show the italic sample" }, { title: "HTML images", prompt: "Show the HTML image sample" },
+        { title: "Answer before a check", prompt: "Answer, then check" },
+        { title: "Skill in a message", prompt: "Use $frontend-design for the page" },
+        { title: "Turn held open", prompt: "Hold the turn", hold: true }] },
   ],
   third: [
     { repo: "shared-notes", origin: "https://github.com/t3-fixture/shared-notes.git", threads: ["Shared notes on third"] },

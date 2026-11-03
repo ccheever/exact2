@@ -28,7 +28,10 @@ server reports the turn blocked on another thread (the sidebar's Waiting); "Link
 replies with a `t3-thread://v1/<id>` link (a thread chip); "Fail the turn" fails the turn with a
 provider's JSON error whose message is a sentence (the thread error banner's message). "Show the
 Markdown sample pausing <n>s" replies with a Mermaid flowchart, then n seconds later a sequence
-diagram, a table and two display formulas, so a drive sees a closed fence drawn mid-reply. "Show the italic sample" replies with emphasis (`*…*` and `_…_`, in prose and a list); "Hold the turn"
+diagram, a table and two display formulas, so a drive sees a closed fence drawn mid-reply. "Answer, then check" replies,
+then runs a read after the reply and ends the turn, so the answer's actions follow a tool group. "Show the italic sample" replies with emphasis (`*…*` and `_…_`, in prose and a list); "Show the HTML image sample" writes
+four one-colour PNGs under `shots/` in the session's directory and replies with raw HTML images over them (one inside a
+line, one in a `<div>`, a refused `javascript&colon;` source, `data-dark-src`, and a `<picture>` left open); "Hold the turn"
 streams "Holding the turn." and keeps the turn running until `install.mjs release --home <t3 home>` writes `release`
 beside the executable, or the server cancels it (`session/cancel`, as a steer or Stop does); "Which effort?" replies
 with the session's reasoning effort. Each session offers a reasoning effort select (`configOptions`, category

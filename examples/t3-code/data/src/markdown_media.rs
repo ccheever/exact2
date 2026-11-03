@@ -371,16 +371,28 @@ fn image_link(link: &dyn Fn(&str) -> String, href: &str) -> String {
     }
 }
 
-/// ChatMarkdown's image protocols (markdownPipeline.ts, T3 Code 5d3d78ab93).
-/// UserMessageBody uses `parseRawHtml={false}` and keeps HTML literal.
+/// ChatMarkdown's image protocols (markdownPipeline.ts, T3 Code 5d3d78ab93), and an `<img>` inside a line of text as a
+/// media run, as `inline_image_links` writes a Markdown one. UserMessageBody uses `parseRawHtml={false}` and keeps HTML
+/// literal.
 fn chat_html(raw_html: bool) -> markdown_parse::Html<'static> {
     if raw_html {
         markdown_parse::Html {
             images: true,
             schemes: &["http", "https", "file", "t3-context"],
+            inline: Some(&inline_html_image),
         }
     } else {
         markdown_parse::Html::LITERAL
+    }
+}
+
+/// The media run of an `<img>` inside a line of text: its source only, as the run carries one href and FlowRuns gives a
+/// run's media no authored size.
+fn inline_html_image(image: markdown_parse::html::Image) -> markdown_parse::Run {
+    markdown_parse::Run {
+        text: format!("{IMAGE_START}{}", image.alt),
+        href: image_link(&link_href, &format!("{IMAGE_MARK}{}", image.src)),
+        ..markdown_parse::Run::default()
     }
 }
 
@@ -606,6 +618,33 @@ mod media_tests {
     }
     fn run(kind: &str, alt: &str, href: &str, icon: &str) -> (String, String, String, String) {
         (kind.into(), alt.into(), href.into(), icon.into())
+    }
+
+    #[test]
+    fn an_html_image_inside_a_line_is_a_media_run_and_others_are_blocks() {
+        // The hrefs media-views.ts gives these images' chips (raw-html-images.test.ts).
+        let text = "Before <img src=\"shots/inline.png\" alt=\"inline\"> after.\n\n<div><img src=\"shots/div.png\"></div>\n\n<img src=\"javascript&colon;x\">\n\n<img src=\"shots/light.png\" data-dark-src=\"shots/dark.png\">\n\n<picture>\n<source media=\"(prefers-color-scheme: dark)\" srcset=\"shots/dark.png\">\n<img src=\"shots/light.png\">";
+        let document = document(Value::str("m"), text);
+        let media: Vec<_> = runs_of(&document).into_iter().filter(|run| run.2.ends_with("|media")).collect();
+        assert_eq!(media, [run("paragraph", "inline", "t3-image:t3-file:shots/inline.png|media", "")]);
+        let Value::Record(doc) = document else { panic!() };
+        let Value::List(blocks) = &doc[1] else { panic!() };
+        let images: Vec<_> = blocks
+            .iter()
+            .filter_map(|block| match block {
+                Value::Record(fields) if fields[1].as_str() == Some("image") => Some((fields[5].clone(), fields[20].clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            images,
+            [
+                (Value::str("t3-file:shots/div.png"), Value::str("")),
+                (Value::str(""), Value::str("")),
+                (Value::str("t3-file:shots/light.png"), Value::str("t3-file:shots/dark.png")),
+                (Value::str("t3-file:shots/light.png"), Value::str("t3-file:shots/dark.png")),
+            ]
+        );
     }
 
     #[test]

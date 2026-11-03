@@ -950,7 +950,7 @@ test('SDK graph drift is repaired by the async lock refresh before locked consum
     sdkLock(sdk, {update:true}); sdkLock(sdk);
     assert.match(readFileSync(resolve(sdk, 'app/shells.lock'), 'utf8'), /name = "sdk-drift-dependency"\nversion = "0.2.0"/);
     const {checks} = await import('../scripts/async.mjs');
-    const steps = checks('head', 'base', {lane:[],apple:false,glue:[]});
+    const steps = checks('head', 'base', {lane:[],glue:[]});
     assert.ok(steps.findIndex(s => s[0] === 'game-lock') < steps.findIndex(s => s[0] === 'game'));
   } finally { rmSync(root, {recursive:true, force:true}); }
 }, 120000);

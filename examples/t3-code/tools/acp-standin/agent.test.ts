@@ -150,6 +150,16 @@ describe("the agent", () => {
       expect(new Set(written.locations.map((location: { path: string }) => location.path.replace(/note-\d\.md$/, ""))).size).toBe(1);
       expect(readdirSync(join(repo, "notes")).filter((name) => name.startsWith("batch-")).length).toBe(round);
     }
+    // "Show the HTML image sample" writes its PNGs, then replies with the images over them.
+    notes.length = 0;
+    await talk(executable, [{ method: "session/load", params: { sessionId, cwd: repo, mcpServers: [] } }, { method: "session/prompt", params: { sessionId, prompt: first("Show the HTML image sample") } }], notes);
+    const sample = notes.find((note) => note.params.update.sessionUpdate === "agent_message_chunk")!.params.update.content.text;
+    for (const part of ["before <img src=\"shots/inline.png\"", "<div><img src=\"shots/div.png\"", "javascript&colon;", "data-dark-src=\"shots/dark.png\"", "<picture>\n"]) expect(sample).toContain(part);
+    expect(sample).not.toContain("</picture>");
+    for (const [name, width, height] of [["inline.png", 32, 32], ["div.png", 240, 96], ["light.png", 240, 96], ["dark.png", 240, 96]] as const) {
+      const bytes = readFileSync(join(repo, "shots", name));
+      expect([bytes.subarray(1, 4).toString(), bytes.readUInt32BE(16), bytes.readUInt32BE(20)]).toEqual(["PNG", width, height]);
+    }
 
     // The permission request goes to the client; the turn ends with its answer.
     const child = Bun.spawn([executable], { stdin: "pipe", stdout: "pipe", env: {}, cwd: root });
@@ -212,6 +222,20 @@ describe("the agent", () => {
     expect(notes.find(note => note.params?.update?.sessionUpdate === "tool_call")!.params.update.rawInput).toEqual({ threadId: "thread-9" });
   });
 
+  test("'Answer, then check' replies, then runs a read after the reply and ends the turn", async () => {
+    const home = join(root, "home-answer-check");
+    const { executable } = install(home, { methods: "none" });
+    const notes: { method: string; params: any }[] = [];
+    const replies = await talk(executable, [{ method: "session/new", params: { cwd: root, mcpServers: [] } }], notes);
+    const sessionId = replies.get(1)!.result.sessionId;
+    const turn = await talk(executable, [{ method: "session/load", params: { sessionId, cwd: root, mcpServers: [] } },
+      { method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: "<user_request>\nAnswer, then check\n</user_request>" }] } }], notes);
+    expect(turn.get(2)!.result).toEqual({ stopReason: "end_turn" });
+    const kinds = notes.map(note => note.params?.update).filter(Boolean).filter(update => update.sessionUpdate !== "available_commands_update")
+      .map(update => [update.sessionUpdate, update.title ?? update.status ?? update.content?.text ?? ""]);
+    expect(kinds).toEqual([["agent_message_chunk", "Stand-in reply: the answer comes before its check."], ["tool_call", "Check the notes"],
+      ["tool_call_update", "completed"], ["usage_update", ""]]);
+  });
   test("'Wait on the thread <id>' holds a t3_thread_wait call; 'Link the thread <id>' links it; 'Show the Markdown sample' replies in two chunks; 'Fail the turn' fails with a JSON error", async () => {
     const home = join(root, "home-wait");
     const { executable } = install(home, { methods: "none" });

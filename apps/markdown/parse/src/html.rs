@@ -1,18 +1,24 @@
 //! The raw HTML the parser draws: `<img>` and `<picture>` (LLP 1033 D9).
 //!
-//! What it reads is what GitHub's sanitizer keeps of those elements
-//! (`hast-util-sanitize`'s default schema, which T3 Code's chat renders
-//! through): an `<img>`'s `src`, `alt`, `width` and `height`, and of a
+//! What it reads is what T3 Code's sanitizer keeps of those elements
+//! (`hast-util-sanitize`'s default schema, GitHub's, with T3 Code's image
+//! attributes): an `<img>`'s `src`, `alt`, `width` and `height`, its
+//! `data-dark-src`, `data-light-src` and `data-local-src`, and of a
 //! `<picture>` only the `<source>`s whose `media` is a `prefers-color-scheme`
-//! query, the one choice a reader can make without a browser. Nothing else
-//! in the markup is read, and markup holding anything else is not images: the
-//! caller shows it literally, as it shows all other raw HTML.
+//! query, the one choice a reader can make without a browser. The images may
+//! sit inside elements that draw nothing of their own (`<div>`, `<p>`, …).
+//! Nothing else in the markup is read, and markup holding anything else is
+//! not images: the caller shows it literally, as it shows all other raw HTML.
+
+use crate::entities::decode;
 
 /// One image the markup draws.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Image {
-    /// The `<img>`'s `src`, empty when it has none or names a scheme the
-    /// caller does not allow.
+    /// The `<img>`'s `data-local-src` or else its `src`, empty when it has
+    /// none or names a scheme the caller does not allow. A `src` that is a
+    /// Windows drive path wins over `data-local-src`, as T3 Code copies it
+    /// there.
     pub src: String,
     /// The `<img>`'s `alt`.
     pub alt: String,
@@ -21,41 +27,164 @@ pub struct Image {
     pub width: u32,
     /// See `width`.
     pub height: u32,
-    /// The first `(prefers-color-scheme: dark)` source of the `<picture>`
-    /// around it, or empty.
+    /// The `<img>`'s `data-dark-src`, or else the first
+    /// `(prefers-color-scheme: dark)` source of the `<picture>` around it,
+    /// or empty.
     pub dark: String,
-    /// The first `(prefers-color-scheme: light)` source, or empty.
+    /// The same for `data-light-src` and `(prefers-color-scheme: light)`.
     pub light: String,
 }
 
-/// The images that the image markup at the start of `text` draws, and the
-/// byte length of that markup: one `<img>`, or one `<picture>` through its
-/// `</picture>` (which may draw none, or several). None when `text` does not
-/// start with either, or the element is unfinished or holds other markup.
-/// `schemes` are the URL schemes a source may name (see [`allowed`]).
-pub fn element(text: &str, schemes: &[&str]) -> Option<(Vec<Image>, usize)> {
-    let tag = tag(text)?;
-    match tag.name.as_str() {
-        "img" if !tag.closing => Some((vec![image(&tag, schemes)], tag.len)),
-        "picture" if !tag.closing => {
-            let (images, len) = picture(&text[tag.len..], schemes)?;
-            Some((images, tag.len + len))
-        }
-        _ => None,
-    }
+/// How far one run of image markup may reach: a `<picture>` with a few
+/// sources is well under 1 KiB. Each place that starts an element reads
+/// ahead this far at most, so text of such starts that never close parses
+/// in linear time.
+pub(crate) const MARKUP_LIMIT: usize = 8 * 1024;
+
+/// The elements an image may sit in that draw nothing of their own in a
+/// reader of blocks: those around which T3 Code still counts an image
+/// standalone (`markStandaloneImages`). `<a>` is not one: its link would be
+/// lost.
+const WRAPPERS: [&str; 6] = ["div", "p", "center", "figure", "strong", "em"];
+
+/// The wrappers whose start tag closes an open `<p>`, as HTML's does.
+const CLOSES_P: [&str; 4] = ["div", "p", "center", "figure"];
+
+/// What one element's markup at the start of a text draws.
+#[derive(Debug, Default)]
+pub struct Markup {
+    /// The images, in order.
+    pub images: Vec<Image>,
+    /// The byte length of the markup.
+    pub len: usize,
+    /// The elements the end of the text closed, innermost last: their end
+    /// tags may follow later in the document.
+    pub open: Vec<String>,
 }
 
-/// Whether `line` starts with an `<img` or `<picture` tag, the cheap test
-/// before [`element`].
+/// The images that the element at the start of `text` draws: one `<img>`,
+/// one `<picture>`, or one wrapper with only images, wrappers, `<br>`s and
+/// comments inside. None when `text` does not start with one, or the element
+/// holds anything else. `ends` says whether the end of `text` is the end of
+/// the markup (a blank line, the end of a paragraph or document), which
+/// closes the elements left open, as the end of an HTML parser's input does;
+/// otherwise an unfinished element is none. `schemes` are the URL schemes a
+/// source may name (see [`allowed`]).
+pub fn element(text: &str, schemes: &[&str], ends: bool) -> Option<Markup> {
+    let first = tag(text)?;
+    let starts = first.name == "img" || first.name == "picture" || wrapper(&first.name);
+    if first.closing || !starts {
+        return None;
+    }
+    let inline = matches!(first.name.as_str(), "strong" | "em");
+    let mut markup = Markup::default();
+    let mut open: Vec<Open> = Vec::new();
+    let mut next = Some(first);
+    let mut at = 0;
+    loop {
+        let tag = match next.take() {
+            Some(tag) => tag,
+            None => {
+                at += space(&text[at..]);
+                if let Some(len) = comment(&text[at..]) {
+                    at += len;
+                    continue;
+                }
+                if at == text.len() && ends {
+                    markup.open = open.iter().map(|o| o.name.clone()).collect();
+                    close(&mut open, 0, &mut markup.images, schemes);
+                    break;
+                }
+                tag(&text[at..])?
+            }
+        };
+        at += tag.len;
+        let picture = open.last_mut().and_then(|o| o.picture.as_mut());
+        match (tag.name.as_str(), tag.closing, picture) {
+            ("img", false, picture) => {
+                let (image, authored) = image(&tag, schemes);
+                if let Some(picture) = picture.filter(|p| p.first.is_none()) {
+                    picture.first = Some(markup.images.len());
+                    picture.authored = authored;
+                }
+                markup.images.push(image);
+            }
+            ("source", false, Some(picture)) => picture.source(&tag),
+            ("picture", false, None) => open.push(Open::new("picture", Some(Picture::default()))),
+            (name, false, None) if wrapper(name) => {
+                if CLOSES_P.contains(&name) {
+                    if let Some(p) = open.iter().rposition(|o| o.name == "p") {
+                        close(&mut open, p, &mut markup.images, schemes);
+                    }
+                }
+                open.push(Open::new(name, None));
+            }
+            ("br", false, None) => {}
+            (name, true, _) => match open.iter().rposition(|o| o.name == name) {
+                Some(index) => close(&mut open, index, &mut markup.images, schemes),
+                // A stray `</p>` is an empty paragraph; HTML ignores any
+                // other end tag that closes nothing.
+                None if name == "p" => return None,
+                None => {}
+            },
+            _ => return None,
+        }
+        if open.is_empty() {
+            break;
+        }
+    }
+    if inline && markup.images.is_empty() {
+        return None;
+    }
+    markup.len = at;
+    Some(markup)
+}
+
+/// Whether `text` starts with an `<img` or `<picture` tag, the cheap test
+/// before [`element`] where only an image may start.
+pub fn starts_image(text: &str) -> bool {
+    starts_tag(text, &["img", "picture"])
+}
+
+/// Whether `line` starts with a tag that may begin image markup: `<img`,
+/// `<picture` or a wrapper's.
 pub fn starts_element(line: &str) -> bool {
-    ["<img", "<picture"].iter().any(|open| {
-        line.get(..open.len())
-            .is_some_and(|start| start.eq_ignore_ascii_case(open))
+    starts_image(line) || starts_tag(line, &WRAPPERS)
+}
+
+/// The names of the end tags `line` consists of, innermost first, when it
+/// holds only end tags of wrappers and `<picture>`.
+pub fn end_tags(line: &str) -> Option<Vec<String>> {
+    let mut names = Vec::new();
+    let mut at = space(line);
+    while at < line.len() {
+        let tag = tag(&line[at..]).filter(|t| t.closing && t.attributes.is_empty())?;
+        if !wrapper(&tag.name) && tag.name != "picture" {
+            return None;
+        }
+        names.push(tag.name);
+        at += tag.len;
+        at += space(&line[at..]);
+    }
+    (!names.is_empty()).then_some(names)
+}
+
+fn starts_tag(text: &str, names: &[&str]) -> bool {
+    let bytes = text.as_bytes();
+    names.iter().any(|name| {
+        bytes.first() == Some(&b'<')
+            && text
+                .get(1..1 + name.len())
+                .is_some_and(|start| start.eq_ignore_ascii_case(name))
             && matches!(
-                line.as_bytes().get(open.len()),
+                bytes.get(1 + name.len()),
                 None | Some(b'>' | b'/' | b' ' | b'\t' | b'\n' | b'\r' | b'\x0c')
             )
     })
+}
+
+fn wrapper(name: &str) -> bool {
+    WRAPPERS.contains(&name)
 }
 
 /// Whether a source may load: a URL with no scheme, a Windows drive path, or
@@ -64,13 +193,26 @@ pub fn starts_element(line: &str) -> bool {
 /// sanitizer compares it. A drive path is a path, though the sanitizer reads
 /// its letter as a scheme: T3 Code keeps such a path in its own attribute.
 pub fn allowed(url: &str, schemes: &[&str]) -> bool {
+    drive_path(url) || protocol_allowed(url, schemes)
+}
+
+/// The sanitizer's own test (`hast-util-sanitize`'s `safeProtocol`), which
+/// an `<img>`'s `data-dark-src` and `data-light-src` pass through as written.
+fn protocol_allowed(url: &str, schemes: &[&str]) -> bool {
     let Some(colon) = url.find(':') else {
         return true;
     };
-    if url[..colon].contains(['/', '?', '#']) || drive_path(url) {
-        return true;
+    url[..colon].contains(['/', '?', '#']) || schemes.contains(&&url[..colon])
+}
+
+/// A `<source>`'s URL: T3 Code writes a drive path as a `file:` URL before
+/// the sanitizer sees it.
+fn source_allowed(url: &str, schemes: &[&str]) -> bool {
+    if drive_path(url) {
+        schemes.contains(&"file")
+    } else {
+        protocol_allowed(url, schemes)
     }
-    schemes.contains(&&url[..colon])
 }
 
 fn drive_path(url: &str) -> bool {
@@ -81,9 +223,25 @@ fn drive_path(url: &str) -> bool {
         && matches!(bytes[2], b'/' | b'\\')
 }
 
-fn image(tag: &Tag, schemes: &[&str]) -> Image {
-    let src = tag.attribute("src").unwrap_or_default();
-    Image {
+/// An `<img>`, and whether it carries its own dark and light sources.
+fn image(tag: &Tag, schemes: &[&str]) -> (Image, [bool; 2]) {
+    let src = match (tag.attribute("src"), tag.attribute("data-local-src")) {
+        (Some(src), _) if drive_path(&src) => src,
+        (_, Some(local)) => local,
+        (src, None) => src.unwrap_or_default(),
+    };
+    let themed = |name| {
+        tag.attribute(name).map(|url| {
+            if protocol_allowed(&url, schemes) {
+                url
+            } else {
+                String::new()
+            }
+        })
+    };
+    let (dark, light) = (themed("data-dark-src"), themed("data-light-src"));
+    let authored = [dark.is_some(), light.is_some()];
+    let image = Image {
         src: if allowed(&src, schemes) {
             src
         } else {
@@ -92,8 +250,10 @@ fn image(tag: &Tag, schemes: &[&str]) -> Image {
         alt: tag.attribute("alt").unwrap_or_default(),
         width: pixels(tag.attribute("width")),
         height: pixels(tag.attribute("height")),
-        ..Image::default()
-    }
+        dark: dark.unwrap_or_default(),
+        light: light.unwrap_or_default(),
+    };
+    (image, authored)
 }
 
 /// JavaScript's `Number(value)` for the plain decimal numbers HTML authors
@@ -106,49 +266,72 @@ fn pixels(value: Option<String>) -> u32 {
     }
 }
 
-/// A `<picture>`'s content after its start tag. Its colour-scheme sources
-/// belong to its first `<img>`, the first of each scheme winning, as in a
-/// browser; a source with any other `media` is never chosen.
-fn picture(text: &str, schemes: &[&str]) -> Option<(Vec<Image>, usize)> {
-    let mut images = Vec::new();
-    let (mut dark, mut light) = (None, None);
-    let mut at = 0;
-    loop {
-        at += space(&text[at..]);
-        let rest = &text[at..];
-        if let Some(len) = comment(rest) {
-            at += len;
+/// An element still open while its markup is read.
+struct Open {
+    name: String,
+    picture: Option<Picture>,
+}
+
+impl Open {
+    fn new(name: &str, picture: Option<Picture>) -> Open {
+        Open {
+            name: name.to_string(),
+            picture,
+        }
+    }
+}
+
+/// Closes `open[index..]`. A `<picture>`'s colour-scheme sources belong to
+/// its first `<img>`, the first of each scheme winning, as in a browser; a
+/// source with any other `media` is never chosen.
+fn close(open: &mut Vec<Open>, index: usize, images: &mut [Image], schemes: &[&str]) {
+    for element in open.drain(index..) {
+        let Some(picture) = element.picture else {
             continue;
+        };
+        let Some(first) = picture.first.map(|i| &mut images[i]) else {
+            continue;
+        };
+        // A source the sanitizer refuses is gone, and a later one does not
+        // take its place. The image's own attribute wins over a source,
+        // even one the sanitizer then refuses.
+        let keep = |url: Option<String>| {
+            url.filter(|u| source_allowed(u, schemes))
+                .unwrap_or_default()
+        };
+        if !picture.authored[0] {
+            first.dark = keep(picture.dark);
         }
-        let tag = tag(rest)?;
-        at += tag.len;
-        match (tag.name.as_str(), tag.closing) {
-            ("picture", true) => break,
-            ("img", false) => images.push(image(&tag, schemes)),
-            ("source", false) => {
-                let scheme = tag.attribute("media").and_then(|m| color_scheme(&m));
-                let url = tag.attribute("srcset").map(|s| first_candidate(&s));
-                let slot = match scheme {
-                    Some(Scheme::Dark) => &mut dark,
-                    Some(Scheme::Light) => &mut light,
-                    None => continue,
-                };
-                if slot.is_none() {
-                    *slot = url.filter(|u| !u.is_empty());
-                }
-            }
-            // A browser ignores these end tags; they hold nothing.
-            ("img" | "source", true) => {}
-            _ => return None,
+        if !picture.authored[1] {
+            first.light = keep(picture.light);
         }
     }
-    // A source the sanitizer refuses is gone, and a later one does not take its place.
-    if let Some(first) = images.first_mut() {
-        let keep = |url: Option<String>| url.filter(|u| allowed(u, schemes)).unwrap_or_default();
-        first.dark = keep(dark);
-        first.light = keep(light);
+}
+
+/// A `<picture>` being read: the index of its first `<img>` and whether that
+/// one has its own dark and light sources, and the first source of each
+/// scheme.
+#[derive(Default)]
+struct Picture {
+    first: Option<usize>,
+    authored: [bool; 2],
+    dark: Option<String>,
+    light: Option<String>,
+}
+
+impl Picture {
+    fn source(&mut self, tag: &Tag) {
+        let scheme = tag.attribute("media").and_then(|m| color_scheme(&m));
+        let url = tag.attribute("srcset").map(|s| first_candidate(&s));
+        let slot = match scheme {
+            Some(Scheme::Dark) => &mut self.dark,
+            Some(Scheme::Light) => &mut self.light,
+            None => return,
+        };
+        if slot.is_none() {
+            *slot = url.filter(|u| !u.is_empty());
+        }
     }
-    Some((images, at))
 }
 
 enum Scheme {
@@ -170,12 +353,12 @@ fn color_scheme(media: &str) -> Option<Scheme> {
     }
 }
 
-/// A `srcset`'s first URL: up to the first white space, a descriptor such as
-/// `2x` following it, without the commas that end a candidate.
+/// A `srcset`'s first URL: its first comma-separated candidate, up to the
+/// first white space (a descriptor such as `2x` may follow).
 fn first_candidate(srcset: &str) -> String {
-    let trimmed = srcset.trim();
-    let url = trimmed.split(char::is_whitespace).next().unwrap_or("");
-    url.trim_end_matches(',').to_string()
+    let candidate = srcset.split(',').next().unwrap_or("").trim();
+    let url = candidate.split(char::is_whitespace).next().unwrap_or("");
+    url.to_string()
 }
 
 fn space(text: &str) -> usize {
@@ -293,51 +476,4 @@ fn tag(text: &str) -> Option<Tag> {
         attributes,
         len: at + 1,
     })
-}
-
-/// The character references a URL or an alt is written with: `&amp;` and
-/// its four siblings, and numeric ones. Any other `&` stays as written.
-fn decode(value: &str) -> String {
-    if !value.contains('&') {
-        return value.to_string();
-    }
-    let mut out = String::with_capacity(value.len());
-    let mut rest = value;
-    while let Some(amp) = rest.find('&') {
-        out.push_str(&rest[..amp]);
-        rest = &rest[amp..];
-        let reference = rest[1..]
-            .find(';')
-            .map(|semi| (&rest[1..1 + semi], semi + 2));
-        let decoded = reference.and_then(|(name, len)| {
-            let c = match name {
-                "amp" => '&',
-                "lt" => '<',
-                "gt" => '>',
-                "quot" => '"',
-                "apos" => '\'',
-                _ => {
-                    let digits = name.strip_prefix('#')?;
-                    let code = match digits.strip_prefix(['x', 'X']) {
-                        Some(hex) => u32::from_str_radix(hex, 16).ok()?,
-                        None => digits.parse().ok()?,
-                    };
-                    char::from_u32(code).filter(|&c| c != '\0')?
-                }
-            };
-            Some((c, len))
-        });
-        match decoded {
-            Some((c, len)) => {
-                out.push(c);
-                rest = &rest[len..];
-            }
-            None => {
-                out.push('&');
-                rest = &rest[1..];
-            }
-        }
-    }
-    out.push_str(rest);
-    out
 }

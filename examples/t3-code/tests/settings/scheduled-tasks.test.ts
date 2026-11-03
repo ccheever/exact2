@@ -75,8 +75,9 @@ describe('editing scheduled task branch settings', () => {
 });
 
 describe('one-time scheduled tasks', () => {
-  const zone = process.env.TZ;
-  afterEach(() => { if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone; });
+  // Bun's test runner runs in UTC without setting TZ; deleting TZ would put later files in the machine's zone.
+  const zone = process.env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  afterEach(() => { process.env.TZ = zone; });
   // scheduleFromDraft's once branch over the editor's two fields.
   const fromDraft = (task: Obj, runAt?: string) => { const draft = taskToDraft(task); return onceSchedule(runAt ?? draft.runAt, draft.savedRunAt); };
 
