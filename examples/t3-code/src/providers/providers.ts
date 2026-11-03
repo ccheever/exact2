@@ -265,7 +265,7 @@ function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
     nameRows: [{ key: `${row.id}:${str(row.instance.displayName)}` }], // the accent picker keeps its popover open across commits
     modelBlocks: [{ key: `${row.id}:${hash(JSON.stringify(config.customModels ?? null))}:${modelRevisionsOf(host).get(row.id) ?? 0}` }],
     displayName: str(row.instance.displayName), placeholder: meta?.label || 'Instance label', accent: str(row.instance.accentColor), ...accentHsv(str(row.instance.accentColor)),
-    version: versionLabel(provider?.version), enabled: status.enabled, icon: instanceIconUrl(row.instance, row.driver),
+    version: versionLabel(provider?.version), badge: meta?.badgeLabel ?? '', enabled: status.enabled, icon: instanceIconUrl(row.instance, row.driver),
     // ProviderInstanceCard editorStatusNode: "Authenticated as" <redacted email> "· label", else the headline.
     statusLead: status.authenticated && status.authEmail ? 'Authenticated as' : status.summary.headline,
     statusEmail: status.authenticated ? redactedValue(status.authEmail).value : '', statusEmailPlaceholder: status.authenticated ? redactedValue(status.authEmail).placeholder : '',

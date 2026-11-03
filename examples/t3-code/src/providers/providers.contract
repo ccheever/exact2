@@ -10,6 +10,7 @@ use PvField from "../settings/providers-kit.contract"
 use PvOutline from "../settings/providers-kit.contract"
 use PvGhost from "../settings/providers-kit.contract"
 use PvIconButton from "../settings/providers-kit.contract"
+use PvWarningBadge from "../settings/providers-kit.contract"
 use PvMicro from "../settings/providers-kit.contract"
 use PvIcon from "./provider-icons.contract"
 use CnTooltip from "../settings/settings-b-kit.contract"
@@ -112,6 +113,7 @@ shape ProviderEditorData
   accentS: number
   accentV: number
   version: string
+  badge: string // the driver's badgeLabel ("Early Access")
   enabled: bool
   icon: string
   update: ProviderAdvisory
@@ -374,6 +376,8 @@ component ProviderEditor
               DriverMark(driver=editor.driver, size=16, initials=editor.title, icon=editor.icon)
             text editor.title font-size="1rem" font-weight=600 line-height="1.5rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2 line-clamp=1
           row min-height="1.75rem" gap="0.375rem" align-items="center" justify-content="flex-end" flex-shrink=0
+            if editor.badge != ""
+              PvWarningBadge(label=editor.badge)
             if editor.version != ""
               text editor.version font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" testId="provider-editor-version"
             if editor.update.show

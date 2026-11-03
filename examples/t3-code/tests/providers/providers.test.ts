@@ -593,7 +593,9 @@ test('a Kiro instance offers its optional KIRO_API_KEY beside the binary path', 
   server.settings.providerInstances = { ...obj(server.settings.providerInstances), kiro: { driver: 'kiro', enabled: true } };
   server.config = server.snapshot();
   const editor = providerPage(server, 'kiro', 0).editors.find(entry => entry.id === 'kiro')!;
-  expect(editor).toMatchObject({ title: 'Kiro', known: true, showSetup: true });
+  // ProviderInstanceCard's header action: the driver's warning badge before the version.
+  expect(editor).toMatchObject({ title: 'Kiro', known: true, showSetup: true, badge: 'Early Access' });
+  expect(providerPage(server, 'codex', 0).editors.find(entry => entry.id === 'codex')!.badge).toBe('');
   expect(editor.envFields.map(field => [field.key, field.label, field.description, field.placeholder])).toEqual([
     ['KIRO_API_KEY', 'Kiro API key', 'Optional. Signs in without `kiro-cli login` (Kiro Pro and above).', 'Paste API key']]);
   expect(editor.fields.map(field => [field.key, field.placeholder])).toEqual([['binaryPath', 'kiro-cli']]);
