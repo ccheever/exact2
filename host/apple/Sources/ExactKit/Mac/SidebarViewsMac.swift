@@ -283,7 +283,7 @@ final class SplitDetail: NSViewController {
         pane.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(pane)
         // AppKit's own words for nothing selected (its bindings' marker,
-        // which it localizes), in the look of the system's view for
+        // `noSelection`), in the look of the system's view for
         // nothing to show, SwiftUI's `ContentUnavailableView` with a label
         // of words alone (measured on macOS 27.0: the title-3 text style,
         // 15 points, regular, in the middle; `#929292` on a white window
@@ -309,13 +309,26 @@ final class SplitDetail: NSViewController {
         pin(cover: false)
     }
 
-    /// "No Selection", as AppKit says it in the person's language: the
-    /// placeholder its bindings show for an empty selection (its
-    /// `Placeholders` table).
-    static let noSelection: String = {
-        let said = Bundle(for: NSApplication.self).localizedString(forKey: "No Selection", value: "No Selection", table: "Placeholders")
-        return said.isEmpty ? "No Selection" : said
-    }()
+    /// "No Selection" in the app's language, as AppKit's bindings say it for
+    /// an empty selection. AppKit's strings follow the app's localization,
+    /// not the person's first language: an app in English alone says it in
+    /// English.
+    static let noSelection = noSelection(in: Bundle.main.preferredLocalizations)
+    static func noSelection(in localizations: [String]) -> String {
+        Bundle.preferredLocalizations(from: Array(noSelectionWords.keys), forPreferences: localizations).first.flatMap { noSelectionWords[$0] } ?? "No Selection"
+    }
+    /// AppKit's words on macOS 27.2, by its localizations (its own table is
+    /// not API).
+    static let noSelectionWords = [
+        "ar": "لا يوجد تحديد", "ca": "No hi ha res seleccionat", "cs": "Nic nevybráno", "da": "Intet valgt", "de": "Nichts ausgewählt",
+        "el": "Καμία επιλογή", "en": "No Selection", "es": "Ningún elemento seleccionado", "fi": "Ei valintaa", "fr": "Aucune sélection",
+        "he": "לא נבחר כלום", "hi": "कोई चयन नहीं", "hr": "Bez odabira", "hu": "Nincs kijelölés", "id": "Tidak Ada Pilihan",
+        "it": "Nessuna selezione", "ja": "選択なし", "ko": "선택된 항목 없음", "ms": "Tiada Pilihan", "nl": "Geen selectie",
+        "no": "Ingen markering", "pl": "brak zaznaczenia", "pt_BR": "Nada Selecionado", "pt_PT": "Nada selecionado",
+        "ro": "Nu există nicio selecție", "ru": "Нет выбранного", "sk": "Žiadny výber", "sl": "Ni izbora", "sv": "Ingen markering",
+        "th": "ไม่ได้เลือก", "tr": "Seçim Yok", "uk": "Немає вибраних елементів", "vi": "Không có Lựa chọn",
+        "zh_CN": "未选择", "zh_TW": "沒有選取項目",
+    ]
 
     /// The pane under the title bar and toolbar, or the whole of it under
     /// `viewport-fit=cover`, as the page's view is in its own.

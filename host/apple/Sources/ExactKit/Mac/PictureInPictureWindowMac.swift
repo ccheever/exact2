@@ -62,6 +62,7 @@ final class PictureInPictureWindow: NSObject, NSWindowDelegate {
         // VoiceOver names Chromium's window by its kind; the title is the text in it.
         panel.title = titled ? title : "Picture in Picture"
         panel.isFloatingPanel = true
+        panel.isRestorable = false // the author opens it; a relaunch does not
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false

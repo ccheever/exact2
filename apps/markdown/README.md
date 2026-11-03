@@ -354,8 +354,10 @@ questions; none of this was the parser, JSON or view creation):
    a time profile does not, and an earlier reading of this as Launch Services
    was wrong. Encoding nothing in an `NSApplication` subclass moves the wait to
    the next private caller of the same question. `ApplePersistence`, AppKit's own
-   switch, registered as a default before the application is made, removes all
-   of it; the window's frame is saved as before. Three interleaved rounds:
+   switch, registered as a default before the application is made, removed all
+   of it; the window's frame is saved as before. Three interleaved rounds (the
+   switch is an undocumented default, and since 2026-11-03 shipped code reads
+   none, LLP 1035.003 §3, so the wait is back: a known difference):
 
    | 2,400 inputs or 1,200 frames a run | Before | Persistence off |
    | --- | ---: | ---: |

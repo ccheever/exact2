@@ -58,37 +58,39 @@ final class SessionClockTimerTests: XCTestCase {
         XCTAssertEqual(session.launchPlace, launch)
     }
 
-    /// The hour cycle the user forces (`AppleICUForce24HourTime`,
-    /// `AppleICUForce12HourTime`) is the format locale's `hc` keyword, told
-    /// again when Foundation says the locale changed. The argument domain
-    /// stands in for the setting.
+    /// The hour cycle the user forces is the format locale's `hc` keyword,
+    /// read from the locale's preferred hour, and told again when Foundation
+    /// says the locale changed. `hourPatternOverride` stands in for the
+    /// setting, which a process cannot set for itself.
     func testTheFormatLocaleCarriesAForcedHourCycle() throws {
         let region = Locale(identifier: "en_US@rg=gbzzzz")
         XCTAssertEqual(SessionFacts.formatLocale(region, hourCycle: nil), "en-US-u-rg-gbzzzz")
         XCTAssertEqual(SessionFacts.formatLocale(region, hourCycle: .oneToTwelve), "en-US-u-hc-h12-rg-gbzzzz")
         XCTAssertEqual(SessionFacts.formatLocale(Locale(identifier: "en_KR"), hourCycle: .zeroToTwentyThree), "en-KR-u-hc-h23")
         XCTAssertEqual(SessionFacts.formatLocale(Locale(identifier: "en_US@hours=h11"), hourCycle: .zeroToTwentyThree), "en-US-u-hc-h23")
-        let defaults = UserDefaults.standard, arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        // A cycle only where the person's preferred hour differs from the Region's.
+        XCTAssertNil(SessionFacts.forcedHourCycle("h a", regional: "h a"))
+        XCTAssertEqual(SessionFacts.forcedHourCycle("HH", regional: "h a"), .zeroToTwentyThree)
+        XCTAssertEqual(SessionFacts.forcedHourCycle("h a", regional: "HH"), .oneToTwelve)
+        XCTAssertEqual(SessionFacts.forcedHourCycle("Bh時", regional: "H時"), .oneToTwelve, "a day period other than a")
+        XCTAssertEqual(SessionFacts.forcedHourCycle("HH 'h'", regional: "h a"), .zeroToTwentyThree, "a quoted h is no hour")
+        XCTAssertNil(SessionFacts.forcedHourCycle("HH 'h'", regional: "HH"))
         defer {
-            defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+            SessionFacts.hourPatternOverride = nil
             NotificationCenter.default.post(name: NSLocale.currentLocaleDidChangeNotification, object: nil) // any live session reads it back
         }
-        func force(_ hours: Int?) {
-            var domain = arguments
-            domain["AppleICUForce24HourTime"] = hours == 24
-            domain["AppleICUForce12HourTime"] = hours == 12
-            defaults.setVolatileDomain(domain, forName: UserDefaults.argumentDomain)
-        }
-        let h23 = SessionFacts.formatLocale(.current, hourCycle: .zeroToTwentyThree)
-        force(nil)
+        // The Region's own cycle adds nothing; the other one is its keyword.
+        let regional = DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: Locale(identifier: Locale.current.identifier)) ?? ""
+        let twelve = SessionFacts.forcedHourCycle(regional, regional: "HH") == .oneToTwelve
+        let own = twelve ? "h a" : "HH", other = twelve ? "HH" : "h a"
+        let forced = SessionFacts.formatLocale(.current, hourCycle: twelve ? .zeroToTwentyThree : .oneToTwelve)
+        SessionFacts.hourPatternOverride = own
         XCTAssertEqual(SessionFacts.currentFormatLocale, Locale.current.identifier(.bcp47))
-        force(12)
-        XCTAssertEqual(SessionFacts.currentFormatLocale, SessionFacts.formatLocale(.current, hourCycle: .oneToTwelve))
-        force(24)
-        XCTAssertEqual(SessionFacts.currentFormatLocale, h23)
+        SessionFacts.hourPatternOverride = other
+        XCTAssertEqual(SessionFacts.currentFormatLocale, forced)
         XCTAssertEqual(LaunchPlace(environment: ["EXACT_AGENT": "1"]).formatLocale, "")
         #if os(macOS)
-        force(nil)
+        SessionFacts.hourPatternOverride = own
         let source = "shape Time\n  formatLocale: string\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text time.formatLocale testId=\"format\"\n"
         let session = ExactSession(app: ExactApp.shared, label: "format-locale", launchPlace: LaunchPlace(environment: [:]))
         defer { session.destroy() }
@@ -100,10 +102,10 @@ final class SessionClockTimerTests: XCTestCase {
             return shows(tag)
         }
         XCTAssertTrue(wait(for: Locale.current.identifier(.bcp47)))
-        force(24)
+        SessionFacts.hourPatternOverride = other
         NotificationCenter.default.post(name: NSLocale.currentLocaleDidChangeNotification, object: nil)
-        XCTAssertTrue(wait(for: h23), "the running app reads the forced cycle")
-        XCTAssertEqual(session.launchPlace.formatLocale, h23)
+        XCTAssertTrue(wait(for: forced), "the running app reads the forced cycle")
+        XCTAssertEqual(session.launchPlace.formatLocale, forced)
         #endif
     }
 

@@ -63,18 +63,25 @@ extension SessionFacts {
     /// user forces (System Settings › General › Date & Time › 24-hour time on
     /// the Mac, Settings › General › Date & Time › 24-Hour Time on iOS) as
     /// `-u-hc-h23` or `-u-hc-h12`. Foundation's formatters honour that
-    /// setting, but `Locale.current.identifier` leaves it out. It is read from
-    /// the two defaults the setting writes, as T3 Code's desktop app reads them
-    /// beside Electron's `app.getSystemLocale()`. `Locale.current.hourCycle`
-    /// answers the global setting too, but not a launch argument
-    /// (`-AppleICUForce24HourTime YES`), which the defaults hear: a test sets
-    /// the cycle for one process that way, though Foundation's own
-    /// formatters in that process keep the global one.
+    /// setting, but `Locale.current.identifier` leaves it out. It is the
+    /// hour of `DateFormatter.dateFormat(fromTemplate: "j")`, the locale's
+    /// preferred hour, for `Locale.current` against the same identifier
+    /// without the person's settings: a cycle only where the two differ.
     public static var currentFormatLocale: String {
-        let defaults = UserDefaults.standard
-        let forced: Locale.HourCycle? = defaults.bool(forKey: "AppleICUForce24HourTime") ? .zeroToTwentyThree
-            : defaults.bool(forKey: "AppleICUForce12HourTime") ? .oneToTwelve : nil
-        return formatLocale(.current, hourCycle: forced)
+        let hours = { (locale: Locale) in DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: locale) ?? "" }
+        return formatLocale(.current, hourCycle: forcedHourCycle(hourPatternOverride ?? hours(.current), regional: hours(Locale(identifier: Locale.current.identifier))))
+    }
+    /// What a test stands in for `Locale.current`'s preferred hour, which no
+    /// process can set for itself.
+    nonisolated(unsafe) package static var hourPatternOverride: String?
+
+    /// The cycle `pattern` (a date format's preferred hour) forces where it
+    /// differs from the Region's own `regional` one: 12-hour for `h` or `K`
+    /// outside a quoted literal (`fr-CA`'s `HH 'h'` is 24-hour), else 24.
+    package static func forcedHourCycle(_ pattern: String, regional: String) -> Locale.HourCycle? {
+        let twelve = { (pattern: String) in pattern.split(separator: "'", omittingEmptySubsequences: false).enumerated().contains { $0.offset % 2 == 0 && $0.element.contains { "hK".contains($0) } } }
+        guard !pattern.isEmpty, twelve(pattern) != twelve(regional) else { return nil }
+        return twelve(pattern) ? .oneToTwelve : .zeroToTwentyThree
     }
 
     /// `locale` as BCP 47, with `hourCycle` as its `hc` keyword when one is

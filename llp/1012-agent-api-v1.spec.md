@@ -337,7 +337,9 @@ the Linux host implements this list, not that file):
   window number and window location (`CGEventSetWindowLocation`, exported
   but not in the headers; without it the form is refused), so
   `locationInWindow` is the point named — a window-less wheel read it in
-  screen space. A press on a node without a handler
+  screen space. Being private API, these, a pinch's gesture event and a held
+  contact on a native button are a development build's alone: compiled out,
+  each answers `developmentOnly` (LLP 1035.003 §3, ruled 2026-11-03). A press on a node without a handler
   reaches its parent the way a DOM click bubbles. **A tap that names a node
   presses that node** (2026-10-09; the Bluesky clone's `tap post-0` liked and
   reposted real people's posts): one with its own press whose middle holds
