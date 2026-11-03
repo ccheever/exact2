@@ -148,7 +148,8 @@ export type OpenInView = { mode: RemoteOpenMode; show: boolean; label: string; h
 export async function openInView(client: T3Client, native: Native | null | undefined, serverEditors: string[], projectName: string): Promise<OpenInView> {
   await loadSshAliases(native);
   const remote = remoteOpenFor(client);
-  const remoteEditors = remote.state.mode === 'remote-links' ? await remoteCapableEditors(native) : REMOTE_FALLBACK_EDITORS;
+  // useRemoteCapableEditors is probed once whatever the mode, so an environment with no route names this Mac's editor too.
+  const remoteEditors = remote.state.mode === 'local-exec' ? REMOTE_FALLBACK_EDITORS : await remoteCapableEditors(native);
   const editors = effectiveEditors(remote, serverEditors, remoteEditors);
   const seen = remote.state.mode === 'remote-links' && native?.available ? await remoteHintSeen(native) : true;
   return {

@@ -143,6 +143,28 @@ final class LocalNetworkTests: XCTestCase {
         for port: Any in [0, 70_000, 44.5, "8443", true] { XCTAssertEqual(T3LocalExposure.normalizedPort(port), 443) }
     }
 
+    func testAManagedPolicyThatKeepsClientsLocalStartsLocalOnlyWithoutServe() throws {
+        let lan = ["en0": [T3NetworkAddress(address: "192.168.1.20", family: "IPv4", isInternal: false)]]
+        var network = T3DesktopSettings(); network.serverExposureMode = "network-accessible"; network.tailscaleServeEnabled = true; network.tailscaleServePort = 8443
+        XCTAssertEqual(T3LocalExposure.atLaunch(settings: network, interfaces: lan, lanHostOverride: nil, remoteAllowed: false), T3LocalExposure(host: "127.0.0.1", tailscaleServeEnabled: false, tailscaleServePort: 8443))
+        XCTAssertEqual(T3LocalExposure(host: "0.0.0.0", tailscaleServeEnabled: true, tailscaleServePort: 8443).withinPolicy(remoteAllowed: false), T3LocalExposure(host: "127.0.0.1", tailscaleServeEnabled: false, tailscaleServePort: 8443))
+
+        let dir = scratch("policy"), file = dir.appendingPathComponent("policy.json").path, profile = dir.appendingPathComponent("profile.plist").path
+        let allowed = { T3ManagedPolicy.remoteClientsAllowed(file: file, profile: profile) }
+        XCTAssertTrue(allowed(), "no policy")
+        let write = { (text: String) in try text.write(toFile: file, atomically: true, encoding: .utf8) }
+        try write(#"{"schemaVersion":1,"organization":"Example Corp","limits":{"clients":["desktop"]}}"#); XCTAssertFalse(allowed())
+        try write(#"{"schemaVersion":1,"organization":"Example Corp","limits":{"clients":["desktop","remote"]}}"#); XCTAssertTrue(allowed())
+        try write(#"{"schemaVersion":1,"organization":"Example Corp","limits":{"telemetry":false}}"#); XCTAssertTrue(allowed(), "no client limit")
+        try write("{not json"); XCTAssertFalse(allowed(), "a policy that cannot be read keeps clients local")
+        try FileManager.default.removeItem(atPath: file)
+        // An MCX-style profile, with the bookkeeping macOS writes beside it.
+        let forced: [String: Any] = ["PayloadUUID": "x", "Forced": [["mcx_preference_settings": ["schemaVersion": 1, "organization": "Example Corp", "limits": ["clients": ["desktop"]]]]]]
+        try PropertyListSerialization.data(fromPropertyList: forced, format: .xml, options: 0).write(to: URL(fileURLWithPath: profile))
+        XCTAssertFalse(allowed())
+        try write(#"{"schemaVersion":1,"organization":"Example Corp"}"#); XCTAssertFalse(allowed(), "a profile and a file at once are refused")
+    }
+
     func testFactsAnswerFromTheCacheAndReadTailscaleOnlyWhenAskedAndOnceAMinute() {
         let network = T3LocalNetwork()
         network.interfaces = { ["en0": [T3NetworkAddress(address: "192.168.1.20", family: "IPv4", isInternal: false)]] }

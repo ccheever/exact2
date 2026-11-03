@@ -104,9 +104,10 @@ component TimelineRow
                   DividerPill(message=message, command=command)
                 box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0e)"
             else
+              // AssistantMetaTimelineRow: an answer's actions moved below its trailing tool groups stay shown at rest.
               if message.kind == "meta"
                 column width="100%" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box"
-                  RowActions(answer=true, message=message, command=command, local=local, visible=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
+                  RowActions(answer=true, message=message, command=command, local=local, visible=true, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
               else
                 TimelineContent(message=message, documents=documents, hovering=hovered, part=part, hoverPart=hoverPart, local=local, command=command, busy=busy, now=now, scheme=scheme, diffScheme=diffScheme, attachments=attachments)
                 if message.actionsId != "" and message.kind != "checkpoint"
@@ -328,7 +329,7 @@ component ShowMoreButton
     button press=press hover=hover aria-expanded=expanded testId=testId height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#18181b0d, #ffffff0d)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       text (expanded ? "Show less" : "Show full message") font-size="0.75rem" font-weight=500 line-height="1rem" color=(hovered ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
 
-// Copy, fork and the answer's wall-clock time; hidden until the row is hovered
+// Copy, fork and the answer's wall-clock time; under the answer itself hidden until the row is hovered
 // or one of its controls is focused, and always occupying its 24pt line. It ends the answer's group, inside its
 // 0.125rem padding (py-0.5): under the answer's own row (`answer`), which ends in that padding, it keeps 0.375rem
 // (mt-1.5) from the text by taking 0.25rem.
