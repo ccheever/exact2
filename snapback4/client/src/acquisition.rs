@@ -154,7 +154,7 @@ pub(crate) fn foreground_hint(backend: &Json, name: &str, args: &Json) -> Option
     if program["native"] == true
         || program["kind"] != "Query"
         || program["held"] == true
-        || program["search"] == true
+        || (!program["search"].is_null() && program["search"] != false)
     {
         return None;
     }
@@ -163,10 +163,8 @@ pub(crate) fn foreground_hint(backend: &Json, name: &str, args: &Json) -> Option
     for statement in program["body"].as_array()? {
         if let Some(name) = statement["Let"]["name"].as_str() {
             bindings.insert(name, &statement["Let"]["value"]);
-        } else if let Some(value) = statement.get("Return") {
-            returned = value;
         } else {
-            return None;
+            returned = statement.get("Return")?;
         }
     }
     let mut seen = BTreeSet::new();
@@ -232,4 +230,99 @@ pub(crate) fn foreground_hint(backend: &Json, name: &str, args: &Json) -> Option
         group.push(value.clone());
     }
     Some(json!({"table": name, "group": group}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cold() -> Json {
+        json!({"acquired": false, "acquisition_cursor": null, "acquisition_exhausted": false,
+            "acquired_tables": [], "floored_groups": 0, "replacement_required": false})
+    }
+    fn walk() -> Acquisition {
+        Acquisition {
+            compatible: Some(true),
+            ..Default::default()
+        }
+    }
+    #[test]
+    fn drains_deferred_pages_then_yields_after_four_published_pages() {
+        let mut walk = walk();
+        let mut partial = cold();
+        partial["acquisition_cursor"] = json!("saved");
+        assert_eq!(walk.request(&partial, false), Some(json!({"stream": true})));
+        for _ in 0..8 {
+            assert!(!walk.applied(&json!({"more": true}), false));
+            assert_eq!(walk.request(&partial, false), Some(json!({"stream": true})));
+        }
+        for n in 0..4 {
+            assert_eq!(walk.applied(&json!({"more": true}), true), n == 3);
+        }
+        assert_eq!(
+            walk.request(&partial, false).unwrap()["acquire"]["cursor"],
+            "saved"
+        );
+        partial["adoption_capture"] = json!({"device:deferred:cursor": "0"});
+        assert_eq!(walk.request(&partial, false), Some(json!({"stream": true})));
+        partial["replacement_required"] = json!(true);
+        assert!(walk.request(&partial, false).is_none());
+    }
+    #[test]
+    fn hints_coalesce_and_packed_units_skip_at_most_32_until_authority_changes() {
+        let mut walk = walk();
+        let group = |i| json!({"table": "messages", "group": [i]});
+        walk.hint(Some(group(1)));
+        walk.hint(None);
+        walk.hint(Some(group(2)));
+        assert_eq!(
+            walk.request(&cold(), false).unwrap()["acquire"]["hint"],
+            group(2)
+        );
+        let units: Vec<_> = (0..40)
+            .map(|i| json!({"tier": 2, "table": "messages", "group": [i]}))
+            .collect();
+        assert!(!walk.applied(&json!({"acquire": {"units": units}}), true));
+        assert!(walk.applied(&json!({"more": false}), true));
+        walk.hint(Some(group(39)));
+        let request = walk.request(&cold(), false).unwrap();
+        assert!(request["acquire"].get("hint").is_none());
+        assert_eq!(request["acquire"]["skip"].as_array().unwrap().len(), 32);
+        assert_eq!(request["acquire"]["skip"][0], group(8));
+        walk.applied(
+            &json!({"events": [{"kind": "scope", "table": "messages"}]}),
+            true,
+        );
+        walk.hint(Some(group(39)));
+        let request = walk.request(&cold(), false).unwrap();
+        assert_eq!(request["acquire"]["skip"], json!([]));
+        assert_eq!(request["acquire"]["hint"], group(39));
+    }
+    #[test]
+    fn foreground_hint_follows_lets_aliases_and_literals_but_not_derived_queries() {
+        let scan = json!({"Scan": {"table": "messages", "index": "recent", "order": "Desc",
+            "prefix": [{"Scalar": {"Variable": "conversation"}}]}});
+        let mut backend = json!({"schema": {"tables": {"messages": {
+            "sync": {"horizon": {"by": "recent"}, "audience": {"Target": {"prefix": ["thread"]}}},
+            "indexes": {"recent": {"components": [{"Column": "thread"}]}}}}},
+            "programs": [{"name": "history", "kind": "Query", "args": {"conversation": "Id"},
+            "arg_aliases": {"c": "conversation"}, "body": [{"Let": {"name": "page", "value": scan}}, {"Return": {"Variable": "page"}}]}]});
+        let wanted = Some(json!({"table": "messages", "group": ["g"]}));
+        assert_eq!(
+            foreground_hint(&backend, "history", &json!({"c": "g"})),
+            wanted
+        );
+        assert!(foreground_hint(&backend, "history", &json!({"c": true})).is_none());
+        backend["programs"][0]["search"] = json!({"query": "words"});
+        assert!(foreground_hint(&backend, "history", &json!({"c": "g"})).is_none());
+        backend["programs"][0]["search"] = Json::Null;
+        backend["programs"][0]["body"][0]["Let"]["value"]["Scan"]["prefix"] =
+            json!([{"Scalar": {"Literal": {"Id": "g"}}}]);
+        assert_eq!(foreground_hint(&backend, "history", &json!({})), wanted);
+        backend["programs"][0]["body"]
+            .as_array_mut()
+            .unwrap()
+            .insert(0, json!({"Require": true}));
+        assert!(foreground_hint(&backend, "history", &json!({})).is_none());
+    }
 }

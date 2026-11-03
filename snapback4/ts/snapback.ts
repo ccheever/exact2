@@ -126,7 +126,7 @@ function sessionFrom(raw: string | null, now: number): Session | null {
 /** What a refresh came to: the replacement session, or why not. */
 export type Refreshed = { ok: true; session: Session } | { ok: false; offline?: boolean; denied: Refusal };
 
-/** A round's end: caught up, or why not. `offline`: the server was not
+/** A round's end: completed (possibly with history still arriving), or why not. `offline`: the server was not
  * reached; `retry`: it asked to be asked again; `busy`: a round is already
  * running; `stale`: this round was replaced (the client was reopened). */
 export interface Round { ok: boolean; acquired?: boolean; acquisition?: Acquisition; offline?: boolean; retry?: boolean; busy?: boolean; stale?: boolean; denied?: Refusal }

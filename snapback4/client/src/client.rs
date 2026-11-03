@@ -109,7 +109,8 @@ impl Reply {
 pub enum Step {
     /// Perform this exchange, then call [`Client::deliver`] with its reply.
     Fetch(Fetch),
-    /// The round ended: `{ok:true}` when caught up, else `{ok:false, offline,
+    /// The round ended: `{ok:true, acquired, acquisition}` on success, including
+    /// a partial acquisition turn, else `{ok:false, offline,
     /// retry, denied}`: `offline`, the server was not reached; `retry`, it
     /// asked to be asked again later; otherwise `denied` is its refusal.
     Done(Json),
@@ -775,7 +776,7 @@ impl Client {
     }
 
     /// What a screen shows of the link: `{open, online, denied, watermark,
-    /// acquired, queued:[{id, op}]}`.
+    /// acquired, acquisition, queued:[{id, op}]}`.
     pub fn status(&mut self, core: &mut dyn Core) -> Result<Json, String> {
         let (online, denied) = {
             let shared = lock(&self.shared);
@@ -802,7 +803,7 @@ impl Client {
         Ok(status)
     }
 
-    /// Start a round — open if needed, sync, send the outbox, sync again —
+    /// Start a round — open if needed, acquire and drain, send the outbox —
     /// and run it to its first exchange. A round already running is resumed
     /// only by [`Client::deliver`]; asking again reports it busy.
     pub fn sync(&mut self, core: &mut dyn Core) -> Step {

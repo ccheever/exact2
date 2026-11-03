@@ -21,7 +21,7 @@ newer than the published npm 0.4.52 package. The root npm CLI remains
 > **Exact + Snapback checklist.** Each line is a pair that must agree; a
 > mismatch fails late, as data that never loads.
 >
-> - **Directories.** The backend (`snapback/schema.q`, `snapback4@0.4.33`)
+> - **Directories.** The backend (`snapback/schema.q`, `snapback4@0.4.52`)
 >   is the directory above the app (the one holding `app.json`). Run
 >   `snapback4` there and `bun exact.mjs …` (`snapback` among them) in the
 >   app; `assets/snapback4.wasm` is built into the app's `assets/`.
@@ -51,7 +51,7 @@ newer than the published npm 0.4.52 package. The root npm CLI remains
 > - **Tests.** `epoch now` in the test file (the server keeps real time);
 >   `snapback4 dev` listening before `test web`; `clock data` before `fail
 >   fetch`; `fresh` for an empty dev server before each test through
->   0.4.33's `POST /dev/reset`, which a password-only app's `dev` opens only
+>   0.4.52's `POST /dev/reset`, which a password-only app's `dev` opens only
 >   with `--unsafe-dev-doors`
 >   (["Tests share the server"](#tests-share-the-server)).
 
@@ -60,8 +60,8 @@ newer than the published npm 0.4.52 package. The root npm CLI remains
 ### Set it up: one command
 
 A new app: from the backend's directory (`snapback/schema.q`, and
-`snapback4@0.4.33` installed there: `bun add snapback4@0.4.33` or `npm i
-snapback4@0.4.33`), `bun /path/to/exact2/scripts/exact.mjs new app --snapback`
+`snapback4@0.4.52` installed there: `bun add snapback4@0.4.52` or `npm i
+snapback4@0.4.52`), `bun /path/to/exact2/scripts/exact.mjs new app --snapback`
 (`--port <n>` for an origin other than 4400). With no backend schema yet, it writes the guestbook below as
 the app (`app.contract`, `app.ts` at that origin with its grants,
 `app.test.contract`) and `snapback/schema.q` when there is none, then wires it. With an existing schema it keeps the greeting app and mounts
@@ -523,7 +523,7 @@ the backend's directory, which writes these four files and wires them. Built tha
 
 ### A complete online app
 
-For a schema that syncs nothing, install `snapback4@0.4.33` in the backend,
+For a schema that syncs nothing, install `snapback4@0.4.52` in the backend,
 write this `snapback/schema.q`, then run
 `bun <exact2>/scripts/exact.mjs new app --snapback --online --port 30100`.
 It mounts the online adapter and generated operations, and writes a query/mutation
@@ -1127,7 +1127,7 @@ those from earlier tests in it. Two ways out:
     expect tree missing "note-0"
   ```
 
-  Snapback4 0.4.33 has this door in `dev` (a password-only app's `dev`
+  Snapback4 0.4.52 has this door in `dev` (a password-only app's `dev`
   opens it only with `--unsafe-dev-doors`); `serve` has no development
   reset. `fresh` is for tests against `dev`.
 - **Each test owns its rows.** It writes a code or name no other test uses
@@ -1627,7 +1627,11 @@ This workspace is outside the root's; its lock carries the private Snapback
 source. Run `cargo test -p exact-snapback4 -p exact-snapback4-client`
 (`bun install` at the root first, for the server binary), `bun test
 snapback4/ts`, and clippy for `exact-snapback4-web` with `--target
-wasm32-unknown-unknown`.
+wasm32-unknown-unknown`. Build the web glue first on a fresh checkout with
+`bun snapback4/web/build.mjs`. Set `SNAPBACK4_BIN` to a CLI built from the pinned
+revision to include the progressive HTTP/wasm test; it is skipped with the
+root's older npm CLI. The native progressive tests embed the pinned core and
+run without that binary.
 
 What the TypeScript client of Snapback itself does that this one does not
 yet: retained media caching (LLP 1108: a retained, purged cache and `once` assets shown

@@ -245,19 +245,19 @@ test('two web devices sync, send, keep offline writes across a reopen, refuse an
   const aliceDir = join(scratch, 'alice'), bobDir = join(scratch, 'bob');
   const alice = await open('alice', aliceDir);
   expect(alice.isOpen).toBe(false);
-  expect(await alice.sync()).toEqual({ ok: true });
+  expect(await alice.sync()).toMatchObject({ ok: true });
   expect((await alice.read('inbox', {}, Date.now())).data).toEqual([]);
 
   const written = await alice.write('send', { body: 'hello' }, Date.now());
   expect(written.state).toBe('pending');
   expect(bodies((await alice.read<{ body: string; pending?: boolean }[]>('inbox', {}, Date.now())).data!)).toEqual([['hello', true]]);
-  expect(await alice.sync()).toEqual({ ok: true });
+  expect(await alice.sync()).toMatchObject({ ok: true });
   const outcome = await alice.outcome(written.id);
   expect(outcome.state).toBe('sent');
   expect((outcome.result as { id: string }).id).toBe((written as { newIds: string[] }).newIds[0]);
 
   const bob = await open('bob', bobDir);
-  expect(await bob.sync()).toEqual({ ok: true });
+  expect(await bob.sync()).toMatchObject({ ok: true });
   expect(bodies((await bob.read<{ body: string }[]>('inbox', {}, Date.now())).data!)).toEqual([['hello', false]]);
   await bob.close();
   // The partition is bound to its origin: another origin cannot open it.
@@ -272,7 +272,7 @@ test('an app with an unrelated native hatch can explicitly select the web device
     headers: () => ({'x-snapback-persona': 'alice'}), storage: storage(join(scratch, 'camera')),
     native, device: 'web', wasm: `file://${wasm}`});
   try {
-    expect(await db.sync()).toEqual({ok: true});
+    expect(await db.sync()).toMatchObject({ ok: true });
     expect(Array.isArray((await db.read('inbox', {}, Date.now())).data)).toBe(true);
     expect(calls).toBe(0);
   } finally { await db.close(); }
@@ -281,7 +281,7 @@ test('an app with an unrelated native hatch can explicitly select the web device
 test('offline writes survive a reopen and send later; refusals withdraw; the poll sees others', async () => {
   const carolDir = join(scratch, 'carol');
   let carol = await open('carol', carolDir);
-  expect(await carol.sync()).toEqual({ ok: true });
+  expect(await carol.sync()).toMatchObject({ ok: true });
   // Lose the link: every request fails before it reaches the server.
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -303,17 +303,17 @@ test('offline writes survive a reopen and send later; refusals withdraw; the pol
   expect(bodies((await carol.read<{ body: string; pending?: boolean }[]>('inbox', {}, Date.now())).data!)[0]).toEqual(['from the tunnel', true]);
 
   const dave = await open('dave', join(scratch, 'dave'));
-  expect(await dave.sync()).toEqual({ ok: true });
+  expect(await dave.sync()).toMatchObject({ ok: true });
   expect(await dave.poll(0)).toBe(false);
-  expect(await carol.sync()).toEqual({ ok: true });
+  expect(await carol.sync()).toMatchObject({ ok: true });
   expect((await carol.status()).queued).toEqual([]);
   expect(await dave.poll(0)).toBe(true);
-  expect(await dave.sync()).toEqual({ ok: true });
+  expect(await dave.sync()).toMatchObject({ ok: true });
   expect(bodies((await dave.read<{ body: string }[]>('inbox', {}, Date.now())).data!)[0]).toEqual(['from the tunnel', false]);
 
   const refused = await carol.write('send', { body: '' }, Date.now());
   if (refused.state === 'pending') {
-    expect(await carol.sync()).toEqual({ ok: true });
+    expect(await carol.sync()).toMatchObject({ ok: true });
     const outcome = await carol.outcome(refused.id);
     expect(outcome.state).toBe('failed');
     expect(outcome.why?.code).toBe('EMPTY');
@@ -348,7 +348,7 @@ test('commits and reopens stay within the storage bounds, in order', async () =>
 test('calls from overlapping answers wait their turn; a failed commit rebuilds from the disk', async () => {
   const dir = join(scratch, 'jules'), faults: Faults = { delay: 30 };
   let jules = await open('jules', dir, origin, faults);
-  expect(await jules.sync()).toEqual({ ok: true });
+  expect(await jules.sync()).toMatchObject({ ok: true });
   // Two answers at once: the read waits for the write's commit.
   // Started in the same turn: the read runs only after the write's commit.
   faults.log = [];
@@ -368,7 +368,7 @@ test('calls from overlapping answers wait their turn; a failed commit rebuilds f
   const after = (await jules.read<{ body: string }[]>('inbox', {}, Date.now())).data!.map(row => row.body);
   expect(after).toContain('one at a time');
   expect(after).not.toContain('never saved');
-  expect(await jules.sync()).toEqual({ ok: true });
+  expect(await jules.sync()).toMatchObject({ ok: true });
   expect((await jules.status()).queued).toEqual([]);
   await jules.close();
   jules = await open('jules', dir);
@@ -381,7 +381,7 @@ test('calls from overlapping answers wait their turn; a failed commit rebuilds f
 test('a failed save after the server answered keeps the answer and never resends', async () => {
   const dir = join(scratch, 'kim'), faults: Faults = {};
   const kim = await open('kim', dir, origin, faults);
-  expect(await kim.sync()).toEqual({ ok: true });
+  expect(await kim.sync()).toMatchObject({ ok: true });
   const written = await kim.write('send', { body: 'answered, then the disk failed' }, Date.now());
   // The server confirms the send; the device's next commit (keep and settle)
   // fails, as a full disk would fail it.
@@ -395,7 +395,7 @@ test('a failed save after the server answered keeps the answer and never resends
   try {
     await expect(kim.sync()).rejects.toThrow(/storage write failed/);
     expect((await kim.outcome(written.id)).state).toBe('sent');
-    expect(await kim.sync()).toEqual({ ok: true });
+    expect(await kim.sync()).toMatchObject({ ok: true });
   } finally { globalThis.fetch = realFetch; }
   expect(sends).toBe(1);
   expect((await kim.status()).queued).toEqual([]);
@@ -408,7 +408,7 @@ test('a sync after a write settles it while other sources sync at once; send is 
   const { failureCode, failureReason } = await import('../../host/web-js/shape.js');
   const { refused } = await import('./snapback.ts');
   const db = await open('nell', join(scratch, 'nell'));
-  expect(await db.sync()).toEqual({ ok: true });
+  expect(await db.sync()).toMatchObject({ ok: true });
   // Three resources syncing and reading over and over, on a slow link.
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -425,11 +425,12 @@ test('a sync after a write settles it while other sources sync at once; send is 
       const written = await db.write('send', { body: `busy ${i}` }, Date.now());
       expect((await db.outcome(written.id)).state).toBe('pending');
       // A round asked for after the write sends it, whatever runs meanwhile.
-      expect(await db.sync()).toEqual({ ok: true });
+      expect(await db.sync()).toMatchObject({ ok: true });
       expect((await db.outcome(written.id)).state).toBe('sent');
     }
     const sent = await db.send<{ id: string }>('send', { body: 'in one call' }, Date.now());
-    expect([sent.state, sent.round]).toEqual(['sent', { ok: true }]);
+    expect(sent.state).toBe('sent');
+    expect(sent.round).toMatchObject({ ok: true });
     expect(typeof sent.result?.id).toBe('string');
     // The server's refusal, with the mutation's own code.
     const empty = await db.send('send', { body: '' }, Date.now());
@@ -488,7 +489,7 @@ test('a sync after a write settles it while other sources sync at once; send is 
 
 test('a closed client refuses every call; closing twice is harmless', async () => {
   const lou = await open('lou', join(scratch, 'lou'));
-  expect(await lou.sync()).toEqual({ ok: true });
+  expect(await lou.sync()).toMatchObject({ ok: true });
   await lou.close();
   await lou.close();
   await expect(lou.read('inbox', {}, Date.now())).rejects.toThrow(/closed/);
@@ -499,7 +500,7 @@ test('a closed client refuses every call; closing twice is harmless', async () =
 test('when the rebuild fails too, the page hands the answer to the next device', async () => {
   const dir = join(scratch, 'max'), faults: Faults = {};
   const max = await open('max', dir, origin, faults);
-  expect(await max.sync()).toEqual({ ok: true });
+  expect(await max.sync()).toMatchObject({ ok: true });
   const written = await max.write('send', { body: 'saved by the page' }, Date.now());
   let sends = 0;
   const realFetch = globalThis.fetch;
@@ -515,7 +516,7 @@ test('when the rebuild fails too, the page hands the answer to the next device',
     // A new device in the same page takes the answer over: nothing is resent.
     const again = await open('max', dir, origin, faults);
     expect((await again.outcome(written.id)).state).toBe('sent');
-    expect(await again.sync()).toEqual({ ok: true });
+    expect(await again.sync()).toMatchObject({ ok: true });
     expect((await again.status()).queued).toEqual([]);
     await again.close();
   } finally { globalThis.fetch = realFetch; }
@@ -525,7 +526,7 @@ test('when the rebuild fails too, the page hands the answer to the next device',
 test('a successor that cannot save either keeps the page’s answer; a handed answer is saved at once', async () => {
   const dir = join(scratch, 'pia'), faults: Faults = {};
   const pia = await open('pia', dir, origin, faults);
-  expect(await pia.sync()).toEqual({ ok: true });
+  expect(await pia.sync()).toMatchObject({ ok: true });
   const written = await pia.write('send', { body: 'kept through a full disk' }, Date.now());
   let sends = 0;
   const realFetch = globalThis.fetch;
@@ -545,7 +546,7 @@ test('a successor that cannot save either keeps the page’s answer; a handed an
     await taker.close();
     const later = await open('pia', dir, origin, faults);
     expect((await later.outcome(written.id)).state).toBe('sent');
-    expect(await later.sync()).toEqual({ ok: true });
+    expect(await later.sync()).toMatchObject({ ok: true });
     expect((await later.status()).queued).toEqual([]);
     await later.close();
   } finally { globalThis.fetch = realFetch; }
@@ -555,7 +556,7 @@ test('a successor that cannot save either keeps the page’s answer; a handed an
 test('a close during a rebuild is carried out when the rebuild ends', async () => {
   const dir = join(scratch, 'quin'), faults: Faults = {};
   const quin = await open('quin', dir, origin, faults);
-  expect(await quin.sync()).toEqual({ ok: true });
+  expect(await quin.sync()).toMatchObject({ ok: true });
   faults.failNext = true;
   faults.openDelay = 200;
   const failing = quin.write('send', { body: 'rebuilt' }, Date.now()).catch(error => error);
@@ -611,8 +612,8 @@ test('sources share a page\'s partition: concurrent opens, rounds that wait thei
   const [ra, rb, sa, sb] = await Promise.all([
     a.read<{ body: string }[]>('inbox', {}, Date.now()), b.read<{ body: string }[]>('inbox', {}, Date.now()), a.sync(), b.sync()]);
   expect(Array.isArray(ra.data) && Array.isArray(rb.data)).toBe(true);
-  expect(sa).toEqual({ ok: true });
-  expect(sb).toEqual({ ok: true });
+  expect(sa).toMatchObject({ ok: true });
+  expect(sb).toMatchObject({ ok: true });
   expect(a.isOpen && b.isOpen).toBe(true);
 
   const shared = (rows?: { body: string; pending?: boolean }[]) => bodies(rows!.filter(row => row.body === 'shared'));
@@ -641,7 +642,7 @@ test('a query over an online only table is the server\'s to answer, and says so 
   const gina = await open('gina', join(scratch, 'gina'));
   const kept = await gina.write('draft', { body: 'only mine' }, Date.now());
   expect(kept.state).toBe('pending');
-  expect(await gina.sync()).toEqual({ ok: true });
+  expect(await gina.sync()).toMatchObject({ ok: true });
   expect((await gina.outcome(kept.id)).state).toBe('sent');
   const mine = await gina.read<{ body: string }[]>('myDrafts', {}, Date.now());
   expect(mine.server).toBe(true);
@@ -680,11 +681,11 @@ test('a partition that has never synced, offline, refuses reads and writes with 
 
 test('a read the device cannot vouch for asks the server; offline it says so', async () => {
   const jo = await open('jo', join(scratch, 'jo'));
-  expect(await jo.sync()).toEqual({ ok: true });
+  expect(await jo.sync()).toMatchObject({ ok: true });
   // Past the inbox's sync horizon (last 100), a total over every message is
   // not the device's to answer.
   for (let i = 0; i < 105; i++) await jo.write('send', { body: `n${i}` }, Date.now());
-  expect(await jo.sync()).toEqual({ ok: true });
+  expect(await jo.sync()).toMatchObject({ ok: true });
   const local = await jo.read<number>('total', {}, Date.now());
   if (local.server) {
     expect(typeof local.data).toBe('number');
@@ -720,15 +721,15 @@ test('a read the device cannot vouch for asks the server; offline it says so', a
 
 test('a write the device refuses is failed at once, never sent, and answered by outcome and refusals', async () => {
   const ned = await open('ned', join(scratch, 'ned'));
-  expect(await ned.sync()).toEqual({ ok: true });
+  expect(await ned.sync()).toMatchObject({ ok: true });
   const filed = await ned.write('file', { title: 'disk full' }, Date.now());
-  expect(await ned.sync()).toEqual({ ok: true });
+  expect(await ned.sync()).toMatchObject({ ok: true });
   const ticket = ((await ned.outcome(filed.id)).result as { id: string }).id;
   await ned.close();
 
   const olga = await open('olga', join(scratch, 'olga'));
   await olga.write('join', { role: 'member' }, Date.now());
-  expect(await olga.sync()).toEqual({ ok: true });
+  expect(await olga.sync()).toMatchObject({ ok: true });
   // Another's ticket (a row rule) and an approval by a known non-lead (a
   // require): the device refuses both, as the server would.
   const closed = await olga.write('close', { t: ticket }, Date.now());
@@ -743,7 +744,7 @@ test('a write the device refuses is failed at once, never sent, and answered by 
     if (String(input).includes('/m/')) sends.push(new URL(String(input)).pathname);
     return realFetch(input as never, init);
   }) as typeof fetch;
-  try { expect(await olga.sync()).toEqual({ ok: true }); } finally { globalThis.fetch = realFetch; }
+  try { expect(await olga.sync()).toMatchObject({ ok: true }); } finally { globalThis.fetch = realFetch; }
   expect(sends).toEqual(['/m/send']);
   expect(await olga.outcome(closed.id)).toMatchObject({ state: 'failed', why: { code: 'E_RULE' } });
   expect(await olga.outcome(approved.id)).toMatchObject({ state: 'failed', why: { code: 'NOT_LEAD' } });
@@ -757,7 +758,7 @@ test('a write the device refuses is failed at once, never sent, and answered by 
 test('two sources polling one partition at once share the poll', async () => {
   const openKim = onePage('kim', join(scratch, 'kim'));
   const [a, b] = await Promise.all([openKim(), openKim()]);
-  expect(await a.sync()).toEqual({ ok: true });
+  expect(await a.sync()).toMatchObject({ ok: true });
   // Two polls at once: neither supersedes the other (E_STALE before sharing).
   const both = await Promise.all([a.poll(0), b.poll(0)]);
   expect(both[0]).toBe(both[1]);
@@ -779,7 +780,7 @@ test('an ephemeral write is refused at once, not queued; poll opens a never-sync
   const sent = await lee.write('send', { body: 'after a ping' }, Date.now());
   expect(sent.state).toBe('pending');
   expect(sent.id).not.toBe(pinged.id);
-  expect(await lee.sync()).toEqual({ ok: true });
+  expect(await lee.sync()).toMatchObject({ ok: true });
   expect((await lee.outcome(sent.id)).state).toBe('sent');
   await lee.close();
 }, 60_000);
@@ -797,7 +798,7 @@ test('a round its answer could not finish is cancelled by the next round, so the
   } };
   const una = await Snapback.open({ app: 'test.exact.snapback4', name: 'inbox', origin, viewer: 'dev:una',
     headers: () => ({ 'x-snapback-persona': 'una' }), storage: page, native, wasm: `file://${wasm}` });
-  expect(await una.sync()).toEqual({ ok: true });
+  expect(await una.sync()).toMatchObject({ ok: true });
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const reply = await realFetch(input as never, init);
@@ -806,7 +807,7 @@ test('a round its answer could not finish is cancelled by the next round, so the
   }) as typeof fetch;
   try { await expect(una.sync()).rejects.toThrow(/outside an answer/); }
   finally { globalThis.fetch = realFetch; ended = false; }
-  expect(await una.sync()).toEqual({ ok: true });
+  expect(await una.sync()).toMatchObject({ ok: true });
   await una.close();
   await device.close?.();
 }, 60_000);
@@ -832,7 +833,7 @@ test('Snapback.switcher waits for the other persona\'s write in flight before cl
     if (request.op === 'close') { await open.close?.(); open = undefined; }
     return answer;
   } };
-  expect(await personas.use('alice', page, native, db => db.sync())).toEqual({ ok: true });
+  expect(await personas.use('alice', page, native, db => db.sync())).toMatchObject({ ok: true });
   expect(personas.key).toBe('alice');
   // Alice's write is on the network when the app switches to Bob.
   const realFetch = globalThis.fetch;
@@ -854,7 +855,7 @@ test('Snapback.switcher waits for the other persona\'s write in flight before cl
     const again = personas.use('alice', page, native, async db => (await db.read<{ body: string }[]>('inbox', {}, Date.now())).data?.map(row => row.body));
     release();
     expect(await posting).toBe('sent');
-    expect(await bob).toEqual({ ok: true });
+    expect(await bob).toMatchObject({ ok: true });
     expect(await again).toContain('switched');
   } finally { globalThis.fetch = realFetch; }
   expect(opens.map(path => path.replace(/^.*\//, ''))).toEqual(['inbox-alice.sqlite', 'inbox-bob.sqlite', 'inbox-alice.sqlite']);
@@ -862,7 +863,7 @@ test('Snapback.switcher waits for the other persona\'s write in flight before cl
   failOpen = true;
   expect(await personas.use('bob', page, native, db => db.sync()).catch(error => (error as Error).message)).toBe('storage unavailable');
   expect(personas.key).toBe(null);
-  expect(await personas.use('bob', page, native, db => db.sync())).toEqual({ ok: true });
+  expect(await personas.use('bob', page, native, db => db.sync())).toMatchObject({ ok: true });
   await personas.close();
   expect(open).toBeUndefined();
   expect(personas.key).toBe(null);
@@ -1093,7 +1094,7 @@ test('password accounts on serve: signup, reopen, refresh, login, logout and iso
         expect((await pending).denied?.code).toBe('E_AUTH');
         expect(db.session?.token).toBe(renewed.session.token);
       } finally { release(); globalThis.fetch = realFetch; }
-      expect(await db.sync()).toEqual({ ok: true });
+      expect(await db.sync()).toMatchObject({ ok: true });
     }
     const staleAlice = await Snapback.open({ ...options, auth: { ...options.auth, now: Date.now() } });
     let enter!: () => void, enterSync!: () => void, release!: () => void;
@@ -1247,7 +1248,7 @@ test('durable upload custody survives offline close, lost upload replies and pla
     }}});
   let db=await openUpload(), asset='', uploads=0, placements=0;
   try {
-    expect(await db.sync()).toEqual({ok:true});
+    expect(await db.sync()).toMatchObject({ ok: true });
     globalThis.fetch=(async (url,init)=>{
       if(String(url).startsWith(origin)) throw new Error('offline');
       return realFetch(url,init);
@@ -1279,7 +1280,7 @@ test('durable upload custody survives offline close, lost upload replies and pla
     expect((await db.sync()).offline).toBe(true); // Same upload id, then a lost placement response.
     expect((await db.uploads())[0]).toMatchObject({state:'placing'});
     await db.close(); db=await openUpload();
-    expect(await db.sync()).toEqual({ok:true});
+    expect(await db.sync()).toMatchObject({ ok: true });
     expect((await db.outcome(admitted.id)).state).toBe('sent');
     expect(await db.uploads()).toEqual([]);
     expect(uploads).toBe(2);
@@ -1303,7 +1304,7 @@ test('a pre-program placing refusal finishes its server pin before local custody
     headers:()=>({'x-snapback-persona':'alice'}),wasm:`file://${wasm}`,storage:{...storage(dir),fs:{async readFile(){return png;},async writeFile(){}}}});
   let db=await openUpload(),finish=0,drop=true;
   try {
-    expect(await db.sync()).toEqual({ok:true});
+    expect(await db.sync()).toMatchObject({ ok: true });
     const intent=await db.uploadAndPlace({kind:'mutation',name:'addPhoto'} as MutationOp<{photo:{id:string}},null>,{},'app:/tmp/picked/photo.png',Date.now(),{argument:'photo'});
     globalThis.fetch=(async(url,init)=>{
       if(String(url)===origin+'/m/addPhoto') return Response.json({denied:{code:'E_INPUT',family:'input',message:'placing arguments refused',retryable:false}},{status:400});
@@ -1314,7 +1315,7 @@ test('a pre-program placing refusal finishes its server pin before local custody
     expect((await db.sync()).offline).toBe(true);
     expect((await db.uploads())[0]).toMatchObject({id:intent.id,state:'placing'});
     await db.close();db=await openUpload();
-    expect(await db.sync()).toEqual({ok:true});
+    expect(await db.sync()).toMatchObject({ ok: true });
     expect(await db.outcome(intent.id)).toMatchObject({state:'failed',why:{code:'E_INPUT'}});
     expect(await db.uploads()).toEqual([]);
     expect(finish).toBe(2);
@@ -1330,7 +1331,7 @@ test('blocked uploads do not starve ordinary writes and cancellation survives a 
     headers:()=>({'x-snapback-persona':'alice'}),wasm:`file://${wasm}`,storage:{...storage(dir),fs:{async readFile(){return Uint8Array.of(1,2,3);},async writeFile(){}}}});
   let db=await openUpload(),cancels=0,drop=true;
   try {
-    expect(await db.sync()).toEqual({ok:true});
+    expect(await db.sync()).toMatchObject({ ok: true });
     const intent=await db.uploadAndPlace({kind:'mutation',name:'addPhoto'} as MutationOp<{photo:{id:string}},null>,{},'app:/tmp/bad.png',Date.now(),{argument:'photo'});
     expect((await db.sync()).denied?.code).toBe('E_ASSET_TYPE');
     const ordinary=await db.write('send',{body:'independent of bad image'},Date.now());
@@ -1346,8 +1347,96 @@ test('blocked uploads do not starve ordinary writes and cancellation survives a 
     expect((await db.sync()).offline).toBe(true);
     expect((await db.uploads())[0]).toMatchObject({id:intent.id,state:'cancelling'});
     await db.close();db=await openUpload();
-    expect(await db.sync()).toEqual({ok:true});
+    expect(await db.sync()).toMatchObject({ ok: true });
     expect(await db.outcome(intent.id)).toMatchObject({state:'failed',why:{code:'E_UPLOAD_CANCELLED'}});
     expect(await db.uploads()).toEqual([]);expect(cancels).toBe(2);
   } finally {globalThis.fetch=realFetch;await db.close();}
 },60_000);
+
+test.skipIf(!process.env.SNAPBACK4_BIN)('progressive HTTP and wasm rounds expose durable coverage; until acquired yields between turns', async () => {
+  const project = join(scratch, 'progressive-server');
+  mkdirSync(join(project, 'snapback'), { recursive: true });
+  writeFileSync(join(project, 'snapback/schema.q'), `use personas alice
+ table participants:
+  threadId: threads
+  personId: principal
+  unique threadId, personId
+  cap 50 by threadId
+  read <- exists participants[.threadId, viewer]
+  sync by .personId
+ table threads:
+  subject: text <=100
+  read <- exists participants[.id, viewer]
+  sync to participants[.id] by .personId
+ table historyRows:
+  conversation: threads
+  body: text <=100
+  at: time
+  read <- exists participants[.conversation, viewer]
+  insert <- exists participants[.conversation, viewer]
+  sync to participants[.conversation] by .personId last 100 by .at, .id
+ query history(c: threads):
+  return historyRows where .conversation = c last 10 by .at, .id
+ mutation add(c: threads):
+  insert historyRows {conversation: c, body: 'during acquisition', at: now}
+`.replaceAll('\n ', '\n'));
+  const child = spawn(binary, ['dev', '--port', '0', '--memory', '--no-watch'], { cwd: project, stdio: ['ignore', 'pipe', 'pipe'] });
+  const realFetch = globalThis.fetch;
+  let db: InstanceType<typeof Snapback> | undefined;
+  try {
+    const at = await new Promise<string>((done, fail) => {
+      createInterface({ input: child.stdout! }).on('line', line => { if (/^http:\/\/127\.0\.0\.1:\d+$/.test(line.trim())) done(line.trim()); });
+      let diagnostic = '';
+      child.stderr!.on('data', chunk => { diagnostic += String(chunk); const ready = /SNAPBACK4_READY .*url=(http:\/\/127\.0\.0\.1:\d+)/.exec(diagnostic); if (ready) done(ready[1]); });
+      child.on('error', fail); child.on('exit', code => fail(new Error(`progressive server exited ${code}: ${diagnostic}`)));
+    });
+    const headers = { 'x-snapback-persona': 'alice', 'content-type': 'application/json' };
+    const backend = await realFetch(`${at}/schema`, { headers }).then(r => r.json());
+    expect(backend.device_compatibility.advertised).toContain('progressive-acquisition-v1');
+    const rows = Array.from({ length: 40 }, (_, i) => {
+      const c = `g${String(i).padStart(2, '0')}`;
+      return [{ table: 'threads', row: { id: c, subject: c } }, { table: 'participants', row: { id: `p${c}`, threadId: c, personId: 'dev:alice' } },
+        ...Array.from({ length: 100 }, (_, n) => ({ table: 'historyRows', row: { id: `${c}-${String(n).padStart(3, '0')}`, conversation: c, body: String(n), at: n } }))];
+    }).flat();
+    expect((await realFetch(`${at}/seed`, { method: 'POST', headers, body: JSON.stringify(rows) }).then(r => r.json())).seeded).toBe(4080);
+    const page = storage(join(scratch, 'progressive-device'));
+    const { webDevice } = await import('./web.ts');
+    const device = await webDevice(page, 'test.exact.progressive', 'app:/data/history.sqlite', `file://${wasm}`);
+    await device.call({ op: 'open', path: 'app:/data/history.sqlite', origin: at, viewer: 'dev:alice', backend: { initial_backend: backend } });
+    await device.close?.();
+    const options = { app: 'test.exact.progressive', name: 'history', origin: at, viewer: 'dev:alice', headers: () => headers, storage: page, wasm: `file://${wasm}` };
+    db = await Snapback.open(options);
+    // The online fallback sets the hint before its group is available locally.
+    await db.read('history', { c: 'g39' }, 1000);
+    let rounds = 0, interleaved = false;
+    globalThis.fetch = (async (url, init) => {
+      if (String(url) === `${at}/sync`) {
+        const body = JSON.parse(String(init?.body)); body.limit = Math.min(body.limit, 400);
+        if (body.acquire) rounds++;
+        init = { ...init, body: JSON.stringify(body) };
+      }
+      return realFetch(url, init);
+    }) as typeof fetch;
+    const first = await db.sync();
+    expect(first).toMatchObject({ ok: true, acquired: false, acquisition: { acquired: false, exhausted: false, acquiredTables: ['participants', 'threads'], flooredGroups: 3, rows: 380, tables: { historyRows: 300, participants: 40, threads: 40 } } });
+    expect(first.acquisition?.cursor).toEqual(expect.any(String));
+    expect((await db.status()).acquisition).toEqual(first.acquisition!);
+    const read = await db.read<{ id: string }[]>('history', { c: 'g39' }, 1000);
+    expect(read.complete).toBe(true); expect(read.server).not.toBe(true);
+    expect(read.data?.map(r => r.id)).toEqual(Array.from({ length: 10 }, (_, n) => `g39-${String(99 - n).padStart(3, '0')}`));
+    const all = db.sync({ until: 'acquired' });
+    const write = await db.write('add', { c: 'g39' }, 1000, 'during-walk');
+    interleaved = !(await db.status()).acquired;
+    expect((await all).acquired).toBe(true);
+    expect(interleaved).toBe(true); expect(rounds).toBeGreaterThan(2);
+    expect((await db.outcome(write.id)).state).toBe('sent');
+    expect((await db.status()).acquisition.flooredGroups).toBe(40);
+    for (let i = 0; i < 40; i++) expect((await db.read('history', { c: `g${String(i).padStart(2, '0')}` }, 1000)).complete).toBe(true);
+    await db.close();
+    globalThis.fetch = (async () => { throw new Error('offline'); }) as typeof fetch;
+    db = await Snapback.open(options);
+    expect((await db.status()).acquisition).toMatchObject({ acquired: true, flooredGroups: 40, rows: 0 });
+    expect((await db.read('history', { c: 'g39' }, 1000)).complete).toBe(true);
+    expect(await db.sync({ until: 'acquired' })).toMatchObject({ ok: false, offline: true, acquired: true });
+  } finally { globalThis.fetch = realFetch; await db?.close(); child.kill(); }
+}, 60_000);

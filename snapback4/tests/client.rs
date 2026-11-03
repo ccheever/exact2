@@ -332,7 +332,7 @@ fn two_devices_sync_send_offline_reopen_refuse_and_poll() {
         .module
         .call(&json!({"op": "write", "name": "send", "args": {"body": "x"}, "now": 1}))
         .is_err());
-    assert_eq!(alice.sync(&server, false), json!({"ok": true}));
+    assert_eq!(alice.sync(&server, false)["ok"], true);
     assert!(alice.inbox().is_empty());
 
     // A write is predicted at once, then sent and confirmed by the stream.
@@ -345,7 +345,7 @@ fn two_devices_sync_send_offline_reopen_refuse_and_poll() {
         alice.call(json!({"op": "outcome", "id": id}))["state"],
         "pending"
     );
-    assert_eq!(alice.sync(&server, false), json!({"ok": true}));
+    assert_eq!(alice.sync(&server, false)["ok"], true);
     assert_eq!(bodies(&alice.inbox()), [("hello".into(), false)]);
     let outcome = alice.call(json!({"op": "outcome", "id": id}));
     assert_eq!(outcome["state"], "sent", "{outcome}");
@@ -354,7 +354,7 @@ fn two_devices_sync_send_offline_reopen_refuse_and_poll() {
 
     // Another device acquires the partition.
     assert!(!bob.open(server.port));
-    assert_eq!(bob.sync(&server, false), json!({"ok": true}));
+    assert_eq!(bob.sync(&server, false)["ok"], true);
     assert_eq!(bodies(&bob.inbox()), [("hello".into(), false)]);
 
     // Offline: the write is kept, survives a reopen, and is sent later.
@@ -379,13 +379,13 @@ fn two_devices_sync_send_offline_reopen_refuse_and_poll() {
 
     // Alice's poll is current until Bob's write lands.
     assert_eq!(alice.poll(&server), json!(false));
-    assert_eq!(bob.sync(&server, false), json!({"ok": true}));
+    assert_eq!(bob.sync(&server, false)["ok"], true);
     assert!(bob.call(json!({"op": "status"}))["queued"]
         .as_array()
         .unwrap()
         .is_empty());
     assert_eq!(alice.poll(&server), json!(true));
-    assert_eq!(alice.sync(&server, false), json!({"ok": true}));
+    assert_eq!(alice.sync(&server, false)["ok"], true);
     assert_eq!(
         bodies(&alice.inbox()),
         [("from the tunnel".into(), false), ("hello".into(), false)]
@@ -394,7 +394,7 @@ fn two_devices_sync_send_offline_reopen_refuse_and_poll() {
     // A write the server refuses is withdrawn and reported failed.
     let refused = alice.write("", now());
     if refused["state"] == "pending" {
-        assert_eq!(alice.sync(&server, false), json!({"ok": true}));
+        assert_eq!(alice.sync(&server, false)["ok"], true);
         let outcome = alice.call(json!({"op": "outcome", "id": refused["id"]}));
         assert_eq!(outcome["state"], "failed", "{outcome}");
         assert_eq!(outcome["why"]["code"], "EMPTY", "{outcome}");
@@ -471,14 +471,14 @@ fn a_rust_source_drives_the_typed_client_through_host_requests() {
             }
         }
     };
-    assert_eq!(round(&mut erin), json!({"ok": true}));
+    assert_eq!(round(&mut erin)["ok"], true);
     let (client, host) = erin.module.parts();
     let written = client
         .unwrap()
         .write(host, "send", json!({"body": "typed"}), now(), None)
         .unwrap();
     assert_eq!(written["state"], "pending");
-    assert_eq!(round(&mut erin), json!({"ok": true}));
+    assert_eq!(round(&mut erin)["ok"], true);
     let (client, host) = erin.module.parts();
     let client = client.unwrap();
     assert_eq!(
@@ -508,7 +508,7 @@ fn replies_that_are_not_the_servers_outcome_never_settle_a_write() {
     let server = Server::start();
     let mut frank = Device::new("frank");
     frank.open(server.port);
-    assert_eq!(frank.sync(&server, false), json!({"ok": true}));
+    assert_eq!(frank.sync(&server, false)["ok"], true);
     let written = frank.write("through a captive portal", now());
     let id = written["id"].clone();
     for (status, body, expect) in [
@@ -550,7 +550,7 @@ fn replies_that_are_not_the_servers_outcome_never_settle_a_write() {
             "nothing latched"
         );
     }
-    assert_eq!(frank.sync(&server, false), json!({"ok": true}));
+    assert_eq!(frank.sync(&server, false)["ok"], true);
     assert!(frank.queued().is_empty());
     assert_eq!(
         frank.call(json!({"op": "outcome", "id": id}))["state"],
@@ -569,7 +569,7 @@ fn a_reply_is_delivered_only_to_the_exchange_that_asked() {
     let server = Server::start();
     let mut gina = Device::new("gina");
     gina.open(server.port);
-    assert_eq!(gina.sync(&server, false), json!({"ok": true}));
+    assert_eq!(gina.sync(&server, false)["ok"], true);
     gina.write("first", now());
     // Round one reaches its send, and the driver goes away.
     let mut step = gina.call(json!({"op": "sync"}));
@@ -612,7 +612,7 @@ fn a_reply_is_delivered_only_to_the_exchange_that_asked() {
         let reply = server.fetch("gina", &fetch);
         step = gina.call(json!({"op": "deliver", "exchange": fetch["exchange"], "reply": reply}));
     }
-    assert_eq!(step["done"], json!({"ok": true}));
+    assert_eq!(step["done"]["ok"], true);
     assert!(gina.queued().is_empty());
     let mut rows = bodies(&gina.inbox());
     rows.sort();
@@ -626,7 +626,7 @@ fn a_kept_receipt_settles_its_write_without_resending() {
     let server = Server::start();
     let mut hana = Device::new("hana");
     hana.open(server.port);
-    assert_eq!(hana.sync(&server, false), json!({"ok": true}));
+    assert_eq!(hana.sync(&server, false)["ok"], true);
     let written = hana.write("sent once", now());
     let entry = hana.call(json!({"op": "queued"}))[0].clone();
     // The server executes it; the device keeps the receipt; then it dies
@@ -650,7 +650,7 @@ fn a_kept_receipt_settles_its_write_without_resending() {
         sends += usize::from(is_send(fetch));
         real()
     });
-    assert_eq!(done, json!({"ok": true}));
+    assert_eq!(done["ok"], true);
     assert_eq!(sends, 0, "a write with a kept receipt is never sent again");
     assert!(hana.queued().is_empty());
     assert_eq!(bodies(&hana.inbox()), [("sent once".into(), false)]);
@@ -664,11 +664,11 @@ fn a_receipt_keeps_its_dispatching_store_and_answers_without_it() {
     let server = Server::start();
     let mut hana = Device::new("hana");
     hana.open(server.port);
-    assert_eq!(hana.sync(&server, false), json!({"ok": true}));
+    assert_eq!(hana.sync(&server, false)["ok"], true);
     let store = hana.call(json!({"op": "sync_state", "capture": false}))["store_id"].clone();
     assert!(store.is_string(), "{store}");
     let written = hana.write("bound", now());
-    assert_eq!(hana.sync(&server, false), json!({"ok": true}));
+    assert_eq!(hana.sync(&server, false)["ok"], true);
     let history = hana.call(json!({"op": "meta", "key": "write-history"}));
     let kept: Vec<Value> = serde_json::from_str(history.as_str().unwrap()).unwrap();
     let kept = kept.iter().find(|w| w["id"] == written["id"]).unwrap();
@@ -691,7 +691,7 @@ fn a_receipt_keeps_its_dispatching_store_and_answers_without_it() {
         sends += usize::from(is_send(fetch));
         real()
     });
-    assert_eq!(done, json!({"ok": true}));
+    assert_eq!(done["ok"], true);
     assert_eq!(sends, 0);
     assert!(hana.queued().is_empty());
     let outcome = hana.call(json!({"op": "outcome", "id": other["id"]}));
@@ -709,7 +709,7 @@ fn clocks_viewers_and_identities_are_checked() {
     let server = Server::start();
     let mut ida = Device::new("ida");
     ida.open(server.port);
-    assert_eq!(ida.sync(&server, false), json!({"ok": true}));
+    assert_eq!(ida.sync(&server, false)["ok"], true);
     let at = now() as f64 + 0.625;
     let written =
         ida.call(json!({"op": "write", "name": "send", "args": {"body": "fractional"}, "now": at}));
@@ -738,7 +738,7 @@ fn a_poll_reply_counts_once_and_only_for_the_newest_poll() {
     let server = Server::start();
     let mut kai = Device::new("kai");
     kai.open(server.port);
-    assert_eq!(kai.sync(&server, false), json!({"ok": true}));
+    assert_eq!(kai.sync(&server, false)["ok"], true);
     let first = kai.call(json!({"op": "changes", "wait": 0}))["fetch"].clone();
     let second = kai.call(json!({"op": "changes", "wait": 0}))["fetch"].clone();
     assert_ne!(first["exchange"], second["exchange"]);
@@ -770,7 +770,7 @@ fn a_refused_write_is_journaled_with_its_input_until_dismissed() {
     let server = Server::start();
     let mut lena = Device::new("lena");
     lena.open(server.port);
-    assert_eq!(lena.sync(&server, false), json!({"ok": true}));
+    assert_eq!(lena.sync(&server, false)["ok"], true);
     let claim = |device: &mut Device, key: &str| {
         device.call(json!({"op": "write", "name": "claim", "args": {"key": key}, "now": now()}))
     };
@@ -781,7 +781,7 @@ fn a_refused_write_is_journaled_with_its_input_until_dismissed() {
         second["state"], "pending",
         "the device cannot know it is taken"
     );
-    assert_eq!(lena.sync(&server, false), json!({"ok": true}));
+    assert_eq!(lena.sync(&server, false)["ok"], true);
     assert_eq!(
         lena.call(json!({"op": "outcome", "id": first["id"]}))["state"],
         "sent"
@@ -810,18 +810,18 @@ fn a_write_the_device_refuses_is_failed_and_journaled_never_sent() {
     let server = Server::start();
     let mut ned = Device::new("ned");
     ned.open(server.port);
-    assert_eq!(ned.sync(&server, false), json!({"ok": true}));
+    assert_eq!(ned.sync(&server, false)["ok"], true);
     let filed = ned
         .call(json!({"op": "write", "name": "file", "args": {"title": "disk full"}, "now": now()}));
-    assert_eq!(ned.sync(&server, false), json!({"ok": true}));
+    assert_eq!(ned.sync(&server, false)["ok"], true);
     let ticket = ned.call(json!({"op": "outcome", "id": filed["id"]}))["result"]["id"].clone();
     assert!(ticket.is_string());
 
     let mut pia = Device::new("pia");
     pia.open(server.port);
-    assert_eq!(pia.sync(&server, false), json!({"ok": true}));
+    assert_eq!(pia.sync(&server, false)["ok"], true);
     pia.call(json!({"op": "write", "name": "join", "args": {"role": "member"}, "now": now()}));
-    assert_eq!(pia.sync(&server, false), json!({"ok": true}));
+    assert_eq!(pia.sync(&server, false)["ok"], true);
     let retitled = pia.call(json!({"op": "write", "name": "retitle",
         "args": {"t": ticket, "title": "mine now"}, "now": now()}));
     assert_eq!(retitled["state"], "failed", "{retitled}");
@@ -847,7 +847,7 @@ fn a_write_the_device_refuses_is_failed_and_journaled_never_sent() {
         sent.push(fetch["path"].as_str().unwrap_or_default().to_owned());
         real()
     });
-    assert_eq!(done, json!({"ok": true}));
+    assert_eq!(done["ok"], true);
     let sends: Vec<_> = sent.iter().filter(|path| path.starts_with("/m/")).collect();
     assert_eq!(sends, ["/m/send"], "the refused writes are never sent");
 
@@ -882,7 +882,7 @@ fn a_write_the_device_refuses_is_failed_and_journaled_never_sent() {
         "now": now(), "key": "approve:1"}),
     );
     assert_eq!(keyed["state"], "pending", "{keyed}");
-    assert_eq!(pia.sync(&server, false), json!({"ok": true}));
+    assert_eq!(pia.sync(&server, false)["ok"], true);
     let outcome = pia.call(json!({"op": "outcome", "id": keyed["id"]}));
     assert_eq!(outcome["state"], "failed", "{outcome}");
     assert_eq!(outcome["why"]["code"], "NOT_LEAD");
@@ -895,7 +895,7 @@ fn a_keyed_write_is_admitted_once_whatever_is_asked_again() {
     let server = Server::start();
     let mut mona = Device::new("mona");
     mona.open(server.port);
-    assert_eq!(mona.sync(&server, false), json!({"ok": true}));
+    assert_eq!(mona.sync(&server, false)["ok"], true);
     let write = |device: &mut Device| {
         device.call(json!({"op": "write", "name": "send", "args": {"body": "once"}, "now": now(), "key": "draft:7"}))
     };
@@ -918,7 +918,7 @@ fn a_keyed_write_is_admitted_once_whatever_is_asked_again() {
         "pending"
     );
     assert_eq!(mona.call(json!({"op": "refusals"})), json!([]));
-    assert_eq!(mona.sync(&server, false), json!({"ok": true}));
+    assert_eq!(mona.sync(&server, false)["ok"], true);
     let after = write(&mut mona);
     assert_eq!(after["state"], "sent", "{after}");
     assert!(mona.queued().is_empty());
@@ -958,13 +958,13 @@ fn the_refusal_journal_keeps_every_refusal_until_dismissed() {
     let server = Server::start();
     let mut ola = Device::new("ola");
     ola.open(server.port);
-    assert_eq!(ola.sync(&server, false), json!({"ok": true}));
+    assert_eq!(ola.sync(&server, false)["ok"], true);
     for _ in 0..102 {
         ola.call(
             json!({"op": "write", "name": "claim", "args": {"key": "only one"}, "now": now()}),
         );
     }
-    assert_eq!(ola.sync(&server, false), json!({"ok": true}));
+    assert_eq!(ola.sync(&server, false)["ok"], true);
     let journal = ola.call(json!({"op": "refusals"}));
     assert_eq!(journal.as_array().unwrap().len(), 101);
     // Kept in bounded segments: dismissing one leaves the other hundred.
@@ -994,13 +994,13 @@ fn a_refusal_outlives_its_receipt() {
     let server = Server::start();
     let mut pia = Device::new("pia");
     pia.open(server.port);
-    assert_eq!(pia.sync(&server, false), json!({"ok": true}));
+    assert_eq!(pia.sync(&server, false)["ok"], true);
     let claim = |device: &mut Device, key: &str, write: &str| {
         device.call(json!({"op": "write", "name": "claim", "args": {"key": key}, "now": now(), "key": write}))
     };
     assert_eq!(claim(&mut pia, "desk", "first")["state"], "pending");
     let refused = claim(&mut pia, "desk", "second");
-    assert_eq!(pia.sync(&server, false), json!({"ok": true}));
+    assert_eq!(pia.sync(&server, false)["ok"], true);
     // The receipt window moves on; the journal still has the refusal.
     pia.call(json!({"op": "set_meta", "key": "write-history", "value": "[]"}));
     assert_eq!(
@@ -1149,3 +1149,6 @@ fn upload_transport_passes_raw_bytes_and_device_headers_to_the_native_host() {
         .contains(&("authorization".into(), "Bearer member".into())));
     assert_eq!(fetch.to_json()["bodyBytes"], "0080ff");
 }
+
+#[path = "client/progressive.rs"]
+mod progressive;

@@ -54,3 +54,29 @@ impl Progress {
         status
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn counts_wait_for_publication_and_never_supply_coverage() {
+        let mut progress = Progress::default();
+        let page = json!({"acquire": {}, "events": [{"kind": "put", "table": "constructor"}, {"kind": "put", "table": "__proto__"}]});
+        progress.page(&page, true, false);
+        assert_eq!(progress.status(&Json::Null, &None)["rows"], 0);
+        progress.page(&json!({"events": []}), false, true);
+        progress.page(&page, false, true);
+        let state = json!({"acquired": false, "acquisition_cursor": "cursor", "acquisition_exhausted": false, "acquired_tables": ["threads"], "floored_groups": 3});
+        let status = progress.status(&state, &None);
+        assert_eq!(status["rows"], 4);
+        assert_eq!(status["tables"]["__proto__"], 2);
+        assert_eq!(status["tables"]["constructor"], 2);
+        assert_eq!(status["acquiredTables"], json!(["threads"]));
+        assert_eq!(status["flooredGroups"], 3);
+        assert_eq!(status["acquired"], false);
+        let mut snapshot = page;
+        snapshot["snapshot"] = json!(true);
+        progress.page(&snapshot, true, false);
+        assert_eq!(progress.status(&state, &None)["rows"], 2);
+    }
+}
