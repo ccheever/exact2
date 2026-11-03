@@ -124,7 +124,7 @@ test('route geometry observer mounts only for an active route and cannot capture
   expect(view.drawn('t3-content-geometry', {}, { owner })).toBe(true);
   expect(view.attribute('t3-content-geometry', 'pointer-events', {}, { owner })).toBe('none');
   const route = contractComponent('mobile/route-content.contract', 'MobileRouteContent');
-  const scope = { ...fns, contentGeometry: { state: 'unavailable' }, focused: false, routeId: 'visit-1', routeName: 'home', composerExpanded: false, composerFocused: false,
+  const scope = { ...fns, contentGeometry: { state: 'unavailable' }, focused: false, routeId: 'visit-1', routeName: 'home', composerExpanded: false, composerFocused: false, threadEndFollowEnabled: true,
     threadData: { environmentId: '', threadId: '', composer: { contentOwner: '' }, pendingInput: { active: false } },
     layout: { safeBottom: 0 }, workingControl: { visible: false }, workspace: { fileInspectorMounted: false, fileInspectorSupported: false, contentSettledWidth: 0, chatHorizontalPadding: 0, chatContentMaxWidth: 0 }, max: Math.max };
   expect(route.drawn('MobileContentGeometry(', route.state(), scope)).toBe(false);

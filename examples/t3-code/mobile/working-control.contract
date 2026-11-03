@@ -28,10 +28,12 @@ component MobileWorkingControl
     dark: bool
     glassTint: string
     maxWidth: number
+    showScrollToEnd: bool
     openAgents: action
     openBrowser: action
     openDevices: action
     openQueue: action
+    scrollToEnd: action
     reconnect: action
   state previewWidth = 0
   state agentsWidth = 0
@@ -47,43 +49,49 @@ component MobileWorkingControl
     queueWidth = width
   view
     view height=0 position="relative" overflow="visible"
-      if data.visible
-        row position="absolute" z-index=20 top=-40.5 left=0 right=0 height=38.5 justify-content="center" pointer-events="none"
-          row pointer-events="none" height=38.5 min-width=0 align-items="center" overflow="hidden" border-radius=999 background-color=colors.glassFallback border-width=1 border-style="solid" border-color=colors.border box-sizing="border-box" font-family="DM Sans"
-            box-shadow="0px 4px 6px -1px rgba(0, 0, 0, 0.1), 0px 2px 4px -2px rgba(0, 0, 0, 0.1)"
-            t3-composer-material position="absolute" inset=0 pointer-events="none" aria-hidden=true
-              material-appearance=(dark ? "dark" : "light") material-radius=32 material-style="regular" material-tint=glassTint material-surface=colors.glassFallback material-border=colors.border
-            if data.statusKind != ""
-              if data.reconnect
-                button pointer-events="auto" press=reconnect(data.owner) height=38.5 max-width=labelWidth box-sizing="border-box" min-width=0 flex-shrink=1 padding-left=14 padding-right=14 aria-label=data.statusAccessibility
-                  WorkingStatus(data=data, colors=colors)
-              else
-                row testId="working-status" height=38.5 max-width=labelWidth box-sizing="border-box" min-width=0 flex-shrink=1 align-items="center" padding-left=14 padding-right=14 aria-label=data.statusAccessibility
-                  WorkingStatus(data=data, colors=colors)
-            if data.deviceCount > 0 or data.browserCount > 0
-              row testId="working-preview-segments" height=38.5 align-items="center" flex-shrink=0 resize=previewSized
-                if data.statusKind != ""
-                  view width=1 height=14 background-color=colors.border flex-shrink=0
-                if data.deviceCount > 0
-                  WorkingPreview(count=data.deviceCount, compact=data.compact, label=data.deviceLabel, accessibility=data.deviceAccessibility, symbol="iphone", owner=data.owner, colors=colors, open=openDevices)
-                if data.browserCount > 0
-                  WorkingPreview(count=data.browserCount, compact=data.compact, label=data.browserLabel, accessibility=data.browserAccessibility, symbol="globe", owner=data.owner, colors=colors, open=openBrowser)
-            if data.agentsLabel != ""
-              row testId="working-agent-segment" height=38.5 align-items="center" flex-shrink=0 resize=agentsSized
-                button pointer-events="auto" press=openAgents(data.owner) height=38.5 padding-left=10.5 padding-right=10.5 flex-shrink=0 aria-label=data.agentsAccessibility testId="thread-working-agents"
-                  row height="100%" align-items="center" gap=5.25
-                    if data.statusKind != "" or data.browserCount > 0 or data.deviceCount > 0
-                      view width=1 height=14 margin-right=3.5 background-color=colors.border
-                    t3-symbol symbol-name="person.2" symbol-tint=colors.muted width=13 height=13
-                    text data.agentsLabel font-variant-numeric="tabular-nums" font-size=13 line-height="17px" font-weight=500 color=colors.foreground line-clamp=1
-            if data.queueCount > 0
-              row testId="working-queue-segment" height=38.5 align-items="center" flex-shrink=0 resize=queueSized
-                button pointer-events="auto" press=openQueue(data.owner) box-sizing="border-box" min-width=0 height=38.5 max-width=(maxWidth * 0.45) padding-left=10.5 padding-right=10.5 flex-shrink=0 aria-label=`Open queue, ${data.queueCount} messages` testId="thread-queue-open"
-                  row min-width=0 height="100%" align-items="center" gap=7
-                    if data.statusKind != "" or data.browserCount > 0 or data.deviceCount > 0 or data.agentsLabel != ""
-                      view width=1 height=14 margin-right=3.5 background-color=colors.border flex-shrink=0
-                    t3-symbol symbol-name="list.number" symbol-tint=colors.muted width=13 height=13
-                    text `${data.queueCount} queued` font-variant-numeric="tabular-nums" min-width=0 flex-shrink=1 font-size=13 line-height="17px" font-weight=500 line-clamp=1 text-overflow="ellipsis" color=colors.foreground
+      if data.visible or showScrollToEnd
+        row position="absolute" z-index=20 top=-40.5 left=0 right=0 height=38.5 justify-content="center" gap=12 pointer-events="none"
+          if data.visible
+            row pointer-events="none" height=38.5 min-width=0 align-items="center" overflow="hidden" border-radius=999 background-color=colors.glassFallback border-width=1 border-style="solid" border-color=colors.border box-sizing="border-box" font-family="DM Sans"
+              box-shadow="0px 4px 6px -1px rgba(0, 0, 0, 0.1), 0px 2px 4px -2px rgba(0, 0, 0, 0.1)"
+              t3-composer-material position="absolute" inset=0 pointer-events="none" aria-hidden=true
+                material-appearance=(dark ? "dark" : "light") material-radius=32 material-style="regular" material-tint=glassTint material-surface=colors.glassFallback material-border=colors.border
+              if data.statusKind != ""
+                if data.reconnect
+                  button pointer-events="auto" press=reconnect(data.owner) height=38.5 max-width=labelWidth box-sizing="border-box" min-width=0 flex-shrink=1 padding-left=14 padding-right=14 aria-label=data.statusAccessibility
+                    WorkingStatus(data=data, colors=colors)
+                else
+                  row testId="working-status" height=38.5 max-width=labelWidth box-sizing="border-box" min-width=0 flex-shrink=1 align-items="center" padding-left=14 padding-right=14 aria-label=data.statusAccessibility
+                    WorkingStatus(data=data, colors=colors)
+              if data.deviceCount > 0 or data.browserCount > 0
+                row testId="working-preview-segments" height=38.5 align-items="center" flex-shrink=0 resize=previewSized
+                  if data.statusKind != ""
+                    view width=1 height=14 background-color=colors.border flex-shrink=0
+                  if data.deviceCount > 0
+                    WorkingPreview(count=data.deviceCount, compact=data.compact, label=data.deviceLabel, accessibility=data.deviceAccessibility, symbol="iphone", owner=data.owner, colors=colors, open=openDevices)
+                  if data.browserCount > 0
+                    WorkingPreview(count=data.browserCount, compact=data.compact, label=data.browserLabel, accessibility=data.browserAccessibility, symbol="globe", owner=data.owner, colors=colors, open=openBrowser)
+              if data.agentsLabel != ""
+                row testId="working-agent-segment" height=38.5 align-items="center" flex-shrink=0 resize=agentsSized
+                  button pointer-events="auto" press=openAgents(data.owner) height=38.5 padding-left=10.5 padding-right=10.5 flex-shrink=0 aria-label=data.agentsAccessibility testId="thread-working-agents"
+                    row height="100%" align-items="center" gap=5.25
+                      if data.statusKind != "" or data.browserCount > 0 or data.deviceCount > 0
+                        view width=1 height=14 margin-right=3.5 background-color=colors.border
+                      t3-symbol symbol-name="person.2" symbol-tint=colors.muted width=13 height=13
+                      text data.agentsLabel font-variant-numeric="tabular-nums" font-size=13 line-height="17px" font-weight=500 color=colors.foreground line-clamp=1
+              if data.queueCount > 0
+                row testId="working-queue-segment" height=38.5 align-items="center" flex-shrink=0 resize=queueSized
+                  button pointer-events="auto" press=openQueue(data.owner) box-sizing="border-box" min-width=0 height=38.5 max-width=(maxWidth * 0.45) padding-left=10.5 padding-right=10.5 flex-shrink=0 aria-label=`Open queue, ${data.queueCount} messages` testId="thread-queue-open"
+                    row min-width=0 height="100%" align-items="center" gap=7
+                      if data.statusKind != "" or data.browserCount > 0 or data.deviceCount > 0 or data.agentsLabel != ""
+                        view width=1 height=14 margin-right=3.5 background-color=colors.border
+                      t3-symbol symbol-name="list.number" symbol-tint=colors.muted width=13 height=13
+                      text `${data.queueCount} queued` font-variant-numeric="tabular-nums" min-width=0 flex-shrink=1 font-size=13 line-height="17px" font-weight=500 line-clamp=1 text-overflow="ellipsis" color=colors.foreground
+          if showScrollToEnd
+            button pointer-events="auto" press=scrollToEnd width=38.5 height=38.5 padding=0 border-radius=999 background-color=colors.glassFallback border-width=1 border-style="solid" border-color=colors.border box-sizing="border-box" aria-label="Scroll to end" testId="scroll-to-end"
+              t3-composer-material position="absolute" inset=0 pointer-events="none" aria-hidden=true
+                material-appearance=(dark ? "dark" : "light") material-radius=32 material-style="regular" material-tint=glassTint material-surface=colors.glassFallback material-border=colors.border
+              t3-symbol symbol-name="chevron.down" symbol-weight="regular" symbol-tint=colors.foreground width=16 height=16
 component WorkingStatus
   props
     data: WorkingControlData
