@@ -17,4 +17,5 @@ Native presentation-source identifiers, document-specific preview/share routing 
 ### Checkpoints
 
 - Focused attachment Contract assertions pass.
-- Full mobile and iOS build checks remain to be run before landing.
+- Full mobile suite passes: 4,277 tests, 2 skips, 0 failures.
+- Contract build, caps, boot and iOS Simulator no-install build pass.
