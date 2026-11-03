@@ -41,6 +41,13 @@ function fixture(items: Obj[] = [], projection: Obj = {}): T3Client {
 }
 
 describe('bounded transcript Markdown reuse', () => {
+  test('subagent notifications keep the source child-thread link in mobile rows', () => {
+    const notification = item('notification', 'notification', { summary: 'Subagent finished', outcome: 'completed', source: { kind: 'subagent', childThreadId: 'child' } });
+    const row = mobileThreadRows(fixture([notification], { subagents: [{ childThreadId: 'child', title: 'Subagent: worker', status: 'completed' }] }), now)
+      .find(value => value.kind === 'subagent');
+    expect(row?.activities[0]).toMatchObject({ targetId: 'child', targetLabel: 'Open subagent' });
+  });
+
   test('thread Markdown keeps prose and code selectable like the reference reader', () => {
     const source = appText('mobile/thread-markdown.contract');
     expect(source).toContain('text token.text user-select="text"');

@@ -10,12 +10,13 @@ import { turnItemDetailView, turnItemIsOpen } from './shared/timeline-item-fetch
 import { projectedWorkEntry, groupAction, collectToolFilePaths, formatReadToolLabel, formatSearchToolLabel } from './shared/timeline-worklog';
 import { t3ToolDefinition } from './shared/timeline-t3tools';
 import { preparationFailureRunId, workspacePreparationRetryRunIds } from './shared/r11-upstream-retry';
+import { cachedToolImageUrl, toolImages } from './timeline-tool-images';
 
 export interface ThreadAnswerFile { id: string; name: string; image: boolean; url: string }
 export interface ThreadAnswerHistory { id: string; question: string; answer: string; files: ThreadAnswerFile[] }
 export interface ThreadActivity { id: string; label: string; body: string; output: string; result: string; detail: string;
   failed: boolean; expandable: boolean; expanded: boolean; reasoning: boolean; loading: boolean; symbol: string; timestamp: string;
-  prominentError: boolean; warning: boolean; call: boolean; retryRunId: string; retryDisabled: boolean; iconURL: string; reasoningBlocks: ThreadMarkdownBlock[]; answerPreview: string; hasAnswer: boolean; answerHistory: ThreadAnswerHistory[]; nativeWorkRow: string; nativeWorkImage: boolean; nativeWorkDetail: boolean; nativeCommandDetail: boolean }
+  prominentError: boolean; warning: boolean; call: boolean; retryRunId: string; retryDisabled: boolean; iconURL: string; reasoningBlocks: ThreadMarkdownBlock[]; answerPreview: string; hasAnswer: boolean; answerHistory: ThreadAnswerHistory[]; targetId: string; targetLabel: string; toolImages: { id: string; name: string; source: string; url: string }[]; nativeWorkRow: string; nativeWorkImage: boolean; nativeWorkDetail: boolean; nativeCommandDetail: boolean }
 const toolSymbols: Record<string, string> = { terminal: 'terminal', 'file-text': 'doc.text', 'file-code': 'doc.text', search: 'magnifyingglass',
   brain: 'brain', 'circle-alert': 'exclamationmark.circle', 'file-pen': 'square.and.pencil', 'folder-open': 'folder', globe: 'globe', browser: 'globe', 'git-branch': 'arrow.triangle.branch', zap: 'bolt' };
 const errorTime = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -139,6 +140,7 @@ export function mobileThreadActivity(activity: Activity, row: Obj | undefined, c
     symbol: toolSymbols[activity.icon] ?? 'wrench', timestamp: prominentError ? dateLabel(activity.timestamp) : timestamp,
     prominentError, warning, call: call !== null, retryRunId,
     retryDisabled: !client.writable || client.busy || !!client.pending,
-    iconURL,
+    iconURL, targetId: activity.targetId ?? '', targetLabel: activity.targetId ? original.type === 'thread_created' ? 'Open chat' : 'Open subagent' : '',
+    toolImages: toolImages(shown).map(image => ({ id: image.id, name: image.name, source: image.source, url: cachedToolImageUrl(client, image.id) ?? '' })),
   };
 }

@@ -10,6 +10,7 @@ import { mobileThreadActivity } from './thread-work';
 import { mobileThreadRows } from './thread';
 import { chatLocal, transcriptRows } from './shared/timeline-presentation';
 import { mobileThreadColors } from './design';
+import { cachedToolImageUrl, toolImageUrls, toolImages } from './timeline-tool-images';
 const now = Date.parse('2026-10-07T12:00:00Z');
 const time = '2026-10-07T12:00:00Z';
 const activity: Activity = { id: '["source","item"]', label: 'Tool', body: '', output: '', result: '', icon: 'terminal', timestamp: time, failed: false, expandable: true, detailOpen: true };
@@ -26,6 +27,35 @@ function clientFor(rows: Obj[]) {
 }
 const native: Native = { available: true, watch() {}, async later() { return { ok: true, value: {}, generation: 1 }; } };
 const files: Files = { fs: { async mkdir() {}, async readFile() { return new ArrayBuffer(0); }, async atomicWriteFile() {} } };
+
+test('subagent lifecycle activities retain their child thread navigation target', () => {
+  const row = projected({ type: 'subagent', childThreadId: 'child-thread', title: 'Subagent: worker', status: 'completed' });
+  expect(mobileThreadActivity({ ...activity, targetId: 'child-thread' }, row, clientFor([row]), now, false, '', 'visit')).toMatchObject({
+    targetId: 'child-thread', targetLabel: 'Open subagent',
+  });
+});
+
+test('dynamic tool output images retain source order and receive signed preview URLs', async () => {
+  const row = projected({ type: 'dynamic_tool', threadId: 'source', output: { content: [
+    { type: 'text', text: 'before' },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'one' } },
+    { type: 'image', mimeType: 'image/jpeg', data: 'two' },
+    { type: 'image', mimeType: 'image/svg+xml', data: 'ignored' },
+  ] } });
+  const client = clientFor([row]), sourceImages = toolImages(obj(row.item));
+  expect(sourceImages).toHaveLength(2);
+  expect(sourceImages.map(image => image.name)).toEqual(['Tool output image 1', 'Tool output image 2']);
+  setTurnItemOpen(client, activity.id, true);
+  const calls: Obj[] = [];
+  client.rpc = async (_native, method, payload) => { calls.push({ method, ...obj(payload) }); return { relativeUrl: `/assets/${calls.length}` }; };
+  await toolImageUrls(client, native, now);
+  expect(calls).toHaveLength(2);
+  expect(calls[0]?.resource).toEqual({ _tag: 'tool-output-image', threadId: 'source', itemId: 'item', index: 0 });
+  expect(cachedToolImageUrl(client, sourceImages[0]!.id)).toBe('https://tools.test/assets/1');
+  expect(mobileThreadActivity({ ...activity, toolImages: sourceImages }, row, client, now, false, '', 'visit').toolImages[1]).toMatchObject({
+    name: 'Tool output image 2', url: 'https://tools.test/assets/2',
+  });
+});
 
 test('recognized browser tools keep their globe through shared and mobile row projection', async () => {
   for (const toolName of ['preview_status', 'preview_open', 'unknown']) {

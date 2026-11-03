@@ -162,7 +162,7 @@ component ThreadMessage
           if row.body.length > 0
             ThreadMarkdown(blocks=row.blocks, user=false, action=action, colors=colors)
           for activity in row.activities key=activity.id
-            ThreadToolRow(activity=activity, workWidth=workWidth, action=action, colors=colors)
+            ThreadToolRow(activity=activity, workWidth=workWidth, action=action, openMedia=openMedia, colors=colors)
 
 component ThreadCopy
   props

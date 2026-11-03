@@ -17,6 +17,7 @@ import { letGoAware } from './shared/let-go';
 import { transcriptRows, timelineView } from './shared/timeline-presentation';
 import { refreshTimelineReads, timelineReadsNeeded } from './shared/timeline-prepare';
 import { attachmentUrls, cachedAttachmentUrl } from './shared/timeline-attachments';
+import { toolImageUrls } from './timeline-tool-images';
 import { syncWorktreeSetup } from './shared/timeline-worktree';
 import { threadPhase } from './shared/composer-presentation';
 import { primaryAction } from './shared/composer-controls-view';
@@ -188,6 +189,7 @@ export async function mobileThreadPrepare(nativeInput: Native | null | undefined
       refreshTimelineReads(mobileClient, native),
       attachmentUrls(mobileClient, native, now),
     ]);
+    await toolImageUrls(mobileClient, native, now);
   }
   return { revision: mobileClient.revision, pending: timelineReadsNeeded(mobileClient) };
 }

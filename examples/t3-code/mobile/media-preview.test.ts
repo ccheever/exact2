@@ -25,6 +25,18 @@ function fixture() {
 const prepare = (f: ReturnType<typeof fixture>, id: string, route = 'route', scope = 'transcript') => mobileMediaPrepare(scope, id, route, f.native, f.client);
 
 describe('mobile media preview ownership', () => {
+  test('tool output images open through the same native media route with their resource token', async () => {
+    const f = fixture(), item: Obj = { id: 'tool', type: 'dynamic_tool', threadId: 'thread', output: { content: [
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'encoded' } },
+    ] } };
+    f.client.projection.visibleTurnItems = [{ sourceThreadId: 'thread', sourceItemId: 'tool', item }];
+    const id = `tool-image:${JSON.stringify(['thread', 'tool', 0])}`;
+    const value = await prepare(f, id);
+    expect(value).toMatchObject({ name: 'Tool output image 1', kind: 'image', ready: true, error: '' });
+    expect(JSON.parse(value.sourceJSON)).toMatchObject({ source: 'tool-output-image', id, url: 'https://environment.example/api/assets/signed?cap=actual-server-result' });
+    expect(f.calls[0]?.payload).toEqual({ resource: { _tag: 'tool-output-image', threadId: 'thread', itemId: 'tool', index: 0 } });
+  });
+
   test('fresh server authorization on open, first URL kept across resource refresh, explicit retry re-mints', async () => {
     const f = fixture(); const first = await prepare(f, 'pdf');
     expect(first).toMatchObject({ name: 'report.pdf', kind: 'file', ready: true, error: '' });

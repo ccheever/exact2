@@ -33,6 +33,10 @@ test('feed scrollports measure authored padding and avoid animating stream corre
   expect(thread).toContain('min-width=0 box-sizing="border-box" overflow-x="hidden" overscroll-behavior="contain" keyboardDismissMode="none" touch-action="pan-y" virtualized=true');
   expect(thread).not.toContain('scroll-behavior="smooth"');
   expect(work).toContain('button appearance="none" press=toggleDetail');
+  expect(work).toContain('row align-items="center" gap=3.5 width="100%" min-width=0');
+  expect(work).toContain('button appearance="none" press=action("open-agent", activity.targetId, "") flex-shrink=0');
+  expect(work).toContain('for picture in activity.toolImages key=picture.id');
+  expect(work).toContain('button appearance="none" press=openMedia(picture.id)');
   expect(work).toContain('scroll max-height=210 min-width=0 box-sizing="border-box" overflow-y="auto" overscroll-behavior="contain" scrollbar-width="none" touch-action="pan-y"');
   const markdown = appText('mobile/thread-markdown.contract');
   expect(markdown).toContain('button appearance="none" press=action("chatlocal:copy-code"');
