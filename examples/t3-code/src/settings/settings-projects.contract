@@ -139,7 +139,8 @@ component ProjectsPanel
     dialogOpener(opener)
     open(op, id, value)
   view
-    column width="100%" gap="1.5rem" testId="projects-settings"
+    // ProjectSettingsPanel puts its first block 24pt (gap-6) under the scope sentence; the settings column's gap puts 32.
+    column width="100%" gap="1.5rem" margin-top=(data.selected ? "-0.5rem" : 0) testId="projects-settings"
       if error != ""
         text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#fb2c36, #fb414a)" role="alert" testId="projects-error" padding-left="1rem"
       if data.ready and not data.selected and data.message != ""

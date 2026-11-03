@@ -140,7 +140,7 @@ component SnapKeys
   view
     row gap="0.25rem" align-items="center"
       for chip in data.keys key=chip.id
-        row height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" align-items="center" justify-content="center" background-color="light-dark(#fafafa, #ffffff08)"
+        row height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" align-items="center" justify-content="center" background-color="light-dark(#18181b12, #f5f5f512)"
           text chip.label font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #a1a1a1)" aria-hidden=true
 
 component SnapshotPanel
