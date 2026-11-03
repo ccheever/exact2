@@ -350,7 +350,7 @@ final class InlineContextIOSTests: XCTestCase {
         XCTAssertEqual(preview.view.bounds.size, area.size, "UIKit's footprint")
         let drawn = onScreen(preview.view)
         XCTAssertEqual(pixel(drawn, at: CGPoint(x: 2, y: area.height / 2)), [255, 0, 0, 255], "the picture reflected past the card, none of the page")
-        // A blur over the picture, which only the screen shows: the screen's pixels, its edge stretched past the card
+        // A blur over the picture: live over the copies and over all of the padding, so the band past the card is blurred too
         let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
         blur.frame = card.bounds
         card.insertSubview(blur, belowSubview: node)
@@ -358,7 +358,7 @@ final class InlineContextIOSTests: XCTestCase {
         let screen = try lift(p, node, at: try XCTUnwrap(rects.first))
         let shown = onScreen(screen.view)
         let band = pixel(shown, at: CGPoint(x: 2, y: area.height / 2)), inside = pixel(shown, at: CGPoint(x: 12, y: area.height / 2))
-        XCTAssertTrue(band.count == 4 && zip(band, inside).allSatisfy { abs(Int($0) - Int($1)) <= 3 }, "the blur's edge stretched past the card (\(band) beside \(inside)), none of the page")
+        XCTAssertTrue(band.count == 4 && zip(band, inside).allSatisfy { abs(Int($0) - Int($1)) <= 3 }, "the blur past the card (\(band) beside \(inside)), none of the page")
     }
 
     /// The paragraph moved into a card with `margin` around it, less than UIKit's padding, under a root controller,
@@ -385,11 +385,11 @@ final class InlineContextIOSTests: XCTestCase {
         return try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configuration: config, highlightPreviewForItemWithIdentifier: config.identifier))
     }
 
-    func testARunOverABlurLiftsTheScreen() throws {
+    func testARunOverABlurShowsTheBlurLive() throws {
         let p = try presenter()
         defer { p.menus.reset(); window.isHidden = true }
         let node = try XCTUnwrap(p.views[2])
-        // A blur under the paragraph, which the render server alone draws
+        // A blur under the paragraph, which only the render server draws
         let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
         blur.frame = node.frame.insetBy(dx: -20, dy: -20)
         node.superview?.insertSubview(blur, belowSubview: node)
@@ -399,7 +399,33 @@ final class InlineContextIOSTests: XCTestCase {
         let rect = try XCTUnwrap(rects.first)
         let config = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: rect.midX, y: rect.midY)))
         let preview = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configuration: config, highlightPreviewForItemWithIdentifier: config.identifier))
-        XCTAssertTrue(try XCTUnwrap(preview.view.subviews.first).isScreens, "the screen's own picture, blur and all, not one the host drew")
+        let padding = try XCTUnwrap(preview.view.subviews.first)
+        XCTAssertFalse(padding.isScreens, "no snapshot of the screen")
+        XCTAssertTrue(padding.subviews.contains { ($0 as? UIVisualEffectView)?.effect is UIBlurEffect }, "the blur live over copies of what lies under it")
+        XCTAssertEqual(preview.view.bounds.size, textLines(rects, in: node).area.size)
+        let animator = Animator()
+        p.menus.context.contextMenuInteraction(interaction, willEndFor: config, animator: animator)
+        animator.animations.forEach { $0() }
+        XCTAssertEqual(padding.alpha, 0, "it lands without its padding")
+    }
+
+    func testARunOverAFilteredLayerLiftsTheScreen() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let node = try XCTUnwrap(p.views[2])
+        // A layer under the paragraph that only the render server composites: a blend mode
+        let blend = CALayer()
+        blend.frame = node.frame.insetBy(dx: -20, dy: -20)
+        blend.backgroundColor = UIColor.systemTeal.cgColor
+        blend.compositingFilter = "multiplyBlendMode"
+        node.superview?.layer.insertSublayer(blend, below: node.layer)
+        until("the paragraph is drawn") { node.snapshotView(afterScreenUpdates: false) != nil }
+        let interaction = try XCTUnwrap(node.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
+        let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
+        let rect = try XCTUnwrap(rects.first)
+        let config = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: rect.midX, y: rect.midY)))
+        let preview = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configuration: config, highlightPreviewForItemWithIdentifier: config.identifier))
+        XCTAssertTrue(try XCTUnwrap(preview.view.subviews.first).isScreens, "the screen's own picture, not one the host made")
         XCTAssertEqual(preview.view.bounds.size, textLines(rects, in: node).area.size)
         let animator = Animator()
         p.menus.context.contextMenuInteraction(interaction, willEndFor: config, animator: animator)

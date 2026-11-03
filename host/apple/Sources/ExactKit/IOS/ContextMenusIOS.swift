@@ -694,33 +694,58 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
             let padding = UIView(frame: CGRect(origin: .zero, size: area.size))
             padding.layer.backgroundColor = color
             return padding
-        case .layers:
-            // The root's coordinates in the area's
-            let placement = Self.placement(of: root, in: container).concatenating(CGAffineTransform(translationX: -area.minX, y: -area.minY))
-            let padding = UIView(frame: CGRect(origin: .zero, size: area.size)), placed = CALayer()
+        case .layers(let materials):
+            let padding = UIView(frame: CGRect(origin: .zero, size: area.size))
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             defer { CATransaction.commit() }
-            placed.frame = padding.bounds
-            placed.sublayerTransform = CATransform3DMakeAffineTransform(placement)
-            if let copy = replica(of: root.layer, across: area, in: container.layer, paragraph: source.layer) {
-                // In the root's own coordinates
-                (copy.anchorPoint, copy.position, copy.transform) = (.zero, root.layer.bounds.origin, CATransform3DIdentity)
-                placed.addSublayer(copy)
-            }
+            let placed = copies(of: root, across: lines, paragraph: source.layer)
             padding.layer.addSublayer(lines.inner.map { reflected(placed, inside: $0) } ?? placed)
+            // Each material live over the copies, which it blurs as the render server composites the platter: no
+            // snapshot waits for it. The box's own spreads over all of the padding, which it then blurs past the box.
+            let above = CALayer()
+            above.frame = padding.bounds
+            for material in materials {
+                let live = UIVisualEffectView(effect: material.effect)
+                let frame = material.convert(material.bounds, to: container).offsetBy(dx: -area.minX, dy: -area.minY)
+                if let inner = lines.inner, frame.insetBy(dx: -0.5, dy: -0.5).contains(inner) {
+                    live.frame = padding.bounds
+                } else {
+                    live.frame = frame
+                    if #available(iOS 26.0, *) { live.cornerConfiguration = material.cornerConfiguration } else { (live.layer.cornerRadius, live.clipsToBounds) = (material.layer.cornerRadius, true) }
+                }
+                padding.addSubview(live)
+                // What the material holds, over it
+                above.addSublayer(copies(of: material.contentView, across: lines, paragraph: source.layer))
+            }
+            if !materials.isEmpty { padding.layer.addSublayer(above) }
             return padding
         }
+    }
+
+    /// Copies of `view`'s layers across the run's area (`replica`), placed in
+    /// the area's coordinates
+    private static func copies(of view: UIView, across lines: RunLines, paragraph: CALayer) -> CALayer {
+        let placed = CALayer(), area = lines.area
+        placed.frame = CGRect(origin: .zero, size: area.size)
+        placed.sublayerTransform = CATransform3DMakeAffineTransform(Self.placement(of: view, in: lines.container).concatenating(CGAffineTransform(translationX: -area.minX, y: -area.minY)))
+        if let copy = replica(of: view.layer, across: area, in: lines.container.layer, paragraph: paragraph) {
+            // In the view's own coordinates
+            (copy.anchorPoint, copy.position, copy.transform) = (.zero, view.layer.bounds.origin, CATransform3DIdentity)
+            placed.addSublayer(copy)
+        }
+        return placed
     }
 
     /// A copy of `layer` and of what it holds across `area` (in `space`), which
     /// the render server composites as it does the original, with no pixel
     /// drawn: geometry, fill, corners, clip, border, shadow and opacity,
     /// contents shared, gradients and shapes by their properties, and the
-    /// paragraph by its fill alone. Speed before fidelity: what a layer draws
-    /// some other way is left out.
+    /// paragraph by its fill alone. A material is left to its live copy
+    /// (`padding`). Speed before fidelity: what a layer draws some other way
+    /// is left out.
     private static func replica(of layer: CALayer, across area: CGRect, in space: CALayer, paragraph: CALayer) -> CALayer? {
-        guard !layer.isHidden, layer.opacity > 0 else { return nil }
+        guard !layer.isHidden, layer.opacity > 0, !(layer.delegate is UIVisualEffectView) else { return nil }
         let copy: CALayer
         switch layer {
         case let gradient as CAGradientLayer:
@@ -800,8 +825,9 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
     private enum Underneath {
         /// One flat color: nothing paints there but fills that cover all of it.
         case color(CGColor)
-        /// Layers Core Animation draws, which their copies show (`replica`)
-        case layers
+        /// Layers Core Animation draws, which their copies show (`replica`), and
+        /// materials (blurs and glass), which live copies of them show
+        case layers(materials: [UIVisualEffectView])
         /// Something only the render server draws (`drawnByRenderServer`)
         case renderServer
     }
@@ -813,7 +839,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
     /// too, at full opacity. The box the padding extends (`box`) counts as
     /// covering the area. Anything else is copied (`replica`), never guessed.
     private static func underneath(_ root: CALayer, across area: CGRect, in space: CALayer, exceptFor paragraph: CALayer, within box: CALayer?) -> Underneath {
-        var flat = false, fills: [CGColor] = []
+        var flat = false, fills: [CGColor] = [], materials: [UIVisualEffectView] = []
         func paint(_ layer: CALayer, opacity: Float) {
             if layer !== paragraph, paintsBeyondItsFill(layer) { flat = false; return }
             guard let fill = layer.backgroundColor, fill.alpha > 0 else { return }
@@ -825,6 +851,13 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         func visit(_ layer: CALayer, around: CGRect, opacity: Float) -> Bool? {
             guard !layer.isHidden, layer.opacity > 0 else { return false }
             let alpha = opacity * layer.opacity, inside = layer.frame.intersects(around)
+            // A material: shown live (`padding`), with only what it holds walked
+            if let material = layer.delegate as? UIVisualEffectView {
+                guard inside, material.effect != nil else { return inside }
+                flat = false
+                materials.append(material)
+                return visit(material.contentView.layer, around: space.convert(area, to: layer), opacity: alpha).map { _ in true }
+            }
             if inside {
                 if drawnByRenderServer(layer) { return nil }
                 paint(layer, opacity: alpha)
@@ -842,7 +875,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         }
         guard visit(root, around: root.superlayer.map { space.convert(area, to: $0) } ?? area, opacity: 1) != nil else { return .renderServer }
         if flat, let color = composite(fills) { return .color(color) }
-        return .layers
+        return .layers(materials: materials)
     }
 
     /// Whether `layer`'s fill covers all of `area` (in `space`): unmasked and
@@ -854,10 +887,10 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         return bounds.contains(area) && (r == 0 || bounds.insetBy(dx: r, dy: 0).contains(area) || bounds.insetBy(dx: 0, dy: r).contains(area))
     }
 
-    /// Whether only the render server draws `layer`: filters (blurs and
-    /// materials), video, Metal, a 3D transform, and content another process
-    /// draws (a web view, an embedded platform view), which no copy of its
-    /// properties shows.
+    /// Whether only the render server draws `layer`: filters, video, Metal, a
+    /// 3D transform, and content another process draws (a web view, an
+    /// embedded platform view), which no copy of its properties shows. A
+    /// material's own filters never get here: it is shown live (`underneath`).
     private static func drawnByRenderServer(_ layer: CALayer) -> Bool {
         if let node = layer.delegate as? NodeView, ["iframe", "native", "video"].contains(node.kind) { return true }
         return layer is CAMetalLayer || layer is AVPlayerLayer || layer is AVSampleBufferDisplayLayer || layer is AVCaptureVideoPreviewLayer
