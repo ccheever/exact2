@@ -1239,16 +1239,17 @@ test('the tour at the largest text size: only what the visited screens did not s
   assert.deepEqual(tourNews(visited, toured), [{ screen: 'line 36 of "study"', lines: [toured[0].lines[1]] }]);
 });
 
-// LLP 1116.020 D4: a font size the app's Contract fixes is a finding, named where it is written, with the rem it would be;
-// app.json's `verify.accept` takes one by its node's testId, and a test file is no screen.
+// LLP 1116.020 D4: a font size the app's Contract fixes is a finding, named where it is written, with the rem it would be
+// and the capped role a box that cannot grow takes, which is no finding itself; app.json's `verify.accept` takes one by its
+// node's testId, and a test file is no screen.
 test("fixed type: each fixed font size in the app's Contract, counted; an accepted one listed apart", async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'verify-fixed-'));
   try {
-    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    column\n      text "Total" font-size=28\n      text "12:00" font-size=72 testId="clock"\n      text "Fine" font-size="1.75rem"\n');
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    column\n      text "Total" font-size=28\n      text "12:00" font-size=72 testId="clock"\n      text "Fine" font-size="1.75rem"\n      image "symbol:add" font-size="min(-exact-title3, 24px)"\n');
     writeFileSync(resolve(dir, 'app.test.contract'), 'test "t"\n  expect text "clock" == "12:00"\n');
     const accept = [{ finding: 'fixed-type', node: 'clock', why: 'a wall clock' }];
     const fixed = await fixedType(dir, 'ios', accept);
-    assert.deepEqual(fixed.lines, ['  fixed    app.contract:4 text font-size=28: stays 28 pt as Dynamic Type grows; a role (`font="-exact-title1"`) or a `rem` size ("1.75rem") scales']);
+    assert.deepEqual(fixed.lines, ['  fixed    app.contract:4 text font-size=28: stays 28 pt as Dynamic Type grows; a role (`font="-exact-title1"`) or a `rem` size ("1.75rem") scales; where its box cannot grow, a role with a cap scales up to it (`font-size="min(-exact-title3, 24px)"`)']);
     assert.equal(fixed.accepted.length, 1);
     const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], fixed, accept, shots: [], ms: 1000 });
     assert.deepEqual(r.lines.slice(1, 3), ["fixed type: 1 font size the reader's text size does not move", fixed.lines[0]]);
