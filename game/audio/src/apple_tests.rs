@@ -758,3 +758,13 @@ fn malformed_pcm_refuses_without_mutating_pending_ownership() {
     }
     assert_eq!(mixer.frame(), (0.25, 0.25));
 }
+
+// An iPhone's RemoteIO reports 0 Hz before it is initialized;
+// its converter takes any client rate, so the output opens.
+#[test]
+fn an_unreported_device_rate_falls_back_to_the_client_rate() {
+    assert_eq!(client_rate(44_100.0), 44_100.0);
+    for unreported in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+        assert_eq!(client_rate(unreported), CLIENT_RATE);
+    }
+}
