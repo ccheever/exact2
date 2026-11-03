@@ -1,8 +1,8 @@
 // `edit-held` (tamber/1.17; scripts/tamber-edit-held.mjs): one value of a held proposal changed, on the real server
 // (`contract tamber serve`): a value and a `when` branch's, `items` kept and the review renumbered, the old one replaced
 // in one step (`proposal-dropped {reason: 'edited', replacedBy, editedBy}`), the original client's still, a 3,000-op
-// held import edited with no ops sent, every refusal, another client's needing `write`, an edit racing an accept, and
-// a failed plan putting the old one back.
+// held import edited with no ops sent, every refusal, another client's needing `write`, and a failed plan putting the old
+// one back; an edit racing an accept, a drop or another edit runs on a stand-in server that holds its plan.
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
@@ -57,7 +57,9 @@ async function subscribe() {
   const until = async (pass, ms = 5000) => { const end = Date.now() + ms; while (!pass(events)) { if (Date.now() > end) throw new Error(`no such event in ${JSON.stringify(events)}`); await Bun.sleep(20); } };
   return { events, until, close: () => reader.cancel() };
 }
-const heldList = async () => (await (await fetch(`${origin}/__tamber/events`, { method: 'POST', headers, body: JSON.stringify({ after: 0, wait: false, client: 'tool' }) })).json()).proposals;
+/** The server's event log after `at` (a previous answer's `seq` and `epoch`; from the start when it is omitted), as a client catching up reads it. */
+const logAfter = async (at = { seq: 0 }) => (await fetch(`${origin}/__tamber/events`, { method: 'POST', headers, body: JSON.stringify({ after: at.seq, epoch: at.epoch, wait: false, client: 'tool' }) })).json();
+const heldList = async () => (await logAfter()).proposals;
 
 test('a value and a when branch edited: held again in its place, the original client\'s, the review kept and renumbered', async () => {
   const stream = await subscribe();
@@ -71,6 +73,7 @@ test('a value and a when branch edited: held again in its place, the original cl
   // The when branch, by the tool's person: no ops sent.
   const edit = await post({ method: 'edit-held', client: 'design-tool:Ada', proposal: old, index: 0, when: 1, value: ' #0a0a0a ' });
   expect(edit.status).toBe(200);
+  expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('glow'); // nothing written
   expect(edit.ok).toMatchObject({ recomputed: true, replaces: old, client: 'agent:codex', replaces: old });
   expect(edit.ok.ops.map(o => o.op)).toEqual([
     { op: 'add-token', name: 'glow', value: '#010101', whens: [{ when: [{ axis: 'density', value: 'compact' }], value: '#0a0a0a' }] },
@@ -136,35 +139,18 @@ test('a 3,000-op held import has one value edited with no ops sent', async () =>
   await post({ method: 'drop', client: 'agent:figma', proposal: edit.ok.proposal });
 }, 120_000);
 
-test('an edit racing an accept: the edit holds it while it plans, so the accept finds none; a plan that fails leaves it held as it was', async () => {
-  const stream = await subscribe();
-  // A big proposal, so its edit's plan takes a while: the accept, the drop and a second edit come while it plans.
-  const id = (await post({ method: 'import', kind: 'tailwind', client: 'agent', source: bigTheme('race', '#060606') })).ok.proposal;
-  const editing = post({ method: 'edit-held', client: 'person', proposal: id, index: 0, value: '#070707' });
-  await Bun.sleep(30);
-  const [accepted, dropped, second] = await Promise.all([post({ method: 'accept', client: 'person', proposal: id }), post({ method: 'drop', client: 'agent', proposal: id }), post({ method: 'edit-held', client: 'person', proposal: id, index: 1, value: '#080808' })]);
-  expect([accepted.status, dropped.status, second.status]).toEqual([404, 404, 404]);
-  const edit = await editing;
-  expect(edit.status).toBe(200);
-  // The survivor: the edit, held; nothing written.
-  expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('race-t0');
-  const list = await heldList();
-  expect(list.map(p => p.proposal)).toEqual(expect.arrayContaining([edit.ok.proposal]));
-  expect(list.map(p => p.proposal)).not.toContain(id);
-  expect(list.find(p => p.proposal === edit.ok.proposal).ops[0].op.value).toBe('#070707');
-  await post({ method: 'drop', client: 'agent', proposal: edit.ok.proposal });
-  // A value the design can't take: the plan fails, and the proposal is held as it was: the same record, no event.
+test('a plan that fails (a value the design can\'t take) leaves the proposal held as it was: the same record, no event', async () => {
   const kept = await post({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'edge', value: '#080808' }], review: { importer: 'css', tokens: 1 } });
-  await stream.until(e => e.some(x => x.event === 'proposal' && x.proposal === kept.ok.proposal));
-  const before = (await heldList()).find(p => p.proposal === kept.ok.proposal);
-  const seen = stream.events.length;
+  const at = await logAfter();
+  const before = at.proposals.find(p => p.proposal === kept.ok.proposal);
   const bad = await post({ method: 'edit-held', client: 'person', proposal: kept.ok.proposal, index: 0, value: 'not a colour (' });
   expect(bad.status).toBeGreaterThanOrEqual(400);
-  expect((await heldList()).find(p => p.proposal === kept.ok.proposal)).toEqual(before);
-  await Bun.sleep(100);
-  expect(stream.events.slice(seen).filter(e => e.proposal === kept.ok.proposal || e.replaces === kept.ok.proposal)).toEqual([]);
+  // Read the log at once: the server logs a request's events before it answers
+  const since = await logAfter(at);
+  expect(since.proposals.find(p => p.proposal === kept.ok.proposal)).toEqual(before);
+  expect(since.missed).toBe(false);
+  expect(since.events.filter(e => e.proposal === kept.ok.proposal || e.replaces === kept.ok.proposal)).toEqual([]);
   await post({ method: 'drop', client: 'agent', proposal: kept.ok.proposal });
-  stream.close();
 }, 120_000);
 
 test('a held revert is not edited; an edit holds at its requester\'s scope', async () => {
@@ -198,10 +184,13 @@ test('the scope: one\'s own at propose, another client\'s at write, as drop', ()
   expect(p.ops[0].value).toBe('#000');
 });
 
-/** A stand-in for `contract tamber serve` whose plan of an op valued `#barrier` waits for `release()`, and of one
- * valued `#refused` planned again (after its first plan) waits for `refuse()` and then is refused. */
+/** A stand-in for `contract tamber serve`: a plan of `#barrier` waits for `release()`, a second plan of `#refused` is
+ * refused at `refuse()`, and `arrived(n)` resolves once `n` such plans have come. */
 function barrierServe() {
   let release, gate = new Promise(ok => { release = ok; }), refuseNow, later = new Promise(ok => { refuseNow = ok; });
+  let holding = 0;
+  const waiters = [];
+  const hold = until => { holding++; for (const w of waiters) if (holding >= w.n) w.ok(); return until; };
   const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null, signalCode: null });
   child.kill = () => { child.exitCode = 0; child.emit('exit', 0); };
   let buf = '', seen = 0;
@@ -211,10 +200,11 @@ function barrierServe() {
       const r = JSON.parse(line), answer = () => child.stdout.write(`${JSON.stringify({ id: r.id, ok: { files: {}, diff: '', changed: [], class: 'live' } })}\n`);
       const refuse = () => child.stdout.write(`${JSON.stringify({ id: r.id, error: { message: 'refused at the gate' } })}\n`);
       const refused = (r.ops ?? []).some(o => o?.value === '#refused') && seen++ > 0;
-      if ((r.ops ?? []).some(o => o?.value === '#barrier')) gate.then(answer); else if (refused) later.then(refuse); else answer();
+      if ((r.ops ?? []).some(o => o?.value === '#barrier')) hold(gate).then(answer); else if (refused) hold(later).then(refuse); else answer();
     }
   });
-  return { child, release: () => release(), refuse: () => refuseNow() };
+  const arrived = n => new Promise(ok => (holding >= n ? ok() : waiters.push({ n, ok })));
+  return { child, release: () => release(), refuse: () => refuseNow(), arrived };
 }
 
 test('while an edit plans, its proposal is held and counted but no one else\'s: an accept, a drop or an edit finds none, and a hold at the cap evicts another', async () => {
@@ -232,7 +222,7 @@ test('while an edit plans, its proposal is held and counted but no one else\'s: 
     const p = (await call({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'a', value: '#000000' }] })).ok.proposal;
     for (let i = 1; i < 64; i++) await call({ method: 'propose', hold: true, client: `other-${i}`, ops: [{ op: 'set-token', name: 'a', value: '#000001' }] });
     const editing = call({ method: 'edit-held', client: 'person', proposal: p, index: 0, value: '#barrier' });
-    await Bun.sleep(20);
+    await serve.arrived(1); // (the edit planning)
     const [accepted, dropped, second] = await Promise.all([call({ method: 'accept', client: 'person', proposal: p }), call({ method: 'drop', client: 'agent', proposal: p }), call({ method: 'edit-held', client: 'person', proposal: p, index: 0, value: '#000002' })]);
     expect([accepted.status, dropped.status, second.status]).toEqual([404, 404, 404]);
     // A 65th hold meanwhile: the cap takes the oldest one not being edited, never the one planning.
@@ -264,7 +254,7 @@ test('with every held proposal being edited, a new hold is refused, never held a
     const ids = [];
     for (let i = 0; i < 64; i++) ids.push((await call({ method: 'propose', hold: true, client: `c-${i}`, ops: [{ op: 'set-token', name: 'a', value: '#000001' }] })).ok.proposal);
     const edits = ids.map(id => call({ method: 'edit-held', client: 'person', proposal: id, index: 0, value: '#barrier' }));
-    await Bun.sleep(30);
+    await serve.arrived(64); // (every edit planning)
     const at = await call({ after: 0, wait: false, client: 'tool' }, '/__tamber/events');
     const refused = await call({ method: 'propose', hold: true, client: 'late', ops: [{ op: 'set-token', name: 'a', value: '#000002' }] });
     expect([refused.status, refused.error?.message]).toEqual([409, '64 proposals are held and each is being edited: try again shortly']);
@@ -293,13 +283,13 @@ test('an accept that cannot hold again, its slot taken and every other held prop
     const p = (await call({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'a', value: '#refused' }, { op: 'set-token', name: 'b', value: '#000001' }] })).ok.proposal;
     for (let i = 1; i < 64; i++) await call({ method: 'propose', hold: true, client: `c-${i}`, ops: [{ op: 'set-token', name: 'a', value: '#000001' }] });
     const accepting = call({ method: 'accept', client: 'person', proposal: p, items: [0] });
-    await Bun.sleep(20);
+    await serve.arrived(1); // (the accept's recompute planning)
     // Its slot taken, then every held proposal (64) edited, each planning.
     await call({ method: 'propose', hold: true, client: 'late', ops: [{ op: 'set-token', name: 'a', value: '#000002' }] });
     const listed = (await call({ after: 0, wait: false, client: 'tool' }, '/__tamber/events')).proposals.map(q => q.proposal);
     expect(listed).toHaveLength(64);
     const edits = listed.map(id => call({ method: 'edit-held', client: 'person', proposal: id, index: 0, value: '#barrier' }));
-    await Bun.sleep(30);
+    await serve.arrived(65); // (and every edit)
     // The accept's re-plan refused while all 64 still plan their edits: P is dropped, never held as a 65th.
     serve.refuse();
     const accepted = await accepting;
@@ -340,7 +330,6 @@ test('replaced by an accept\'s recompute (the file moved since it was held): the
   const p1 = held.ok.proposal;
   // The design moves under it (a hand edit), so Ada's accept recomputes it rather than writing.
   writeFileSync(join(dir, 'app.tamber'), readFileSync(join(dir, 'app.tamber'), 'utf8').replace(/ink = #[0-9a-f]{6}/, 'ink = #010101'));
-  await Bun.sleep(600);
   const recomputed = await post({ method: 'accept', client: 'ada', proposal: p1 });
   expect(recomputed.ok?.recomputed, JSON.stringify(recomputed)).toBe(true);
   const again = await post({ method: 'accept', client: 'bea', proposal: p1 });

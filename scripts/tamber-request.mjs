@@ -1,5 +1,6 @@
 // A design server request's body and its JSON (scripts/tamber-server.mjs):
 // read whole up to a limit, parsed to an object, and how deep it nests.
+import { TIMING } from './tamber-timing.mjs';
 
 /** A request whose body is refused: answered first (a 413), its connection
  * closing after. Until the answer has gone out the rest goes unread; then it
@@ -110,7 +111,7 @@ export async function probeTool(origin, tries = 1) {
   try {
     const { token } = await got.json();
     // (Held while its design server starts: a dev loop's first compiler build.)
-    const said = await upstream(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(tries > 1 ? 120_000 : 10_000) });
+    const said = await upstream(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(tries > 1 ? TIMING.hello : 10_000) });
     // (An HTTP error status is an answer, whatever its body does after: no design server here, as for the token.)
     if (!said.ok) return { answer: { app: null } };
     const hello = await said.json();
@@ -121,7 +122,7 @@ export async function probeTool(origin, tries = 1) {
 /** `probe()` again every `everyMs` while it says `{wait}` (`tamber tool --via` while the dev loop starts, the design
  * tool's third pass's #9), each new reason said once (`say`), for at most `capMs`: its first other answer, or
  * `{waited: ms}` past the cap. Ctrl-c meanwhile exits 130 (SIGTERM 143), before anything is listening. */
-export async function waitForAnswer(probe, { say, capMs, everyMs = 2000, now = Date.now, exit = code => process.exit(code) }) {
+export async function waitForAnswer(probe, { say, capMs, everyMs = TIMING.viaEvery, now = Date.now, exit = code => process.exit(code) }) {
   const start = now(), codes = { SIGINT: 130, SIGTERM: 143 }, handlers = Object.entries(codes).map(([signal, code]) => [signal, () => exit(code)]);
   let said = null;
   try {
