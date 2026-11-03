@@ -1454,6 +1454,13 @@ arrive first, followed by the most recently read supported conversation and
 the remaining groups. A read can be `complete: true` while `acquired` is false;
 use the read's coverage to render it.
 
+For demonstrations or tuning, `Snapback.open({ ...options, acquireLimit: 400 })`
+limits acquisition requests to 400 rows; a product normally leaves it unset.
+The default is 10,000. Open refuses values outside the integer range 1–10,000
+with typed `E_CLIENT`. It applies when the shared partition is first opened;
+ordinary stream pages keep their 10,000-row budget. Server bounds may cut a
+page sooner, and a group that cannot fit uses staged replacement.
+
 Keep calling `sync()` in the app's background loop while `round.acquired` is
 false. To wait for full acquisition explicitly:
 
@@ -1471,14 +1478,18 @@ reopen. Row-image counts describe this open's acquisition, include duplicate
 deliveries, and restart when acquisition is replaced; they are not a total or
 proof of readable rows. Show “Syncing offline history…” or “Offline · some
 history is not downloaded”; show a failure when present. Do not show a
-percentage or ETA without a measured denominator. An indivisible acquisition
-`E_BOUND` stops retries until reopen; serialization overflow first reduces
-the requested page size.
+percentage or ETA without a measured denominator. Acquisition `E_BOUND`
+first tries staged replacement; serialization overflow reduces the requested
+page size before that fallback. If even a one-row replacement overflows, the
+typed `acquisition.failure` stays visible and stops retries until reopen.
 
 Early offline reads need a server built from Snapback revision
 `13f30b2fbc7875588cb541b7c2bbbe8c3c90d84f` or later; the npm version number
 alone is insufficient. Older servers use staged snapshots and finish with
-`acquired: true`. Generation and store replacement retain staged acquisition.
+`acquired: true`. Generation adoption and store resets clear the durable walk
+and set `replacement_required`; subsequent sync requests use a staged snapshot
+before publishing the replacement. The scheduler keeps the last eligible
+read's foreground hint across these resets.
 Rebuild an app's native and web device after updating the pin with
 `bun exact.mjs snapback --rebuild`.
 
@@ -1620,8 +1631,8 @@ tested-against dates and `readme-tested.json`; it makes no commit.
 changed since that run. Run the retest command when repinning, rather than editing
 the tested-against claims. The 0.4.52 progressive source pin has not been
 retested through that command: its npm package is not published. The dated
-0.4.33 claims and file hashes remain historical; the receipt is intentionally
-stale until a published package can qualify the examples again.
+0.4.33 receipt, claims and file hashes remain historical; the check reports
+them as stale until a published package can qualify the examples again.
 
 This workspace is outside the root's; its lock carries the private Snapback
 source. Run `cargo test -p exact-snapback4 -p exact-snapback4-client`
