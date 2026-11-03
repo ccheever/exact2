@@ -443,7 +443,9 @@ final class LaunchURLMacTests: XCTestCase {
         XCTAssertNil(session.boot(plan: try plan(routed), size: CGSize(width: 390, height: 844)).error)
         let oldProcess = UUID().uuidString
         let oldOwner = UUID().uuidString
-        for (id, location) in [("first", " \tthread/./42#reply "), ("second", "app://thread/../thread/43?view=full#reply")] {
+        // Expect the fragment, which `location_of` keeps (LLP 1153 D5)
+        for (id, location, expected) in [("first", " \tthread/./42#reply ", "/thread/42#reply"),
+                                         ("second", "app://thread/../thread/43?view=full#reply", "/thread/43?view=full#reply")] {
             let received = expectation(description: "notification delegate completion \(id)")
             respond(action: UNNotificationDefaultActionIdentifier, id: UUID().uuidString, date: Date(),
                     info: ["exact": ["navigate": location, "session": session.label,
@@ -453,7 +455,7 @@ final class LaunchURLMacTests: XCTestCase {
             let tree = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
             let nodes = try XCTUnwrap(tree["nodes"] as? [[String: Any]])
             let texts = nodes.compactMap { ($0["props"] as? [String: Any])?["text"] as? String }
-            XCTAssertTrue(texts.contains(id == "first" ? "/thread/42" : "/thread/43?view=full"), "\(texts)")
+            XCTAssertTrue(texts.contains(expected), "\(texts)")
         }
     }
 
