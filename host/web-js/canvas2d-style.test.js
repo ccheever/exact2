@@ -5,10 +5,11 @@
 // colour transition's end. A change that leaves them as they were draws nothing, and a commit that changes a canvas's
 // arguments and its colour draws it once, with both causes (D4: causes coalesce).
 import { test, expect, mock } from "bun:test";
+import { parseColor } from "../../canvas/recorder.js";
 
 const draws = [], after = [];
 mock.module("./canvas2d-glue.js", () => ({}));
-mock.module("./draw.js", () => ({ drawer: { draw: (q) => { draws.push(q); return { lists: [], frame: false }; }, retire() {} } }));
+mock.module("./draw.js", () => ({ drawer: { color: parseColor, draw: (q) => { draws.push(q); return { lists: [], frame: false }; }, retire() {} } }));
 
 test("whatever changes a canvas's colour draws it again, cause style", async () => {
   // The page's globals, stood in for the test and put back after it.
@@ -72,4 +73,12 @@ async function run() {
   // A commit that changes the canvas's arguments and its scheme.
   await commit(() => { ink = "rgb(0, 170, 0)"; }, [1]);
   expect(seen()).toEqual([[1, 199], [64, 100], [64, 110], [64, 120], [64, 209], [64, 130], [64, 150], [64, 160], [66, 170]]);
+  for (const color of ["color(display-p3 1 0 0)", "color(display-p3 0.95 0 0)", "oklch(0.6 0.2 30)", "oklch(0.7 0.2 30)"]) {
+    ink = color; await commit();
+    expect(draws.at(-1).frame[2]).toBe(64);
+    expect(draws.at(-1).color).toEqual(parseColor(color));
+    expect(draws.at(-1).color.lin).toHaveLength(3);
+  }
+  expect(draws).toHaveLength(13);
+
 }

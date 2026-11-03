@@ -164,8 +164,13 @@ impl DocTree {
     /// The active head, as [`crate::Runner::head`] reads a kernel's tree.
     pub fn head(&self) -> crate::Head {
         crate::head::head_of(self.roots.clone(), |id| {
-            self.node(id)
-                .map(|n| (n.node_type, &n.props, n.children.clone()))
+            self.node(id).map(|n| {
+                (
+                    n.node_type,
+                    &n.props,
+                    crate::head::Children::ids(&n.children),
+                )
+            })
         })
     }
 

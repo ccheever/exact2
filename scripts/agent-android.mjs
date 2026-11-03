@@ -364,6 +364,7 @@ function buildApk(app, env, profile, writeLocks = false) {
   // A game's resolved manifest (with its `app` identity) is the one its shells were generated with.
   // A date or time control's picker is Compose Material 3's, linked only for a plan that has one (LLP 1115.001.000 D2).
   const compose = uses.includes('dates') ? ['-Pcompose=1'] : [];
+  const development = JSON.parse(readFileSync(resolve(out, 'compat.json'), 'utf8')).embedded?.trust !== 'production';
   // The token names its hatches read (LLP 1121 D12), beside them in the build.
   if (existsSync(resolve(app.dir, 'modules/android'))) writeTamberNames(app, 'kotlin');
   const graph = mavenGraph(app, writeLocks);
@@ -371,6 +372,7 @@ function buildApk(app, env, profile, writeLocks = false) {
   let gradle;
   try {
     gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`,
+      `-PexactDevelopment=${development ? '1' : '0'}`,
       `-PappBuildDir=${dirs.app}`, `-PcanvasBuildDir=${dirs.canvas}`, `-PndkPath=${env.ANDROID_NDK_HOME}`, '--project-cache-dir', dirs.cache, `-Pkotlin.project.persistent.dir=${dirs.kotlin}`,
       ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...compose, ...extensionArgs(app, out, config), ...graph.args], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
     if (gradle.status === 0) graph.kept();

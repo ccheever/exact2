@@ -82,7 +82,8 @@ function captured(options) {
 }
 // The origin a fetch carries (LLP 1133.036 D6): its answer's, or, after the answer's first await, where no call is
 // traced, the least privileged of the answers in flight (LLP 1133.002 D12).
-export const fetchOrigin = () => answering.call?.origin ?? ([...answering.untraced].find(c => !c.settled)?.origin ?? 'app');
+export const activeCall = () => answering.call ?? [...answering.untraced].find(c => !c.settled);
+export const fetchOrigin = () => activeCall()?.origin ?? 'app';
 function fetchOf(input, options, call) {
   if (options?.exactStream === undefined && options?.exactBodyFrom === undefined && options?.exactBodyTo === undefined) return fetchWith(tsGrantSet, input, options, null, undefined, undefined, fetchOrigin());
   if (options.exactStream !== undefined && options.exactBodyTo !== undefined) return Promise.reject(new TypeError("exactBodyTo: a stream's body is its messages, not a file"));

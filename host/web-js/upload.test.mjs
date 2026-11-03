@@ -212,3 +212,52 @@ test('an upload let go is cut off if it went out, and forgotten if it never did'
   out.closed = never.closed = true;
   expect([uploadAt(r, [1])?.failed?.[2], uploadAt(r, [2])]).toEqual(['interrupted', undefined]);
 });
+
+test('an untraced async tool handler keeps its origin for fetches and nested module calls', async () => {
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(tmpdir(), 'exact-tool-origin-'));
+  const kept = ['fetch', 'location', 'exact', '__exact_module', '__exact_async_context', '__exact_ordinary'].map(k => [k, Object.getOwnPropertyDescriptor(globalThis, k)]);
+  let sent = 0;
+  globalThis.fetch = async () => { sent++; return new Response('sent'); };
+  globalThis.location = { hostname: 'public.example' };
+  writeFileSync(resolve(dir, 'source.js'), `import {fetch} from './ts-fetch.js';
+const ask = () => fetch('https://127.0.0.1/').then(() => 'sent', e => e.message);
+export const tools = { async probe() { const before = await ask(); await Promise.resolve(); const after = await ask(); const module = await globalThis.__exact_module({extension:'fixture', source:'ask'}); return {before, after, module}; }, throws() { throw new Error('handler failed'); } };`);
+  writeFileSync(resolve(dir, 'ts-data.js'), readFileSync(resolve(root, 'host/web-js/ts-data.js'), 'utf8').replace('__APP_TS__', './source.js').replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', ''));
+  writeFileSync(resolve(dir, 'rt.js'), 'export const clock={agent:false,now:0},journal=[],Resources=[],inflight={n:0};export const drive=()=>{},Origin={now:()=>"app"};export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();');
+  writeFileSync(resolve(dir, 'names.js'), 'export const sourceTypes={};');
+  writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(root, 'host/web-js/admission.js'), 'utf8').replace(/'\.\.\/web\/([a-z-]+\.js)'/g, "'./$1'"));
+  writeFileSync(resolve(dir, 'grant-admission.js'), `export {isLocalNetwork} from ${JSON.stringify(pathToFileURL(resolve(root, 'host/web/grant-admission.js')).href)};
+export const admitsNetwork=()=>true, admitsSecret=()=>false, coversPath=()=>false, createGrantSet=x=>x, grantError=()=>null, hasGrant=()=>false, rawGrantText=()=>'', scopedGrantSet=x=>x, unionGrantSets=x=>x, sameGrantDeclaration=()=>true;`);
+  writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet={};');
+  for (const name of ['address-space.js', 'faults.js']) cpSync(resolve(root, 'host/web', name), resolve(dir, name));
+  for (const name of ['ts-fetch.js', 'shape.js', 'uploads.js']) cpSync(resolve(root, 'host/web-js', name), resolve(dir, name));
+  cpSync(resolve(dir, 'admission.js'), resolve(dir, 'landing.js'));
+  try {
+    const ts = await import(pathToFileURL(resolve(dir, 'ts-data.js')).href), tsf = await import(pathToFileURL(resolve(dir, 'ts-fetch.js')).href), data = { q: [] };
+    ts.install(data);
+    globalThis.exact.extensions = { call: async body => ({ origin: body.origin, synchronousOrigin: tsf.answering.call?.origin,
+      fetch: await tsf.fetch('https://127.0.0.1/').then(() => 'sent', e => e.message) }) };
+    const result = await data.tool('probe', {}, new Map(), 'tool');
+    expect(result).toEqual({ before: 'NotAllowedError: person-required', after: 'NotAllowedError: person-required',
+      module: { origin: 'tool', synchronousOrigin: 'tool', fetch: 'NotAllowedError: person-required' } });
+    expect(sent).toBe(0); expect(tsf.answering.untraced.size).toBe(0);
+    expect(() => data.tool('throws', {}, new Map(), 'tool')).toThrow('handler failed');
+    expect(tsf.answering.untraced.size).toBe(0);
+    await tsf.fetch('https://127.0.0.1/'); expect(sent).toBe(1);
+    const spaces = await import(pathToFileURL(resolve(dir, 'address-space.js')).href);
+    // Even a fetch implementation that returns a landing URL must pass the destination gate before its body reader runs.
+    let read = false, redirect;
+    const native = globalThis.fetch;
+    globalThis.fetch = async (_url, init) => { redirect = init.redirect; return Object.defineProperty(new Response('private'), 'url', { value: 'https://127.0.0.1/' }); };
+    const checked = await import(pathToFileURL(resolve(dir, 'landing.js')).href);
+    await expect(checked.fetchWith({}, 'https://public.example/', {}, null, undefined, () => { read = true; }, 'tool')).rejects.toMatchObject({ kind: 'Refused', message: 'NotAllowedError: person-required' });
+    expect(read).toBe(false); expect(redirect).toBe('error');
+    spaces.setSpaceState('local', 'granted'); spaces.setSpaceState('loopback', 'granted');
+    await checked.fetchWith({}, 'https://public.example/', {}, null, undefined, () => { read = true; }, 'tool');
+    expect(read).toBe(true); expect(redirect).toBe('follow');
+    globalThis.fetch = native;
+  } finally {
+    for (const [key, descriptor] of kept) descriptor ? Object.defineProperty(globalThis, key, descriptor) : delete globalThis[key];
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

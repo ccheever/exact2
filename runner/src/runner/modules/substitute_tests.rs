@@ -166,3 +166,59 @@ fn a_changing_target_keeps_one_substitute_a_module_read_for_it() {
     assert_eq!(r.substitute(&rows[0])["timeout"], "5000");
     assert!(!r.substitute(&rows[0])["permission"].is_object());
 }
+
+mod shared_permission {
+    use crate::{Dispatch, Runner};
+    use exact_kernel::{Kernel, NodeType};
+    use exact_plan::{asm::Asm, builder::PlanBuilder, TypeKind};
+
+    #[test]
+    fn refreshing_one_shared_permission_waiter_keeps_the_others() {
+        let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+        let string = b.primitive(TypeKind::String);
+        let source = b.source("position", &[], string);
+        b.module(source, "testgeo", "position", false, false, "when-prompt", "", r#"{"default":"position","permission":{"name":"location","status":"status","field":"state","denied":"NotAllowedError"}}"#);
+        let r0 = b.resource("first", "position", &[], string, None);
+        b.resource("second", "position", &[], string, None);
+        let mut refresh = Asm::new();
+        refresh.refresh(r0);
+        let code = b.code(refresh);
+        b.action("refresh-first", &[], &[], code);
+        b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+        let mut r = Runner::boot(
+            b.finish().unwrap(),
+            (),
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let initial = r.take_requests();
+        assert_eq!(initial.len(), 2);
+        assert_eq!(r.device_holds().len(), 1);
+        for q in &initial {
+            assert!(matches!(
+                r.dispatch_work(q.request.continuation.unwrap()),
+                Dispatch::Held
+            ));
+        }
+        r.act("refresh-first", vec![]).unwrap();
+        let fresh = r.take_requests();
+        assert_eq!(r.device_holds().len(), 1);
+        assert!(r.holds(initial[1].ticket));
+        assert_eq!(fresh.len(), 1);
+        assert!(matches!(
+            r.dispatch_work(fresh[0].request.continuation.unwrap()),
+            Dispatch::Held
+        ));
+        assert!(r.release_work().is_empty());
+        let ticket = r.device_holds()[0].ticket;
+        r.answer_hold(ticket, &crate::HoldAnswer::Choice("allow".into()))
+            .unwrap();
+        assert_eq!(
+            r.release_work().len(),
+            2,
+            "both surviving waiters are released"
+        );
+    }
+}

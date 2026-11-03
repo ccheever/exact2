@@ -229,7 +229,8 @@ It builds outcomes: the final response's header check, bounding, `Response` cons
   - behind a per-host connection limit it lowered itself, which Apple allows;
   - behind an HTTP/2 or HTTP/3 peer's concurrent-stream limit.
 
-  Today, a worker's request doesn't start until a worker is free, so its deadline never sees queuing. With async, the deadline runs from `resume` and includes it.
+  Independent non-stream HTTP includes its initial core queue wait as well.
+  Ordered work retains the execution-start deadline described below.
 - **The core keeps that queuing rare, as best effort:**
   - The independent session's `HTTPMaximumConnectionsPerHost` is 32, the lane cap.
   - The core resumes at most 6 HTTP/1.1 exchanges per origin per lane, lifted once an exchange on that origin reports `h2` or `h3`, and restored when one reports `http/1.1`. The finisher applies each report (above).
@@ -237,7 +238,8 @@ It builds outcomes: the final response's header check, bounding, `Response` cons
 - **§5 measures it:** the gap between `resume` and the first transaction's start in task metrics, under "LTE".
 
 **Deadlines.**
-- One monotonic deadline per request, armed when its execution starts: the HTTP task's `resume`; for an `exactBodyFrom` request, the sizing reader's start; on the Linux adapter, when an adapter thread accepts the exchange (D4).
+- Independent non-stream HTTP arms its deadline at initial admission; an expired queued request fails without reaching the transport. Execution receives the remaining time. Refuse a ceiling that cannot fit beside the lane's open streams.
+- Other requests arm when execution starts: the HTTP task's `resume`; for an `exactBodyFrom` request, the sizing reader's start; on the Linux adapter, when an adapter thread accepts the exchange (D4). File-upload parking retains the disarm/rearm rule below.
 - **An `exactBodyFrom` request has two phases** (D5):
   - **Sizing:** a stat under a reader permit, armed with the request's deadline, as today's `acquire` arms it around the stat.
   - **If its whole charge fits the bytes free now,** the same deadline carries on through the read and the exchange, as today's one `Deadline::arm` covers stat, read and exchange.
@@ -264,9 +266,9 @@ It builds outcomes: the final response's header check, bounding, `Response` cons
 - The executor owns one `RustlsHttpTransport` per lane, so keep-alive and the render pool's warm connections survive (`host/render/src/lib.rs:413-417`).
 - Each exchange runs on an adapter thread from the lane's pool, until `end`.
 - The adapter's independent in-flight cap is **8**, not Apple's 32. Linux has no HTTP/2 to multiplex, and with typical ceilings the byte budget binds at seven anyway. The per-origin limit of 6 applies there too.
-- **Physical availability is separate from the logical slot.** An HTTP job starts only when one of its lane's adapter threads accepts it; its deadline arms at acceptance. An `exactBodyFrom` job is accepted before its sizing: the thread is held through sizing and reading, under the one deadline, and then runs the exchange (D5). A park for bytes returns the thread, with the deadline disarmed as D3 says.
+- **Physical availability is separate from the logical slot.** An HTTP job starts only when one of its lane's adapter threads accepts it. An independent non-stream job keeps the remaining deadline from admission; other jobs arm at acceptance. An `exactBodyFrom` job is accepted before its sizing: the thread is held through sizing and reading, under the one deadline, and then runs the exchange (D5). A park for bytes returns the thread, with the deadline disarmed as D3 says.
 - **A parked upload re-starting** (D5) takes its charge and an accepting thread in one decision, and arms its fresh deadline then; if no thread can accept, it stays parked, deadline disarmed.
-- **A job waiting for a thread** is in the core: not started, no deadline. It is a queued job to `forget`: a safe read is removed and never sent; a write, `Now`, storage or handoff is marked and runs when a thread accepts it.
+- **A job waiting for a thread** is in the core: not started. An independent non-stream job's initial wait counts against its deadline; ordered jobs and parked uploads have no deadline while waiting. It is a queued job to `forget`: a safe read is removed and never sent; a write, `Now`, storage or handoff is marked and runs when a thread accepts it.
   - Independent: the eight threads are the in-flight cap, each held to physical end, so a thread stuck in the resolver holds its slot until it returns.
   - Ordered: the slot ends at the terminal transition (D3), but the thread may still be blocked, typically in the resolver. The **ordered role**, and the base set's permit for it, belong to the lane, not to a thread. A thread still blocked after its request's terminal transition gives up the role and becomes a **straggler**, keeping its own permit.
     - **Replacement:** when an ordered HTTP job is ready, no thread holds the role, and the lane has fewer than **three** ordered adapter threads, the starter creates one from the process counter and gives it the role. Otherwise, the job waits.
@@ -465,7 +467,7 @@ There are no shims; each step deletes what it replaces in the executor.
    - a synchronous handoff `Reply` inside the call;
    - inline failure and abort-before-start;
    - each terminal-transition order in D3;
-   - more HTTP/1.1 exchanges to one origin than 6: the seventh waits in the core with no deadline running, a later job to another origin starts, and the ordered lane's request to the same origin is unaffected; after the origin reports `h2`, the lane cap governs; after a later `http/1.1` report, the limit is 6 again;
+   - more HTTP/1.1 exchanges to one origin than 6: the seventh waits in the core with its independent deadline running, a later job to another origin starts, and the ordered lane's request to the same origin is unaffected; after the origin reports `h2`, the lane cap governs; after a later `http/1.1` report, the limit is 6 again;
    - upload bytes charged and released at physical end; an upload whose charge exceeds the lane budget fails at once and doesn't stall the lane; two gated uploads that each fit but not together, with no deadlines, both completing in turn; a file grown past its charged size fails; one buffer across a 307, lent without copy;
    - a 1 KiB `exactBodyFrom` that fits at once: the reader's result wakes the starter and the body is sent under one deadline; the same upload parked behind undrained bytes, with a stale timer firing after the park ignored, then starting with a fresh deadline when the bytes drain; an ordered upload parked at the head, with nothing behind it starting until it does;
    - two file-backed SSE streams (12 MiB ceilings, 20 MiB files) both admitted before either is sized: together they hold 48.25 MiB, so both are refused after sizing, promptly, and their charges return at drain; one admitted, sized and charged before the other's admission: the second is refused at admission;

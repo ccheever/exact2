@@ -628,11 +628,11 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
 - **`corner-shape: -exact-continuous`**, bit 153 ([LLP 1077 D1](1077-css-visual-properties-native-draws-cheaply.rfc.md)),
   is not a CSS keyword. It names Apple's continuous corner curve, one shape on
   every host: UIKit and AppKit draw it with `cornerCurve = .continuous` where
-  the box has one radius, and the kernel's outline (`corner::outline`, fitted
-  to UIKit's curve; Linux against the iOS simulator: mean 0.57/255) everywhere
-  else. The web draws `superellipse(1.6)` over the radius scaled by 1.52, the
-  closest CSS shape (2.5% of the radius at worst; a bordered box measured mean
-  6.5/255 against UIKit), and a bound (dynamic) `corner-shape` is not rescaled.
+  the box has one radius, and the kernel's outline (`corner::outline`, UIKit's
+  curve for a radius the box has room for) everywhere else. The web draws
+  `superellipse(1.6)` over the radius scaled by 1.52 (3% of the radius from
+  Apple's curve at worst; a bordered box measured mean 6.5/255 against UIKit),
+  and a bound (dynamic) `corner-shape` is not rescaled.
   CSS's own keywords are CSS's on every host. The inner border edge of any
   shaped corner is the same shape over the padding box's radii, CSS's rule for
   round corners.

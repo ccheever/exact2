@@ -13,7 +13,7 @@
 //! and resolves' outcomes into it, and on Apple the host's probe does. Under
 //! the agent the runner stamps the substitute's state on each request
 //! instead ([`Reach::substitute`]), and the destination's risk is the
-//! grant's static test, since the substitute reads no interface (D19).
+//! private ranges and local names, since the substitute reads no interface (D19).
 
 use crate::CallOrigin;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -141,10 +141,25 @@ impl Reach {
     }
 
     /// Whether a hop's destination has prompt risk under the agent: the
-    /// grant's static test without loopback (D5), since the substitute reads
-    /// no interface. `host` is as a URL serializes it.
+    /// private ranges and local names without loopback, since the substitute
+    /// reads no interface. `host` is as a URL serializes it.
     pub fn static_risk(host: &str) -> bool {
-        exact_grants::is_local_network(host, false)
+        if exact_grants::is_local_network(host, false) {
+            return true;
+        }
+        // Grant admission excludes cloud metadata; that exclusion does not
+        // turn its link-local address into a destination without prompt risk.
+        let host = host
+            .strip_prefix('[')
+            .and_then(|h| h.strip_suffix(']'))
+            .unwrap_or(host);
+        host.parse::<std::net::IpAddr>().is_ok_and(|ip| {
+            let v4 = match ip {
+                std::net::IpAddr::V4(ip) => Some(ip),
+                std::net::IpAddr::V6(ip) => ip.to_ipv4_mapped(),
+            };
+            v4 == Some(std::net::Ipv4Addr::new(169, 254, 169, 254))
+        })
     }
 }
 
@@ -181,9 +196,23 @@ mod tests {
     }
 
     #[test]
-    fn under_the_agent_risk_is_the_static_test_without_loopback() {
+    fn under_the_agent_private_destinations_have_risk_without_loopback() {
         assert!(Reach::static_risk("192.168.1.40"));
         assert!(Reach::static_risk("wled-a1b2c3.local"));
+        for host in [
+            "169.254.169.254",
+            "[::ffff:169.254.169.254]",
+            "[::ffff:a9fe:a9fe]",
+        ] {
+            assert_eq!(
+                Reach {
+                    origin: CallOrigin::Tool,
+                    substitute: Some(State::Unknown)
+                }
+                .refusal(Reach::static_risk(host)),
+                Some("person-required")
+            );
+        }
         assert!(!Reach::static_risk("127.0.0.1"));
         assert!(!Reach::static_risk("example.test"));
     }

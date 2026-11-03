@@ -29,29 +29,31 @@ pub(crate) struct Accepts {
 impl Accepts {
     /// Read an `Accept-Encoding` value.
     pub(crate) fn parse(value: &str) -> Accepts {
-        let mut accepts = Accepts::default();
+        let (mut br, mut gzip, mut dcb, mut wildcard) = (None, None, false, false);
         for part in value.split(',') {
             let mut params = part.split(';');
             let name = params.next().unwrap_or("").trim().to_ascii_lowercase();
             let refused = params.any(|param| {
-                param
-                    .trim()
-                    .strip_prefix("q=")
-                    .is_some_and(|q| q.trim().parse::<f32>().map_or(true, |q| q <= 0.0))
+                param.split_once('=').is_some_and(|(key, q)| {
+                    key.trim().eq_ignore_ascii_case("q")
+                        && q.trim()
+                            .parse::<f32>()
+                            .map_or(true, |q| !q.is_finite() || q <= 0.0 || q > 1.0)
+                })
             });
-            match (name.as_str(), refused) {
-                (_, true) => {}
-                ("br", _) => accepts.br = true,
-                ("gzip", _) => accepts.gzip = true,
-                ("dcb", _) => accepts.dcb = true,
-                ("*", _) => {
-                    accepts.br = true;
-                    accepts.gzip = true;
-                }
+            match name.as_str() {
+                "br" => br = Some(!refused),
+                "gzip" => gzip = Some(!refused),
+                "dcb" => dcb = !refused,
+                "*" => wildcard = !refused,
                 _ => {}
             }
         }
-        accepts
+        Accepts {
+            br: br.unwrap_or(wildcard),
+            gzip: gzip.unwrap_or(wildcard),
+            dcb,
+        }
     }
 
     /// Whether it takes a body compressed against a dictionary it holds.
@@ -473,6 +475,14 @@ mod tests {
             Some(Encoding::Gzip)
         );
         assert_eq!(Accepts::parse("BR;Q=1").pick(), Some(Encoding::Br));
+        for header in ["br;q=0, *;q=1", "*;q=1, br;q=0", "br;Q=0, gzip;q=1"] {
+            assert_eq!(
+                Accepts::parse(header).pick(),
+                Some(Encoding::Gzip),
+                "{header}"
+            );
+        }
+        assert_eq!(Accepts::parse("br;q=0,gzip;q=0,*;q=1").pick(), None);
         assert_eq!(Accepts::parse("identity").pick(), None);
         assert_eq!(Accepts::parse("").pick(), None);
     }

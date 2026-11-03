@@ -61,8 +61,8 @@ pub const KEYWORDS: [(&str, Corner, &str); 7] = [
 pub const APPLE_EXTENT: f32 = 1.528_664_8;
 
 /// The web's stand-in for `-exact-continuous`: `superellipse(K)` with the
-/// radius scaled. Fitted to Apple's curve; the worst distance between them
-/// is 2.5% of the radius (0.4 pt at 16 pt), declared in LLP 1001.
+/// radius scaled. The worst distance from Apple's curve is 3% of the radius
+/// (0.5 pt at 16 pt), declared in LLP 1001.
 pub const APPLE_ON_THE_WEB: (f32, f32) = (1.6, 1.52);
 
 impl CornerShape {
@@ -262,26 +262,27 @@ fn corner_points(corner: Corner, ra: f32, rd: f32, out: &mut Vec<(f32, f32)>) {
 
 /// Apple's continuous corner, three cubics, flattened. The curve reaches
 /// [`APPLE_EXTENT`] radii along each side; a box too small for that takes a
-/// smaller radius, as UIKit does.
+/// smaller radius, whereas UIKit bends the curve toward a circular arc.
 fn apple_points(ra: f32, rd: f32, out: &mut Vec<(f32, f32)>) {
     // Control points in radii, `(a, d)`, from the edge before to the edge
-    // after: the curve as measured from UIKit's (symmetric about the
-    // diagonal; LLP 1077 D1 holds it to the simulator's pixels).
+    // after: the elements of UIKit's `UIBezierPath(roundedRect:cornerRadius:)`
+    // (iOS 27.1) for a radius within [`apple_radius_limit`], which SwiftUI's
+    // continuous `RoundedRectangle` shares.
     const C: [[(f32, f32); 4]; 3] = [
         [
             (0.0, APPLE_EXTENT),
             (0.0, 1.088_493),
             (0.0, 0.868_407),
-            (0.065_496, 0.669_935),
+            (0.074_911, 0.631_494),
         ],
         [
-            (0.065_496, 0.669_935),
-            (0.187_932, 0.372_823),
-            (0.372_821, 0.187_933),
-            (0.669_934, 0.065_496),
+            (0.074_911, 0.631_494),
+            (0.169_060, 0.372_824),
+            (0.372_824, 0.169_060),
+            (0.631_494, 0.074_911),
         ],
         [
-            (0.669_934, 0.065_496),
+            (0.631_494, 0.074_911),
             (0.868_407, 0.0),
             (1.088_493, 0.0),
             (APPLE_EXTENT, 0.0),

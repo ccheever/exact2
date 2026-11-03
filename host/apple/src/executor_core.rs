@@ -52,6 +52,7 @@ struct Job {
     limit: usize,
     /// The runner no longer wants its reply (`Core::forget`).
     forgotten: bool,
+    queued_deadline: Option<forget::QueuedDeadline>,
 }
 /// A job a worker took, until its outcome is complete.
 struct Running {
@@ -530,6 +531,15 @@ impl Core {
         let one_shot = r.request.is_process() && !r.request.stream;
         let admitted = (|| {
             let (lane, charge, limit) = checked?;
+            let streams: usize = state
+                .running
+                .iter()
+                .filter(|run| run.lane == lane && run.stream)
+                .map(|run| run.charge)
+                .sum();
+            if lane == 1 && !r.request.stream && limit > BYTES[lane].saturating_sub(streams) {
+                return Err("native response ceiling exceeds the lane budget held by open streams");
+            }
             // A stream starts at once, so it is charged its ceiling now.
             let (full, charge) = if r.request.stream {
                 (state.streams >= STREAMS && !waits, limit)
@@ -584,6 +594,19 @@ impl Core {
                 }
                 return Err((reason, work));
             }
+        };
+        let queued_deadline = if lane == 1 && !r.request.stream && work.is_none() {
+            match r
+                .request
+                .timeout_ms
+                .map(|ms| forget::QueuedDeadline::arm(&self.shared, lane, r.ticket, ms))
+                .transpose()
+            {
+                Ok(deadline) => deadline,
+                Err(()) => return Err(("native queued deadline could not be armed", work)),
+            }
+        } else {
+            None
         };
         if ordered {
             state.ordered.push_back(r.ticket);
@@ -655,6 +678,7 @@ impl Core {
             charge,
             limit,
             forgotten: false,
+            queued_deadline,
         });
         #[cfg(test)]
         self.shared
@@ -1192,11 +1216,22 @@ fn worker(
         };
         let Job {
             ticket,
-            request,
+            mut request,
             forced,
             work,
+            queued_deadline,
             ..
         } = job;
+        if let Some(deadline) = queued_deadline {
+            if !deadline.remaining(&mut request) {
+                complete(
+                    &shared,
+                    ticket,
+                    failed(FailureKind::Timeout, "the request timed out while queued"),
+                );
+                continue;
+            }
+        }
         let work = match work {
             Some(OwnedWork::Later(hand)) if handoff(&request) => {
                 let owner = shared.clone();

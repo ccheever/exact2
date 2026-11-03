@@ -20,6 +20,20 @@ impl<D: DataSource> Host<D> {
             return;
         }
         for write in writes {
+            self.pending_store_stamps.remove(&write.name);
+            if write.durable {
+                self.pending_store_writes
+                    .retain(|pending| pending.name != write.name);
+                changed = true;
+                continue;
+            }
+            if let Some(stamp) = self
+                .secrets
+                .as_ref()
+                .and_then(|store| store.stamp(&write.name))
+            {
+                self.pending_store_stamps.insert(write.name.clone(), stamp);
+            }
             if let Some(pending) = self
                 .pending_store_writes
                 .iter_mut()
@@ -31,7 +45,16 @@ impl<D: DataSource> Host<D> {
             }
         }
         for write in std::mem::take(&mut self.pending_store_writes) {
-            if let Err(error) = self.secrets.as_ref().expect("checked above").write(&write) {
+            let stamp = self.pending_store_stamps.remove(&write.name);
+            if let Err(error) = self
+                .secrets
+                .as_ref()
+                .expect("checked above")
+                .write_stamped(&write, stamp.as_ref())
+            {
+                if let Some(stamp) = stamp {
+                    self.pending_store_stamps.insert(write.name.clone(), stamp);
+                }
                 self.store_failure(format!("store {} failed: {error}", write.name));
                 self.pending_store_writes.push(write);
             } else {

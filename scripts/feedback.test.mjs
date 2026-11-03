@@ -166,3 +166,36 @@ test('the README goes beside the diary only with consent, its workarounds previe
     assert.equal(stored(undefined).length, 0);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
+
+
+test('authentication headers are removed from the posted diary and its attachments', async () => {
+  const { parent, dir } = app();
+  try {
+    const tokens = ['OpaqueCredential_123', 'dXNlcjpwYXNzd29yZA==', 'ProxySecret', 'JsonSecret'];
+    const text = `Authorization: Bearer ${tokens[0]}\naUtHoRiZaTiOn: Basic ${tokens[1]}\nProxy-Authorization: Bearer ${tokens[2]}\n{"Authorization":"Bearer ${tokens[3]}"}`;
+    writeFileSync(resolve(dir, '.exact/diary/auth.md'), text);
+    writeFileSync(resolve(dir, 'README.md'), text);
+    let posted;
+    await send(dir, { yes: true, readme: true, fetch: async (_url, init) => {
+      posted = JSON.parse(init.body);
+      return { ok: true, json: async () => ({ id: 'auth', attachments: ['README.md'] }) };
+    } });
+    assert.equal(posted.attachments.length, 1);
+    for (const token of tokens) assert.ok(!JSON.stringify(posted).includes(token));
+    assert.match(posted.text, /Authorization: \[redacted\]/);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test('diary validation rejects JSON non-objects and bounds incoming bytes before EOF', async () => {
+  const stored = [], env = { DIARIES: { put: async (_key, value) => stored.push(JSON.parse(value)) } };
+  const post = body => worker.fetch(new Request('https://diary.test/diary', { method: 'POST', body }), env, {});
+  for (const body of ['null', '[]', 'true', '7', '"text"', '{']) assert.equal((await post(body)).status, 400);
+  assert.equal((await post(JSON.stringify({ text: 'valid' }))).status, 200);
+  assert.equal(stored.length, 1);
+  let pulls = 0, cancelled = false;
+  const stream = new ReadableStream({ pull(c) { pulls++; c.enqueue(new Uint8Array(64 * 1024)); if (pulls === 20) c.close(); }, cancel() { cancelled = true; } });
+  assert.equal((await post(stream)).status, 413);
+  assert.ok(pulls < 20); assert.ok(cancelled);
+  assert.equal((await post(JSON.stringify({ text: 'é'.repeat(130 * 1024) }))).status, 413);
+  assert.equal((await post(JSON.stringify({ text: 'é'.repeat(120 * 1024) }))).status, 200);
+});

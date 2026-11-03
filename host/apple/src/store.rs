@@ -16,6 +16,9 @@
 use exact_runner::{Store, StoreWrite};
 use ibex2::boundary::HostError;
 use ibex2::host::{Bindings, Host, Kv, Secrets};
+#[path = "store_secrets.rs"]
+mod shared_secrets;
+use shared_secrets::{secret_directory, secret_namespace, SecretBackend};
 
 /// The kv scope the runner's kept answers live in (LLP 1027 D4): beside the
 /// Keychain, not in it — a cache of settled data, any resource's name a
@@ -222,6 +225,24 @@ pub trait KeptStore {
     }
     /// Write one store change.
     fn write(&self, w: &StoreWrite) -> Result<(), String>;
+    /// Seed a newly created private memory backend before activating its source.
+    fn seed_snapshot(&self, _snapshot: &[(String, Vec<u8>)]) {}
+    /// The coordinator for this backend, shared by independent sessions.
+    fn shared_secrets(&self) -> Option<std::sync::Arc<dyn exact_runner::SharedSecrets>> {
+        None
+    }
+    /// Capture an ordinary write's generation before it enters a retry queue.
+    fn stamp(&self, _name: &str) -> Option<exact_data::secrets::Stamp> {
+        None
+    }
+    /// Persist only if no exclusive transaction has superseded the captured generation.
+    fn write_stamped(
+        &self,
+        write: &StoreWrite,
+        _stamp: Option<&exact_data::secrets::Stamp>,
+    ) -> Result<(), String> {
+        self.write(write)
+    }
     /// Retry asynchronous writes that failed on an earlier turn.
     fn retry_failed(&self) {}
     /// The kept answers the writer failed to write since the last call.
@@ -229,6 +250,45 @@ pub trait KeptStore {
 }
 
 impl KeptStore for Platform {
+    fn seed_snapshot(&self, snapshot: &[(String, Vec<u8>)]) {
+        if self.private_memory && !self.seeded.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            for (name, value) in snapshot {
+                if ibex2::secrets::is_valid_name(name) {
+                    let _ = self.secrets.set(name, &String::from_utf8_lossy(value));
+                }
+            }
+        }
+    }
+    fn shared_secrets(&self) -> Option<std::sync::Arc<dyn exact_runner::SharedSecrets>> {
+        let namespace = self.namespace.clone()?;
+        Some(std::sync::Arc::new(exact_data::secrets::Coordinator::new(
+            namespace,
+            std::sync::Arc::new(SecretBackend(
+                self.secrets.clone(),
+                self.secret_directory.clone(),
+            )),
+        )))
+    }
+    fn stamp(&self, name: &str) -> Option<exact_data::secrets::Stamp> {
+        if name.starts_with(Store::KEPT) || name.starts_with(Store::STATE) {
+            return None;
+        }
+        self.namespace
+            .as_ref()
+            .map(|namespace| namespace.stamp(name))
+    }
+    fn write_stamped(
+        &self,
+        write: &StoreWrite,
+        stamp: Option<&exact_data::secrets::Stamp>,
+    ) -> Result<(), String> {
+        match (&self.namespace, stamp) {
+            (Some(namespace), Some(stamp)) => {
+                namespace.write(&write.name, stamp, || KeptStore::write(self, write))
+            }
+            _ => KeptStore::write(self, write),
+        }
+    }
     fn snapshot(&self, previous: Vec<(String, Vec<u8>)>) -> StoreRead {
         let mut read = snapshot_parts(&self.secrets, &self.kv, &self.prefs, previous.clone());
         let failed = self.failed.1.lock().expect("kept");
@@ -347,9 +407,14 @@ pub fn endowed(grants: &str, app_id: &str, fresh: bool) -> Endowed {
     Endowed {
         snapshot,
         presence,
-        secrets: bindings
-            .as_ref()
-            .map(|b| Box::new(Platform::of(b).with_prefs(prefs.clone())) as Box<dyn KeptStore>),
+        secrets: bindings.as_ref().map(|b| {
+            Box::new(
+                Platform::of(b)
+                    .with_prefs(prefs.clone())
+                    .with_namespace(secret_namespace(app_id))
+                    .with_secret_directory(secret_directory(app_id)),
+            ) as Box<dyn KeptStore>
+        }),
         bindings,
         unbound,
     }
@@ -359,6 +424,10 @@ pub fn endowed(grants: &str, app_id: &str, fresh: bool) -> Endowed {
 /// platform's secret store, the runner's kept answers to its kv store.
 #[derive(Clone)]
 pub struct Platform {
+    private_memory: bool,
+    seeded: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    secret_directory: Option<std::path::PathBuf>,
+    namespace: Option<exact_data::secrets::Namespace>,
     secrets: Secrets,
     kv: Kv,
     /// Where persisted states go (LLP 1116 D5).
@@ -371,11 +440,31 @@ impl Platform {
     /// The stores `bindings` hold.
     pub fn of(bindings: &Bindings) -> Platform {
         Platform {
+            private_memory: false,
+            seeded: Default::default(),
+            secret_directory: None,
+            namespace: None,
             secrets: bindings.secrets.clone(),
             kv: bindings.kv.clone(),
             prefs: Prefs::Kv,
             failed: Default::default(),
         }
+    }
+
+    fn with_secret_directory(mut self, directory: Option<std::path::PathBuf>) -> Self {
+        self.private_memory = self
+            .namespace
+            .as_ref()
+            .is_some_and(|namespace| namespace.is_memory());
+        self.secret_directory = directory;
+        self
+    }
+
+    /// Supply the namespace of a custom backend; clones and independent hosts
+    /// accessing that backend must use the same namespace.
+    pub fn with_namespace(mut self, namespace: exact_data::secrets::Namespace) -> Self {
+        self.namespace = Some(namespace);
+        self
     }
 
     /// This platform, keeping persisted states in `prefs`.
@@ -387,6 +476,9 @@ impl Platform {
     /// Keep or forget one write. A kept answer is handed to the writer and
     /// its failure, if any, is told later (`kept_failures`).
     pub fn write(&self, w: &StoreWrite) -> Result<(), HostError> {
+        if w.durable {
+            return Ok(());
+        }
         // A persisted state: a preference, written now (a setting changes
         // when a person changes it, not every frame).
         if let Some(key) = w.name.strip_prefix(Store::STATE) {
@@ -883,6 +975,7 @@ mod tests {
             endow_in(host, "secret.keep app.token").unwrap()
         };
         let write = |name: &str, value: Option<&str>| StoreWrite {
+            durable: false,
             name: name.into(),
             value: value.map(|v| v.as_bytes().to_vec()),
         };
@@ -892,6 +985,7 @@ mod tests {
         let bytes = vec![5, 0, 0, 0, 0, 0xff, 0x80];
         first
             .write(&StoreWrite {
+                durable: false,
                 name: "exact.kept.crewState".into(),
                 value: Some(bytes.clone()),
             })
@@ -918,6 +1012,7 @@ mod tests {
         assert_eq!(Prefs::of("com.example.tip"), Prefs::Kv);
         let platform = Platform::of(&launch()).with_prefs(Prefs::Kv);
         let tip = StoreWrite {
+            durable: false,
             name: "exact.state.tipPercent".into(),
             value: Some("22".into()),
         };
@@ -936,6 +1031,7 @@ mod tests {
             .with_kv_store(Box::new(ibex2::kv::UnavailableStore));
         let platform = Platform::of(&endow_in(host, "").unwrap());
         let kept = StoreWrite {
+            durable: false,
             name: "exact.kept.feed".into(),
             value: Some("v".into()),
         };
@@ -996,6 +1092,7 @@ mod tests {
             .unwrap(),
         );
         let write = |value: &str| StoreWrite {
+            durable: false,
             name: "exact.kept.feed".into(),
             value: Some(value.as_bytes().to_vec()),
         };
@@ -1088,6 +1185,7 @@ mod tests {
         }
         let opens = Opens(gated.clone());
         let keep = |value: Option<&str>| StoreWrite {
+            durable: false,
             name: "exact.kept.feed".into(),
             value: value.map(|v| v.as_bytes().to_vec()),
         };
@@ -1096,6 +1194,7 @@ mod tests {
             platform.write(&keep(value)).unwrap();
         }
         let other = StoreWrite {
+            durable: false,
             name: "exact.kept.other".into(),
             value: Some("o".into()),
         };
@@ -1162,6 +1261,7 @@ mod tests {
         // Account B's answer is kept while the disk is shut.
         platform
             .write(&StoreWrite {
+                durable: false,
                 name: "exact.kept.question".into(),
                 value: Some("account B".into()),
             })
@@ -1233,6 +1333,7 @@ mod tests {
         let grants = "secret.keep platformer.best";
         let launch = || endow_for(grants, app).unwrap();
         let write = |name: &str, value: Option<&str>| StoreWrite {
+            durable: false,
             name: name.into(),
             value: value.map(|v| v.as_bytes().to_vec()),
         };

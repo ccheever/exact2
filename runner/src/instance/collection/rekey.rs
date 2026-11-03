@@ -46,6 +46,7 @@ impl Collection {
             unique.reserve(items.len());
         }
         let mut dups = BTreeMap::new();
+        let mut ordinals = std::collections::HashMap::<String, u32>::new();
         // Each key's text, written here before its identity is made.
         let mut text = String::new();
         let mut inner = frames.to_vec();
@@ -90,7 +91,12 @@ impl Collection {
             // next identity in order (as a `for` does).
             let mut dup = 0;
             let ident: Rc<str> = if unique.contains_key(text.as_str()) {
-                let mut ident = text.clone();
+                dup = ordinals.get(&text).copied().unwrap_or(0);
+                let mut ident = if dup == 0 {
+                    text.clone()
+                } else {
+                    super::disambiguate(text.clone(), dup)
+                };
                 while unique.contains_key(ident.as_str()) {
                     dup += 1;
                     ident = super::disambiguate(text.clone(), dup);
@@ -101,6 +107,7 @@ impl Collection {
             };
             unique.insert(ident.clone(), position);
             if dup > 0 {
+                ordinals.insert(text.clone(), dup);
                 dups.insert(position, dup);
             }
             keys.push(key);

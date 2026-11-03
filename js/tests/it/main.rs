@@ -30,6 +30,7 @@ mod presence;
 mod process;
 mod pure;
 mod render;
+mod secrets;
 mod snapshot;
 mod socket;
 mod storage;

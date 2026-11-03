@@ -119,3 +119,33 @@ test('a sent message shows from the send, once, until the answer has it', async 
   const after = await a.call('snapshot', '', 'ai-1', 1);
   expect(source.overlay('snapshot', ['', 'ai-1', 1], after, [write()])).toBeUndefined();
 });
+
+test('stop before acceptance aborts the old job without stopping a new send', async () => {
+  let accept!: (r: Response) => void, started!: () => void;
+  const pending = new Promise<Response>(resolve => { accept = resolve; });
+  const posted = new Promise<void>(resolve => { started = resolve; });
+  const deleted: string[] = [];
+  let posts = 0;
+  globalThis.fetch = (async (url: any, init: any) => {
+    if (init?.method === 'POST') {
+      if (++posts === 1) { started(); return pending; }
+      return Response.json({ id: 'new' });
+    }
+    if (init?.method === 'DELETE') { deleted.push(String(url)); return Response.json({}); }
+    if (String(url).endsWith('/turns/new')) return Response.json({ content: 'New reply', done: true, error: '' });
+    return Response.json({ connected: true });
+  }) as typeof fetch;
+  const a = await app();
+  const first = a.call('sendMessage', 'ai-1', 'First', '', 100);
+  await posted;
+  await a.call('command', 'stop', 'ai-1', '', 200);
+  await a.call('sendMessage', 'ai-1', 'Second', '', 300);
+  accept(Response.json({ id: 'old' }));
+  await first;
+  expect(deleted).toEqual(['http://127.0.0.1:4318/turns/old']);
+  expect((await a.call('snapshot', '', 'ai-1', 1)).busy).toBe(true);
+  await a.call('pulse', 400);
+  const state = await a.call('snapshot', '', 'ai-1', 1);
+  expect(state.messages.map((m: any) => m.body)).toEqual(['First', 'Second', 'New reply']);
+  expect(state.busy).toBe(false);
+});

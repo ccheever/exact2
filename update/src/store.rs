@@ -17,6 +17,7 @@
 //! entries/<envelope sha256>/assets/<name>   likewise
 //! entries/.tmp-<something>/                 an entry being built; never selected
 //! ```
+//! A Current head keeps only `exact.json` as its durable signed floor witness.
 //!
 //! Only the selected, pending, last-good and running entries and the head
 //! accepted at the floor are kept, and only the blobs they name.
@@ -239,8 +240,8 @@ pub struct Staged {
 /// What a check found.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Check {
-    /// The head is the bundle this client already selected. Nothing was
-    /// downloaded and nothing was written.
+    /// The payload is already selected. The signed head is retained as a
+    /// rollback witness without downloading the payload again.
     Current {
         /// The stream's retirement notice, when it has one (LLP 1030 D5).
         sunset: Option<Card>,
@@ -300,6 +301,8 @@ pub struct Store {
     running_seq: u64,
     /// The validated view of `record.selected`, or `None` for entry zero.
     view: Option<EntryView>,
+    /// The latest accepted stream's notice, including a Current head.
+    sunset: Option<Card>,
     /// A selected entry rejected while opening, retained until the host asks
     /// for the launch candidate so it can publish the fallback note/status.
     launch_refusal: Option<(String, String)>,
@@ -313,7 +316,6 @@ struct EntryView {
     seq: u64,
     plan: FileCard,
     assets: Vec<FileCard>,
-    sunset: Option<Card>,
 }
 
 /// The record, in memory. Its JSON is `{ "codec", "selected", "pending",
@@ -504,6 +506,7 @@ impl Store {
             hold: false,
             running: None,
             view: None,
+            sunset: None,
             launch_refusal: None,
         };
         let mut rewrite = false;
@@ -547,6 +550,12 @@ impl Store {
                 store.record.digest = Some(digest);
             }
         }
+        store.sunset = store
+            .record
+            .digest
+            .as_ref()
+            .and_then(|digest| store.read_envelope(digest).ok())
+            .and_then(|envelope| envelope.sunset);
         if let Some(selected) = store.record.selected.clone() {
             match store.read_view(&selected) {
                 Ok(view) => store.view = Some(view),
@@ -786,6 +795,7 @@ impl Store {
             running: self.running.clone(),
             running_seq: self.running_seq,
             view: self.view.clone(),
+            sunset: self.sunset.clone(),
             launch_refusal: self.launch_refusal.clone(),
         }
     }
@@ -818,6 +828,13 @@ impl Store {
         embedded_asset: &mut dyn FnMut(&str) -> Option<String>,
     ) -> Result<Check, String> {
         if self.admit_check(&envelope, head_url, embedded_asset)? {
+            let witness = self.entry_dir(&envelope.digest);
+            std::fs::create_dir_all(&witness)
+                .map_err(|e| format!("cannot make signed witness: {e}"))?;
+            if self.read_envelope(&envelope.digest).is_err() {
+                write_atomic(&witness.join("exact.json"), &envelope.raw, true)?;
+                sync_dir(&self.entries_dir())?;
+            }
             if self.record.seq != envelope.stream.seq
                 || self.record.digest.as_ref() != Some(&envelope.digest)
             {
@@ -825,6 +842,7 @@ impl Store {
                 self.record.digest = Some(envelope.digest.clone());
                 self.write_record()?;
             }
+            self.sunset = envelope.sunset.clone();
             self.collect();
             return Ok(Check::Current {
                 sunset: envelope.sunset,
@@ -851,6 +869,7 @@ impl Store {
         self.record.seq = envelope.stream.seq;
         self.record.digest = Some(envelope.digest.clone());
         self.write_record()?;
+        self.sunset = envelope.sunset.clone();
         self.collect();
         Ok(Check::Staged {
             entry: envelope.digest,
@@ -1073,7 +1092,7 @@ impl Store {
             // Sunset is an advisory for the accepted delivery stream, not
             // generation identity. Keep it visible while an older or
             // embedded generation runs, including after a boot refusal.
-            sunset: self.view.as_ref().and_then(|v| v.sunset.clone()),
+            sunset: self.sunset.clone(),
             entry: self.running.clone(),
         }
     }
@@ -1129,7 +1148,6 @@ impl Store {
             seq: envelope.stream.seq,
             plan: envelope.plan,
             assets: envelope.assets,
-            sunset: envelope.sunset,
         })
     }
 
@@ -1262,7 +1280,9 @@ impl Store {
                 return Ok(()); // already here, whole: the record just selects it
             }
         }
-        if target.exists() {
+        let witness_only =
+            !regular_file(&target.join("app.plan")) && self.read_envelope(&envelope.digest).is_ok();
+        if target.exists() && !witness_only {
             std::fs::remove_dir_all(&target)
                 .map_err(|e| format!("cannot clear {}: {e}", target.display()))?;
         }
@@ -1272,6 +1292,23 @@ impl Store {
             let _ = std::fs::remove_dir_all(&tmp);
         }
         filled?;
+        if witness_only {
+            // Publish the plan last: the signed floor survives while a witness
+            // becomes a selectable entry for a binary with different embedded bytes.
+            let assets = target.join("assets");
+            if assets.exists() {
+                std::fs::remove_dir_all(&assets).map_err(|e| e.to_string())?;
+            }
+            if tmp.join("assets").exists() {
+                std::fs::rename(tmp.join("assets"), &assets).map_err(|e| e.to_string())?;
+            }
+            sync_dir(&target)?;
+            std::fs::rename(tmp.join("app.plan"), target.join("app.plan"))
+                .map_err(|e| e.to_string())?;
+            sync_dir(&target)?;
+            let _ = std::fs::remove_dir_all(&tmp);
+            return Ok(());
+        }
         std::fs::rename(&tmp, &target).map_err(|e| {
             let _ = std::fs::remove_dir_all(&tmp);
             format!("cannot put {} in place: {e}", target.display())

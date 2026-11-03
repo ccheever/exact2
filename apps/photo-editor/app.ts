@@ -100,12 +100,6 @@ const failed = (code: string, message: string) => ({ saved: false, asset: '', er
 
 const sources: Record<string, (args: any, store: unknown, storage: Storage) => Promise<unknown>> = {
   savePhoto: async ([photo, edit]: [string, string], _store, storage) => {
-    let edits: string[] = [];
-    try {
-      edits = await storage.fs.readdir(EDITS);
-    } catch {
-      // No edit saved yet: the first makes the directory.
-    }
     await storage.fs.mkdir(EDITS);
     let e: Edit = {};
     try {
@@ -115,7 +109,7 @@ const sources: Record<string, (args: any, store: unknown, storage: Storage) => P
     }
     let made;
     try {
-      made = await storage.fs.transformImage(photo, `${EDITS}/${edits.length + 1}`, { rotate: e.rotate ?? 0, crop: e.crop });
+      made = await storage.fs.transformImage(photo, `${EDITS}/${crypto.randomUUID()}`, { rotate: e.rotate ?? 0, crop: e.crop });
     } catch (err: any) {
       return failed(err?.code ?? 'UnknownError', `Couldn’t make the edited photo (${err?.code ?? err?.message ?? 'error'}).`);
     }

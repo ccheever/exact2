@@ -181,8 +181,8 @@ fn operate(root: &Directory, input: &Value, locked: Option<&Lock>) -> io::Result
     let parts: Vec<_> = path.split('/').collect();
     if op == "put"
         && parts.len() == 4
-        && parts[0] == ".exact"
-        && matches!(parts[3], "exact.json" | ".lock")
+        && parts[0].eq_ignore_ascii_case(".exact")
+        && (parts[3].eq_ignore_ascii_case("exact.json") || parts[3].eq_ignore_ascii_case(".lock"))
     {
         return Err(refuse(
             "stream heads require putHead; stream locks are never replaced",

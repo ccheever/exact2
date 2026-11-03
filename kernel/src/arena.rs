@@ -267,6 +267,7 @@ impl NodeArena {
     pub(crate) fn reset(&mut self) {
         self.renew_text_namespace();
         self.field_content.clear();
+        self.layout_dirty.clear();
         self.button_bases.clear();
         self.looks.clear();
         self.fit_scales.clear();

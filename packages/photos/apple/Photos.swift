@@ -33,7 +33,6 @@ public final class PhotosModule: ExactPackage {
     let context: ExactPackageContext
     private let library = AgentLibrary()
     private lazy var photoKit = PhotoKitLibrary(context: context)
-    private var copies = 0
     /// Emptied once a launch.
     private static var emptied = false
 
@@ -140,7 +139,7 @@ public final class PhotosModule: ExactPackage {
         guard let id = args["asset"] as? String, let asset = library.asset(id) else { return reply(["error": "NotFoundError"]) }
         let ext = asset.file.pathExtension
         let path: String
-        if let p = args["path"] as? String, !p.isEmpty { path = p.hasSuffix(".\(ext)") ? p : "\(p).\(ext)" } else { copies += 1; path = "app:/tmp/photos/\(copies).\(ext)" }
+        if let p = args["path"] as? String, !p.isEmpty { path = p.hasSuffix(".\(ext)") ? p : "\(p).\(ext)" } else { path = "app:/tmp/photos/\(UUID().uuidString).\(ext)" }
         guard let url = context.file(path), let data = try? Data(contentsOf: asset.file) else { return reply(["error": "UnknownError"]) }
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

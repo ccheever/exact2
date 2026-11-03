@@ -263,7 +263,11 @@ impl DataSource for Data {
         }
         if self.continue_parse > 0 {
             self.continue_parse -= 1;
-            return Ok(Answer::Later(Request::continuation(7)));
+            return Ok(Answer::Later(if self.later_get {
+                Request::get("https://example.test/followup")
+            } else {
+                Request::continuation(7)
+            }));
         }
         Ok(Answer::Now(self.value.clone()))
     }
@@ -1003,26 +1007,30 @@ fn an_overrun_reply_asks_again_with_a_new_request() {
     assert_eq!(r.reask_due_ms(), None);
 }
 
-/// A POST's reply refused by a turn over its budget waits to ask again with a
-/// new request: the wait is never sent, so it is no request with effects in
-/// flight and holds no app open (LLP 1146 D2); the new POST is one.
+/// Once a POST has completed, replaying its answer could repeat its effects.
 #[test]
-fn an_overrun_post_s_wait_has_no_effects_in_flight() {
-    let mut data = Data::new(records(1));
-    data.later_post = true;
-    let mut r = boot(plan(TypeKind::Number, None, false, false), data);
-    let first = r.take_requests();
-    assert!(r.effects_in_flight(), "the POST is out");
-    r.data().parse_error = Some(overrun());
-    r.fulfill(first[0].ticket, reply()).unwrap();
-    assert!(r.pending_res[0], "it waits to ask again");
-    assert!(!r.effects_in_flight(), "the wait is not sent");
-    assert!(!r.must_finish());
-    r.data().parse_error = None;
-    let t0 = r.now_ms();
-    r.advance(t0 + 250.).unwrap();
-    assert_eq!(r.take_requests().len(), 1, "asked again");
-    assert!(r.effects_in_flight(), "the new POST is out");
+fn an_overrun_post_reply_fails_without_replaying_the_request() {
+    for round in ["direct", "continuation", "get"] {
+        let mut data = Data::new(records(1));
+        data.later_post = true;
+        let mut r = boot(plan(TypeKind::Number, None, false, false), data);
+        let first = r.take_requests();
+        assert!(r.effects_in_flight());
+        let mut ticket = first[0].ticket;
+        if round != "direct" {
+            r.data().continue_parse = 1;
+            r.data().later_get = round == "get";
+            r.fulfill(ticket, reply()).unwrap();
+            ticket = r.take_requests()[0].ticket;
+        }
+        r.data().parse_error = Some(overrun());
+        r.fulfill(ticket, reply()).unwrap();
+        assert!(!r.pending_res[0], "{round}");
+        assert!(!r.effects_in_flight());
+        assert!(!r.failed_resources().is_empty());
+        r.advance(r.now_ms() + 10_000.).unwrap();
+        assert!(r.take_requests().is_empty(), "{round}");
+    }
 }
 
 /// A POST's reply that a worker-placed source takes in a later turn comes back

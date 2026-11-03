@@ -403,6 +403,7 @@ pub(crate) type Held = Vec<(PathBuf, std::fs::File)>;
 #[allow(unsafe_code)]
 pub(crate) fn hold(share: &exact_runner::share_in::Pending) -> Held {
     use std::os::fd::FromRawFd;
+    let mut seen = std::collections::HashSet::new();
     share
         .files
         .iter()
@@ -414,7 +415,7 @@ pub(crate) fn hold(share: &exact_runner::share_in::Pending) -> Held {
                 .to_str()?
                 .parse::<i32>()
                 .ok()
-                .filter(|fd| *fd > 2)?;
+                .filter(|fd| *fd > 2 && seen.insert(*fd))?;
             // SAFETY: the reader detached each descriptor from its
             // ParcelFileDescriptor and gave it to this library alone.
             Some((f.source.clone(), unsafe { std::fs::File::from_raw_fd(fd) }))
@@ -438,6 +439,7 @@ pub fn cold_share(seed: f64) -> Option<(String, exact_runner::time::Launch)> {
         ),
         _ => return None,
     };
+    std::env::remove_var(variable);
     let request: serde_json::Value = serde_json::from_str(&value).ok()?;
     let (Some(target), Some(share)) = (
         ShareTarget::from_json(&request["target"]),

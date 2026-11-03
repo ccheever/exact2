@@ -40,23 +40,27 @@ private func object(_ value: Any?) -> [String: Any]? {
     return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
 }
 
-private func decimal(_ amount: Any?) -> NSDecimalNumber {
-    let value = (amount as? [String: Any])?["value"] as? String ?? "0"
-    let n = NSDecimalNumber(string: value)
-    return n == .notANumber ? .zero : n
+private enum AmountError: Error { case invalid }
+
+private func decimal(_ amount: Any?) throws -> NSDecimalNumber {
+    guard let value = (amount as? [String: Any])?["value"] as? String,
+          value.range(of: #"\A-?[0-9]+(\.[0-9]+)?\z"#, options: .regularExpression) != nil else { throw AmountError.invalid }
+    let n = NSDecimalNumber(string: value, locale: Locale(identifier: "en_US_POSIX"))
+    guard n != .notANumber else { throw AmountError.invalid }
+    return n
 }
 
-private func items(_ list: Any?) -> [PKPaymentSummaryItem] {
-    ((list as? [[String: Any]]) ?? []).map {
-        let item = PKPaymentSummaryItem(label: $0["label"] as? String ?? "", amount: decimal($0["amount"]))
+private func items(_ list: Any?) throws -> [PKPaymentSummaryItem] {
+    try ((list as? [[String: Any]]) ?? []).map {
+        let item = PKPaymentSummaryItem(label: $0["label"] as? String ?? "", amount: try decimal($0["amount"]))
         if $0["pending"] as? Bool == true { item.type = .pending }
         return item
     }
 }
 
-private func methods(_ list: Any?) -> [PKShippingMethod] {
-    ((list as? [[String: Any]]) ?? []).map {
-        let m = PKShippingMethod(label: $0["label"] as? String ?? "", amount: decimal($0["amount"]))
+private func methods(_ list: Any?) throws -> [PKShippingMethod] {
+    try ((list as? [[String: Any]]) ?? []).map {
+        let m = PKShippingMethod(label: $0["label"] as? String ?? "", amount: try decimal($0["amount"]))
         m.identifier = $0["id"] as? String
         return m
     }
@@ -155,8 +159,10 @@ public final class PaymentsModule: NSObject, ExactPackage, PKPaymentAuthorizatio
         var authorizing = false, letGo = false
         var result: [String: Any]?
         var payment: PKPayment?
-        init(request: Int, id: String, args: [String: Any], controller: PKPaymentAuthorizationController, reply: @escaping ([String: Any]) -> Void) {
+        var details: [String: Any], items: [PKPaymentSummaryItem], methods: [PKShippingMethod]
+        init(request: Int, id: String, args: [String: Any], controller: PKPaymentAuthorizationController, items: [PKPaymentSummaryItem], methods: [PKShippingMethod], reply: @escaping ([String: Any]) -> Void) {
             self.request = request; self.id = id; self.args = args; self.controller = controller; self.reply = reply
+            self.details = (args["details"] as? [String: Any]) ?? [:]; self.items = items; self.methods = methods
         }
     }
     private var sheet: Sheet?
@@ -212,8 +218,10 @@ public final class PaymentsModule: NSObject, ExactPackage, PKPaymentAuthorizatio
         request.currencyCode = (total["amount"] as? [String: Any])?["currency"] as? String ?? "USD"
         request.supportedNetworks = ((data["supportedNetworks"] as? [String]) ?? []).compactMap { networks[$0] }
         request.merchantCapabilities = capabilities((data["merchantCapabilities"] as? [String]) ?? [])
-        request.paymentSummaryItems = summary(details)
-        request.shippingMethods = methods(details["shippingOptions"])
+        do {
+            request.paymentSummaryItems = try summary(details)
+            request.shippingMethods = try methods(details["shippingOptions"])
+        } catch { return reply(["error": "TypeError", "message": "payment amounts must be decimal strings such as 10.99"]) }
         var shipping = contactFields(data["requiredShippingContactFields"])
         if options["requestShipping"] as? Bool == true { shipping.insert(.postalAddress) }
         if options["requestPayerName"] as? Bool == true { shipping.insert(.name) }
@@ -232,7 +240,7 @@ public final class PaymentsModule: NSObject, ExactPackage, PKPaymentAuthorizatio
         let controller = PKPaymentAuthorizationController(paymentRequest: request)
         controller.delegate = self
         let id = details["id"] as? String ?? UUID().uuidString
-        let s = Sheet(request: context.request ?? 0, id: id, args: args, controller: controller, reply: reply)
+        let s = Sheet(request: context.request ?? 0, id: id, args: args, controller: controller, items: request.paymentSummaryItems, methods: request.shippingMethods ?? [], reply: reply)
         sheet = s
         context.log("payments: \(id): shown, \(applePay)")
         controller.present { [weak self] presented in
@@ -243,11 +251,11 @@ public final class PaymentsModule: NSObject, ExactPackage, PKPaymentAuthorizatio
     }
 
     /// The details as summary items: the display items, then the total, whose label is the merchant's.
-    private func summary(_ details: [String: Any]) -> [PKPaymentSummaryItem] {
+    private func summary(_ details: [String: Any]) throws -> [PKPaymentSummaryItem] {
         let total = (details["total"] as? [String: Any]) ?? [:]
-        let last = PKPaymentSummaryItem(label: total["label"] as? String ?? "", amount: decimal(total["amount"]))
+        let last = PKPaymentSummaryItem(label: total["label"] as? String ?? "", amount: try decimal(total["amount"]))
         if total["pending"] as? Bool == true { last.type = .pending }
-        return items(details["displayItems"]) + [last]
+        return try items(details["displayItems"]) + [last]
     }
 
     /// The app's handler for the sheet up, its answer parsed; nil past the budget or on an error.
@@ -271,16 +279,26 @@ public final class PaymentsModule: NSObject, ExactPackage, PKPaymentAuthorizatio
         }
     }
 
-    /// An update's summary items and shipping methods, laid over the request as it was.
-    private func updated(_ s: Sheet, _ update: [String: Any]?) -> (items: [PKPaymentSummaryItem], methods: [PKShippingMethod]?, errors: [Error]) {
-        var details = (s.args["details"] as? [String: Any]) ?? [:]
+    /// An update's summary items and shipping methods, merged into the last accepted details.
+    private func updated(_ s: Sheet, _ update: [String: Any]?) -> (items: [PKPaymentSummaryItem], methods: [PKShippingMethod], errors: [Error]) {
+        var details = s.details
         for key in ["total", "displayItems", "shippingOptions"] where update?[key] != nil { details[key] = update?[key] }
         var all = errors(["shippingAddress": update?["shippingAddressErrors"] as Any, "payer": update?["payerErrors"] as Any])
         if let text = update?["error"] as? String, all.isEmpty {
             all.append(PKPaymentRequest.paymentShippingAddressUnserviceableError(withLocalizedDescription: text))
         }
-        let shipping = update?["shippingOptions"] != nil ? methods(details["shippingOptions"]) : nil
-        return (summary(details), shipping, all)
+        do {
+            let nextItems = try summary(details), nextMethods = try methods(details["shippingOptions"])
+            s.details = details; s.items = nextItems; s.methods = nextMethods
+        } catch {
+            DispatchQueue.main.async { [weak self] in
+                guard self?.sheet === s else { return }
+                self?.sheet = nil
+                s.controller.dismiss()
+                s.reply(["error": "TypeError", "message": "payment amounts must be decimal strings such as 10.99"])
+            }
+        }
+        return (s.items, s.methods, all)
     }
 
     public func paymentAuthorizationController(_ controller: PKPaymentAuthorizationController, didSelectShippingContact contact: PKContact,
@@ -290,7 +308,7 @@ public final class PaymentsModule: NSObject, ExactPackage, PKPaymentAuthorizatio
         ask(s, "onshippingaddresschange", ["requestId": s.id, "shippingAddress": address(contact) as Any, "methodName": applePay]) { [weak self] value in
             guard let self else { return }
             let u = self.updated(s, value)
-            completion(PKPaymentRequestShippingContactUpdate(errors: u.errors, paymentSummaryItems: u.items, shippingMethods: u.methods ?? []))
+            completion(PKPaymentRequestShippingContactUpdate(errors: u.errors, paymentSummaryItems: u.items, shippingMethods: u.methods))
         }
     }
 
@@ -306,7 +324,7 @@ public final class PaymentsModule: NSObject, ExactPackage, PKPaymentAuthorizatio
     public func paymentAuthorizationController(_ controller: PKPaymentAuthorizationController, didSelectPaymentMethod method: PKPaymentMethod,
                                                handler completion: @escaping (PKPaymentRequestPaymentMethodUpdate) -> Void) {
         guard let s = sheet, !s.letGo, s.args["onpaymentmethodchange"] is String else {
-            return completion(PKPaymentRequestPaymentMethodUpdate(paymentSummaryItems: summary((sheet?.args["details"] as? [String: Any]) ?? [:])))
+            return completion(PKPaymentRequestPaymentMethodUpdate(paymentSummaryItems: sheet?.items ?? []))
         }
         ask(s, "onpaymentmethodchange", ["requestId": s.id, "methodName": applePay, "methodDetails": methodJSON(method)]) { [weak self] value in
             guard let self else { return }

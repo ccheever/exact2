@@ -748,6 +748,9 @@ impl Batch {
             Some(v) => quote(&String::from_utf8_lossy(v), &mut s),
             None => s.push_str("null"),
         }
+        if w.durable {
+            s.push_str(",\"durable\":true");
+        }
         s.push('}');
         self.ops.push(s);
     }
@@ -1107,10 +1110,12 @@ mod store_tests {
         let bytes = vec![0, 255, b'|', 0x80, b'\0'];
         let mut batch = super::Batch::new();
         batch.store(&StoreWrite {
+            durable: false,
             name: "exact.kept.answer".into(),
             value: Some(bytes.clone()),
         });
         batch.store(&StoreWrite {
+            durable: false,
             name: "token".into(),
             value: Some(b"s3cret".to_vec()),
         });

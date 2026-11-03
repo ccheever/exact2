@@ -671,6 +671,9 @@ fn listens(inputs: &Value) -> bool {
     (inputs["grantCeiling"].as_str().unwrap_or("").lines()).any(|line| {
         let line = line.trim();
         exact_runner::listen::grant_prefix(line).is_some()
+            || line
+                .strip_prefix("auth.callback ")
+                .is_some_and(|url| exact_runner::auth::loopback_callback(url).is_some())
             || [
                 "auth.callback http://127.0.0.1/",
                 "auth.callback http://[::1]/",
@@ -820,6 +823,32 @@ fn hash(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn loopback_callback_ports_retain_the_listener() {
+        let plan = exact_plan::builder::PlanBuilder::new(0, 0)
+            .finish()
+            .unwrap()
+            .encode();
+        for callback in [
+            "http://127.0.0.1/auth/callback",
+            "http://127.0.0.1:1455/auth/callback",
+            "http://[::1]:1455/auth/callback",
+        ] {
+            let inputs = json!({"grantCeiling": format!("auth.callback {callback}")});
+            let graph = plan_graph(&plan, &inputs, "aarch64-apple-darwin").unwrap();
+            assert!(
+                graph["loads"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("listen")),
+                "{callback}"
+            );
+        }
+        assert!(!listens(
+            &json!({"grantCeiling": "auth.callback https://example.com/auth/callback"})
+        ));
+    }
 
     /// LLP 1012.001.000 D6: a development bake leaves its plan's map beside
     /// it, keyed by that plan's digest; a production bake leaves none, and a

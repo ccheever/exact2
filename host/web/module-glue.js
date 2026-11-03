@@ -130,6 +130,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     const original = win.console[level].bind(win.console);
     win.console[level] = (...args) => { journal.push(`console: ${args.map(a => typeof a === 'string' ? a : String(a)).join(' ')}`); original(...args); };
   }
+  win.__exact_browser_secrets = true;
   win.__exact_host = (op, name, value) => {
     if (op === 13) { journal.push(String(name)); return '1'; }
     if (op === 23) { aborted.push(Number(name)); globalThis.exact?.abortWake?.(); return; } // wake the host: a let-go's turn (its storage delivery included) has no batch to follow
@@ -233,7 +234,8 @@ export async function prepare(payload, admitted, id = nextId++) {
       const reported = answer.tag === 1 ? context.early.get(answer.ticket) : null;
       for (const drop of context.early.values()) if (drop !== reported) drop();
       if (reported) setTimeout(reported, 0);
-      if (answer.tag === 1 && answer.timer !== undefined) pending.set(key(request), {call:answer.call,ticket:0,timer:true,requests:context.requests,owner:context.owner});
+      if (answer.tag === 1 && answer.secret !== undefined) pending.set(key(request), {call:answer.call,secret:true,requests:context.requests,owner:context.owner});
+      else if (answer.tag === 1 && answer.timer !== undefined) pending.set(key(request), {call:answer.call,ticket:0,timer:true,requests:context.requests,owner:context.owner});
       else if (answer.tag === 1) {
         result.request = context.requests.get(answer.ticket);
         if (!result.request) throw new Error('module awaits a fetch it never made');
@@ -262,7 +264,7 @@ export async function prepare(payload, admitted, id = nextId++) {
           answer = JSON.parse(win.__exact_settle(String(answer.call)));
           continue;
         }
-        if (answer.tag === 1 && answer.ticket === 0 && !answer.waiting && answer.timer === undefined) {
+        if (answer.tag === 1 && answer.ticket === 0 && answer.secret === undefined && !answer.waiting && answer.timer === undefined) {
           await storage.deliver(context.owner);
           deliveries++;
           await checkpoint();
@@ -335,7 +337,8 @@ export async function prepare(payload, admitted, id = nextId++) {
       context.owner = parked.owner;
       context.requests = parked.requests;
       // A wait for its own timer: the runner's clock reached it (prelude.js `__exact_timer`).
-      if (parked.timer) win.__exact_timer(String(parked.call), String(context.clock ?? ''), 'due');
+      if (request.op === 'secret') win.__exact_secret_ready(String(parked.call), request.secretError ?? '');
+      else if (parked.timer) win.__exact_timer(String(parked.call), String(context.clock ?? ''), 'due');
       else win.__exact_fulfill(String(parked.ticket),JSON.stringify(request.outcome));
       return {tag:3,call:parked.call};
     };
@@ -412,6 +415,7 @@ export async function prepare(payload, admitted, id = nextId++) {
       // drop it, its storage owner, and its call in the prelude.
       forget(inFlight) {
         const keep = new Set(inFlight.map(key));
+        forgetSecretTurns(id, keep);
         for (const [parkedKey, parked] of pending) {
           if (JSON.parse(parkedKey)[0] === null || keep.has(parkedKey)) continue;
           pending.delete(parkedKey); unindex(parked.requests); release(parked.owner, parked.call);
@@ -429,7 +433,7 @@ export async function prepare(payload, admitted, id = nextId++) {
         forgetTurns(id, keep, key);
       },
       dispose() {
-        disposed = true; storage.dispose(); pending.clear(); realms.delete(id); frame.remove();
+        disposed = true; forgetSecretTurns(id); storage.dispose(); pending.clear(); realms.delete(id); frame.remove();
         for (const [token,turn] of turns) if (turn.id === id) turns.delete(token);
         // A parked answer settles too, or a wait raced against it (`clock settle`) runs out its deadline.
         for (const p of parked) p.done.reject(new Error('module environment disposed'));
@@ -446,7 +450,7 @@ async function prepareWorker(payload, admitted, id, before, meta, helpers) {
   const worker = new Worker(new URL('./module-worker.js', import.meta.url), { type: 'module' });
   const waiting = new Map(), aborted = []; // `aborted`: the worker's door-23 tickets, as it posts them
   let disposed = false;
-  const fail = message => { for (const w of waiting.values()) w.reject(new Error(message)); waiting.clear(); };
+  const fail = message => { forgetSecretTurns(id); for (const w of waiting.values()) w.reject(new Error(message)); waiting.clear(); };
   worker.onmessage = ({ data }) => {
     if (data.op === 'aborted') { aborted.push(data.ticket); globalThis.exact?.abortWake?.(); return; }
     // The worker's SHA-256 on a LAN dev page, which has no `crypto.subtle`
@@ -469,6 +473,7 @@ async function prepareWorker(payload, admitted, id, before, meta, helpers) {
   const realm = { frame: null, meta, grantSet: admitted.grantSet, id, placement: 'worker',
     aborted: () => aborted.splice(0),
     forget(inFlight) {
+      forgetSecretTurns(id, new Set(inFlight.map(workerKey)));
       forgetTurns(id, new Set(inFlight.map(workerKey)), workerKey);
       worker.postMessage({ op: 'forget', inFlight });
     },
@@ -482,7 +487,7 @@ async function prepareWorker(payload, admitted, id, before, meta, helpers) {
       return {continuation: token};
     },
     dispose() {
-      disposed = true; fail('module environment disposed'); worker.terminate(); realms.delete(id);
+      disposed = true; forgetSecretTurns(id); fail('module environment disposed'); worker.terminate(); realms.delete(id);
       for (const [token, turn] of turns) if (turn.id === id) turns.delete(token);
     },
   };
@@ -531,9 +536,98 @@ export function call(request) {
   if (request.op === 'message') return realm.message ? realm.message(request) : { error: 'a worker-placed module does not stream yet (LLP 1069.004)' };
   return { error: 'unknown browser module operation' };
 }
-export function run(token) {
-  const turn = turns.get(token); turns.delete(token);
-  if (!turn) return Promise.reject(new Error('browser continuation is no longer live'));
-  return turn.run();
+// Lock waits run outside either realm's tail, so a holder's HTTP continuation can still enter it.
+// The page owns localStorage for both placements. Locks use the physical key shared with the JS target.
+const secretTurns = new Map();
+const secretTurnKey = (id, request) => `${id}:${workerKey(request)}`;
+function endSecretTurn(turn, completed = false) {
+  if (!turn.live) return;
+  turn.live = false; turn.cancel.abort();
+  for (const [name, release] of turn.locks) {
+    try {
+      if (turn.armed.has(name)) {
+        if (!completed) { globalThis.exact?.discardSecretWrite?.(name); localStorage.removeItem(`exact.secret.${name}`); }
+        localStorage.removeItem(`exact.exclusive.exact.secret.${name}`);
+      }
+    } catch {} // A surviving marker makes the next holder invalidate before reading.
+    finally { release(); }
+  }
+  secretTurns.delete(secretTurnKey(turn.id, turn.request));
+}
+function forgetSecretTurns(id, keep) {
+  for (const turn of secretTurns.values()) if (turn.id === id && (!keep || (turn.request.target != null && !keep.has(workerKey(turn.request))))) endSecretTurn(turn);
+}
+function takeSecret(turn, name) {
+  if (!(turn.request.grants ?? []).includes(name) || name.startsWith('exact.kept.')) return Promise.reject(new Error(`secret ${name} is not granted`));
+  if (storageKey(realms.get(turn.id)?.meta.appId) === null) return Promise.reject(new Error('shared secret updates require a named store'));
+  if (!globalThis.navigator?.locks) return Promise.reject(new Error('This browser cannot coordinate shared secret updates'));
+  if (turn.locks.has(name)) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    navigator.locks.request(`exact.secret.${name}`, { signal: turn.cancel.signal }, () => new Promise(release => {
+      if (!turn.live) { release(); reject(new Error('the secret’s answer was let go')); return; }
+      try {
+        globalThis.exact?.discardSecretWrite?.(name);
+        const marker = `exact.exclusive.exact.secret.${name}`;
+        if (localStorage.getItem(marker) != null) { localStorage.removeItem(`exact.secret.${name}`); localStorage.removeItem(marker); }
+        turn.locks.set(name, release); resolve();
+      } catch (error) { release(); reject(error); }
+    })).catch(reject);
+  });
+}
+export async function run(token, deliver) {
+  let turn = turns.get(token); turns.delete(token);
+  if (!turn) throw new Error('browser continuation is no longer live');
+  if (turn.request.op !== 'answer' && turn.request.op !== 'resume') {
+    const result = await turn.run();
+    await deliver?.(result);
+    return result;
+  }
+  const { id } = turn, key = secretTurnKey(id, turn.request);
+  let held = secretTurns.get(key), carried = { reads: [], writes: [], topics: [], externalRead: false, entropy: false };
+  try {
+    for (;;) {
+      if (held && !held.live) throw new Error('the secret’s answer was let go');
+      if (held) {
+        const snapshot = new Map(turn.request.store);
+        for (const name of held.locks.keys()) {
+          const fresh = localStorage.getItem(`exact.secret.${name}`);
+          if ((snapshot.get(name) ?? null) !== fresh) carried.writes.push([name, fresh, true]);
+          if (fresh == null) snapshot.delete(name); else snapshot.set(name, fresh);
+        }
+        turn.request.store = [...snapshot];
+      }
+      const result = await turn.run();
+      for (const field of ['reads', 'writes', 'topics']) result[field] = [...carried[field], ...(result[field] ?? [])];
+      result.externalRead ||= carried.externalRead; result.entropy ||= carried.entropy;
+      if (result.secret !== undefined) {
+        held ??= { id, request: turn.request, live: true, locks: new Map(), armed: new Set(), cancel: new AbortController() };
+        secretTurns.set(key, held);
+        let secretError;
+        try { await takeSecret(held, result.secret); } catch (error) { secretError = String(error.message ?? error); }
+        if (!held.live) throw new Error('the secret’s answer was let go');
+        const realm = realms.get(id);
+        if (!realm) throw new Error('module environment disposed');
+        carried = result;
+        const next = realm.invoke({ ...turn.request, op: 'secret', secretError }).continuation;
+        turn = turns.get(next); turns.delete(next);
+        continue;
+      }
+      // Persist while holding the lock, then let the runner apply the same writes before another owner starts.
+      if (held) for (const write of result.writes) if (held.locks.has(write[0])) {
+        const [name, value] = write; globalThis.exact?.discardSecretWrite?.(name);
+        try { if (value == null) localStorage.removeItem(`exact.secret.${name}`); else localStorage.setItem(`exact.secret.${name}`, value); }
+        catch (error) { localStorage.removeItem(`exact.secret.${name}`); throw error; }
+        write[2] = true;
+      }
+      if (held && result.tag === 1 && result.request && !['GET', 'HEAD'].includes(result.request.method ?? 'GET')) {
+        for (const name of held.locks.keys()) {
+          localStorage.setItem(`exact.exclusive.exact.secret.${name}`, '1'); held.armed.add(name);
+        }
+      }
+      await deliver?.(result);
+      if (held && (result.tag !== 1 || result.request?.stream)) endSecretTurn(held, result.tag !== 2 && !result.error);
+      return result;
+    }
+  } catch (error) { if (held) endSecretTurn(held); throw error; }
 }
 globalThis.exact.moduleRuntime = { prepare, baked, call, run, claim };

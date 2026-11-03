@@ -188,6 +188,7 @@ fn windows_persists_state_and_kept_answers_outside_the_agent_without_plaintext_s
     assert_eq!(root.file_name().unwrap().to_str(), Some(app.as_str()));
     assert!(!root.exists(), "test needs a new app identity");
     let write = |name: &str, value: Option<&str>| exact_runner::StoreWrite {
+        durable: false,
         name: name.into(),
         value: value.map(|v| v.as_bytes().to_vec()),
     };
@@ -291,6 +292,7 @@ fn named_agent_storage_keeps_a_secret_across_a_relaunch() {
     }
     let app = "test.exact.keep";
     let write = |name: &str, value: Option<&str>| exact_runner::StoreWrite {
+        durable: false,
         name: name.into(),
         value: value.map(|v| v.as_bytes().to_vec()),
     };
@@ -398,6 +400,7 @@ fn a_fresh_tree_that_cannot_be_emptied_is_not_read() {
     use std::os::unix::fs::PermissionsExt;
     let app = "test.exact.wipe";
     let write = exact_runner::StoreWrite {
+        durable: false,
         name: "platformer.best".into(),
         value: Some("22050".into()),
     };
@@ -458,6 +461,7 @@ fn an_app_keeps_a_secret_across_a_relaunch_outside_the_agent() {
     }
     let app = "test.exact.session";
     let write = |name: &str, value: Option<&str>| exact_runner::StoreWrite {
+        durable: false,
         name: name.into(),
         value: value.map(|v| v.as_bytes().to_vec()),
     };

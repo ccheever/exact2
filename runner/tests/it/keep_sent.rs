@@ -552,3 +552,154 @@ fn a_plain_request_the_boot_drops_is_forgotten() {
     // And it is told what it may keep, as at a commit's end, so a call it set aside is not left waiting.
     assert_eq!(*offered.lock().unwrap(), 1);
 }
+
+mod tool_authority {
+    use exact_kernel::{Kernel, NodeType};
+    use exact_plan::{asm::Asm, builder::PlanBuilder, TypeKind, Value};
+    use exact_runner::{
+        Answer, CallOrigin, DataError, DataSource, InFlight, Outcome, Request, Response, Runner,
+        Store,
+    };
+
+    struct Source {
+        remaining: usize,
+    }
+    impl DataSource for Source {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            unreachable!()
+        }
+        fn grants(&self) -> &str {
+            "secret.keep token\nnet.fetch https://example.test\nprocess.spawn path:echo"
+        }
+        fn answer(
+            &mut self,
+            s: &mut Store,
+            name: &str,
+            args: &[Value],
+        ) -> Result<Answer, DataError> {
+            Ok(match name {
+                "post" if args[0] == Value::Number(1.) => {
+                    Answer::Later(Request::post_json("https://example.test/write", "{}"))
+                }
+                "child" if s.get("token").is_some() => Answer::Later(Request::process(
+                    br#"{"kind":"execFile","program":"path:echo","args":["ran"]}"#.to_vec(),
+                    false,
+                    4096,
+                )),
+                _ => Answer::Now(Value::Bool(false)),
+            })
+        }
+        fn keep_sent(&mut self, _: &Store, gone: &[InFlight<'_>], _: bool) -> Vec<Option<u64>> {
+            gone.iter().map(|_| Some(100)).collect()
+        }
+        fn parse(
+            &mut self,
+            s: &mut Store,
+            _: &str,
+            _: &[Value],
+            _: Outcome,
+        ) -> Result<Answer, DataError> {
+            s.set("token", "result-of-tool-post")?;
+            Ok(Answer::Now(Value::Bool(false)))
+        }
+        fn module_delivery(
+            &mut self,
+            s: &mut Store,
+            token: u64,
+            outcome: Outcome,
+        ) -> Result<Option<Request>, DataError> {
+            if self.remaining > 0 {
+                self.remaining -= 1;
+                return Ok(Some(Request::continuation(900 + self.remaining as u64)));
+            }
+            self.module_landed(s, token, outcome)?;
+            Ok(None)
+        }
+        fn module_landed(&mut self, s: &mut Store, _: u64, _: Outcome) -> Result<(), DataError> {
+            s.set("token", "result-of-tool-post")?;
+            Ok(())
+        }
+    }
+    #[test]
+    fn kept_tool_reply_retains_its_authority_through_owner_deliveries() {
+        for steps in [0, 2] {
+            let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+            let number = b.primitive(TypeKind::Number);
+            let boolean = b.primitive(TypeKind::Bool);
+            let mut a = Asm::new();
+            a.number(0.);
+            let c = b.code(a);
+            let trigger = b.slot("trigger", number, c);
+            let mut a = Asm::new();
+            a.load_slot(trigger);
+            let arg = b.code(a);
+            b.resource("posting", "post", &[arg], boolean, None);
+            b.resource("child", "child", &[], boolean, None);
+            let mut a = Asm::new();
+            a.load_param(0).store_slot(trigger);
+            let c = b.code(a);
+            b.action("change", &[("n", number)], &[trigger], c);
+            b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+            let plan = b.finish().unwrap();
+            let response = || {
+                Outcome::Response(Response {
+                    status: 201,
+                    headers: vec![],
+                    body: vec![],
+                })
+            };
+            let mut control = Runner::boot(
+                plan.clone(),
+                Source { remaining: 0 },
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+            .unwrap();
+            control
+                .act_from(CallOrigin::Tool, "change", vec![Value::Number(1.)])
+                .unwrap();
+            let q = control.take_requests();
+            control.fulfill(q[0].ticket, response()).unwrap();
+            let (_, failure) = control
+                .take_request_refusal(true)
+                .expect("ordinary tool reply refuses the process");
+            assert!(
+                matches!(failure, Outcome::Failed {message, ..} if message.starts_with("person-required"))
+            );
+            let mut r = Runner::boot(
+                plan,
+                Source { remaining: steps },
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+            .unwrap();
+            r.act_from(CallOrigin::Tool, "change", vec![Value::Number(1.)])
+                .unwrap();
+            let q = r.take_requests();
+            assert_eq!(q.len(), 1);
+            assert_eq!(q[0].request.reach.origin, CallOrigin::Tool);
+            r.act_from(CallOrigin::Tool, "change", vec![Value::Number(0.)])
+                .unwrap();
+            assert!(r.take_requests().is_empty());
+            assert!(r.holds(q[0].ticket));
+            r.fulfill(q[0].ticket, response()).unwrap();
+            for _ in 0..steps {
+                let next = r.take_requests();
+                assert_eq!(next.len(), 1);
+                assert!(next[0].request.continuation.is_some());
+                assert_eq!(next[0].request.reach.origin, CallOrigin::Tool);
+                assert!(r.holds(next[0].ticket));
+                r.fulfill(next[0].ticket, response()).unwrap();
+            }
+            assert!(r.take_requests().is_empty());
+            let (_, failure) = r
+                .take_request_refusal(true)
+                .expect("kept tool reply refuses the process");
+            assert!(
+                matches!(failure, Outcome::Failed {message, ..} if message.starts_with("person-required"))
+            );
+        }
+    }
+}

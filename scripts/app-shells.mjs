@@ -27,7 +27,7 @@ const STORED = ['ios', 'macos', 'linux', 'windows'];
  * every other verb. */
 export function platformOf(verb, host = 'web') {
   const word = ['test', 'agent', 'verify'].includes(verb) ? host : verb;
-  return { ios: 'ios', mac: 'macos', macos: 'macos', linux: 'linux', android: 'android', windows: 'windows' }[word] ?? null;
+  return { ios: 'ios', share: 'ios', mac: 'macos', macos: 'macos', linux: 'linux', android: 'android', windows: 'windows' }[word] ?? null;
 }
 
 /** What `host.<platform>` holds when a verb names the platform: the scaffold's defaults for the two Apple platforms,

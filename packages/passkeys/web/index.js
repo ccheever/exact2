@@ -38,12 +38,26 @@ const marked = id => {
 /** A ceremony's failure: its `DOMException`'s name (D1), and what it says. */
 const failure = e => ({ error: typeof e?.name === 'string' && /Error$/.test(e.name) ? e.name : 'NotAllowedError', ...(e?.message ? { message: e.message } : {}) });
 
-/** `PublicKeyCredentialCreationOptionsJSON` as the browser takes it (§5.1.8). */
+/** Binary extension inputs in the WebAuthn JSON conversion algorithms. */
+function extensionInputs(json) {
+  if (!json) return json;
+  const out = { ...json };
+  const salts = value => ({ ...value, first: unb64(value.first), ...(value.second !== undefined ? { second: unb64(value.second) } : {}) });
+  if (json.prf) out.prf = { ...json.prf,
+    ...(json.prf.eval ? { eval: salts(json.prf.eval) } : {}),
+    ...(json.prf.evalByCredential ? { evalByCredential: Object.fromEntries(Object.entries(json.prf.evalByCredential).map(([id, value]) => [id, salts(value)])) } : {}) };
+  if (json.largeBlob?.write !== undefined) out.largeBlob = { ...json.largeBlob, write: unb64(json.largeBlob.write) };
+  if (json.credBlob !== undefined) out.credBlob = unb64(json.credBlob);
+  return out;
+}
+
+/** `PublicKeyCredentialCreationOptionsJSON` as the browser takes it (WebAuthn §5.1.8). */
 function creation(json) {
   if (typeof PublicKeyCredential.parseCreationOptionsFromJSON === 'function') return PublicKeyCredential.parseCreationOptionsFromJSON(json);
   return {
     ...json,
     challenge: unb64(json.challenge),
+    ...(json.extensions ? { extensions: extensionInputs(json.extensions) } : {}),
     user: { ...json.user, id: unb64(json.user.id) },
     ...(json.excludeCredentials ? { excludeCredentials: json.excludeCredentials.map(c => ({ ...c, id: unb64(c.id) })) } : {}),
   };
@@ -55,6 +69,7 @@ function request(json) {
   return {
     ...json,
     challenge: unb64(json.challenge),
+    ...(json.extensions ? { extensions: extensionInputs(json.extensions) } : {}),
     ...(json.allowCredentials ? { allowCredentials: json.allowCredentials.map(c => ({ ...c, id: unb64(c.id) })) } : {}),
   };
 }

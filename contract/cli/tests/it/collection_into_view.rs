@@ -557,3 +557,77 @@ shape Post
         assert_eq!(r.slot("within"), Some(&Value::Number(0.0)));
     }
 }
+
+mod sibling_inner {
+    use exact_kernel::{Kernel, PropId};
+    use exact_plan::Value;
+    use exact_runner::instance::collection::{Align, IntoView};
+    use exact_runner::Runner;
+    const SOURCE: &str = r#"component App
+  view
+    column height=600
+      list id="outer-a" virtualized=true height=200
+        for x in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] key=x
+          column height=100
+            list id="inner-a" virtualized=true height=80
+              for y in [0, 1, 2, 3] key=y
+                text y.toString()
+      list id="outer-b" virtualized=true height=200
+        for x in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20] key=x
+          column height=100
+            list id="inner-b" virtualized=true height=80
+              for y in [0, 1, 2, 3] key=y
+                text y.toString()
+"#;
+    #[test]
+    fn nested_seek_selects_the_outer_list_holding_the_requested_id() {
+        let plan = contract::compile(SOURCE).expect("valid app");
+        let plan = exact_plan::Plan::decode(&plan.encode()).unwrap();
+        let mut r =
+            Runner::boot(plan, (), Kernel::with_monospace(), Default::default(), "/").unwrap();
+        let before = r.collections();
+        r.scroll_into_view(IntoView {
+            list: "inner-b".into(),
+            key: Value::Number(3.),
+            block: Align::Start,
+            inline: Align::Nearest,
+            row: Some(Value::Number(20.)),
+            view: None,
+            smooth: false,
+            offset: None,
+        })
+        .unwrap();
+        assert!(
+            !r.into_view_json().contains("refused"),
+            "{}",
+            r.into_view_json()
+        );
+        for s in r.collections() {
+            let id = r
+                .kernel()
+                .node(s.view)
+                .unwrap()
+                .props
+                .str(PropId::Id)
+                .unwrap_or("");
+            if id != "outer-a" {
+                continue;
+            }
+            let old = before.iter().find(|b| b.view == s.view).unwrap();
+            assert_eq!(s, *old, "an unrelated outer list is unchanged");
+        }
+        let before = r.collections();
+        r.scroll_into_view(IntoView {
+            list: "missing".into(),
+            key: Value::Number(3.),
+            block: Align::Start,
+            inline: Align::Nearest,
+            row: Some(Value::Number(20.)),
+            view: None,
+            smooth: false,
+            offset: None,
+        })
+        .unwrap();
+        assert_eq!(r.collections(), before, "a refused seek changes no list");
+    }
+}

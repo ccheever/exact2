@@ -42,6 +42,7 @@ internal object Shares {
         val files = JSONArray()
         var dropped = 0
         for (uri in streams(intent)) {
+            if (uri.scheme != "content") { dropped++; continue }
             val opened = try { activity.contentResolver.openFileDescriptor(uri, "r") } catch (e: Exception) { null }
             if (opened == null) { dropped++; Log.w(TAG, "share: a stream could not be opened"); continue }
             // The size from the descriptor: exact2 cannot stat the sender's path (-1 for a pipe, which it then reads).

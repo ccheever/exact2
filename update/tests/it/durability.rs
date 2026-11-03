@@ -307,3 +307,98 @@ fn an_unchanged_asset_is_stored_once_and_old_entries_are_collected() {
         1 << 20
     );
 }
+
+#[test]
+#[cfg_attr(windows, ignore = "Windows durable store is not qualified")]
+fn current_heads_keep_the_signed_floor_and_notice_after_record_loss() {
+    for removed in [false, true] {
+        let temp = Temp::new(if removed {
+            "current-removed"
+        } else {
+            "current-truncated"
+        });
+        let mut bundle = Bundle::new(6, b"embedded plan");
+        bundle.signer = Some(("k1".into(), ed25519_dalek::SigningKey::from_bytes(&[7; 32])));
+        bundle.sunset = Some(("Install a new binary".into(), None));
+        let mut facts = embedded(&[(
+            "k1",
+            ed25519_dalek::SigningKey::from_bytes(&[7; 32])
+                .verifying_key()
+                .to_bytes(),
+        )]);
+        facts.embedded_plan_sha256 = Some(exact_update::sha256_hex(&bundle.plan));
+        facts.embedded_assets = Some(Default::default());
+        let mut origin = Origin::of(&bundle);
+        let mut store = open_store(temp.path(), facts.clone()).unwrap();
+        assert!(matches!(
+            origin.check(&mut store),
+            Ok(Check::Current { sunset: Some(_) })
+        ));
+        assert_eq!(origin.asked.len(), 1);
+        assert_eq!(
+            store.status().sunset.unwrap().message,
+            "Install a new binary"
+        );
+        store.boot_started().unwrap();
+        drop(store);
+        if removed {
+            std::fs::remove_file(temp.path().join("record.json")).unwrap();
+        } else {
+            std::fs::write(temp.path().join("record.json"), b"").unwrap();
+        }
+        let mut store = open_store(temp.path(), facts).unwrap();
+        assert_eq!(
+            store.status().sunset.unwrap().message,
+            "Install a new binary"
+        );
+        bundle.seq = 5;
+        origin.serving(&bundle);
+        assert!(origin
+            .check(&mut store)
+            .unwrap_err()
+            .contains("below the accepted seq 6"));
+        bundle.seq = 7;
+        bundle.sunset = None;
+        origin.serving(&bundle);
+        assert!(matches!(
+            origin.check(&mut store),
+            Ok(Check::Current { sunset: None })
+        ));
+        assert!(store.status().sunset.is_none());
+    }
+}
+
+#[test]
+#[cfg_attr(windows, ignore = "Windows durable store is not qualified")]
+fn a_current_witness_can_later_supply_a_binary_with_different_embedded_bytes() {
+    let temp = Temp::new("current-materialize");
+    let key = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
+    let mut bundle = Bundle::new(6, b"current plan").asset("mark.png", b"mark");
+    bundle.signer = Some(("k1".into(), key.clone()));
+    let mut facts = embedded(&[("k1", key.verifying_key().to_bytes())]);
+    facts.embedded_plan_sha256 = Some(exact_update::sha256_hex(&bundle.plan));
+    facts.embedded_assets =
+        Some([("mark.png".into(), (exact_update::sha256_hex(b"mark"), 4))].into());
+    let mut origin = Origin::of(&bundle);
+    let mut store = open_store(temp.path(), facts.clone()).unwrap();
+    assert!(matches!(
+        origin.check_embedding(&mut store, &[("mark.png", b"mark")]),
+        Ok(Check::Current { .. })
+    ));
+    drop(store);
+    facts.embedded_plan_sha256 = Some(exact_update::sha256_hex(b"other embedded plan"));
+    facts.embedded_assets = Some(Default::default());
+    let mut store = open_store(temp.path(), facts.clone()).unwrap();
+    assert!(matches!(
+        origin.check(&mut store),
+        Ok(Check::Staged { seq: 6, .. })
+    ));
+    drop(store);
+    let mut store = open_store(temp.path(), facts).unwrap();
+    let prepared = store.prepare_selected().unwrap().unwrap();
+    assert_eq!(&*prepared.plan, b"current plan");
+    assert_eq!(
+        &*prepared.assets.resolve("mark.png").unwrap().unwrap(),
+        b"mark"
+    );
+}

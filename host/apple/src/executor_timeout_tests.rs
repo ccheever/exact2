@@ -253,3 +253,43 @@ fn the_platform_transport_cancels_a_silent_and_a_trickling_server_at_the_deadlin
         );
     }
 }
+
+#[test]
+fn independent_deadlines_include_time_queued_behind_busy_workers() {
+    let (core, fixture, woke) = setup();
+    for ticket in 1..WORKERS as u64 {
+        core.run(
+            job(
+                ticket,
+                Request::get("https://example.test/hold").independent_http(1 << 20),
+            ),
+            None,
+        )
+        .unwrap();
+    }
+    fixture.wait_held(WORKERS - 1);
+    let ticket = WORKERS as u64;
+    core.run(
+        job(
+            ticket,
+            Request::get("https://example.test/never-sent")
+                .independent_http(1 << 20)
+                .timeout(100),
+        ),
+        None,
+    )
+    .unwrap();
+    let outcomes = collect(&core, &woke, 1);
+    assert_eq!(outcomes[0].0, ticket);
+    assert!(timed_out(&outcomes[0].1, 100), "{outcomes:?}");
+    assert!(!fixture
+        .state
+        .lock()
+        .unwrap()
+        .2
+        .iter()
+        .any(|url| url.ends_with("/never-sent")));
+    fixture.release();
+    collect(&core, &woke, WORKERS - 1);
+    until_settled(&core);
+}

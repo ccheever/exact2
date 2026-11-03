@@ -63,7 +63,9 @@ final class FrameHealthIOSTests: XCTestCase {
         }
         let menu = try XCTUnwrap(navigation.viewControllers.first as? DevMenuController)
         menu.tableView.layoutIfNeeded()
-        XCTAssertEqual(menu.groups[1].first?.title, "Hide Frame Health")
+        XCTAssertEqual(menu.groups[1].first?.title, "Frame Health")
+        XCTAssertEqual(menu.groups[1].first?.checked, true, "the shown card's row is checked")
+        XCTAssertEqual(menu.tableView.cellForRow(at: IndexPath(row: 0, section: 1))?.accessoryType, .checkmark)
         XCTAssertFalse(menu.groups[1].contains { $0.title.contains("Details") || $0.title.contains("Share") }, "the card offers these itself")
         let light = XCTAttachment(image: UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
@@ -83,6 +85,29 @@ final class FrameHealthIOSTests: XCTestCase {
         let cell = try XCTUnwrap(menu.tableView.cellForRow(at: row))
         XCTAssertGreaterThan(cell.bounds.height, 56)
         XCTAssertEqual((cell.contentConfiguration as? UIListContentConfiguration)?.textProperties.numberOfLines, 0)
+        // Build Information's text clears the sheet's side insets, as the menu's rows do: on the iPhone Duo the sheet's
+        // bar items stand in a strip at its side
+        menu.tableView(menu.tableView, didSelectRowAt: IndexPath(row: 0, section: 2))
+        let pushed = expectation(description: "Build Information pushed")
+        if let transition = navigation.transitionCoordinator {
+            transition.animate(alongsideTransition: nil) { _ in pushed.fulfill() }
+        } else {
+            pushed.fulfill()
+        }
+        wait(for: [pushed], timeout: 5)
+        let information = try XCTUnwrap(navigation.topViewController?.view as? UITextView)
+        navigation.view.layoutIfNeeded()
+        let whole = try XCTUnwrap(information.textRange(from: information.beginningOfDocument, to: information.endOfDocument))
+        let text = information.selectionRects(for: whole).map(\.rect).filter { $0.width > 0 }.reduce(CGRect.null) { $0.union($1) }
+        let safe = information.safeAreaInsets
+        XCTAssertGreaterThanOrEqual(text.minX, safe.left + 20 - 0.5, "the text starts clear of the left inset (\(safe))")
+        XCTAssertLessThanOrEqual(text.maxX, information.bounds.width - safe.right - 20 + 0.5, "and ends clear of the right one (\(safe))")
+        let buildInformation = XCTAttachment(image: UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        })
+        buildInformation.name = "Developer menu — Build Information"
+        buildInformation.lifetime = .keepAlways
+        add(buildInformation)
         let dismissed = expectation(description: "native developer sheet dismissed")
         root.dismiss(animated: false) { dismissed.fulfill() }
         wait(for: [dismissed], timeout: 5)
@@ -368,11 +393,13 @@ final class FrameHealthIOSTests: XCTestCase {
         let on = FrameHealth(enabled: true), off = FrameHealth(enabled: false)
         defer { on.destroy(); off.destroy() }
         let available = DevMenuController.frameHealth(on, container: true)
-        XCTAssertEqual(available.title, "Show Frame Health")
+        XCTAssertEqual(available.title, "Frame Health")
         XCTAssertNil(available.unavailable)
+        XCTAssertFalse(available.checked, "the card starts hidden")
         let disabled = DevMenuController.frameHealth(off, container: true)
-        XCTAssertEqual(disabled.title, "Show Frame Health", "the same one row, dimmed")
+        XCTAssertEqual(disabled.title, "Frame Health Disabled", "the same one row, dimmed")
         XCTAssertEqual(disabled.unavailable?.title, "Frame Health Is Off")
+        XCTAssertTrue(disabled.unavailable?.message.hasPrefix("Production builds don't measure frame timings by default.") == true)
         XCTAssertTrue(disabled.unavailable?.message.contains("\"frame_health\": { \"mode\": \"core\" }") == true, "it says how to turn collection on")
         XCTAssertEqual(DevMenuController.frameHealth(on, container: false).unavailable?.title, "Frame Health Is Unavailable")
     }
@@ -393,7 +420,11 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertGreaterThan(cell.bounds.width, 350, "commands use the native sheet width")
         XCTAssertGreaterThanOrEqual(cell.bounds.height, 44)
         XCTAssertEqual((cell.contentConfiguration as? UIListContentConfiguration)?.text, "Reload")
-        XCTAssertEqual(menu.groups[1].first?.title, "Show Frame Health")
+        let frameHealth = try XCTUnwrap(menu.groups[1].first)
+        XCTAssertEqual(frameHealth.symbol, "waveform.path.ecg")
+        let content = try XCTUnwrap(menu.tableView.cellForRow(at: IndexPath(row: 0, section: 1))?.contentConfiguration as? UIListContentConfiguration)
+        XCTAssertEqual(content.text, frameHealth.title)
+        XCTAssertNil(content.secondaryText, "the row has no subtext")
         XCTAssertFalse(menu.groups.flatMap { $0 }.contains { $0.title == "Copy Info" })
         menu.tableView(menu.tableView, didSelectRowAt: IndexPath(row: 0, section: 2))
         XCTAssertTrue(navigation.viewControllers.last?.view is UITextView)

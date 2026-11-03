@@ -87,7 +87,7 @@ final class IframeGivenFilesTests: XCTestCase {
               type: whole.headers.get('content-type'), sandbox: [whole, part, head].map(r => r.headers.get('content-security-policy')),
               odd: await Promise.all(rest.map(async f => (await (await fetch(f)).arrayBuffer()).byteLength)),
               empty: await fetch(empty).then(async r => [r.status, (await r.arrayBuffer()).byteLength]),
-              ranges: [await range('bytes=-3'), await range('bytes=7-'), await range('bytes=99-'), await range('bytes=0-1,4-5'), await range('bytes=x')],
+              ranges: [await range('bytes=-3'), await range('bytes=-11'), await range('bytes=-9223372036854775807'), await range('bytes=7-'), await range('bytes=99-'), await range('bytes=0-1,4-5'), await range('bytes=x')],
               post: await fetch(big, { method: 'POST', body: 'x' }).then(r => r.status, () => 'refused') });
             """)
         XCTAssertTrue((read["big"] as? String)?.hasPrefix("exact-app://app/.exact/files/") == true, "\(read)")
@@ -104,7 +104,7 @@ final class IframeGivenFilesTests: XCTestCase {
         XCTAssertEqual(read["odd"] as? [Int], Self.odd.map { Data($0.utf8).count }, "names a URL would split, encoded")
         XCTAssertEqual(read["empty"] as? [Int], [200, 0])
         let ranges = try XCTUnwrap(read["ranges"] as? [[Any]]).map { "\($0[0]) \($0[1])" }
-        XCTAssertEqual(ranges, ["206 789", "206 789", "200 0123456789", "200 0123456789", "200 0123456789"])
+        XCTAssertEqual(ranges, ["206 789", "206 0123456789", "206 0123456789", "206 789", "200 0123456789", "200 0123456789", "200 0123456789"])
         XCTAssertEqual(read["post"] as? Int, 405)
     }
 

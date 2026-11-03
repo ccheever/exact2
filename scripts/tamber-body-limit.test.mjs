@@ -4,12 +4,13 @@
 // --via`'s proxy drops a 413 before it is sent").
 import { afterAll, beforeAll, expect, jest, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { createServer, request } from 'node:http';
 import { connect } from 'node:net';
 import { EventEmitter } from 'node:events';
 import { earlyAnswer, refuseBody } from './tamber-request.mjs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { developmentGate } from './install-page.mjs';
 import { forward, tamberServer } from './tamber-server.mjs';
 
@@ -60,12 +61,13 @@ beforeAll(async () => {
   server = createServer();
   await new Promise(ok => server.listen(0, '127.0.0.1', ok));
   const port = server.address().port, gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
-  tamber = tamberServer({ appDir: dir, log: () => {}, settle: 250 });
+  tamber = tamberServer({
+    spawnServe: app => spawn(resolve(import.meta.dir, '../target/debug/contract'), ['tamber', 'serve', '--stdio', app], { stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32' }), appDir: dir, log: () => {}, settle: 250 });
   server.on('request', async (req, res) => { if (!(await tamber.handle(req, res, new URL(req.url, 'http://x'), gate.check(req)))) { res.writeHead(404); res.end(); } });
   origin = `http://127.0.0.1:${port}`;
   ({ token } = await (await fetch(`${origin}/__tamber/token`)).json());
   await tamber.ready;
-}, 600_000); // a cold checkout builds the compiler first
+}, 60_000); // build contract before the suite (docs/testing.md)
 afterAll(async () => {
   await tamber?.close();
   server?.close();

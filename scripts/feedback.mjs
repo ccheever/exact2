@@ -56,6 +56,7 @@ function identifiers(dir) {
 }
 
 const SECRETS = [
+  /\b((?:proxy-)?authorization["']?\s*[:=]\s*["']?)[^\r\n"']+/gi,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
   /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g,
   /\b(?:sk|pk|rk)[-_](?:live|test|ant|proj)?[-_]?[A-Za-z0-9_-]{16,}/g,

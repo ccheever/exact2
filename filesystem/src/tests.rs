@@ -410,3 +410,26 @@ fn resident_reader_reopens_roots_and_refuses_mutations() {
     symlink(fixture.path("old/value"), path.join("value")).unwrap();
     assert!(read_request(&input).is_err());
 }
+
+#[test]
+fn puts_cannot_replace_case_variants_of_a_stream_head_or_lock() {
+    let fixture = Fixture::new();
+    let root = fixture.dir("origin");
+    for prefix in [".exact", ".EXACT"] {
+        for name in [
+            "exact.json",
+            "Exact.json",
+            "EXACT.JSON",
+            ".lock",
+            ".Lock",
+            ".LOCK",
+        ] {
+            let error = operate(&root, &json!({"op":"put", "path":format!("{prefix}/prod/cohort/{name}"), "bytes":STANDARD.encode("forged"), "token":TOKEN}), None).unwrap_err();
+            assert!(
+                error.to_string().contains("stream heads require putHead"),
+                "{error}"
+            );
+        }
+    }
+    operate(&root, &json!({"op":"put", "path":".exact/blobs/abc", "bytes":STANDARD.encode("blob"), "immutable":true, "token":TOKEN}), None).unwrap();
+}

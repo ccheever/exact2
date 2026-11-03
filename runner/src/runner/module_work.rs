@@ -7,24 +7,32 @@
 //! checkpoint, inside `fulfill`, so what the turn writes to the store stands,
 //! and the commit after it reaches the host as any reply's does, presented
 //! and persisted.
+use super::modules::{CallOrigin, Causes};
 use super::{CommitReceipt, DataSource, InFlight, PendingReq, Runner, RunnerError, Target};
-use crate::request::Outcome;
+use crate::request::{Outcome, RequestOut};
 use crate::store::StoreCheckpoint;
 use std::collections::BTreeMap;
 
 /// What the journal and `state.pending` call a kept request.
 pub(super) const NAME: &str = "module work";
 
+#[derive(Clone, Copy)]
+struct Authority {
+    origin: CallOrigin,
+    invocation: u64,
+    causes: Causes,
+}
+
 #[derive(Default)]
 pub(super) struct ModuleWork {
     /// Kept requests in flight: the runner's ticket, the source's token.
-    tickets: BTreeMap<u64, u64>,
+    tickets: BTreeMap<u64, (u64, Authority)>,
     /// Their module fetch tickets, so the app's abort still names one
     /// (`Runner::match_aborts`) for as long as it runs, with no cap.
     pub(super) fetches: BTreeMap<u64, u64>,
     /// Requests with effects the commit being made let go, offered to the
     /// source when it ends.
-    letting: Vec<PendingReq>,
+    letting: Vec<(PendingReq, Authority)>,
     /// The store as the turn of a reply to a request with effects left it:
     /// a refused commit goes back to here, not to before the reply.
     pub(super) standing: Option<StoreCheckpoint>,
@@ -100,7 +108,12 @@ impl<D: DataSource> Runner<D> {
             self.upload_let_go(p.ticket);
         }
         if p.admitted_effects() && !self.poisoned {
-            self.module_work.letting.push(p);
+            let authority = Authority {
+                origin: self.ticket_origin(p.ticket),
+                invocation: self.ticket_id(p.ticket),
+                causes: self.ticket_causes(p.ticket),
+            };
+            self.module_work.letting.push((p, authority));
         }
     }
 
@@ -160,7 +173,7 @@ impl<D: DataSource> Runner<D> {
         }
         let in_flight: Vec<InFlight<'_>> = letting
             .iter()
-            .map(|p| InFlight {
+            .map(|(p, _)| InFlight {
                 target: p.target,
                 source: &p.source,
                 args: &p.args,
@@ -168,9 +181,11 @@ impl<D: DataSource> Runner<D> {
             })
             .collect();
         let kept = self.data.keep_sent(&self.store, &in_flight, refused);
-        for (p, token) in letting.iter().zip(kept) {
+        for ((p, authority), token) in letting.iter().zip(kept) {
             if let Some(token) = token {
-                self.module_work.tickets.insert(p.ticket, token);
+                self.module_work
+                    .tickets
+                    .insert(p.ticket, (token, *authority));
                 if let Some(fetch) = p.fetch {
                     self.module_work.fetches.insert(fetch, p.ticket);
                 }
@@ -190,20 +205,47 @@ impl<D: DataSource> Runner<D> {
         ticket: u64,
         outcome: Outcome,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
-        let Some(token) = self.module_work.tickets.remove(&ticket) else {
+        let Some((token, authority)) = self.module_work.tickets.remove(&ticket) else {
             return Ok(None);
         };
         self.module_work.fetches.retain(|_, t| *t != ticket);
-        let (revision, writes) = (self.store.revision(), self.store.writes().len());
-        self.log(format!("{NAME} {ticket}: {}", outcome.summary()));
-        if let Err(e) = self.data.module_landed(&mut self.store, token, outcome) {
-            self.log(format!("{NAME} failed: {e}"));
-        }
-        self.take_data_logs();
-        // Its writes are in the store before the commit's checkpoint, which journals only those after
-        self.log_store_writes(writes);
-        self.module_commit(self.store.revision() != revision)
-            .map(Some)
+        self.as_invocation_caused(
+            authority.origin,
+            authority.invocation,
+            authority.causes,
+            |r| {
+                let (revision, writes) = (r.store.revision(), r.store.writes().len());
+                r.log(format!("{NAME} {ticket}: {}", outcome.summary()));
+                match r.data.module_delivery(&mut r.store, token, outcome) {
+                    Ok(Some(mut request))
+                        if request.continuation.is_some()
+                            && request.storage.is_none()
+                            && request.surface.is_none()
+                            && request.url.is_empty() =>
+                    {
+                        let next = r.next_ticket;
+                        r.next_ticket += 1;
+                        request.reach = r.reach_of(authority.origin);
+                        r.module_work.tickets.insert(next, (token, authority));
+                        r.requests.push(RequestOut {
+                            ticket: next,
+                            target: NAME.into(),
+                            request,
+                            forced: false,
+                        });
+                    }
+                    Ok(Some(_)) => r.log(format!(
+                        "{NAME} failed: delivery must yield a local continuation"
+                    )),
+                    Ok(None) => {}
+                    Err(e) => r.log(format!("{NAME} failed: {e}")),
+                }
+                r.take_data_logs();
+                // Its writes are in the store before the commit's checkpoint, which journals only those after
+                r.log_store_writes(writes);
+                r.module_commit(r.store.revision() != revision).map(Some)
+            },
+        )
     }
 
     /// Whether resource `i` is a store reader in flight that module work

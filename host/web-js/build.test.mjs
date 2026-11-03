@@ -1,12 +1,12 @@
 import { test, expect, mock, spyOn } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync, statSync, utimesSync } from 'node:fs';
 import { createServer, get as httpGet } from 'node:http';
 import { tmpdir } from 'node:os';
 import { brotliDecompressSync } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { moduleGrants, webCompiler } from './module.mjs';
+import { moduleGrants, webCompiler, fresh, freshCompiler } from './module.mjs';
 import { spawnOwned } from '../../scripts/test-children.mjs';
 
 test.each([
@@ -426,3 +426,30 @@ export const answer: Answer = (name) => sources[name]();
     expect(readFileSync(resolve(dir,'app.contract.d.ts'),'utf8')).toBe(declarations);
   } finally {rmSync(dir, {recursive: true, force: true});}
 }, 30_000);
+
+
+test('compiler reuse is invalidated by dependency manifests and the workspace lockfile', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-compiler-fresh-'));
+  const product = resolve(dir, 'compiler'), crate = resolve(dir, 'dep'), source = resolve(crate, 'src/lib.rs');
+  const lock = resolve(import.meta.dir, '../../Cargo.lock'), previous = statSync(lock), fast = process.env.EXACT_WEB_COMPILER;
+  try {
+    mkdirSync(resolve(crate, 'src'), { recursive: true });
+    writeFileSync(source, 'pub fn run() {}'); writeFileSync(resolve(crate, 'Cargo.toml'), '[package]\nname="fixture"\nversion="0.1.0"\n');
+    writeFileSync(product, 'compiler fixture'); writeFileSync(`${product}.d`, `${product}: ${source}\n`);
+    const built = Date.now() / 1000 + 10;
+    utimesSync(product, built, built);
+    process.env.EXACT_WEB_COMPILER = product;
+    expect(freshCompiler(product)).toBe(true); expect(webCompiler().cmd).toBe(product);
+    utimesSync(resolve(crate, 'Cargo.toml'), built + 1, built + 1);
+    expect(fresh(product, `${product}.d`)).toBe(true);
+    expect(freshCompiler(product)).toBe(false); expect(webCompiler().cmd).not.toBe(product);
+    utimesSync(resolve(crate, 'Cargo.toml'), built - 1, built - 1);
+    utimesSync(lock, built + 1, built + 1);
+    expect(fresh(product, `${product}.d`)).toBe(true);
+    expect(freshCompiler(product)).toBe(false); expect(webCompiler().cmd).not.toBe(product);
+  } finally {
+    utimesSync(lock, previous.atime, previous.mtime);
+    if (fast === undefined) delete process.env.EXACT_WEB_COMPILER; else process.env.EXACT_WEB_COMPILER = fast;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

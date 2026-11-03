@@ -795,6 +795,76 @@ test('a receipt input is found changed by its bytes, whatever its size and mtime
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('bake asset comparison preserves diagnostics without repeated inventory scans', async () => {
+  const { verifyBakeFiles } = await import('./app.mjs');
+  const plan = Buffer.from('plan'), count = 8000;
+  let reads = 0;
+  const cards = () => Array.from({ length: count }, (_, i) => ({
+    get name() { reads++; return `assets/${String(i).padStart(6, '0')}`; }, sha256: 'digest', bytes: 1,
+  }));
+  const assets = cards(), receipt = { embedded: { plan: { sha256: createHash('sha256').update(plan).digest('hex'), bytes: plan.length }, assets: cards() } };
+  verifyBakeFiles(receipt, plan, assets);
+  assert.ok(reads < count * 20, `${reads} asset-name reads for ${count} matching assets`);
+  const damaged = [...assets];
+  damaged[1] = { name: assets[1].name, sha256: 'changed', bytes: 1 };
+  damaged[2] = { name: assets[2].name, sha256: 'digest', bytes: 2 };
+  damaged.splice(3, 1);
+  damaged.push({ name: 'extra', sha256: 'digest', bytes: 1 });
+  assert.throws(() => verifyBakeFiles(receipt, plan, damaged), e => e.rebuild && e.message.includes('static files (assets/000001, assets/000002, extra, 1 more)'));
+  assert.throws(() => verifyBakeFiles(receipt, Buffer.from('edit'), assets), e => e.rebuild && e.message.includes('plan differs'));
+});
+
+test('build output claims exclude contenders and recover after an owner is killed', async () => {
+  const { createInterface } = await import('node:readline');
+  const { claimBuildOutput } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-output-claim-'));
+  const path = resolve(dir, 'build.lock'), app = { id: 'fixture', dir };
+  const children = [];
+  const contender = async () => {
+    const source = `import {claimBuildOutput} from ${JSON.stringify(import.meta.resolve('./app.mjs'))};
+      import {createInterface} from 'node:readline';
+      let release; console.log('ready');
+      for await (const command of createInterface({input:process.stdin})) {
+        if(command==='claim') { try { release=claimBuildOutput(${JSON.stringify(app)},${JSON.stringify(path)}); console.log('held'); } catch(e) { if(!e.message.startsWith('Apple build busy')) throw e; console.log('busy'); } }
+        if(command==='release') { release?.(); console.log('released'); }
+      }`;
+    const child = spawn(process.execPath, ['--eval', source], { stdio: ['pipe', 'pipe', 'pipe'] });
+    children.push(child);
+    let errors = ''; child.stderr.on('data', chunk => errors += chunk);
+    const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
+    const read = async () => { const line = await lines.next(); assert.equal(line.done, false, errors); return line.value; };
+    const ended = new Promise(resolve => child.once('close', resolve));
+    assert.equal(await read(), 'ready');
+    return { child, read, ended, send(command) { child.stdin.write(command + '\n'); } };
+  };
+  try {
+    writeFileSync(path, JSON.stringify({ pid: 2 ** 22 + 12345, started: '2000-01-01T00:00:00Z' }));
+    const [a, b] = await Promise.all([contender(), contender()]);
+    a.send('claim'); b.send('claim');
+    const answers = await Promise.all([a.read(), b.read()]);
+    assert.deepEqual([...answers].sort(), ['busy', 'held']);
+    const [owner, waiter] = answers[0] === 'held' ? [a, b] : [b, a];
+    const inode = statSync(`${path}.flock`).ino;
+    waiter.send('release'); assert.equal(await waiter.read(), 'released');
+    assert.throws(() => claimBuildOutput(app, path), /Apple build busy/);
+    owner.child.kill('SIGKILL'); await owner.ended;
+    waiter.send('claim'); assert.equal(await waiter.read(), 'held');
+    assert.throws(() => claimBuildOutput(app, path), /Apple build busy/);
+    waiter.send('release'); assert.equal(await waiter.read(), 'released');
+    const release = claimBuildOutput(app, path);
+    waiter.send('release'); assert.equal(await waiter.read(), 'released');
+    assert.throws(() => claimBuildOutput(app, path), /Apple build busy/);
+    release(); release();
+    assert.equal(existsSync(path), false);
+    assert.equal(statSync(`${path}.flock`).ino, inode);
+    // A killed owner may leave an incomplete diagnostic record; the OS lock still governs ownership.
+    writeFileSync(path, '{'); claimBuildOutput(app, path)();
+  } finally {
+    await Promise.all(children.map(child => child.exitCode !== null || child.signalCode !== null ? null : new Promise(resolve => { child.once('close', resolve); child.kill('SIGKILL'); })));
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 15000);
+
 // A claim's holder (the Apple build's, the touch runner's device lock) is live unless shown dead: gone, or a pid
 // started after the claim; a claim that does not parse, or whose holder `ps` cannot date, is live (round-2 review).
 test('a claim is live unless its holder is shown gone or reused', async () => {

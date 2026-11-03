@@ -13,7 +13,7 @@ import { HELP, helpText, indexText, knownFlags } from './help.mjs';
 import { scriptFlags } from './help-parity.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
-const APP_VERBS = ['status', 'web', 'web-build', 'serve', 'test', 'agent', 'verify', 'ios', 'mac', 'linux', 'windows', 'android', 'update', 'lock', 'contract', 'tamber', 'hatch', 'snapback', 'backend', 'pattern', 'docs', 'feedback'];
+const APP_VERBS = ['status', 'web', 'web-build', 'serve', 'test', 'agent', 'verify', 'ios', 'mac', 'share', 'linux', 'windows', 'android', 'update', 'lock', 'contract', 'tamber', 'hatch', 'snapback', 'backend', 'pattern', 'docs', 'feedback'];
 const timed = (args, options) => {
   const t = performance.now(), r = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 15_000, ...options });
   return { ...r, ms: performance.now() - t };
@@ -30,7 +30,7 @@ test('each verb of a new app\'s exact.mjs, and no verb, answers help from exact2
     mkdirSync(resolve(sdk, 'scripts'), { recursive: true });
     mkdirSync(resolve(sdk, 'js/bake/src'), { recursive: true });
     for (const file of ['scripts/help.mjs', 'scripts/app-cli.mjs', 'scripts/bun.mjs', 'js/bake/src/__exact_env.mjs']) copyFileSync(resolve(ROOT, file), resolve(sdk, file));
-    for (const file of ['host/web/dev.mjs', 'host/web/build.mjs', 'host/web/serve.mjs', 'host/apple/build.mjs', 'scripts/agent.mjs', 'scripts/verify.mjs', 'scripts/build-linux.mjs', 'scripts/agent-android.mjs', 'scripts/exact.mjs', 'scripts/feedback.mjs']) {
+    for (const file of ['host/web/dev.mjs', 'host/web/build.mjs', 'host/web/serve.mjs', 'host/apple/build.mjs', 'scripts/agent.mjs', 'scripts/verify.mjs', 'scripts/build-linux.mjs', 'scripts/agent-android.mjs', 'scripts/exact.mjs', 'scripts/feedback.mjs', 'scripts/share.mjs']) {
       mkdirSync(resolve(sdk, file, '..'), { recursive: true });
       writeFileSync(resolve(sdk, file), `require('node:fs').appendFileSync(${JSON.stringify(started)}, ${JSON.stringify(file)} + '\\n');`);
     }

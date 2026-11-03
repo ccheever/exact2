@@ -60,12 +60,20 @@ export function engine(rt) {
   let module = null; // the module's draws, once it is ready
   const say = line => journal.push(`t=${clock.now} ${line}`);
   const memory = { buffer: new ArrayBuffer(8) };
+  let colorCanvas;
   const colour = el => {
-    const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?/.exec(getComputedStyle(el).color);
-    return m ? [+m[1], +m[2], +m[3], m[4] == null ? 1 : +m[4]] : null;
+    const text = getComputedStyle(el).color, parsed = drawer?.color?.(text);
+    if (parsed && parsed !== 'current') return parsed;
+    const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?/.exec(text);
+    if (m) return [+m[1], +m[2], +m[3], m[4] == null ? 1 : +m[4]];
+    // Rust's draw ABI takes sRGB bytes; let the browser convert its resolved CSS grammar.
+    colorCanvas ??= document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    colorCanvas.clearRect(0, 0, 1, 1); colorCanvas.fillStyle = text; colorCanvas.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = colorCanvas.getImageData(0, 0, 1, 1).data;
+    return Object.assign([r, g, b, a / 255], { text });
   };
-  // What a canvas draws in (`currentColor`, `direction = "inherit"`), as one key.
-  const rtlOf = el => getComputedStyle(el).direction === 'rtl', drawnIn = (color, rtl) => `${color}|${rtl}`;
+  // Wide colors retain their original components through the TypeScript recorder.
+  const rtlOf = el => getComputedStyle(el).direction === 'rtl', drawnIn = (color, rtl) => `${color?.text ?? color}|${rtl}`;
   // One pass over the canvases with causes, as `draw_canvases` runs.
   function drawAll() {
     if (!module) return;

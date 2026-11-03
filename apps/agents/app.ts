@@ -178,8 +178,13 @@ async function start(c: Conversation, at: number, storage: Storage) {
   if (c.model === DEVICE.id) return startOnDevice(c, history as Turn[], reply, storage);
   try {
     const job = await api('/turns', 'POST', { model: c.model, effort: c.effort, messages: history });
+    if (!c.streaming || c.reply !== reply.id) {
+      try { await api(`/turns/${job.id}`, 'DELETE'); } catch { /* the service bounds abandoned jobs */ }
+      return;
+    }
     c.job = job.id; connected = true;
   } catch (e) {
+    if (!c.streaming || c.reply !== reply.id) return;
     c.streaming = false; c.job = ''; reply.error = offline(e);
   }
   await persist(storage);
@@ -213,9 +218,15 @@ async function startOnDevice(c: Conversation, history: Turn[], reply: Msg, stora
   const input = history.pop();
   try {
     const session = await sessionFor(c, history);
+    if (!c.streaming || c.reply !== reply.id) return;
     const response = await promptStreaming({ session, input: input?.content ?? '' });
+    if (!c.streaming || c.reply !== reply.id) {
+      try { await abortLanguageModelResponse({ response: response.id }); } catch { /* already ended */ }
+      return;
+    }
     c.job = response.id;
   } catch (e) {
+    if (!c.streaming || c.reply !== reply.id) return;
     c.streaming = false; c.job = ''; reply.error = unavailable(e);
   }
   await persist(storage);
@@ -350,7 +361,12 @@ async function command(op: string, id: string, value: string, at: number, storag
     if (c.job && c.model === DEVICE.id) try { await abortLanguageModelResponse({ response: c.job }); } catch { /* it has ended */ }
     else if (c.job) try { await api(`/turns/${c.job}`, 'DELETE'); } catch { /* it ends with the service */ }
     // The next pulse records how far it got.
-    if (!c.job) c.streaming = false;
+    if (!c.job) {
+      c.streaming = false;
+      c.messages = c.messages.filter(m => m.id !== c.reply || m.body || m.error);
+      c.reply = '';
+      await persist(storage);
+    }
   } else if (op === 'effort' && EFFORTS[value]) {
     c.effort = value; await persist(storage);
   } else if (op === 'model') {

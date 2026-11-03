@@ -576,7 +576,10 @@ because it is retrofit-hostile:
   unsigned and are refused by a release binary for that reason alone.
   Key rotation is a new binary.
 - **Anti-rollback.** `seq` is monotonic per runtime version; the client
-  refuses a bundle whose `seq` is below the selected one's. A
+  refuses a bundle whose `seq` is below the highest authenticated sequence
+  it has accepted or embedded, including a head whose payload is already
+  embedded. It persists that head as a signed witness before advancing the
+  record, even when no payload is downloaded. A
   deliberate rollback is a *new* `seq` whose content is an older
   bundle's — Expo's roll-back-to-embedded directive is `seq + 1`
   pointing at entry zero.
@@ -593,7 +596,9 @@ because it is retrofit-hostile:
   with what it recovers (0421 invariant 11).
   Recovery bounds each local read by its signed file card, the 64 KiB envelope
   limit, or a 1 MiB record limit before allocating; growth during a read is
-  bounded too. A damaged record recovers its floor from verified entries.
+  bounded too. A missing or damaged record recovers its floor from verified
+  entries and signed witnesses. Selecting an older last-good payload does
+  not lower that floor.
 - **Assets by digest.** The asset rung LLP 1023 D4 deferred, landed
   here: the envelope lists each asset by name and digest; the store
   fetches what it lacks and reuses what it has, embedded assets

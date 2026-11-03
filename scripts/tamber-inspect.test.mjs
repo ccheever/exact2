@@ -1057,3 +1057,27 @@ test("a selection's chain is its walk where the map writes one (a slot's host, t
     expect(join(walks, selected, map).readOnly).toContain('panel.contract changed since this build');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('an aborted or stalled resident map settles null and a retry can succeed', async () => {
+  const { createServer } = await import('node:http');
+  const bytes = Buffer.from(JSON.stringify({ digest: 'f'.repeat(64), nodes: [] }));
+  const card = { plan: 'f'.repeat(64), sha256: sha(bytes), bytes: bytes.length };
+  card.url = `/__dev/map/${card.sha256}`;
+  let mode = 'truncated';
+  const sockets = new Set();
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { 'content-length': bytes.length });
+    if (mode === 'valid') res.end(bytes);
+    else { res.write(bytes.subarray(0, 10)); if (mode === 'truncated') res.flushHeaders(), res.socket.end(); }
+  });
+  server.on('connection', socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
+  await new Promise(ok => server.listen(0, '127.0.0.1', ok));
+  try {
+    const port = server.address().port;
+    expect(await pullMap(port, card, 'localhost', 200)).toBe(null);
+    mode = 'stalled';
+    expect(await pullMap(port, card, 'localhost', 20)).toBe(null);
+    mode = 'valid';
+    expect((await pullMap(port, card, 'localhost', 200)).bytes).toEqual(bytes);
+  } finally { for (const socket of sockets) socket.destroy(); await new Promise(ok => server.close(ok)); }
+});

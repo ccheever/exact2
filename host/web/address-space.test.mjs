@@ -46,7 +46,7 @@ test('the redirect gate holds a tool\'s redirects while a permission is answered
   expect(redirectFor('tool', 'manual')).toBe('manual');
   expect(redirectFor('app', 'follow')).toBe('follow');
   setSpaceStates('unknown');
-  expect(redirectFor('tool', 'follow')).toBe('follow');
+  expect(redirectFor('tool', 'follow')).toBe('error');
   setSpaceStates('granted');
   expect(redirectFor('wake', 'follow')).toBe('follow');
 });

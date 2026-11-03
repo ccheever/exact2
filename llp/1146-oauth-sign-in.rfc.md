@@ -252,10 +252,18 @@ API, staged for the type checker), `index.contract` (`OAuthSession`,
   (a browser hides it cross-origin unless exposed) the expiry is unknown and
   `exp` unchecked. An expired access token is learned from a 401.
 - **One at a time.** A session's code exchange, refreshes and sign-out run
-  one at a time, across every provider made for its key: each caller waits in
-  its own frame for the work in flight, then runs its own there, so its
-  requests are its own answer's. Each is a POST, which runs to its end when
-  that answer is let go once sent (D2), within a 60 s deadline.
+  one at a time, across every provider sharing its backing store and key,
+  including separate JS realms and native sessions. `store.exclusive`
+  acquires that secret's host-owned lease before refreshing its snapshot.
+  Each caller waits outside the ordered request lane, then runs in its own
+  frame, so its requests remain its own answer's. Writes complete durably
+  before releasing the lease; a failed fresh read or write fails the operation.
+  Each POST runs to its end when that answer is let go once sent (D2), within
+  a 60 s deadline. Native and JS-target answers retain the lease through the
+  reply and secret writes. The wasm browser module path instead invalidates
+  an abandoned update's credential before another holder can read it; the
+  person signs in again. A durable marker likewise invalidates an uncertain
+  update after a page or process exits before completion.
 - **Sign-in.** `session()`, while signed out, prepares the next sign-in
   (discovery; `state`; a PKCE S256 verifier; `nonce` with `openid`), so
   `signIn()` calls `openAuthSession` before its first `await`. A preparation
@@ -505,8 +513,9 @@ browser.
 
 ## 8. Not in this RFC
 
-- **A lock API.** Work several answers share is a shared promise, as on the
-  web; what must finish once started is a request with effects (D2).
+- **General-purpose locks.** `store.exclusive` covers one granted, plain
+  secret in its backing store. Arbitrary locks and presence-protected
+  secrets are outside this API; requests with effects still follow D2.
 - **Draining kept requests across teardown, reload and update**, on a
   Windows window's close and an Android app's stop, and past the background
   time iOS grants.

@@ -90,3 +90,114 @@ fn a_popovers_block_clips_nothing() {
         .unwrap();
     assert_eq!(r.slot("point"), Some(&Value::str("below")));
 }
+
+mod sticky {
+    use crate::geometry::{GeometryEnv, Scrolled, KERNEL};
+    use crate::Runner;
+    use exact_kernel::{Kernel, Offer};
+    use exact_plan::{Stdlib, Value};
+    #[test]
+    fn sticky_frames_and_point_reads_follow_the_pinned_box() {
+        let source = r#"component App
+  view
+    scroll id="scroller" width=200 height=100
+      column height=500
+        box id="sticky" position="sticky" top=0 width=50 height=40
+          box id="child" width=20 height=20
+"#;
+        let p = contract::compile(source).unwrap();
+        let p = exact_plan::Plan::decode(&p.encode()).unwrap();
+        let mut r = Runner::boot(p, (), Kernel::with_monospace(), Default::default(), "/").unwrap();
+        let root = r.roots()[0];
+        r.kernel_mut()
+            .compute_layout(root, Offer::definite(200., 100.))
+            .unwrap();
+        let sticky = r.kernel().find_by_id("sticky")[0];
+        let scroller = r.kernel().find_by_id("scroller")[0];
+        let constraint = r
+            .kernel()
+            .sticky_constraint(sticky)
+            .expect("sticky placement");
+        let mut s = Scrolled::default();
+        s.note(
+            r.kernel(),
+            Some(r.kernel().node_by_key(scroller).unwrap().id),
+            0.,
+            80.,
+        );
+        let env = GeometryEnv::new(r.kernel(), &s, &KERNEL, &[]);
+        let frame = env
+            .read(r.plan(), Stdlib::Frame, &[Value::str("sticky")])
+            .unwrap();
+        let hit = env
+            .read(
+                r.plan(),
+                Stdlib::ElementFromPoint,
+                &[Value::Number(10.), Value::Number(10.)],
+            )
+            .unwrap();
+        let Value::Record(fields) = frame else {
+            panic!()
+        };
+        assert_eq!(constraint.offset((0., 80.)).1, 80.);
+        assert_eq!(fields[1], Value::Number(0.));
+        assert_eq!(hit, Value::some(Value::str("child")));
+        let Value::Record(child) = env
+            .read(r.plan(), Stdlib::Frame, &[Value::str("child")])
+            .unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(child[1], Value::Number(0.));
+        let hit = env
+            .read(
+                r.plan(),
+                Stdlib::ElementFromPoint,
+                &[Value::Number(40.), Value::Number(10.)],
+            )
+            .unwrap();
+        assert_eq!(hit, Value::some(Value::str("sticky")));
+        let old = env
+            .read(
+                r.plan(),
+                Stdlib::ElementFromPoint,
+                &[Value::Number(10.), Value::Number(-70.)],
+            )
+            .unwrap();
+        assert_ne!(old, Value::some(Value::str("sticky")));
+        assert_ne!(old, Value::some(Value::str("child")));
+    }
+}
+
+#[test]
+fn an_unpainted_border_does_not_clip_descendant_hits() {
+    let source = r#"component App
+  view
+    box id="clip" width=4 height=4 overflow="hidden" border-width=30 border-style="none"
+      box id="child" width=4 height=4
+"#;
+    let mut r = Runner::boot(
+        contract::compile(source).unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let root = r.roots()[0];
+    r.kernel_mut()
+        .compute_layout(root, Offer::definite(4., 4.))
+        .unwrap();
+    let scrolled = Scrolled::default();
+    let env = GeometryEnv::new(r.kernel(), &scrolled, &KERNEL, &[]);
+    for x in [0.5, 3.5] {
+        let hit = env
+            .read(
+                r.plan(),
+                exact_plan::Stdlib::ElementFromPoint,
+                &[Value::Number(x), Value::Number(x)],
+            )
+            .unwrap();
+        assert_eq!(hit, Value::some(Value::str("child")));
+    }
+}

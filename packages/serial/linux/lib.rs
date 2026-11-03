@@ -110,6 +110,7 @@ struct PollFd {
 }
 
 extern "C" {
+    fn access(path: *const std::ffi::c_char, mode: i32) -> i32;
     fn tcgetattr(fd: i32, t: *mut Termios) -> i32;
     fn tcsetattr(fd: i32, when: i32, t: *const Termios) -> i32;
     fn cfmakeraw(t: *mut Termios);
@@ -219,12 +220,11 @@ fn ports() -> Vec<Port> {
     all
 }
 
-/// Whether this process may open the node: `EACCES` reads `granted` false, and the recipe names the udev rule.
+/// Permission probes must not open a tty: opening it can toggle DTR and reset a board.
 fn granted(path: &str) -> bool {
-    match OpenOptions::new().read(true).write(true).custom_flags(O_NOCTTY | O_NONBLOCK).open(path) {
-        Err(e) => e.kind() != ErrorKind::PermissionDenied,
-        Ok(_) => true,
-    }
+    let Ok(path) = std::ffi::CString::new(path) else { return false };
+    // SAFETY: path is NUL-terminated and access only reads it. R_OK | W_OK.
+    unsafe { access(path.as_ptr(), 4 | 2) == 0 }
 }
 
 fn record(p: &Port, connected: bool) -> Json {

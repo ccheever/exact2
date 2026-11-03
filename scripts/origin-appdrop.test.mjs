@@ -3,7 +3,7 @@
 // real server is expo/appdrop's web/worker/exactUpdates.ts.
 import { afterAll, expect, test } from 'bun:test';
 import { createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto';
-import { AppDropOrigin, appdropOrigin, channelOrigin, openOrigin, sha256 } from './origin.mjs';
+import { AppDropOrigin, HttpsOrigin, DirectoryOrigin, appdropOrigin, channelOrigin, openOrigin, sha256 } from './origin.mjs';
 
 const SHELF = '/dF36/m50wjVH0iDogmQB4FTDF6bx+qwAyD0seHMV70=';
 const manifest = (channels) => ({ deploy: { channels, signing: { key: 'shelf', keys: { shelf: SHELF } } } });
@@ -68,4 +68,39 @@ test('every write is signed over its path and body, and the head is put If-Match
   await origin.putHead(stream, Buffer.from('{"seq":2}'), { previousDigest: sha256(Buffer.from(head)) });
   expect(requests.at(-1).headers.get('if-match')).toBe('"h1"');
   await expect(origin.putHead(stream, Buffer.from('{"seq":3}'), { previousDigest: sha256(Buffer.from('other')) })).rejects.toThrow('changed since it was read');
+});
+
+test('publisher refuses redirects for reads and signed writes and caps streamed heads', async () => {
+  const seen = [];
+  const fixture = Bun.serve({ port: 0, fetch(request) {
+    const path = new URL(request.url).pathname;
+    seen.push([request.method, path]);
+    if (path.includes('/large/')) return new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new Uint8Array((64 << 10) + 1)); controller.close(); },
+    }));
+    if (path.includes('/direct/')) return Response.json({ exact: 1 });
+    return new Response(null, { status: 307, headers: { location: '/must-not-follow' } });
+  } });
+  try {
+    const base = `http://127.0.0.1:${fixture.port}`;
+    await expect(new HttpsOrigin(base).get('exact.json')).rejects.toThrow();
+    const key = signer();
+    const keyId = sha256(Buffer.from(key.publicKey, 'base64')).slice(0, 32);
+    const origin = new AppDropOrigin(`${base}/u/${keyId}`).useSigner(key);
+    await expect(origin.putHead({ channel: 'prod', compatibilityId: 'c' }, Buffer.from('{}'))).rejects.toThrow();
+    await expect(origin.list('.exact/prod')).rejects.toThrow();
+    expect(seen.some(([, path]) => path === '/must-not-follow')).toBe(false);
+    await expect(new HttpsOrigin(base).get('large/exact.json')).rejects.toThrow('exceeds');
+    expect(JSON.parse(await new HttpsOrigin(base).get('direct/exact.json'))).toEqual({ exact: 1 });
+  } finally { fixture.stop(true); }
+});
+
+test('directory puts refuse case variants of guarded heads before calling the tool', async () => {
+  const origin = new DirectoryOrigin('/unused');
+  let called = false;
+  origin.operation = () => { called = true; throw Error('unexpected tool call'); };
+  for (const name of ['Exact.json', 'EXACT.JSON', '.Lock', '.LOCK']) {
+    await expect(origin.put(`.EXACT/prod/id/${name}`, Buffer.from('{}'))).rejects.toThrow('stream lock');
+  }
+  expect(called).toBe(false);
 });

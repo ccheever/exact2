@@ -76,3 +76,15 @@ test('a board left in an error starts again from idle', async () => {
   await update(b.io, image, { transferSize: 8 }, b.sleep);
   expect(b.sent[0].request).toBe(CLRSTATUS);
 });
+
+test('invalid sector sizes fail before any device request', async () => {
+  for (const pageSize of [0, -1, 0.5, NaN, Infinity]) {
+    let requests = 0;
+    const io: DfuIo = { controlIn: async () => { requests++; return null; }, controlOut: async () => { requests++; return true; } };
+    await expect(update(io, image, { transferSize: 4, dfuse: { address: 0x0800_0000, pageSize } }, async () => {})).rejects.toThrow('sector size');
+    expect(requests).toBe(0);
+  }
+  const b = board({ dfuse: true });
+  await update(b.io, image, { transferSize: 4, dfuse: { address: 0x0800_0000, pageSize: 16 * 1024 } }, b.sleep);
+  expect(b.erased).toEqual([0x0800_0000]);
+});

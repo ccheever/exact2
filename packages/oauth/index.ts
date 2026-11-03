@@ -148,6 +148,8 @@ export interface OAuthStore {
   get(name: string): string | null;
   set(name: string, value: string): void;
   forget(name: string): void;
+  /** Serialize work and refresh this name from shared storage before it starts. Browser stores coordinate all same-origin realms. */
+  exclusive?<T>(name: string, work: () => Promise<T>): Promise<T>;
 }
 
 export interface OAuthProvider {
@@ -258,7 +260,8 @@ export function oauth(config: OAuthConfig): OAuthProvider {
   // The session's work, one at a time across every provider made for its
   // key: each caller waits in its own frame for the work in flight to end,
   // then runs its own there, so the requests it makes are its own answer's.
-  const exclusive = async <T>(work: () => Promise<T>): Promise<T> => {
+  const exclusive = async <T>(store: OAuthStore, work: () => Promise<T>): Promise<T> => {
+    if (store.exclusive) return store.exclusive(config.key, work);
     for (let busy = sessionWork.get(config.key); busy; busy = sessionWork.get(config.key)) {
       await busy.then(() => undefined, () => undefined);
     }
@@ -390,7 +393,7 @@ export function oauth(config: OAuthConfig): OAuthProvider {
     const answeredBy = callbackQuery(back).get('iss') ?? '';
     // Once sent, the exchange is a POST, which runs to its end even when
     // this sign-in is superseded, and keeps the tokens its code bought.
-    return exclusive(async () => {
+    return exclusive(store, async () => {
       let reply: TokenReply;
       try {
         reply = await tokenRequest(config, tx.meta.token, { grant_type: 'authorization_code', code, redirect_uri: tx.callback, code_verifier: tx.verifier });
@@ -430,9 +433,9 @@ export function oauth(config: OAuthConfig): OAuthProvider {
   };
 
   // Renews `seen`'s access token: one refresh of this session at a time, its
-  // rotated refresh token kept before anyone uses the new access token (RFC
-  // 9700 §4.14.2).
-  const refresh = (store: OAuthStore, seen: Kept): Promise<Kept> => exclusive(async () => {
+  // rotated refresh token kept before anyone uses the new access token
+  // (RFC 9700 §4.14.2).
+  const refresh = (store: OAuthStore, seen: Kept): Promise<Kept> => exclusive(store, async () => {
     const now = read(store);
     // Another caller refreshed, or the person signed out or in, meanwhile.
     if (!now?.accessToken) throw signedOutError(now);
@@ -580,7 +583,7 @@ export function oauth(config: OAuthConfig): OAuthProvider {
   // (offline, or a superseded sign-out, whose request is refused) waits in
   // `unrevoked` for the next sign-out, which revokes every waiting token,
   // newest first, and stops at the first revoke with no reply.
-  const signOut = (store: OAuthStore): Promise<OAuthResult> => exclusive(async () => {
+  const signOut = (store: OAuthStore): Promise<OAuthResult> => exclusive(store, async () => {
     const kept = read(store), owed = unrevoked.get(config.key) ?? [];
     const token = (k: Kept): string | undefined => k.refreshToken ?? k.accessToken;
     if (kept && token(kept) && !owed.some(k => token(k) === token(kept))) owed.push(kept);

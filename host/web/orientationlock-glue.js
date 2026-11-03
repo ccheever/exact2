@@ -59,7 +59,7 @@ export function session(root) {
   return { by, words, types: words.reduce((set, w) => set & (types(w) ?? ALL), ALL), natural: words.includes("natural"), current: words.includes("current") };
 }
 
-let idOf = el => el.id, want = null, captured = 0, asked = null, holding = false, said = new Set(), listening = false, log = () => {}, applied = "\"unavailable\"", conflictBy = null;
+let idOf = el => el.id, want = null, captured = 0, asked = null, holding = false, pending = null, said = new Set(), listening = false, log = () => {}, applied = "\"unavailable\"", conflictBy = null;
 const say = line => { if (!said.has(line)) { said.add(line); log(line); } };
 const visible = () => document.visibilityState === "visible";
 const now = () => {
@@ -79,21 +79,25 @@ function report(type, held, why) {
 }
 
 function ask() {
-  if (!want || !visible()) return;
+  if (!want || !asked || !visible()) return;
   const type = asked;
   if (typeof screen.orientation?.lock !== "function") { report(type, false, "screen.orientation.lock is missing"); return say("orientationlock: unavailable: screen.orientation.lock is missing"); }
+  const request = pending = {};
   screen.orientation.lock(type).then(() => {
-    if (asked !== type) return;
+    if (pending !== request) return;
+    pending = null;
     holding = true; report(type, true);
   }, e => {
-    if (asked !== type) return;
+    if (pending !== request) return;
+    pending = null;
     holding = false; report(type, false, e?.name ?? String(e));
     if (visible()) say(`orientationlock: unavailable: ${e?.name ?? e}`);
   });
 }
 
 function release() {
-  if (holding) { holding = false; try { screen.orientation.unlock(); } catch {} }
+  const owned = holding || pending; holding = false; pending = null;
+  if (owned) try { screen.orientation.unlock(); } catch {}
 }
 
 /** Apply the session's lock (`session(root)`); `journal` takes the lines. */

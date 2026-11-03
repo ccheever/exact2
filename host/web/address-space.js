@@ -51,12 +51,12 @@ export function reachRefusal(url, origin, state = null) {
 /**
  * D6's redirect gate: a tool's, a wake's or the device's fetch that would
  * follow redirects goes out with `redirect: "error"` while the browser
- * answers a less public space's permission and does not answer `granted`, so
+ * has not granted every less public space's permission, so
  * the browser never requests a hop that could prompt.
  */
 export function redirectFor(origin, redirect, state = null) {
   if (!origin || origin === 'app' || redirect !== 'follow') return redirect;
   const page = RANK[pageSpace()];
-  const held = Object.entries(states).some(([space, answered]) => RANK[space] > page && ![null, 'unknown', 'granted'].includes(state ?? answered));
+  const held = Object.entries(states).some(([space, answered]) => RANK[space] > page && (state ?? answered) !== 'granted');
   return held ? 'error' : redirect;
 }

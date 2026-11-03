@@ -12,7 +12,8 @@ const KEYWORDS: &[&str] = &[
     "as", "async", "await", "box", "break", "const", "continue", "dyn", "else", "enum", "extern",
     "false", "fn", "for", "gen", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut",
     "pub", "ref", "return", "static", "struct", "trait", "true", "try", "type", "unsafe", "use",
-    "where", "while", "yield",
+    "where", "while", "yield", "abstract", "become", "do", "final", "macro", "override", "priv",
+    "typeof", "unsized", "virtual", "union",
 ];
 
 /// `camelCase` or `kebab-case` as a snake_case field name, escaped where it
@@ -34,8 +35,48 @@ pub(crate) fn field_name(name: &str) -> String {
     match out.as_str() {
         "self" | "super" | "crate" | "Self" => format!("{out}_"),
         k if KEYWORDS.contains(&k) => format!("r#{out}"),
+        _ if out.is_empty() || out.starts_with(|c: char| c.is_ascii_digit()) || out == "_" => {
+            format!("_{out}_")
+        }
         _ => out,
     }
+}
+
+pub(crate) fn type_name(name: &str) -> String {
+    let mut out: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if out.is_empty() || out.starts_with(|c: char| c.is_ascii_digit()) || out == "_" {
+        out = format!("_{out}_");
+    }
+    match out.as_str() {
+        "self" | "Self" | "super" | "crate" => format!("{out}_"),
+        k if KEYWORDS.contains(&k) => format!("r#{out}"),
+        _ => out,
+    }
+}
+
+pub(crate) fn check_fields<'a>(
+    shape: &str,
+    names: impl Iterator<Item = &'a str>,
+) -> Result<(), String> {
+    let mut mapped = BTreeMap::new();
+    for name in names {
+        let rust = field_name(name);
+        if let Some(previous) = mapped.insert(rust.clone(), name) {
+            return Err(format!(
+                "shape `{shape}`: fields `{previous}` and `{name}` both become Rust `{rust}`"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Generate Rust structs for every named record in a compiled Contract,
@@ -50,6 +91,15 @@ pub fn rust(plan: &Plan) -> Result<String, String> {
         let name = plan.str(row.name);
         if row.kind == TypeKind::Record && !name.is_empty() {
             named.entry(name.to_string()).or_insert(i);
+        }
+    }
+    let mut mapped = BTreeMap::new();
+    for name in named.keys() {
+        let rust = type_name(name);
+        if let Some(previous) = mapped.insert(rust.clone(), name) {
+            return Err(format!(
+                "shapes `{previous}` and `{name}` both become Rust `{rust}`"
+            ));
         }
     }
     let ty = |i: TypesId| -> Result<String, String> { rust_type(plan, i) };
@@ -103,7 +153,9 @@ pub fn rust(plan: &Plan) -> Result<String, String> {
         let row = &plan.types[i];
         let fields = &plan.fields
             [row.fields.start as usize..row.fields.start as usize + row.fields.len as usize];
+        check_fields(name, fields.iter().map(|f| plan.str(f.name)))?;
         writeln!(out, "\n/// Contract `shape {name}`.").unwrap();
+        let name = type_name(name);
         writeln!(
             out,
             "#[derive(Debug, Clone, PartialEq, Default)]\npub struct {name} {{"
@@ -185,7 +237,7 @@ fn rust_type(plan: &Plan, i: TypesId) -> Result<String, String> {
             if name.is_empty() {
                 return Err(format!("type {} is a record with no shape name", i.0));
             }
-            name.to_string()
+            type_name(name)
         }
     })
 }

@@ -332,11 +332,9 @@ impl Backend {
         };
         if changed {
             for g in std::mem::take(&mut generations) {
-                if let Err(e) = self.vault.delete_locked(name, g) {
-                    self.log.push(say(format!("an old locked item stays: {e}")));
-                }
+                self.vault.delete_locked(name, g)?;
             }
-            let _ = self.vault.put_record(name, None);
+            self.vault.put_record(name, None)?;
             self.log.push(say(
                 "its policy changed: the locked value is forgotten".into()
             ));
@@ -349,7 +347,7 @@ impl Backend {
         // delete leaves the older one (D6).
         let newest = generations.last().copied();
         for &g in generations.iter().filter(|&&g| Some(g) != newest) {
-            let _ = self.vault.delete_locked(name, g);
+            self.vault.delete_locked(name, g)?;
         }
         let record = if changed { None } else { record };
         let mut entry = Entry {
@@ -365,16 +363,11 @@ impl Backend {
             // A plain copy never outlives a locked one, whatever the record
             // says; an interrupted `unprotect` leaves the lock on.
             if plain {
-                if let Err(e) = self.vault.put_plain(name, None) {
-                    self.log.push(say(format!(
-                        "the plain copy beside the locked one stays: {e}"
-                    )));
-                }
+                self.vault.put_plain(name, None)?;
             }
             if !matches!(record, Some(Intent::Locked(_))) {
-                let _ = self
-                    .vault
-                    .put_record(name, Some(&Intent::Locked(presence.line_words()).encode()));
+                self.vault
+                    .put_record(name, Some(&Intent::Locked(presence.line_words()).encode()))?;
             }
             entry.occupancy = Occupancy::Locked;
         } else if plain {
@@ -391,7 +384,7 @@ impl Backend {
                 entry.occupancy = Occupancy::Plain;
             }
         } else if record.is_some() {
-            let _ = self.vault.put_record(name, None);
+            self.vault.put_record(name, None)?;
         }
         // Boot's pending move precedes operations queued while probes failed.
         entry.queue.append(&mut self.entry(name).queue);
@@ -729,7 +722,7 @@ impl Backend {
 
     fn protect(&mut self, name: &str, presence: &Presence, env: &Env) -> Option<Option<Done>> {
         let occupancy = self.entry(name).occupancy;
-        if !presence.optional || occupancy.locked() {
+        if !presence.optional || occupancy == Occupancy::Locked {
             return Some(Some(Done::Ok));
         }
         let step = self.head(name).step;
@@ -775,6 +768,7 @@ impl Backend {
                 return Some(Some(Done::Failed("NotSupportedError".into(), e)));
             }
             self.entry(name).generation = generation;
+            self.entry(name).occupancy = Occupancy::Pending;
             self.head(name).step = 2;
         }
         match self.fault(name, "protect.write", env) {
@@ -783,9 +777,7 @@ impl Backend {
             None => {}
         }
         if let Err(e) = self.vault.put_plain(name, None) {
-            self.say(format!(
-                "presence {name}: the plain copy stays until the next launch: {e}"
-            ));
+            return self.wait_move(name, e, env);
         }
         self.entry(name).occupancy = Occupancy::Locked;
         self.say(format!("presence {name}: protected"));
@@ -942,9 +934,7 @@ impl Backend {
         }
         let generation = self.entry(name).generation;
         if let Err(e) = self.vault.delete_locked(name, generation) {
-            self.say(format!(
-                "presence {name}: the locked item stays until the next launch: {e}"
-            ));
+            return self.wait_move(name, e, env);
         }
         let entry = self.entry(name);
         entry.generation = 0;
@@ -953,42 +943,62 @@ impl Backend {
         Some(Some(Done::Ok))
     }
 
+    fn wait_move(&mut self, name: &str, error: String, env: &Env) -> Option<Option<Done>> {
+        self.say(format!("presence {name}: the move waits: {error}"));
+        self.entry(name).occupancy = Occupancy::Pending;
+        self.head(name).retry_at = Some(env.now_ms + RETRY_MS);
+        None
+    }
+
     fn moved(&mut self, name: &str, presence: &Presence, env: &Env) -> Option<Option<Done>> {
-        if !env.moves {
-            return None;
-        }
-        if (env.faults.hold)("exact-presence:hold.move") {
+        if !env.moves || (env.faults.hold)("exact-presence:hold.move") {
             return None;
         }
         // A copy the line or the person said must be locked is never kept
         // ungated for want of a way to lock it (D4, §12 question 7).
-        if !env.can_lock {
-            let _ = self.vault.put_plain(name, None);
-            let _ = self.vault.put_record(name, None);
+        if !env.can_lock && self.head(name).step < 2 {
+            if let Err(e) = self
+                .vault
+                .put_plain(name, None)
+                .and_then(|()| self.vault.put_record(name, None))
+            {
+                return self.wait_move(name, e, env);
+            }
             self.entry(name).occupancy = Occupancy::Absent;
             self.say(format!(
                 "presence {name}: it cannot be locked on this device, so its plain copy is deleted"
             ));
             return Some(None);
         }
-        let _ = self
-            .vault
-            .put_record(name, Some(&Intent::Locked(presence.line_words()).encode()));
-        let Some(value) = self.vault.plain(name).ok().flatten() else {
-            let _ = self.vault.put_record(name, None);
-            self.entry(name).occupancy = Occupancy::Absent;
-            return Some(None);
-        };
-        let generation = self.entry(name).generation + 1;
-        if let Err(e) = self.vault.add_locked(name, generation, presence, &value) {
-            // Try again at the next launch: the copy stays out of the runner.
-            self.say(format!("presence {name}: the move to locked failed: {e}"));
-            return Some(None);
+        if self.head(name).step < 2 {
+            if let Err(e) = self
+                .vault
+                .put_record(name, Some(&Intent::Locked(presence.line_words()).encode()))
+            {
+                return self.wait_move(name, e, env);
+            }
+            let value = match self.vault.plain(name) {
+                Ok(Some(value)) => value,
+                Ok(None) => {
+                    if let Err(e) = self.vault.put_record(name, None) {
+                        return self.wait_move(name, e, env);
+                    }
+                    self.entry(name).occupancy = Occupancy::Absent;
+                    return Some(None);
+                }
+                Err(e) => return self.wait_move(name, e, env),
+            };
+            let generation = self.entry(name).generation + 1;
+            if let Err(e) = self.vault.add_locked(name, generation, presence, &value) {
+                return self.wait_move(name, e, env);
+            }
+            self.entry(name).generation = generation;
+            self.head(name).step = 2;
         }
-        let _ = self.vault.put_plain(name, None);
-        let entry = self.entry(name);
-        entry.generation = generation;
-        entry.occupancy = Occupancy::Locked;
+        if let Err(e) = self.vault.put_plain(name, None) {
+            return self.wait_move(name, e, env);
+        }
+        self.entry(name).occupancy = Occupancy::Locked;
         self.say(format!("presence {name}: moved to locked"));
         Some(None)
     }

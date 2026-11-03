@@ -211,6 +211,7 @@ fn peer_store_refresh_reasks_readers_and_restores_persisted_slots_in_every_sessi
         .collect();
     platform
         .write(&StoreWrite {
+            durable: false,
             name: "favourite".into(),
             value: Some(b"Before first pixel".to_vec()),
         })
@@ -232,12 +233,14 @@ fn peer_store_refresh_reasks_readers_and_restores_persisted_slots_in_every_sessi
     let pure_asks = asks.lock().unwrap().iter().filter(|s| *s == "pure").count();
     platform
         .write(&StoreWrite {
+            durable: false,
             name: "favourite".into(),
             value: Some(b"Palo Alto".to_vec()),
         })
         .unwrap();
     platform
         .write(&StoreWrite {
+            durable: false,
             name: "exact.state.starred".into(),
             value: Some(b"true".to_vec()),
         })
@@ -272,6 +275,7 @@ fn peer_store_refresh_reasks_readers_and_restores_persisted_slots_in_every_sessi
     }
     platform
         .write(&StoreWrite {
+            durable: false,
             name: "favourite".into(),
             value: None,
         })
@@ -285,6 +289,7 @@ fn peer_store_refresh_reasks_readers_and_restores_persisted_slots_in_every_sessi
     }
     platform
         .write(&StoreWrite {
+            durable: false,
             name: "exact.state.starred".into(),
             value: None,
         })
@@ -642,6 +647,7 @@ fn deferred_peer_refresh_asks_once_and_a_refusal_can_retry_after_activation() {
         }
         platform
             .write(&StoreWrite {
+                durable: false,
                 name: "favourite".into(),
                 value: Some(b"peer".to_vec()),
             })
@@ -740,6 +746,7 @@ fn refused_data_ready_survives_an_unrelated_change_and_store_refusals_are_journa
     let put = |name: &str, value: &[u8]| {
         platform
             .write(&StoreWrite {
+                durable: false,
                 name: name.into(),
                 value: Some(value.to_vec()),
             })
@@ -995,4 +1002,57 @@ fn accepted_peer_snapshot_supersedes_a_failed_local_write() {
     assert_eq!(hosts[0].runner.slot("count"), Some(&Value::Number(2.)));
     assert_eq!(values.lock().unwrap()["exact.state.count"], b"2");
     assert!(hosts[0].pending_store_writes.is_empty());
+}
+
+#[test]
+fn shared_secret_lease_fences_a_pending_host_retry() {
+    use crate::store::KeptStore;
+    let bindings = ibex2::host::Host::new()
+        .with_secret_store(Box::new(ibex2::secrets::MemoryStore::new()))
+        .endow(ibex2::grant::GrantSet::parse("secret.keep favourite").unwrap());
+    let platform = crate::store::Platform::of(&bindings)
+        .with_namespace(exact_data::secrets::Namespace::memory());
+    let shared = platform.shared_secrets().unwrap();
+    let plan = contract::compile("component App\n  view\n    text \"ready\"\n")
+        .unwrap()
+        .encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        SharedStoreSource {
+            asks: Arc::new(Mutex::new(Vec::new())),
+            activated: Arc::new(AtomicUsize::new(0)),
+        },
+        Box::new(MonospaceMeasurer::default()),
+        100.,
+        100.,
+    )
+    .unwrap();
+    host.pending_store_stamps
+        .insert("favourite".into(), platform.stamp("favourite").unwrap());
+    host.pending_store_writes.push(exact_runner::StoreWrite {
+        name: "favourite".into(),
+        value: Some(b"old".to_vec()),
+        durable: false,
+    });
+    host.secrets = Some(Box::new(platform));
+    let (send, receive) = std::sync::mpsc::channel();
+    let mut wait = shared.acquire(
+        "favourite",
+        Arc::new(move || {
+            let _ = send.send(());
+        }),
+    );
+    receive
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    let lease = wait.take().unwrap().unwrap();
+    lease.write(Some("rotated")).unwrap();
+    lease.finish().unwrap();
+    drop(lease);
+    host.persist();
+    assert!(host.pending_store_writes.is_empty());
+    assert_eq!(
+        bindings.secrets.get("favourite").unwrap().as_deref(),
+        Some("rotated")
+    );
 }

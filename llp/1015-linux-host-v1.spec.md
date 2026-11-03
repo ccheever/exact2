@@ -299,9 +299,9 @@ the reviewed tree) converged on the same defects, folded the same day:
   pixel is refused (kept at ours), and the channel arithmetic is 64-bit.
   A client's writer thread, which waited on a condition variable forever
   after the client left, is told under both locks it waits on and joined.
-  The bind-all default (`0.0.0.0:5900`) stands as the spec wrote it — the
-  KVM-replacement use needs the LAN — with these bounds in place of the
-  authentication it does not have.
+  Production bakes ignore VNC configuration. Development binds loopback
+  by default and requires a verified VNC password; a LAN listen needs an
+  explicit address.
 - **The pipeline cache is written whole or not at all** — beside its path
   and renamed into place (a crash mid-write or two launches at once leave
   the old file or none). `cached` in the boot report means a cache file
@@ -573,20 +573,17 @@ day when the KVM turned out to be unplugged): the display loop publishes
 every frame it presents, and a small RFB server — protocol 3.3/3.7/3.8 as
 the client speaks it, `Raw` encoding, the client's 32-bit pixel format
 honoured, one reader and one writer thread per client — serves it on port
-5900 and
+5900 on loopback by default and
 feeds the client's pointer, buttons, wheel, and keys back into the loop
 through the same `InputEvent`s evdev produces, over a socketpair the loop
 polls. It is a development tool on a private network and encrypts
 nothing. This is how the first DRM run was seen: a scripted client took
 the 1920×1080 frame the box was presenting, clicked "Change station" at
 its pixel, and took the stations screen — the display path and the input
-path both exercised, from a Mac, with no KVM. macOS Screen Sharing
-(`vnc://<host>:5900`) is the everyday client, and it taught the server two
-things through a logging proxy: it answers a 3.8 server with **3.3**, and
-in 3.3 it will not proceed past security `None` — it wants VNC
-authentication, so a 3.3 client is sent a challenge that any password
-answers (nobody is authenticated either way; `EXACT_VNC` is for a private
-network), while 3.7/3.8 clients get `None`.
+path both exercised, from a Mac, with no KVM. Every supported protocol version requires VNC challenge-response
+authentication using `EXACT_VNC_PASSWORD` (one to eight bytes). A wrong
+response is disconnected. `EXACT_VNC=1` selects `127.0.0.1:5900`; a different
+listen address must be explicit. Production bakes ignore both variables.
 
 **A kernel fix this run found** (`kernel/src/arena.rs`): a `TextInput`'s
 measured runs were its `value` else its `placeholder`, and the runner
@@ -641,8 +638,8 @@ GPU module after first pixel and creates canvases without a device. Surface
 reads, input, publications, messages and carry/restore work; Contract screenshots
 leave canvas rectangles flat. Presentation on the painter's device remains below.
 
-Also not in v1, each declared: authentication or encryption on the VNC
-server (`EXACT_VNC` is for a private network), and its `Raw` encoding
+Also not in v1, each declared: encryption on the development VNC
+server, and its `Raw` encoding
 only (8 MB a frame at 1080p — a LAN's, not a WAN's); a KMS surface for the GPU (`VK_KHR_display`
 / `VK_EXT_acquire_drm_display`, no readback); the GPU module on this
 painter's device (`canvas`); libinput and xkbcommon (pointer

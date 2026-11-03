@@ -2,6 +2,71 @@
 //! the rest let run) and an app's aborted ones (cancelled whatever their method).
 use super::*;
 
+/// Dropping a queued request also retires its timer. Only independent HTTP
+/// uses this timer; its wait counts against the same deadline as transport.
+pub(super) struct QueuedDeadline {
+    at: std::time::Instant,
+    _done: std::sync::mpsc::Sender<()>,
+}
+
+impl QueuedDeadline {
+    pub(super) fn arm(shared: &Arc<Shared>, lane: usize, ticket: u64, ms: u32) -> Result<Self, ()> {
+        let at = std::time::Instant::now() + std::time::Duration::from_millis(ms.into());
+        let (done, wait) = std::sync::mpsc::channel();
+        let owner = Arc::downgrade(shared);
+        std::thread::Builder::new()
+            .name("exact-queued-deadline".into())
+            .spawn(move || {
+                if !matches!(
+                    wait.recv_timeout(at.saturating_duration_since(std::time::Instant::now())),
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                ) {
+                    return;
+                }
+                let Some(shared) = owner.upgrade() else {
+                    return;
+                };
+                let mut state = shared.state.lock().unwrap();
+                if state.retired {
+                    return;
+                }
+                let Some(index) = state.jobs[lane].iter().position(|job| job.ticket == ticket)
+                else {
+                    return;
+                };
+                let job = state.jobs[lane].remove(index).unwrap();
+                state.book.sized.remove(&ticket);
+                state.completed[lane].push_back(Completed {
+                    ticket,
+                    elapsed_ms: ms.into(),
+                    outcome: failed(
+                        FailureKind::Timeout,
+                        format!("the request timed out after {ms} ms"),
+                    ),
+                    bytes: job.charge,
+                    message: false,
+                    stream: false,
+                    light: false,
+                    again: false,
+                    reply: false,
+                });
+                rouse(&shared, &state);
+                wake(&mut state);
+            })
+            .map_err(|_| ())?;
+        Ok(Self { at, _done: done })
+    }
+
+    pub(super) fn remaining(&self, request: &mut Request) -> bool {
+        let left = self.at.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return false;
+        }
+        request.timeout_ms = Some(left.as_nanos().div_ceil(1_000_000).min(u32::MAX as u128) as u32);
+        true
+    }
+}
+
 impl Core {
     /// Let go of the work for every ticket the runner no longer `held`
     /// (LLP 1016 D5): its reply would only be dropped there. A completed

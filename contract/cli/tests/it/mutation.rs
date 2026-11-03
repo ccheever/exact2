@@ -866,6 +866,7 @@ fn a_parse_store_write_reanswers_store_reading_resources() {
     assert_eq!(
         r.take_store_writes(),
         vec![exact_runner::StoreWrite {
+            durable: false,
             name: "session".into(),
             value: Some("ada".into()),
         }]

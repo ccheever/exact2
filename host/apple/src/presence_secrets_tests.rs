@@ -68,6 +68,9 @@ extern "C" fn keychain(
                 (if present { 0 } else { 1 }, Vec::new())
             }
         }
+        4 if FAIL_DELETE.load(std::sync::atomic::Ordering::Relaxed) => {
+            (-1, b"keychain delete unavailable".to_vec())
+        }
         4 => {
             items.retain(|(s, _), _| *s != text("service"));
             (0, Vec::new())
@@ -334,4 +337,46 @@ fn locked_items_are_the_keychain_s_by_name_and_generation_and_never_plain() {
         assert_eq!(b.kv.get(RECORDS, "key").unwrap(), None);
         FAIL_PROBE.store(false, std::sync::atomic::Ordering::Relaxed);
     }
+    // A reinstall is recorded only after both services have been wiped.
+    let root =
+        std::env::temp_dir().join(format!("exact-presence-reinstall-{}", std::process::id()));
+    let marker = root.join("installed");
+    let clean = ibex2::host::Host::new()
+        .with_kv_store(Box::new(ibex2::kv::MemoryStore::new()))
+        .endow(
+            ibex2::grant::GrantSet::parse(&format!(
+                "{}\nstorage.kv {}",
+                scopes(),
+                crate::store::KEPT
+            ))
+            .unwrap(),
+        );
+    ITEMS.lock().unwrap().insert(
+        (service.clone(), "old#1".into()),
+        ("".into(), b"old".to_vec()),
+    );
+    FAIL_DELETE.store(true, std::sync::atomic::Ordering::Relaxed);
+    assert!(first_launch_at("com.example.lock", &service, &clean.kv, &marker).is_err());
+    assert!(!marker.exists());
+    assert!(item("old#1").is_some());
+    FAIL_DELETE.store(false, std::sync::atomic::Ordering::Relaxed);
+    assert!(first_launch_at("com.example.lock", &service, &clean.kv, &marker).is_ok());
+    assert!(marker.exists());
+    assert!(item("old#1").is_none());
+    std::fs::remove_file(&marker).unwrap();
+    assert!(
+        first_launch_at("com.example.lock", &service, &b.kv, &marker).is_err(),
+        "a refused record listing must retry"
+    );
+    assert!(!marker.exists());
+    clean.kv.set(RECORDS, "kept", b"record").unwrap();
+    ITEMS.lock().unwrap().insert(
+        (service.clone(), "old#1".into()),
+        ("".into(), b"old".to_vec()),
+    );
+    assert!(first_launch_at("com.example.lock", &service, &clean.kv, &marker).is_ok());
+    assert!(marker.exists());
+    assert!(item("old#1").is_some(), "an update keeps its keychain");
+    ITEMS.lock().unwrap().clear();
+    std::fs::remove_dir_all(root).unwrap();
 }

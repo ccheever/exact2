@@ -1,19 +1,10 @@
-//! A VNC server for the display: the frames the app puts on the screen,
-//! served over RFB (raw encoding, no authentication), with the client's
-//! pointer and keyboard fed back as input — eyes and hands on a box whose
-//! KVM is unplugged, from any VNC client (`EXACT_VNC=1`, port 5900).
-//!
+//! Development VNC over RFB 3.3/3.7/3.8 with password authentication.
+//! `EXACT_VNC=1` binds loopback; another address must be explicit.
+//! `EXACT_VNC_PASSWORD` supplies the RFB password (one to eight bytes).
+//! The protocol does not encrypt frames or input.
 //! @ref LLP 1015 §6
-//!
-//! Protocol 3.3, 3.7, or 3.8 as the client speaks it — macOS Screen Sharing
-//! answers 3.3 and then insists on VNC authentication, so a 3.3 client gets
-//! a challenge that any password answers; 3.7/3.8 clients get `None`. Either
-//! way nobody is authenticated. `Raw` encoding only (every client must take
-//! it), the client's 32-bit true-colour pixel format honoured. One
-//! reader and one writer thread per client; frames reach the writer through
-//! a shared slot, input reaches the display loop through a queue and a
-//! socketpair it polls. Nothing here runs unless asked for, and nothing
-//! encrypts: a development tool on a private network.
+
+mod auth;
 
 use crate::input::{InputEvent, Keyboard, LINE};
 use std::io::{self, Read, Write};
@@ -107,10 +98,12 @@ pub struct Vnc {
 }
 
 impl Vnc {
-    /// Listen on `addr` (`"1"` is `0.0.0.0:5900`) for a screen of this
+    /// Listen on `addr` (`"1"` is `127.0.0.1:5900`) for a screen of this
     /// size in pixels.
     pub fn start(addr: &str, width: u32, height: u32) -> io::Result<Vnc> {
-        let addr = if addr == "1" { "0.0.0.0:5900" } else { addr };
+        let addr = if addr == "1" { "127.0.0.1:5900" } else { addr };
+        let password = std::env::var("EXACT_VNC_PASSWORD").unwrap_or_default();
+        let key = auth::password_key(password.as_bytes())?;
         let listener = TcpListener::bind(addr)?;
         let (wake_tx, wake_rx) = UnixStream::pair()?;
         wake_rx.set_nonblocking(true)?;
@@ -127,7 +120,7 @@ impl Vnc {
             for stream in listener.incoming().flatten() {
                 let shared = accept.clone();
                 thread::spawn(move || {
-                    if let Err(e) = serve(stream, shared) {
+                    if let Err(e) = serve(stream, shared, key) {
                         if e.kind() != io::ErrorKind::UnexpectedEof {
                             eprintln!("vnc: client: {e}");
                         }
@@ -185,45 +178,9 @@ fn read_exact<const N: usize>(s: &mut TcpStream) -> io::Result<[u8; N]> {
     Ok(b)
 }
 
-fn serve(mut stream: TcpStream, shared: Arc<Shared>) -> io::Result<()> {
+fn serve(mut stream: TcpStream, shared: Arc<Shared>, key: [u8; 8]) -> io::Result<()> {
     stream.set_nodelay(true)?;
-    // Handshake: version, security (none), init. The security exchange
-    // depends on the version the client answers with: 3.3 takes one u32
-    // type from the server and nothing else (macOS Screen Sharing speaks
-    // 3.3); 3.7 a list and a choice; 3.8 the list, the choice, a result.
-    stream.write_all(b"RFB 003.008\n")?;
-    let version = read_exact::<12>(&mut stream)?;
-    let minor = std::str::from_utf8(&version[8..11])
-        .ok()
-        .and_then(|m| m.parse::<u32>().ok())
-        .unwrap_or(8);
-    match minor {
-        0..=3 => {
-            // Screen Sharing will not proceed past `None` in 3.3; it wants
-            // VNC authentication. A challenge it answers with any password:
-            // this server authenticates nobody, and says so.
-            stream.write_all(&2u32.to_be_bytes())?;
-            let challenge: [u8; 16] = std::array::from_fn(|i| {
-                let t = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_nanos())
-                    .unwrap_or(0);
-                (t >> (i * 5)) as u8 ^ (i as u8).wrapping_mul(37)
-            });
-            stream.write_all(&challenge)?;
-            let _response = read_exact::<16>(&mut stream)?;
-            stream.write_all(&0u32.to_be_bytes())?;
-        }
-        4..=7 => {
-            stream.write_all(&[1, 1])?;
-            let _chosen = read_exact::<1>(&mut stream)?;
-        }
-        _ => {
-            stream.write_all(&[1, 1])?;
-            let _chosen = read_exact::<1>(&mut stream)?;
-            stream.write_all(&0u32.to_be_bytes())?;
-        }
-    }
+    auth::handshake(&mut stream, &key)?;
     let _shared_flag = read_exact::<1>(&mut stream)?;
     let mut init = Vec::new();
     init.extend_from_slice(&(shared.width as u16).to_be_bytes());

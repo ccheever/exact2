@@ -148,6 +148,9 @@ pub struct StoreWrite {
     pub name: String,
     /// The value to keep, or `None` to forget: a secret's or a state's text, a kept answer's canonical bytes.
     pub value: Option<Vec<u8>>,
+    /// Already persisted through an exclusive lease. Hosts update their
+    /// snapshots and discard older retries without writing it again.
+    pub durable: bool,
 }
 
 /// Why the store refused.
@@ -415,6 +418,7 @@ impl Store {
         self.remember(name);
         self.values.insert(name.to_string(), value.clone());
         self.writes.push(StoreWrite {
+            durable: false,
             name: name.to_string(),
             value: Some(value),
         });
@@ -426,6 +430,7 @@ impl Store {
         self.remember(name);
         if self.values.remove(name).is_some() {
             self.writes.push(StoreWrite {
+                durable: false,
                 name: name.to_string(),
                 value: None,
             });
@@ -498,6 +503,7 @@ impl Store {
         self.written_plain(name);
         self.revision += 1;
         self.writes.push(StoreWrite {
+            durable: false,
             name: name.to_string(),
             value: Some(value.into()),
         });
@@ -515,9 +521,64 @@ impl Store {
         self.absent(name);
         self.revision += 1;
         self.writes.push(StoreWrite {
+            durable: false,
             name: name.to_string(),
             value: None,
         });
+        Ok(())
+    }
+
+    /// Validate a lease for a plain secret. Presence-protected names use the
+    /// presence backend, whose unlock and occupancy cannot be bypassed.
+    pub fn check_exclusive(&self, name: &str) -> Result<(), StoreError> {
+        if !self.is_granted(name) || Store::is_kept(name) {
+            return Err(self.refused(name));
+        }
+        if self.writes_locked(name) {
+            return Err(StoreError::Locked(name.to_owned()));
+        }
+        self.read(name).map(|_| ())
+    }
+
+    /// Update a snapshot with a value already persisted under an exclusive lease.
+    pub fn set_durable(&mut self, name: &str, value: &str) -> Result<(), StoreError> {
+        let first = self.writes.len();
+        self.set(name, value)?;
+        if self.writes.len() == first {
+            self.writes.push(StoreWrite {
+                name: name.into(),
+                value: Some(value.into()),
+                durable: true,
+            });
+        }
+        for write in &mut self.writes[first..] {
+            write.durable = true;
+        }
+        Ok(())
+    }
+
+    /// Update a snapshot after an exclusive lease removed its persisted value.
+    pub fn forget_durable(&mut self, name: &str) -> Result<(), StoreError> {
+        if !self.is_granted(name) {
+            return Err(self.refused(name));
+        }
+        if !self.values.contains_key(name)
+            && self
+                .occupancy(name)
+                .is_none_or(|state| state == crate::presence::Occupancy::Absent)
+        {
+            self.writes.push(StoreWrite {
+                name: name.into(),
+                value: None,
+                durable: true,
+            });
+            return Ok(());
+        }
+        let first = self.writes.len();
+        self.forget(name)?;
+        for write in &mut self.writes[first..] {
+            write.durable = true;
+        }
         Ok(())
     }
 
@@ -747,6 +808,36 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn durable_absence_keeps_reader_revision_but_changes_real_presence_occupancy() {
+        let mut plain = Store::new("secret.keep token", []);
+        let revision = plain.revision();
+        plain.forget_durable("token").unwrap();
+        plain.forget_durable("token").unwrap();
+        assert_eq!(plain.revision(), revision);
+        assert_eq!(plain.copied_bytes(), 0);
+        assert_eq!(plain.writes().len(), 2);
+        assert!(plain
+            .writes()
+            .iter()
+            .all(|w| w.durable && w.value.is_none()));
+        plain.forget("token").unwrap();
+        assert_eq!(
+            plain.revision(),
+            revision + 1,
+            "explicit forget retains its semantics"
+        );
+        let mut locked = Store::new(
+            "secret.keep token user-presence optional",
+            [(format!("{}token", Store::PRESENCE), b"locked".to_vec())],
+        );
+        assert!(locked.locked("token"));
+        let revision = locked.revision();
+        locked.forget_durable("token").unwrap();
+        assert!(!locked.locked("token"));
+        assert_eq!(locked.revision(), revision + 1);
+    }
 
     #[test]
     fn module_mirror_has_only_its_host_endowed_secret_scope() {

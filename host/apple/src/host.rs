@@ -243,6 +243,7 @@ pub struct Host<D: DataSource> {
     /// or grants that do not parse).
     secrets: Option<Box<dyn crate::store::KeptStore>>,
     pending_store_writes: Vec<exact_runner::StoreWrite>,
+    pending_store_stamps: std::collections::BTreeMap<String, exact_data::secrets::Stamp>,
     data_activated: bool,
     /// The source's activation, run ahead of `activate_data` by `prepare_data`.
     source_prepared: Option<Result<(), String>>,
@@ -400,7 +401,7 @@ impl<D: DataSource> Host<D> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn boot_stored_after_decode_mode(
         plan_bytes: PlanBytes<'_>,
-        data: D,
+        mut data: D,
         measurer: Box<dyn TextMeasurer>,
         layout: scale::LaunchLayout,
         viewport: exact_runner::Viewport,
@@ -455,6 +456,13 @@ impl<D: DataSource> Host<D> {
         // An `app:/data` image shows from the first frame, before storage
         // is configured and whether or not anything was picked (D7).
         crate::picker::know_roots(data.app_id());
+        if let Some(store) = &secrets {
+            store.seed_snapshot(carried.map_or(snapshot.as_slice(), |carried| &carried.store));
+        }
+        if let Some(shared) = secrets.as_ref().and_then(|store| store.shared_secrets()) {
+            data.configure_secrets(shared)
+                .map_err(|error| HostError::Layout(format!("shared secrets: {error:?}")))?;
+        }
         let mut runner = Runner::boot_with_delivery_linked(
             links.runner,
             plan,
@@ -577,6 +585,7 @@ impl<D: DataSource> Host<D> {
             doc_watch: None,
             secrets,
             pending_store_writes: Vec::new(),
+            pending_store_stamps: Default::default(),
             update_line: None,
             delivery,
             colors_seen: None,

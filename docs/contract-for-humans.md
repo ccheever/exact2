@@ -1676,13 +1676,8 @@ dry run, which expects a committed tree (or `--dirty`); publication uses `--yes`
 an origin, a signing key, and the configured signed streams. Read
 [LLP 1030.000](../llp/1030.000-dev-server-as-deployer.rfc.md) before changing
 trust or publishing. Writing Contract does not require inventing a deployment
-service. To share an iOS app through AppDrop, add `"appdrop": {}` under
-`deploy`: a deploy whose table has an iOS binary row builds the unsigned `.ipa`
-after the streams and publishes it to AppDrop. The first one creates the link
-and writes it to `deploy.appdrop.url`; commit that, and the install page offers
-it for iOS. Later ones publish the link's next version (`$APPDROP_MANAGE_KEY`,
-or the key the appdrop CLI saved, authorizes it). Bundle-only changes go over
-the air and never reach AppDrop.
+service. To put an iOS app on someone's iPhone, run `bun exact.mjs share`: it
+builds the app and prints an AppDrop link that installs it with their own Apple ID.
 
 ## Where to go next
 

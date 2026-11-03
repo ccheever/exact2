@@ -62,6 +62,7 @@ impl Module {
         };
         let (mut owed, mut rejected) = (false, false);
         for call in &calls {
+            self.host.secrets.cancel_wait(*call);
             // Its waiter, if one is still running, now gives up without
             // taking any compression's right (LLP 1069.002 A1.5).
             if let Some(retired) = self.retired.remove(call) {

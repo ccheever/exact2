@@ -12,7 +12,7 @@ use exact_runner::{DataSource, Outcome, Response, Store};
 use std::sync::Mutex;
 
 const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/context.hbc"));
-const GRANTS: &str = "net.fetch https://context.test\n";
+const GRANTS: &str = "net.fetch https://context.test\nsecret.keep token\n";
 
 fn plan() -> exact_plan::Plan {
     contract::compile(

@@ -879,7 +879,8 @@ pattern\` lists them and \`pattern <name>\` writes one, tested. ${doc('start-her
 ${doc('start-here.md')} is the only required reading. \`bun exact.mjs contract vocab <name>\` answers a
 name (none: the card); \`bun exact.mjs docs <heading words>\` a guide's
 section. Run \`bun exact.mjs verify\` when the features work, and \`verify ios|android\` at the end for a
-phone app. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"commands"\`.
+phone app. When an iPhone app is ready for the person to try, run \`bun exact.mjs share\` and give
+them the link it prints; run it again after each change they should see. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"commands"\`.
 \`bun exact.mjs update\` refreshes files.${authoredApp(dir) ? ` \`bun exact.mjs lock\` repairs Cargo lock drift.
 \`bun exact.mjs update --without linux\` stops shipping Linux.` : ` A native verb (\`ios\`, \`mac\`, \`linux\`, \`android\`,
 \`windows\`) names its platform in app.json the first time it runs and builds it in a generated

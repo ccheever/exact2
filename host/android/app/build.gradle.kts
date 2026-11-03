@@ -54,6 +54,7 @@ android {
         ndk { abiFilters += "arm64-v8a" }
         manifestPlaceholders["appName"] = identity["name"] as String
         manifestPlaceholders["screenOrientation"] = screenOrientation
+        manifestPlaceholders["exactDevelopment"] = providers.gradleProperty("exactDevelopment").orNull == "1"
     }
     buildTypes {
         release {

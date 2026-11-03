@@ -30,7 +30,7 @@ import { requireReleasePins } from '../game/inputs.mjs';
 // the web root. `--watch` keeps the baker and the compiled modules resident
 // and publishes after each save.
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, mkdtempSync, rmSync, watch } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdtempSync, rmSync, watch, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,7 +38,7 @@ import { Refusal, refuse, loadSigner } from './deploy-signing.mjs';
 import { defaultRelease, inspectHead, publishStream } from './deploy.mjs';
 import { classifyArtifacts, cohortReceipt, readBuilds, resolveApp } from './app.mjs';
 import { buildRust, rustBundle, RustBaker } from './rust.mjs';
-import { blobPath, channelOrigin, openOrigin, sha256, streamPath } from './origin.mjs';
+import { blobPath, channelOrigin, openOrigin, sha256, streamPath, validateChannel } from './origin.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const USAGE = 'usage: bun scripts/push.mjs <app> [--origin <dir|url>] [--channel <name>] [--keys <dir>] [--seq-above <n>] [--watch]';
@@ -48,12 +48,19 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--watch') opts.watch = true;
-    else if (a === '--seq-above') opts.seqAbove = Number(argv[++i]);
     else if (a === '--help' || a === '-h') opts.help = true;
-    else if (['--origin', '--channel', '--keys'].includes(a)) opts[a.slice(2)] = argv[++i];
-    else if (a.startsWith('--')) refuse(`unknown flag ${a}\n${USAGE}`);
+    else if (['--origin', '--channel', '--keys', '--seq-above'].includes(a)) {
+      const value = argv[++i];
+      if (!value || value.startsWith('-')) refuse(`${a} needs a value\n${USAGE}`);
+      if (a === '--seq-above') {
+        const n = Number(value);
+        if (!/^\d+$/.test(value) || !Number.isSafeInteger(n) || n >= Number.MAX_SAFE_INTEGER) refuse('--seq-above needs a nonnegative safe integer with room for the next sequence');
+        opts.seqAbove = n;
+      } else opts[a.slice(2)] = value;
+    } else if (a.startsWith('-')) refuse(`unknown flag ${a}\n${USAGE}`);
     else opts._.push(a);
   }
+  if (opts._.length > 1) refuse(`unexpected argument ${opts._[1]}\n${USAGE}`);
   return opts;
 }
 
@@ -160,13 +167,24 @@ function bakedAssets(app, build) {
  * file as it is now in the app, anything else (shaders) as the head has it. */
 async function carriedAssets(origin, app, head) {
   const out = [];
+  const visit = (name) => {
+    const dir = resolve(app.dir, name);
+    if (!existsSync(dir)) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const child = `${name}/${entry.name}`;
+      if (entry.isDirectory()) visit(child);
+      else if (entry.isFile()) {
+        const bytes = readFileSync(resolve(app.dir, child));
+        out.push({ name: child, bytes, sha256: sha256(bytes) });
+      } else refuse(`${child}: assets must be regular files or directories`);
+    }
+  };
+  visit('assets'); visit('deck');
   for (const card of head.assets ?? []) {
-    if (/^(rust|typescript)\//.test(card.name)) continue;
-    const local = resolve(app.dir, card.name);
-    const own = /^(assets|deck)\//.test(card.name) && existsSync(local);
-    const bytes = own ? readFileSync(local) : await origin.get(blobPath(card.sha256));
-    if (!bytes || (!own && sha256(bytes) !== card.sha256)) refuse(`${card.name}: the head's blob is missing from the origin`);
-    out.push({ name: card.name, bytes, sha256: sha256(bytes) });
+    if (/^(rust|typescript|assets|deck)\//.test(card.name)) continue;
+    const bytes = await origin.get(blobPath(card.sha256));
+    if (!bytes || sha256(bytes) !== card.sha256) refuse(`${card.name}: the head's blob is missing from the origin`);
+    out.push({ name: card.name, bytes, sha256: card.sha256 });
   }
   return out;
 }
@@ -179,7 +197,7 @@ function gitHead() {
 export async function pusher(opts) {
   const app = resolveApp(opts._[0]);
   requireReleasePins(app);
-  const channel = opts.channel ?? app.manifest.deploy?.channel ?? 'prod';
+  const channel = validateChannel(opts.channel ?? app.manifest.deploy?.channel ?? 'prod');
   const spec = opts.origin ?? channelOrigin(app.manifest, channel);
   if (!spec) refuse(`no origin for the channel ${channel}: pass --origin <dir>, or name deploy.channels.${channel} ("appdrop" needs no server)`);
   const origin = openOrigin(spec);

@@ -25,7 +25,6 @@ export const groupOf = args => JSON.stringify(Object.fromEntries(Object.entries(
 
 export function samples(epochAt = t => t) {
   const cursors = new Map(), grids = new Map(), tracks = new Map(), hidden = [];
-  const hiddenAt = t => hidden.some(([from, to]) => from <= t && (to == null || t < to));
   const pausedWithin = (from, to) => hidden.some(([a, b]) => a <= to && (b == null || b > from));
   const decl = row => row.sub.samples ?? null;
   const readingAt = (row, t) => {
@@ -118,11 +117,22 @@ export function samples(epochAt = t => t) {
       if (d.since) out[d.since] = epochAt(start);
       const after = cursors.get(`${row.key} ${reader}`);
       if (after != null) {
-        const visible = [];
-        for (let n = Math.max(0, after) + 1; n <= now; n++) if (!hiddenAt(point(n))) visible.push(n);
-        const kept = bound ? visible.slice(Math.max(0, visible.length - bound)) : [];
-        out.samples = kept.map(reading);
-        out.dropped = bound ? visible.length - kept.length : 0;
+        if (bound > 0) {
+          const ranges = [], firstAt = t => Math.max(0, Math.ceil((t - start) / period - 1e-9));
+          let from = Math.max(0, after) + 1, count = 0;
+          for (const [a, b] of hidden) {
+            const lo = Math.max(from, firstAt(a)), hi = Math.min(now, b == null ? now : firstAt(b) - 1);
+            if (lo > hi) continue;
+            if (lo > from) { ranges.push([from, lo - 1]); count += lo - from; }
+            from = hi + 1;
+          }
+          if (from <= now) { ranges.push([from, now]); count += now - from + 1; }
+          const kept = [];
+          for (let i = ranges.length - 1; i >= 0 && kept.length < bound; i--)
+            for (let n = ranges[i][1]; n >= ranges[i][0] && kept.length < bound; n--) kept.push(n);
+          out.samples = kept.reverse().map(reading);
+          out.dropped = count - kept.length;
+        }
         out.interrupted = pausedWithin(point(after), clock.now);
       }
       return out;

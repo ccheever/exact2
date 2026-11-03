@@ -75,7 +75,7 @@ final class FrameHealth {
     var unavailableExplanation: (title: String, message: String)? {
         guard !enabled else { return nil }
         guard unavailableCode != "collection-disabled" else {
-            return ("Frame Health Is Off", "This build does not collect frame timing. Production builds leave collection off unless the app asks for it. To turn it on, set \"frame_health\": { \"mode\": \"core\" } in app.json and build the app again.")
+            return ("Frame Health Is Off", "Production builds don't measure frame timings by default. To turn it on, set \"frame_health\": { \"mode\": \"core\" } in app.json and build the app again.")
         }
         return ("Frame Health Is Unavailable", unavailableReason ?? "This session does not collect frame timing.")
     }

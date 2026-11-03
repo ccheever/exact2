@@ -73,6 +73,10 @@ impl DataSource for Module {
         self.background_round(outcome)
     }
 
+    fn keeps_sent(&self, fetch: u64) -> bool {
+        self.host.secrets.keeps_sent(fetch)
+    }
+
     fn keep_sent(
         &mut self,
         store: &Store,
@@ -97,6 +101,27 @@ impl DataSource for Module {
         Some(self.background.state.clone())
     }
 
+    fn configure_secrets(
+        &mut self,
+        secrets: Arc<dyn exact_runner::SharedSecrets>,
+    ) -> Result<(), DataError> {
+        if self.is_loaded() {
+            return Err(DataError::Unavailable(
+                "configure secrets before loading the module".into(),
+            ));
+        }
+        self.host.secrets.configure(secrets);
+        Ok(())
+    }
+
+    fn abort_wake(&mut self, wake: Arc<dyn Fn() + Send + Sync>) {
+        self.host.secrets.wake(wake);
+    }
+
+    fn host_continuation(&self, token: u64) -> bool {
+        self.host.secrets.contains(token)
+    }
+
     fn configure_storage(
         &mut self,
         data: std::path::PathBuf,
@@ -118,6 +143,9 @@ impl DataSource for Module {
 
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
         let _ = store;
+        if let Some(dispatch) = self.host.secrets.dispatch(token) {
+            return dispatch;
+        }
         if token == exact_runner::BACKGROUND {
             return self.background_dispatch();
         }
@@ -143,7 +171,7 @@ impl DataSource for Module {
     fn release(&mut self, store: &Store) -> Vec<(u64, Dispatch)> {
         let _ = store;
         // Waiting answers whose wait may be over are asked again.
-        let mut released = Vec::new();
+        let mut released = self.host.secrets.release();
         for token in std::mem::take(&mut self.waiters) {
             match self.wake(token) {
                 Some(work) => released.push((token, work)),
@@ -212,6 +240,7 @@ impl DataSource for Module {
             .map(|pair| {
                 let mut module = pair.module;
                 module.directories = self.directories.clone();
+                module.host.secrets = self.host.secrets.replacement();
                 module.document_owner = self.document_owner;
                 module.native_factory = self.native_factory;
                 // It keeps the placement (`Placed::replacement`), not `placed`'s word.
@@ -246,6 +275,7 @@ impl DataSource for Module {
     /// longer replaces a call parked on its key (LLP 1097 D4.5): the runner
     /// drops the new one here.
     fn discard(&mut self, token: u64) {
+        self.host.secrets.cancel_wait(token);
         let Some(at) = self.parked.iter().position(|(_, p)| p.call == token) else {
             return;
         };

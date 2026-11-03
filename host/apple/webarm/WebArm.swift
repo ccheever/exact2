@@ -222,7 +222,7 @@ final class AssetScheme: NSObject, WKURLSchemeHandler {
         guard parts.count == 2 else { return nil }
         if parts[0].isEmpty {
             guard let suffix = Int(parts[1]), suffix > 0 else { return nil }
-            return (max(0, count - suffix), count - 1)
+            return (suffix >= count ? 0 : count - suffix, count - 1)
         }
         guard let from = Int(parts[0]), from < count else { return nil }
         let to = parts[1].isEmpty ? count - 1 : min(Int(parts[1]) ?? count - 1, count - 1)

@@ -13,7 +13,7 @@
 // (https://webmachinelearning.github.io/webmcp/, D8): registered with an input schema from the plan's types and the
 // face's words, its annotations from LLP 1111 D3 (`readOnlyHint` for `reads`, `consequentialHint` for `writes` and
 // `destroys`), withdrawn while `available when` is false, and its `execute` a call through the `web` door.
-import { clock, data, After, Clocked, Mutations, Origin, say } from "./rt.js";
+import { clock, data, After, Clocked, Mutations, Origin, say, time as refreshTime, drive, order } from "./rt.js";
 import { Counting, heldTickets } from "./held.js";
 
 const WAIT = 5_000, BOUND = 10_000, KEPT = 20;
@@ -64,7 +64,7 @@ function schema(type, face = {}) {
  * description, fails, returns, available (each a thunk or null), face (an object or null)]. */
 export function tools(table) {
   const waiting = [], ended = [];
-  let current = null, ids = 0, poll = 0;
+  let current = null, ids = 0, poll = 0, wake = null;
   const answer = t => !t.stream && !t.req?.stream;
   const time = () => (globalThis.exact?.epochAtZero ?? 0) + clock.now;
   const wakeRunning = () => { const w = globalThis.exact?.extensions?.wake?.(); return !!w && w.outcome == null; };
@@ -129,6 +129,8 @@ export function tools(table) {
     else end("ok", "applied", "", value);
   };
   function step() {
+    refreshTime();
+    if (wake) { const i = clock.timers.indexOf(wake); if (i >= 0) clock.timers.splice(i, 1); wake = null; }
     look();
     for (;;) {
       if (current?.dispatched != null) {
@@ -137,7 +139,7 @@ export function tools(table) {
         complete();
         continue;
       }
-      if (!waiting.length) return;
+      if (!waiting.length) { clearTimeout(poll); poll = 0; drive(); return; }
       if (wakeRunning()) {
         if (clock.now >= waiting[0].arrived + WAIT) { current = waiting.shift(); refuse("busy", "a wake or another call is running"); continue; }
         return again();
@@ -146,7 +148,12 @@ export function tools(table) {
       dispatch();
     }
   }
-  function again() { if (!poll) poll = setTimeout(() => { poll = 0; step(); }, 20); }
+  function again() {
+    const due = current?.dispatched != null ? current.dispatched + BOUND : waiting[0].arrived + WAIT;
+    wake = { due, once: true, data: true, i: order(), action: () => { wake = null; step(); return true; } };
+    clock.timers.push(wake); drive();
+    if (!poll) poll = setTimeout(() => { poll = 0; step(); }, 20);
+  }
   After.push(() => { if (current || waiting.length) queueMicrotask(step); else look(); });
   Clocked.push(() => { if (current || waiting.length) queueMicrotask(step); });
 
@@ -162,6 +169,7 @@ export function tools(table) {
   Origin.refused = (name, from) => from === "tool" ? Origin.callRefuses(name) : !!outerRefused?.(name, from);
 
   const call = (req, done) => {
+    refreshTime();
     if (!Object.hasOwn(table, req.tool)) {
       const names = Object.keys(table);
       return { error: names.length ? `no tool \`${req.tool}\`; its tools: ${names.join(", ")}` : `no tool \`${req.tool}\`: this app declares none` };

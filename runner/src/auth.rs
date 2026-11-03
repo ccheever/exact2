@@ -320,22 +320,11 @@ fn origin_admits(grant: &str, url: &Url<'_>) -> bool {
     let Some(origin) = url.origin() else {
         return false;
     };
-    if let Some((scheme, domain)) = grant.split_once("://*.") {
-        let host = url
-            .authority
-            .unwrap_or("")
-            .rsplit('@')
-            .next()
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        let domain = domain.to_ascii_lowercase();
-        return scheme.eq_ignore_ascii_case(&url.scheme)
-            && domain.split('.').count() >= 2
-            && !domain.contains([':', '/', '*'])
-            && host.len() > domain.len() + 1
-            && host.ends_with(&format!(".{domain}"));
-    }
-    !grant.contains('*') && grant.trim_end_matches('/').eq_ignore_ascii_case(&origin)
+    let Ok(origin) = exact_grants::origin_of(&origin) else {
+        return false;
+    };
+    exact_grants::GrantSet::parse(&format!("net.fetch {grant}"))
+        .is_ok_and(|set| set.permits(&exact_grants::Operation::Fetch { origin }))
 }
 
 /// The grant lines that apply: the app's, narrowed by a mixed app's source
@@ -831,6 +820,48 @@ mod tests {
             callback: callback.into(),
             state: "s1".into(),
             ephemeral: false,
+        }
+    }
+
+    #[test]
+    fn session_origins_use_effective_ports_and_wildcard_ports() {
+        for (grant, url, expected) in [
+            (
+                "https://login.example:443",
+                "https://login.example/authorize",
+                true,
+            ),
+            (
+                "https://login.example",
+                "https://login.example:443/authorize",
+                true,
+            ),
+            (
+                "https://*.example.com:8443",
+                "https://login.example.com:8443/authorize",
+                true,
+            ),
+            (
+                "https://*.example.com:8443",
+                "https://login.example.com/authorize",
+                false,
+            ),
+            (
+                "https://*.example.com:8443",
+                "https://example.com:8443/authorize",
+                false,
+            ),
+            (
+                "https://*.example.com:8443",
+                "https://notexample.com:8443/authorize",
+                false,
+            ),
+        ] {
+            assert_eq!(
+                origin_admits(grant, &Url::parse(url).unwrap()),
+                expected,
+                "{grant}: {url}"
+            );
         }
     }
 

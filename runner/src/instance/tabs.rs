@@ -159,7 +159,9 @@ impl Index {
     }
 
     fn node(&self, id: ViewId) -> Option<HeadNode<'_>> {
-        self.nodes.get(&id).map(|(t, p, c)| (*t, p, c.clone()))
+        self.nodes
+            .get(&id)
+            .map(|(t, p, c)| (*t, p, crate::head::Children::ids(c)))
     }
 
     /// The navigation root whose tab panel `panel` may be: its nearest

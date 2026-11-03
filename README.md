@@ -280,6 +280,11 @@ iPhone simulator that's already booted, or boot the newest iPhone Pro. To choose
 set `EXACT_SIM` to its name or UDID (or pass `--sim` to `build.mjs`), and keep the same
 setting for `agent.mjs ios`.
 
+On Linux, a development build can serve its screen with `EXACT_VNC=1` and
+`EXACT_VNC_PASSWORD` set to 1–8 bytes. It listens on `127.0.0.1:5900`;
+an explicit `EXACT_VNC=host:port` selects another address. Production bakes
+ignore both variables.
+
 ### 4. Drive it the way an agent does
 
 ```sh

@@ -197,7 +197,7 @@ the schema changes (LLP 1030 D3a). Agreed in advance: "it's ok if things break a
 
   **Frame-health control (iOS implemented, 2026-10-28):**
   [LLP 1079.000 §7.2](1079.000-frame-health-v1.plan.md#72-app-indicator) adds
-  **Show Frame Health** / **Hide Frame Health** to a native grouped navigation sheet.
+  one **Frame Health** row, checked while the card shows, to a native grouped navigation sheet.
   Build Information has its own screen. The card starts hidden,
   moves when dragged, and lets touches outside it reach the app. It sits below sheets
   and alerts, uses existing snapshots, and does no recurring work at idle. The Mac's

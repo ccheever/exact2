@@ -109,6 +109,20 @@ fn apple_continuous_takes_a_smaller_radius_in_a_small_box() {
 }
 
 #[test]
+fn apple_continuous_crosses_the_diagonal_where_uikit_does() {
+    // UIKit's middle cubic meets the diagonal 0.291507 radii along each edge
+    let shape = CornerShape::check("-exact-continuous").unwrap();
+    let r = 20.0;
+    let path = outline((0.0, 0.0, 200.0, 200.0), [(r, r); 4], &shape);
+    let crossing: Vec<_> = points(&path)
+        .into_iter()
+        .filter(|&(x, y)| x < r && (x - y).abs() < 1e-3)
+        .collect();
+    assert_eq!(crossing.len(), 1, "{crossing:?}");
+    assert!((crossing[0].0 / r - 0.291_507).abs() < 1e-4, "{crossing:?}");
+}
+
+#[test]
 fn the_inner_edge_takes_the_radii_less_the_border() {
     let shape = CornerShape::check("squircle").unwrap();
     let pts = points(&inner_outline(

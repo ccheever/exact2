@@ -77,11 +77,21 @@ async function kept(): Promise<string> {
   return hex(await crypto.subtle.sign(ES256, back.privateKey, bytes("kept")));
 }
 
+let livePair: CryptoKeyPair | undefined;
+async function churnKeys(): Promise<string> {
+  livePair ??= await crypto.subtle.generateKey(P256, true, ["sign", "verify"]) as CryptoKeyPair;
+  const pub = await crypto.subtle.exportKey("jwk", livePair.publicKey);
+  for (let i = 0; i < 64; i++) await crypto.subtle.importKey("jwk", pub, P256, true, ["verify"]);
+  const signature = hex(await crypto.subtle.sign(ES256, livePair.privateKey, bytes("live")));
+  return JSON.stringify({ pub, signature });
+}
+
 let store: unknown;
 function answer(source: string, args: any[], kept_: unknown): unknown {
   store = kept_;
   switch (source) {
     case "initKey": return initKey;
+    case "churnKeys": return churnKeys();
     case "keypair": return keypair();
     case "importSign": return importSign(args[0]);
     case "roundTrip": return roundTrip(args[0]);

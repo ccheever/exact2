@@ -25,6 +25,7 @@
         android:banner="@drawable/banner" android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="@xml/exact_backup" android:dataExtractionRules="@xml/exact_data_extraction">
         <profileable android:shell="true" />
+        <meta-data android:name="dev.exact.development" android:value="${exactDevelopment}" />
         <!-- The changes the host takes in place (LLP 1115.001 D15.1), so that none of them makes the activity again:
              a rotation or a resize, night mode, font scale and bold text, the locale and its direction, the display's
              density, a keyboard attached. Any other still makes it again, and its view then adopts the host that runs.

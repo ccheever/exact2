@@ -37,7 +37,7 @@ export const agentStream = () => null; export const keyStore = () => ({}); expor
     const sha = new Bun.CryptoHasher('sha256').update(script).digest('hex');
     globalThis.reads = [];
     const win = vm.createContext({ console: { log() {}, info() {}, warn() {}, error() {}, debug() {} }, TextEncoder, TextDecoder, structuredClone, setTimeout, clearTimeout,
-      queueMicrotask, URL, Headers, crypto, indexedDB: null, MessageChannel, Uint8Array, ArrayBuffer, addEventListener() {} });
+      queueMicrotask, URL, Headers, DOMException, crypto, indexedDB: null, MessageChannel, Uint8Array, ArrayBuffer, addEventListener() {} });
     win.window = win;
     for (const name of ['Promise', 'Error', 'Object', 'Array', 'JSON', 'Symbol']) win[name] = vm.runInContext(name, win); // what storage.js builds in the realm
     win.document = { createElement: () => ({}), head: { append: el => vm.runInContext(el.textContent, win) } };
@@ -76,7 +76,9 @@ export const agentStream = () => null; export const keyStore = () => ({}); expor
 
 // The real prelude and host turns, with storage backends that land at once.
 // `done` closes either placement even when an answer is still parked.
-async function moduleRealm(script, { placement = 'worker', key = 'k', top = '' } = {}) {
+async function moduleRealm(script, { placement = 'worker', key = 'k', top = '', secrets = false, stored = [] } = {}) {
+  const declaration = 'net.fetch https://api.castle.test' + (secrets ? '\nsecret.keep token' : '');
+  const normalized = secrets ? { version: 1, entries: [...GRANTS.entries, [2, 'secret.keep token', ['secret-keep', 'token'], null]], error: null, seal: '7c439325539248a1' } : GRANTS;
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-worker-storage-')), captured = {};
   const saved = Object.fromEntries(['fetch', 'document', 'location', 'exact'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   let realm;
@@ -100,7 +102,7 @@ export const agentStream = () => null; export const keyStore = () => ({}); expor
     prepare: async () => ({ query: async params => params, close: async () => {} }), close: async () => {} }), dispose() {} });`);
     const prelude = readFileSync(resolve(ROOT, 'js/src/prelude.js'), 'utf8');
     const binary = readFileSync(resolve(ROOT, 'js/src/binary.js'), 'utf8');
-    const bytes = new TextEncoder().encode(`exact = { abi: 1, appId: 'test.storage', grants: 'net.fetch https://api.castle.test', answer(source, args, store, storage) {
+    const bytes = new TextEncoder().encode(`exact = { abi: 1, appId: 'test.storage', grants: ${JSON.stringify(declaration)}, answer(source, args, store, storage) {
   const read = path => storage.fs.readFile(path).then(bytes => new TextDecoder().decode(bytes));
   ${script}
 } };
@@ -111,7 +113,7 @@ ${top}`);
     globalThis.exact = {};
     if (placement === 'main') {
       const win = vm.createContext({ console: { log() {}, info() {}, warn() {}, error() {}, debug() {} }, TextEncoder, TextDecoder, structuredClone, setTimeout, clearTimeout,
-        queueMicrotask, URL, Headers, crypto, indexedDB: null, MessageChannel, Uint8Array, ArrayBuffer, AbortController, AbortSignal, addEventListener() {} });
+        queueMicrotask, URL, Headers, DOMException, crypto, indexedDB: null, MessageChannel, Uint8Array, ArrayBuffer, AbortController, AbortSignal, addEventListener() {} });
       win.window = win;
       for (const name of ['Promise', 'Error', 'Object', 'Array', 'JSON', 'Symbol']) win[name] = vm.runInContext(name, win);
       win.document = { createElement: () => ({}), head: { append: el => vm.runInContext(el.textContent, win) } };
@@ -124,20 +126,39 @@ ${top}`);
     }
     const { createGrantSet } = await import(resolve(dir, 'grant-admission.js'));
     const glue = await import(resolve(dir, 'module-glue.js'));
-    const grants = 'net.fetch https://api.castle.test';
+    const grants = declaration;
     const receipt = new TextEncoder().encode(JSON.stringify({ version: 1, abi: 1, appId: 'test.storage', grants, web: { file: 'app.js', bytes: bytes.length, sha256: sha }, module: { sha256: 'b'.repeat(64) } }));
-    realm = await glue.prepare({ receipt, script: bytes }, { appId: 'test.storage', grants, grantSet: createGrantSet(GRANTS), placement });
-    const request = (op, source, extra = {}) => ({ op, id: realm.id, target: source, source, args: [], store: [['recovery-owner', source]], grants: [], ...extra });
+    realm = await glue.prepare({ receipt, script: bytes }, { appId: 'test.storage', grants, grantSet: createGrantSet(normalized), placement });
+    const request = (op, source, extra = {}) => ({ op, id: realm.id, target: source, source, args: [], store: [['recovery-owner', source], ...stored], grants: secrets ? ['token'] : [], ...extra });
     return {
       done, door: () => captured.door, aborted: () => glue.call({ op: 'aborted', id: realm.id }).tickets,
       ask: source => glue.run(glue.call(request('answer', source)).continuation),
-      resume: source => glue.run(glue.call(request('resume', source, { outcome: { response: { status: 200, headers: [], body: 'fresh' } } })).continuation),
+      resume: (source, response = { status: 200, headers: [], body: 'fresh' }) => glue.run(glue.call(request('resume', source, { outcome: { response } })).continuation),
+      background: () => glue.call({ op: 'background', id: realm.id }),
+      drain: () => glue.run(glue.call({ op: 'background-round', id: realm.id }).token),
       forget: inFlight => glue.call({ op: 'forget', id: realm.id, inFlight: inFlight.map(s => request('answer', s)) }),
       overlay: source => glue.call({ op: 'overlay', id: realm.id, source, args: [], answer: [], writes: [] }),
     };
   } catch (error) { done(); throw error; }
 }
 const race = p => Promise.race([p.then(v => v, e => `rejected: ${e.message}`), new Promise(r => setTimeout(() => r('STILL WAITING'), 1500))]);
+
+test('background storage counters survive a turn after an answer abandons its read', async () => {
+  const w = await moduleRealm(`if (source === 'abandoned') {
+    void read('app:/data/abandoned'); throw new Error('abandoned');
+  }
+  return read('app:/data/current');`, { placement: 'main' });
+  try {
+    expect((await w.ask('abandoned')).tag).toBe(2);
+    expect(w.background().head).toBe(true);
+    const current = w.ask('current');
+    const drained = await w.drain();
+    expect(drained.writes).toBe(0);
+    expect(drained.failed).toBe(0);
+    expect(w.background().head).toBe(false);
+    expect((await current).value).toBe('app:/data/current');
+  } finally { w.done(); }
+}, 20000);
 
 // The sequence above, on the worker. An answer waiting there held the
 // worker's turn on an operation only the other answer's turn could deliver,
@@ -314,4 +335,134 @@ Object.defineProperty(exact, 'overlay', { get() {
     expect(tries).toHaveLength(2);
     for (const line of tries) expect(line).toStartWith('throws store.set() is unavailable in an overlay');
   } finally { w.done(); }
+}, 20000);
+
+function secretEnvironment(kept) {
+  const saved = Object.fromEntries(['navigator', 'localStorage'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  const disk = new Map([['exact.secret.token', kept]]), queues = new Map();
+  let writesFail = false, requested = 0; const barriers = [];
+  const locks = { request(name, options, work) {
+    if (typeof options === 'function') { work = options; options = {}; }
+    requested++; for (const [count, done] of barriers) if (requested >= count) done();
+    let granted = false, abort;
+    const cancelled = new Promise((_, reject) => { abort = () => { if (!granted) reject(new Error('aborted')); }; options.signal?.addEventListener('abort', abort, { once: true }); });
+    const run = (queues.get(name) ?? Promise.resolve()).then(() => {
+      if (options.signal?.aborted) throw new Error('aborted');
+      granted = true; return work();
+    }).finally(() => options.signal?.removeEventListener('abort', abort));
+    queues.set(name, run.catch(() => {})); return Promise.race([run, cancelled]);
+  } };
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { locks } });
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: key => disk.get(key) ?? null, setItem: (key, value) => { if (writesFail) throw new Error('quota'); disk.set(key, value); }, removeItem: key => disk.delete(key) } });
+  return { disk, requested(count) { return requested >= count ? Promise.resolve() : new Promise(done => barriers.push([count, done])); }, failWrites() { writesFail = true; }, restore() {
+    for (const [name, descriptor] of Object.entries(saved)) { if (descriptor) Object.defineProperty(globalThis, name, descriptor); else delete globalThis[name]; }
+  } };
+}
+
+for (const placement of ['main', 'worker']) test(`${placement}: module read flags remain boolean across secret waits`, async () => {
+  const environment = secretEnvironment('old');
+  const w = await moduleRealm(`if (source === 'plain') return source;
+    if (source === 'entropy') crypto.randomUUID();
+    if (source === 'external') store.has('token');
+    return store.exclusive('token', () => {
+      if (source === 'after') { crypto.randomUUID(); store.has('token'); }
+      return source;
+    });`, { placement, secrets: true });
+  try {
+    for (const [source, entropy, externalRead] of [
+      ['plain', false, false], ['locked', false, false], ['entropy', true, false],
+      ['external', false, true], ['after', true, true], ['plain', false, false],
+    ]) {
+      const result = await w.ask(source);
+      expect(result.value).toBe(source);
+      expect(result.entropy).toBe(entropy);
+      expect(result.externalRead).toBe(externalRead);
+    }
+  } finally { w.done(); environment.restore(); }
+}, 20000);
+
+// These are the real OAuth package, browser prelude, module turns and worker protocol. Only the
+// provider's HTTP replies and the browser's lock/storage backends are supplied by the test.
+for (const pair of [['main', 'main'], ['main', 'worker'], ['worker', 'worker'], ['main'], ['worker']]) {
+  test(`rotating OAuth session is spent once across ${pair.join('/')} realms`, async () => {
+    const kept = JSON.stringify({ accessToken: 'old', refreshToken: 'rotate-0', tokenEndpoint: 'https://api.castle.test/token', scopes: [] });
+    const environment = secretEnvironment(kept), { disk } = environment;
+    const code = new Bun.Transpiler({ loader: 'ts' }).transformSync(readFileSync(resolve(ROOT, 'packages/oauth/index.ts'), 'utf8')).replace(/^export /gm, '');
+    const top = `${code}
+const provider = oauth({clientId:'fixture',scopes:[],key:'token',endpoints:{authorization:'https://api.castle.test/authorize',token:'https://api.castle.test/token'},apis:['https://api.castle.test']});`;
+    const modules = [];
+    try {
+      for (const placement of pair) modules.push(await moduleRealm(`return provider.fetch(store, 'https://api.castle.test/me').then(r => r.status);`, { placement, secrets: true, stored: [['token', kept]], top }));
+      const first = modules[0], second = modules[1] ?? first;
+      expect((await first.ask('a')).request.method).toBe('GET');
+      expect((await second.ask('b')).request.method).toBe('GET');
+      const refreshing = await first.resume('a', { status: 401, headers: [], body: '' });
+      expect(refreshing.request.method).toBe('POST');
+      expect(refreshing.request.body).toContain('refresh_token=rotate-0');
+      const waiting = second.resume('b', { status: 401, headers: [], body: '' });
+      const response = { status: 200, headers: [], body: JSON.stringify({ access_token: 'fresh', refresh_token: 'rotate-1', token_type: 'Bearer', expires_in: 3600 }) };
+      const refreshed = await first.resume('a', response);
+      expect(refreshed.request.method).toBe('GET');
+      expect(refreshed.request.headers).toContainEqual(['authorization', 'Bearer fresh']);
+      expect((await first.resume('a')).value).toBe(200);
+      const reused = await race(waiting);
+      expect(reused.request.method).toBe('GET');
+      expect(reused.request.headers).toContainEqual(['authorization', 'Bearer fresh']);
+      expect((await second.resume('b')).value).toBe(200);
+      expect(JSON.parse(disk.get('exact.secret.token')).refreshToken).toBe('rotate-1');
+    } finally {
+      for (const module of modules.reverse()) module.done();
+      environment.restore();
+    }
+  }, 20000);
+}
+
+for (const placement of ['main', 'worker']) test(`${placement}: secret locks retire and failed writes cannot retain a spent token`, async () => {
+  const environment = secretEnvironment('old');
+  const w = await moduleRealm(`return store.exclusive(source === 'denied' ? 'other' : 'token', async () => {
+    if (source === 'hold') await fetch('https://api.castle.test/wait');
+    if (source === 'write') store.set('token', 'rotated');
+    return store.get('token');
+  });`, { placement, secrets: true, stored: [['token', 'stale']] });
+  try {
+    expect((await w.ask('hold')).tag).toBe(1);
+    const waiter = w.ask('waiter');
+    const cancelled = race(waiter);
+    await environment.requested(2);
+    w.forget(['hold']);
+    expect(await cancelled).toContain('let go');
+    // The cancelled waiter did not end the holder; its continuation still owns the key.
+    expect((await w.resume('hold')).value).toBe('old');
+    expect((await w.ask('read')).value).toBe('old');
+    expect((await w.ask('denied')).message).toContain('not granted');
+    environment.failWrites();
+    const failed = await w.ask('write').catch(error => error);
+    expect(failed.message).toContain('quota');
+    expect(environment.disk.has('exact.secret.token')).toBe(false);
+    expect((await w.ask('read')).value).toBe(null);
+    expect((await w.ask('hold')).tag).toBe(1);
+    w.forget([]);
+    expect((await race(w.ask('read'))).value).toBe(null);
+  } finally { w.done(); environment.restore(); }
+}, 20000);
+
+
+for (const placement of ['main', 'worker']) test(`${placement}: abandoning a sent secret update cannot replay its credential`, async () => {
+  const environment = secretEnvironment('old');
+  const w = await moduleRealm(`return store.exclusive('token', async () => {
+    if (source === 'refresh') await fetch('https://api.castle.test/token', {method:'POST', body:'old'});
+    return store.get('token');
+  });`, { placement, secrets: true, stored: [['token', 'stale']] });
+  try {
+    expect((await w.ask('refresh')).request.method).toBe('POST');
+    expect(environment.disk.get('exact.exclusive.exact.secret.token')).toBe('1');
+    w.forget([]);
+    expect((await w.ask('read')).value).toBeNull();
+    expect(environment.disk.has('exact.secret.token')).toBe(false);
+    // A page that died without cleanup leaves the same marker for its successor.
+    environment.disk.set('exact.secret.token', 'spent-before-page-exit');
+    environment.disk.set('exact.exclusive.exact.secret.token', '1');
+    expect((await w.ask('successor')).value).toBeNull();
+    expect(environment.disk.has('exact.exclusive.exact.secret.token')).toBe(false);
+  } finally { w.done(); environment.restore(); }
 }, 20000);

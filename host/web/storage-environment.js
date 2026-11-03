@@ -109,3 +109,42 @@ export function keyStore(name, indexedDB) {
     get: handle => run('readonly', keys => keys.get(handle)).then(pair => pair ?? null),
   };
 }
+
+/** A kept session's read/modify/write spans every tab sharing its localStorage key. */
+export function exclusiveSecret(store, prefix, name, work) {
+  if (!globalThis.navigator?.locks) return Promise.reject(Object.assign(new Error('This browser cannot coordinate shared secret updates'), { name: 'NotSupportedError' }));
+  return navigator.locks.request(`${prefix}${name}`, async () => {
+    const discard = () => {
+      store.pending.delete(name);
+      if (store.writes) store.writes = store.writes.filter(([key]) => key !== name);
+    };
+    const key = prefix + name, marker = `exact.exclusive.${key}`;
+    // A prior failed write belongs to an older snapshot, never this lease.
+    discard();
+    if (localStorage.getItem(marker) != null) {
+      localStorage.removeItem(key); localStorage.removeItem(marker);
+    }
+    const fresh = localStorage.getItem(key);
+    if (fresh == null) store.map.delete(name); else store.map.set(name, fresh);
+    localStorage.setItem(marker, '1');
+    (store.leased ??= new Set()).add(name);
+    let completed = false;
+    try { const value = await work(); completed = true; return value; } finally {
+      try { store.persist(); } finally { store.leased.delete(name); }
+      if (store.pending.has(name)) {
+        discard(); store.map.delete(name);
+        localStorage.removeItem(key);
+        throw new Error('The shared secret could not be persisted');
+      }
+      if (!completed) { discard(); store.map.delete(name); localStorage.removeItem(key); }
+      localStorage.removeItem(marker);
+    }
+  });
+}
+
+
+/** Automatic retries must share the lease; a value check alone races another tab. */
+export async function retrySecretWrite(key, current, write, locks = globalThis.navigator?.locks) {
+  if (!locks) throw new Error('This browser cannot coordinate a secret write retry');
+  await locks.request(key, () => { if (current()) write(); });
+}

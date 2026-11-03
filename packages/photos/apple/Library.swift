@@ -41,7 +41,6 @@ final class PhotoKitLibrary: NSObject, PHPhotoLibraryChangeObserver {
     private let finalsKept = 32
     /// The status last answered, to announce a change.
     private var said: [String: String]?
-    private var copies = 0
 
     init(context: ExactPackageContext) {
         self.context = context
@@ -283,7 +282,7 @@ final class PhotoKitLibrary: NSObject, PHPhotoLibraryChangeObserver {
             let own = (resource.originalFilename as NSString).pathExtension.lowercased()
             let ext = own.isEmpty ? UTType(resource.uniformTypeIdentifier)?.preferredFilenameExtension ?? "img" : own
             let path: String
-            if let p = args["path"] as? String, !p.isEmpty { path = p.hasSuffix(".\(ext)") ? p : "\(p).\(ext)" } else { copies += 1; path = "app:/tmp/photos/\(copies).\(ext)" }
+            if let p = args["path"] as? String, !p.isEmpty { path = p.hasSuffix(".\(ext)") ? p : "\(p).\(ext)" } else { path = "app:/tmp/photos/\(UUID().uuidString).\(ext)" }
             guard let url = context.file(path) else { return reply(["error": "UnknownError"]) }
             try? FileManager.default.removeItem(at: url)
             try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

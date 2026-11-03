@@ -18,7 +18,6 @@ import { isAbsolute, join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { captureAssets, assetCards, copyStaticTreeIfPresent, webEnvelope, publicFileCards, listAssets, readStaticFile, readDevGeneration, retainDevGeneration } from '../host/web/serve.mjs';
 import { resolveApp, webGpuArtifacts, withAppFixture } from './app.mjs';
-import { appdropPlan, renderAppdrop, writeLink } from './deploy-appdrop.mjs';
 import { bake, canonicalBytes, classify, classifyArtifacts, cohortReceipt, defaultRelease, deployRun, inspectHead, materializeSnapshot, portableAssetNames, publishRoot, publishStream, renderTable, snapshotOf as capturedSnapshotOf, streamHead } from './deploy.mjs';
 import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable, sha256, webReleasePath, webRootPath } from './origin.mjs';
 // Minimal compiler receipts for origin protocol fixtures below; capability
@@ -1001,40 +1000,6 @@ async function rejects(action, matches) {
 }
 
 {
-  // The AppDrop lane: only an iOS binary row owes AppDrop a version, a binary goes up once, and the first deploy creates the link.
-  const state = mkdtempSync(join(tmpdir(), 'exact-appdrop-'));
-  process.env.EXACT_APPDROP_STATE = join(state, 'appdrop.json');
-  process.env.APPDROP_HOME = join(state, 'cli');
-  const app = { id: 'com.example.app', name: 'example', manifest: { deploy: { appdrop: { url: 'https://appdrop.app/d/k3m9x2p7qa/' } } } };
-  const fresh = { ...app, manifest: { deploy: { appdrop: {} } } };
-  const builds = { ios: { binary: { sha256: 'a'.repeat(64) }, compat: { inputs: { store: { L: '0' } } } } };
-  const binary = { rows: [{ kind: 'binary', platform: 'ios', compatibilityId: 'c'.repeat(64), action: 'binary' }] };
-  const bundleOnly = { rows: [{ kind: 'stream', platform: 'ios', compatibilityId: 'c'.repeat(64), action: 'bundle' }] };
-  const first = appdropPlan(app, binary, builds), create = appdropPlan(fresh, binary, builds);
-  writeFileSync(process.env.EXACT_APPDROP_STATE, JSON.stringify({ 'https://appdrop.app/d/k3m9x2p7qa': { binary: 'a'.repeat(64), revision: 4 } }));
-  const again = appdropPlan(app, binary, builds);
-  mkdirSync(process.env.APPDROP_HOME);
-  writeFileSync(join(process.env.APPDROP_HOME, 'drops.json'), JSON.stringify({ zz: { url: 'https://appdrop.app/d/zzzzzzzzzz', bundleId: 'com.example.app', savedAt: '2026-10-01' }, other: { url: 'https://appdrop.app/d/oooooooooo', bundleId: 'com.other' } }));
-  const adopted = appdropPlan(fresh, binary, builds);
-  const manifestPath = join(state, 'app.json');
-  writeFileSync(manifestPath, '{\n  "deploy": {\n    "store": { "ios": "0" },\n    "appdrop": {}\n  }\n}\n');
-  writeLink(manifestPath, 'https://appdrop.app/d/k3m9x2p7qa');
-  const written = readFileSync(manifestPath, 'utf8');
-  let refused = '';
-  try { appdropPlan({ ...app, manifest: { deploy: { appdrop: { url: 'https://appdrop.app/d/k3m9x2p7qa/manage#secret' } } } }, binary, builds); } catch (e) { refused = e.message; }
-  delete process.env.EXACT_APPDROP_STATE; delete process.env.APPDROP_HOME; rmSync(state, { recursive: true, force: true });
-  result('AppDrop: an iOS binary row creates the link once, then uploads each new binary once; bundle rows and an update link in app.json do not',
-    first?.action === 'upload' && first.url === 'https://appdrop.app/d/k3m9x2p7qa' && first.id === 'k3m9x2p7qa'
-      && create?.action === 'create' && renderAppdrop(create).endsWith('create (after the streams)')
-      && adopted?.action === 'upload' && adopted.url === 'https://appdrop.app/d/zzzzzzzzzz' && adopted.adopted
-      && again?.action === 'current' && renderAppdrop(again).includes('revision 4 already') && renderAppdrop(first).endsWith('upload (after the streams)')
-      && appdropPlan(app, bundleOnly, builds) === null && appdropPlan({ ...app, manifest: {} }, binary, builds) === null
-      && written.includes('"appdrop": { "url": "https://appdrop.app/d/k3m9x2p7qa" }') && written.includes('"store": { "ios": "0" }')
-      && refused.includes('share link'),
-    JSON.stringify({ first, create, adopted, again, written, refused }));
-}
-
-{
   const card = { name: 'plans/trains.plan', sha256: 'a'.repeat(64), bytes: Buffer.from('snapshot') };
   const app = { id: 'test.widgets', displayName: 'Widgets' };
   const bundle = { plan: { bytes: Buffer.from('app'), sha256: 'b'.repeat(64), formatVersion: 5, kernelSchema: '0'.repeat(16) }, assets: [card] };
@@ -1102,3 +1067,40 @@ test('a production web root serves every authenticated asset card, including act
     if (!await rejects(() => publishRoot({origin, row:{}, web}), error => error.message.includes('web envelope does not bind activities/card.schema.json'))) throw new Error('missing asset was published');
   } finally { rmSync(dir, {recursive:true,force:true}); }
 }, 300000);
+
+test('adding editing and removing only a sunset publishes a new signed sequence', async () => {
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  const app = { id: 'com.exact.sunset', displayName: 'Sunset', manifest: { deploy: { signing: { key: 'test', keys: { test: publicKey.export({ type: 'spki', format: 'der' }).subarray(-32).toString('base64') } } } } };
+  const signer = { keyId: 'test', sign: head => ({ keyId: 'test', ed25519: cryptoSign(null, canonicalBytes(head), privateKey).toString('base64') }) };
+  const stream = { channel: 'prod', compatibilityId: 'a'.repeat(32) };
+  const bytes = Buffer.from('same plan');
+  const bundle = { plan: { bytes, sha256: sha256(bytes), formatVersion: 4, kernelSchema: '0'.repeat(16) }, assets: [] };
+  const initial = streamHead({ app, bundle, stream, seq: 7, release: 'first' });
+  initial.signature = signer.sign(initial);
+  const path = `.exact/prod/${stream.compatibilityId}/exact.json`;
+  const files = new Map([[path, Buffer.from(JSON.stringify(initial))]]);
+  let writes = 0;
+  const origin = {
+    describe: () => 'memory', get: async name => files.get(name) ?? null,
+    head: async () => { const bytes = files.get(path); return { bytes, sha256: sha256(bytes), json: JSON.parse(bytes) }; },
+    list: async prefix => [...files.keys()].filter(name => name.startsWith(`${prefix}/`)).map(name => name.slice(prefix.length + 1)).filter(name => !name.includes('/')),
+    withLock: async (_, fn) => fn(),
+    put: async (name, bytes) => { files.set(name, bytes); writes++; return 'written'; },
+    putHead: async (_, bytes, { previousDigest }) => { expect(sha256(files.get(path))).toBe(previousDigest); files.set(path, bytes); writes++; },
+  };
+  const row = { kind: 'stream', platform: 'linux', ...stream, action: 'bundle', changes: [] };
+  const compat = { id: stream.compatibilityId, inputs: {} };
+  let seq = 7;
+  for (const sunset of [{ message: 'Retiring' }, { message: 'Install the next binary', store: 'https://example.test' }, null]) {
+    app.manifest.deploy.sunset = { [`prod/${stream.compatibilityId}`]: sunset };
+    const published = await publishStream({ origin, row, bundle, compat, app, signer, release: `change-${seq}`, snapshot: { commit: '0'.repeat(40), dirty: false }, opts: {}, log() {} });
+    expect(published.seq).toBe(++seq);
+    const head = await origin.head();
+    expect(head.json.sunset ?? null).toEqual(sunset);
+    expect(inspectHead(head, app, stream).authenticated).toBe(true);
+    const before = writes;
+    const again = await publishStream({ origin, row, bundle, compat, app, signer, release: `same-${seq}`, snapshot: { commit: '0'.repeat(40), dirty: false }, opts: {}, log() {} });
+    expect(again.action).toBe('current');
+    expect(writes).toBe(before);
+  }
+});

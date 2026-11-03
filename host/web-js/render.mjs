@@ -134,6 +134,21 @@ export function renderer(dist) {
     const read = { fresh: Infinity, random: false }, prefers = new Set();
     const noted = response => { read.fresh = Math.min(read.fresh, response?.[FRESH] ?? 0); return response; };
     const drew = f => (...args) => { read.random = true; return f(...args); };
+    const owner = new AbortController(), timers = new Set();
+    let disposed = false;
+    const dispose = () => { disposed = true; owner.abort(); for (const timer of timers) clearTimeout(timer); timers.clear(); };
+    const later = (fn, ms, ...args) => {
+      if (disposed) return 0;
+      const id = setTimeout(() => { timers.delete(id); if (!disposed) fn(...args); }, ms);
+      timers.add(id); return id;
+    };
+    const stopTimer = id => { timers.delete(id); clearTimeout(id); };
+    const fetchOwned = (input, init) => {
+      if (disposed) return Promise.reject(owner.signal.reason);
+      const given = init?.signal, signal = given === undefined && input instanceof Request ? input.signal : given;
+      return fetched(input, { ...init, signal: signal ? AbortSignal.any([owner.signal, signal]) : owner.signal })
+        .then(noted, error => { read.fresh = 0; throw error; });
+    };
     const ctx = vm.createContext({
       document, location,
       navigator: { onLine: true, language },
@@ -144,17 +159,18 @@ export function renderer(dist) {
       // The reader's viewport as its request tells it (`viewportOf`), set by `begin`; else runner/src/viewport.rs's default.
       innerWidth: 390, innerHeight: 844,
       matchMedia: media => ({ media, matches: prefers.has(media.replace(/\s+/g, '')), addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }),
-      setTimeout, clearTimeout, queueMicrotask, performance, console, Request, Response, Headers, URL, URLSearchParams, TextEncoder, TextDecoder,
-      fetch: (input, init) => fetched(input, init).then(noted, error => { read.fresh = 0; throw error; }),
+      setTimeout: later, clearTimeout: stopTimer, queueMicrotask: fn => queueMicrotask(() => { if (!disposed) fn(); }),
+      performance, console, Request, Response, Headers, URL, URLSearchParams, TextEncoder, TextDecoder, AbortController, AbortSignal,
+      fetch: fetchOwned,
       crypto: { subtle: crypto.subtle, getRandomValues: drew(a => crypto.getRandomValues(a)), randomUUID: drew(() => crypto.randomUUID()) },
       WebAssembly, atob, btoa, Event: class {}, CustomEvent: class {}, __exactRender: true, __files: files,
     });
     ctx.globalThis = ctx; ctx.self = ctx;
     utcIntl.runInContext(ctx);
-    script.runInContext(ctx);
+    try { script.runInContext(ctx); } catch (error) { dispose(); throw error; }
     // What loading the bundle read is every render's alike.
     Object.assign(read, { fresh: Infinity, random: false });
-    return { ctx, location, read, prefers };
+    return { ctx, location, read, prefers, dispose };
   };
   // The next render's realm, made once the last render is done and nothing waits (`render.ahead` false turns it off).
   let ahead = null, making = false;
@@ -174,42 +190,45 @@ export function renderer(dist) {
     Object.assign(made.ctx, { innerWidth: viewport.width, innerHeight: viewport.height });
     made.prefers.clear();
     for (const [on, query] of [[viewport.dark, '(prefers-color-scheme:dark)'], [viewport.reducedMotion, '(prefers-reduced-motion:reduce)'], [viewport.reducedTransparency, '(prefers-reduced-transparency:reduce)']]) if (on) made.prefers.add(query);
-    const info = await ctx.__start();
+    let info;
+    try { info = await ctx.__start(); } catch (error) { made.dispose(); throw error; }
     // The capture script imports the entry by the policy; an interaction
     // page drops the head's modulepreloads, and an undeclared one adds them
     // after its head once its render chose `eager` (page.rs `head_js`).
     const head = headOf(info.activate !== 'interaction' && info.activate !== 'inferred');
-    return { ...info, location, head, async finish(deadline = DEADLINE) {
-      const out = await ctx.__render(deadline);
-      const hero = heroImage(out);
-      const activate = info.activate === 'inferred' ? infer(out) : info.activate;
-      const late = info.activate === 'inferred' && activate !== 'interaction' ? preloads : '';
-      const wake = activate === 'interaction' && out.wake.length ? ` data-wake="${esc(JSON.stringify(out.wake))}"` : '';
-      const fields = `<title>${esc(out.title || name)}</title><meta name="viewport" content="${viewportMeta}">${crawled(out, url.pathname + url.search)}`;
-      const checkpoint = `{"location":${JSON.stringify(url.pathname + url.search)},"time":${JSON.stringify(out.time)},"logic":null,"answers":${out.answers},"pending":${JSON.stringify(out.pending)}}`;
-      const digest = createHash('sha256').update(out.root).digest('hex').slice(0, 16);
-      const style = rules ? `<style data-exact-page>${select(rules, tokens(out.root + shell.slice(root)))}</style>\n` : '';
-      // A page made per request that waits for the reader names its answers past 1 KB rather than holding them: they
-      // are needed only once the reader acts, and the capture script fetches them with the runtime (LLP 1048.007 D10).
-      const deferred = activate === 'interaction' && (info.policy === 'request' || info.policy === 'cached') && checkpoint.length > 1024;
-      const src = deferred ? ` data-src="/.exact/checkpoint/${deferAnswers(checkpoint)}.json"` : '';
-      const body = late => `${fields}\n${late}${style}${hero}<div id="exact-root"${rootAttrs}>${out.root}</div>${shell.slice(root + ROOT[0].length, entry)}`
-        + `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${activate}"${wake}${src}>${deferred ? '' : checkpoint.replace(/</g, '\\u003c')}</script>${shell.slice(entry + ENTRY.length)}`;
-      // A complete page marks html and names the preloads in its head; a streamed head has gone already, so the rest
-      // marks it before the body and names them after the head's fields, as page.rs does.
-      const whole = late ? headOf(true) : head;
-      const markedHead = out.scrollDocument ? whole.replace('<html ', '<html data-scrolldocument ') : whole;
-      const mark = out.scrollDocument ? '<script>document.documentElement.setAttribute("data-scrolldocument","")</script>\n' : '';
-      makeAhead();
-      // The HTTP status, as the render host gives it (lib.rs `Rendered::status`, LLP 1048.000 D11): a location the router
-      // sends to its notfound route is 404, or 410 if its head says so; a render at its deadline 503; else the head's own.
-      const status = info.notfound ? (out.status === 410 ? 410 : 404) : out.pending.length ? 503 : out.status ?? 200;
-      // A page made only of answers any reader may still be given (one at least), by a render that drew nothing at
-      // random and read no clock or reader's device (the plan's `kept`), from TypeScript sources alone, is the page
-      // another render would make until the first of those answers goes stale: it may be given again until then, for
-      // at most 60 s (LLP 1048.007 D8).
-      const keep = status === 200 && !out.pending.length && !out.failed?.length && out.activation?.kept === false && !out.rust && !read.random && read.fresh > 0 && read.fresh < Infinity ? Math.min(read.fresh, 60000) : 0;
-      return { html: markedHead + body(''), rest: mark + body(late), status, settled: !out.pending.length, failed: out.failed ?? [], render: out.render, location, policy: info.policy, activate, keep };
+    return { ...info, location, head, dispose: made.dispose, async finish(deadline = DEADLINE) {
+      try {
+        const out = await ctx.__render(deadline);
+        const hero = heroImage(out);
+        const activate = info.activate === 'inferred' ? infer(out) : info.activate;
+        const late = info.activate === 'inferred' && activate !== 'interaction' ? preloads : '';
+        const wake = activate === 'interaction' && out.wake.length ? ` data-wake="${esc(JSON.stringify(out.wake))}"` : '';
+        const fields = `<title>${esc(out.title || name)}</title><meta name="viewport" content="${viewportMeta}">${crawled(out, url.pathname + url.search)}`;
+        const checkpoint = `{"location":${JSON.stringify(url.pathname + url.search)},"time":${JSON.stringify(out.time)},"logic":null,"answers":${out.answers},"pending":${JSON.stringify(out.pending)}}`;
+        const digest = createHash('sha256').update(out.root).digest('hex').slice(0, 16);
+        const style = rules ? `<style data-exact-page>${select(rules, tokens(out.root + shell.slice(root)))}</style>\n` : '';
+        // A page made per request that waits for the reader names its answers past 1 KB rather than holding them: they
+        // are needed only once the reader acts, and the capture script fetches them with the runtime (LLP 1048.007 D10).
+        const deferred = activate === 'interaction' && (info.policy === 'request' || info.policy === 'cached') && checkpoint.length > 1024;
+        const src = deferred ? ` data-src="/.exact/checkpoint/${deferAnswers(checkpoint)}.json"` : '';
+        const body = late => `${fields}\n${late}${style}${hero}<div id="exact-root"${rootAttrs}>${out.root}</div>${shell.slice(root + ROOT[0].length, entry)}`
+          + `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${activate}"${wake}${src}>${deferred ? '' : checkpoint.replace(/</g, '\\u003c')}</script>${shell.slice(entry + ENTRY.length)}`;
+        // A complete page marks html and names the preloads in its head; a streamed head has gone already, so the rest
+        // marks it before the body and names them after the head's fields, as page.rs does.
+        const whole = late ? headOf(true) : head;
+        const markedHead = out.scrollDocument ? whole.replace('<html ', '<html data-scrolldocument ') : whole;
+        const mark = out.scrollDocument ? '<script>document.documentElement.setAttribute("data-scrolldocument","")</script>\n' : '';
+        makeAhead();
+        // The HTTP status, as the render host gives it (lib.rs `Rendered::status`, LLP 1048.000 D11): a location the router
+        // sends to its notfound route is 404, or 410 if its head says so; a render at its deadline 503; else the head's own.
+        const status = info.notfound ? (out.status === 410 ? 410 : 404) : out.pending.length ? 503 : out.status ?? 200;
+        // A page made only of answers any reader may still be given (one at least), by a render that drew nothing at
+        // random and read no clock or reader's device (the plan's `kept`), from TypeScript sources alone, is the page
+        // another render would make until the first of those answers goes stale: it may be given again until then, for
+        // at most 60 s (LLP 1048.007 D8).
+        const keep = status === 200 && !out.pending.length && !out.failed?.length && out.activation?.kept === false && !out.rust && !read.random && read.fresh > 0 && read.fresh < Infinity ? Math.min(read.fresh, 60000) : 0;
+        return { html: markedHead + body(''), rest: mark + body(late), status, settled: !out.pending.length, failed: out.failed ?? [], render: out.render, location, policy: info.policy, activate, keep };
+      } finally { made.dispose(); }
     } };
   }
   const render = async (location, deadline = DEADLINE) => (await begin(location)).finish(deadline);

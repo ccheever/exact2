@@ -40,6 +40,7 @@ class PurchasesModule(context: ExtensionContext) : ExactExtension(context) {
 
         private var client: BillingClient? = null
         private var ready = false
+        private var connecting = false
         private val waiting = ArrayList<() -> Unit>()
         private var flowReply: ((JSONObject) -> Unit)? = null
         private var flowItem = ""
@@ -104,12 +105,12 @@ class PurchasesModule(context: ExtensionContext) : ExactExtension(context) {
 
     override fun destroy(done: () -> Unit) {
         sessions.remove(this)
-        if (sessions.isEmpty()) { client?.endConnection(); client = null; ready = false }
+        if (sessions.isEmpty()) { client?.endConnection(); client = null; ready = false; connecting = false; waiting.clear() }
         done()
     }
 
     private fun status(): JSONObject = JSONObject().put("available", true).put("store", "google-play")
-        .put("canMakePayments", context.agent || ready).put("storefront", if (context.agent) "US" else country ?: JSONObject.NULL)
+        .put("canMakePayments", context.agent || client?.isReady == true).put("storefront", if (context.agent) "US" else country ?: JSONObject.NULL)
         .put("apple", JSONObject.NULL).put("android", JSONObject().put("countryCode", if (context.agent) "US" else country ?: JSONObject.NULL))
 
     // MARK: under the agent (§9)
@@ -183,8 +184,11 @@ class PurchasesModule(context: ExtensionContext) : ExactExtension(context) {
         builder?.invoke(b)
         val c = b.build()
         client = c
+        connecting = true
         c.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(result: BillingResult) {
+                if (client !== c) return
+                connecting = false
                 ready = result.responseCode == BillingClient.BillingResponseCode.OK
                 if (!ready) say("Play Billing is unavailable: ${result.debugMessage}")
                 if (ready) {
@@ -196,27 +200,33 @@ class PurchasesModule(context: ExtensionContext) : ExactExtension(context) {
                 now.forEach { it() }
                 changed()
             }
-            override fun onBillingServiceDisconnected() { ready = false }
+            override fun onBillingServiceDisconnected() { if (client === c) ready = false }
         })
     }
 
     /** [body] once the client's first connection has answered (D6: a call waits for the first query's chance). */
-    private fun afterConnect(body: () -> Unit) { if (ready || client == null) body() else waiting.add(body) }
+    private fun afterConnect(body: () -> Unit) { if (connecting) waiting.add(body) else body() }
 
     private fun realLater(name: String, args: JSONObject, reply: (JSONObject) -> Unit) {
         val c = client ?: return reply(error("NotSupportedError"))
-        if (!ready && name != "purchasesStatus") return reply(error("NotSupportedError", "Play Billing is unavailable"))
         when (name) {
             "purchasesStatus" -> reply(status())
             "getDetails" -> products(c, args.optJSONArray("itemIds") ?: JSONArray()) { found, result ->
                 if (result.responseCode != BillingClient.BillingResponseCode.OK) return@products reply(failure(result))
                 reply(JSONObject().put("exact:answer", JSONArray(found.map(::item))))
             }
-            "listPurchases" -> query(c) { rows -> reply(JSONObject().put("exact:answer", JSONArray(rows.filter { it.purchaseState == Purchase.PurchaseState.PURCHASED }.map(::details)))) }
-            "unfinishedPurchases" -> query(c) { rows -> reply(JSONObject().put("exact:answer", JSONArray(rows.filter { !it.isAcknowledged }.map(::details)))) }
-            "restorePurchases" -> query(c) { rows -> reply(JSONObject().put("exact:answer", JSONArray(rows.filter { it.purchaseState == Purchase.PurchaseState.PURCHASED }.map(::details)))) }
+            "listPurchases" -> query(c) { rows, result ->
+                reply(if (result.responseCode == BillingClient.BillingResponseCode.OK) JSONObject().put("exact:answer", JSONArray(rows.filter { it.purchaseState == Purchase.PurchaseState.PURCHASED }.map(::details))) else failure(result))
+            }
+            "unfinishedPurchases" -> query(c) { rows, result ->
+                reply(if (result.responseCode == BillingClient.BillingResponseCode.OK) JSONObject().put("exact:answer", JSONArray(rows.filter { !it.isAcknowledged }.map(::details))) else failure(result))
+            }
+            "restorePurchases" -> query(c) { rows, result ->
+                reply(if (result.responseCode == BillingClient.BillingResponseCode.OK) JSONObject().put("exact:answer", JSONArray(rows.filter { it.purchaseState == Purchase.PurchaseState.PURCHASED }.map(::details))) else failure(result))
+            }
             "purchase" -> purchase(c, args, reply)
-            "acknowledge", "consume" -> query(c) { rows ->
+            "acknowledge", "consume" -> query(c) { rows, result ->
+                if (result.responseCode != BillingClient.BillingResponseCode.OK) return@query reply(failure(result))
                 val token = args.optString("purchaseToken")
                 val row = rows.firstOrNull { it.purchaseToken == token } ?: return@query reply(error("NOT_OWNED", "this account holds no $token"))
                 if (name == "acknowledge" && row.isAcknowledged) return@query reply(JSONObject())
@@ -248,13 +258,14 @@ class PurchasesModule(context: ExtensionContext) : ExactExtension(context) {
         }
     }
 
-    private fun query(c: BillingClient, done: (List<Purchase>) -> Unit) {
+    private fun query(c: BillingClient, done: (List<Purchase>, BillingResult) -> Unit) {
         val rows = ArrayList<Purchase>()
-        c.queryPurchasesAsync(QueryPurchasesParams.newBuilder().setProductType(BillingClient.ProductType.INAPP).build()) { _, inapp ->
+        c.queryPurchasesAsync(QueryPurchasesParams.newBuilder().setProductType(BillingClient.ProductType.INAPP).build()) { result, inapp ->
+            if (result.responseCode != BillingClient.BillingResponseCode.OK) return@queryPurchasesAsync done(emptyList(), result)
             rows.addAll(inapp)
-            c.queryPurchasesAsync(QueryPurchasesParams.newBuilder().setProductType(BillingClient.ProductType.SUBS).build()) { _, subs ->
-                rows.addAll(subs)
-                done(rows)
+            c.queryPurchasesAsync(QueryPurchasesParams.newBuilder().setProductType(BillingClient.ProductType.SUBS).build()) { result, subs ->
+                if (result.responseCode == BillingClient.BillingResponseCode.OK) rows.addAll(subs)
+                done(if (result.responseCode == BillingClient.BillingResponseCode.OK) rows else emptyList(), result)
             }
         }
     }

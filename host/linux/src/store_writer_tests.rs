@@ -86,6 +86,7 @@ fn in_child(name: &str) -> bool {
 
 fn write(name: &str, value: Option<&str>) -> exact_runner::StoreWrite {
     exact_runner::StoreWrite {
+        durable: false,
         name: name.into(),
         value: value.map(|v| v.as_bytes().to_vec()),
     }
@@ -363,4 +364,115 @@ fn a_drain_that_already_retried_does_not_retry_again() {
     assert_eq!(on_disk(app, "k"), None, "no second retry");
     assert!(drain_retrying(Duration::from_secs(10), &mut false));
     assert_eq!(on_disk(app, "k").as_deref(), Some("v"), "the one retry");
+}
+
+fn secret_lease(app: &str) -> std::sync::Arc<dyn exact_runner::SecretLease> {
+    let shared = super::super::system::shared_secrets(app).unwrap();
+    let (send, receive) = std::sync::mpsc::channel();
+    let mut wait = shared.acquire(
+        "token",
+        std::sync::Arc::new(move || {
+            let _ = send.send(());
+        }),
+    );
+    receive.recv_timeout(Duration::from_secs(5)).unwrap();
+    wait.take().unwrap().unwrap()
+}
+
+#[test]
+fn shared_secret_fences_a_commit_before_the_writer_admits_it() {
+    if !in_child("shared_secret_fences_a_commit_before_the_writer_admits_it") {
+        return;
+    }
+    let app = "test.exact.secret-queue";
+    allow(Some(0));
+    submit(app, vec![write("token", Some("old"))]);
+    let lease = secret_lease(app);
+    lease.write(Some("rotated")).unwrap();
+    lease.finish().unwrap();
+    drop(lease);
+    allow(None);
+    assert!(drain(Duration::from_secs(5)));
+    let file = crate::picker::secret_root(app)
+        .unwrap()
+        .unwrap()
+        .join("secrets/token");
+    assert_eq!(std::fs::read_to_string(file).unwrap(), "rotated");
+}
+
+#[test]
+fn shared_secret_discards_failed_retries_and_durable_envelopes() {
+    if !in_child("shared_secret_discards_failed_retries_and_durable_envelopes") {
+        return;
+    }
+    let app = "test.exact.secret-retry";
+    let file = crate::picker::secret_root(app)
+        .unwrap()
+        .unwrap()
+        .join("secrets/token");
+    std::fs::create_dir_all(&file).unwrap();
+    allow(Some(1));
+    submit(app, vec![write("token", Some("old"))]);
+    written(1);
+    std::fs::remove_dir(&file).unwrap();
+    let lease = secret_lease(app);
+    lease.write(Some("rotated")).unwrap();
+    lease.finish().unwrap();
+    drop(lease);
+    allow(None);
+    assert!(drain(Duration::from_secs(5)));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "rotated");
+    let mut persisted = write("token", Some("must not replay"));
+    persisted.durable = true;
+    submit(app, vec![persisted]);
+    assert!(drain(Duration::from_secs(5)));
+    assert_eq!(std::fs::read_to_string(file).unwrap(), "rotated");
+}
+
+#[test]
+fn shared_secret_memory_session_reads_ordinary_writes_and_carried_values() {
+    let session = super::super::system::SecretSession::new("").unwrap();
+    session.seed(vec![("token".into(), b"carried".to_vec())]);
+    assert!(session
+        .remember(&[write("token", Some("ordinary"))])
+        .is_empty());
+    let (send, receive) = std::sync::mpsc::channel();
+    let mut wait = session.shared.acquire(
+        "token",
+        std::sync::Arc::new(move || {
+            let _ = send.send(());
+        }),
+    );
+    receive.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(
+        wait.take().unwrap().unwrap().read().unwrap().as_deref(),
+        Some("ordinary")
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_production_secrets_use_a_private_memory_coordinator() {
+    if !in_child("windows_production_secrets_use_a_private_memory_coordinator") {
+        return;
+    }
+    let app = "test.exact.windows-memory";
+    assert!(crate::picker::secret_root(app).unwrap().is_none());
+    let session = super::super::system::SecretSession::new(app).unwrap();
+    assert!(session
+        .remember(&[write("token", Some("ordinary"))])
+        .is_empty());
+    let (send, receive) = std::sync::mpsc::channel();
+    let mut wait = session.shared.acquire(
+        "token",
+        std::sync::Arc::new(move || {
+            let _ = send.send(());
+        }),
+    );
+    receive.recv_timeout(Duration::from_secs(5)).unwrap();
+    let lease = wait.take().unwrap().unwrap();
+    assert_eq!(lease.read().unwrap().as_deref(), Some("ordinary"));
+    lease.begin_effect().unwrap();
+    lease.write(Some("rotated")).unwrap();
+    lease.finish().unwrap();
 }

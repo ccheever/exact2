@@ -139,7 +139,6 @@ function endAll(rows) {
 // force, and a count of what commits changed (an edge's no-op, runner/collection.rs).
 export { scope, end, untracked, write, onEnd };
 export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTicket = () => ++Ticket;
-// ---------------------------------------------------------------- commits
 /** A typed refusal: the commit rolls back (LLP 1005 §6 atomicity). */
 export class Refusal extends Error {}
 /** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`): one in a reply's commit lets its ticket go (`reply`). */
@@ -275,7 +274,6 @@ function command(name, args, origin) {
   if (Sounds.own.has(name)) return;
   if (Origin.refused?.(name, origin)) return; if (f) f.origin ? f(origin, ...args) : f(...args); else say(`refused: ${name} is not a command this runtime carries`);
 }
-// ---------------------------------------------------------------- the clock and timers
 export const clock = { now: 0, timers: [], agent: false, epoch: 0 };
 // `performanceNow()` is elapsed time: the driver's clock under the agent and in a render, else the
 // page's since it started; a timer commits at its due time. A reader of `performanceNow()` is
@@ -373,7 +371,6 @@ export function paint() {
 let NowRead = false, Parked = -1;
 /** After a commit that wrote: a parked frame loop runs again. */
 function unpark() { if (Parked >= 0 && Rev !== Parked) { Parked = -1; paint(); } }
-// ---------------------------------------------------------------- the data seam
 /** The app's data sources (LLP 1016). `answer(source, args, store)` gives
  * `{v}` now, `{req}` (an HTTP request the host runs, then `parse`s),
  * a Promise (an executor-local continuation: TypeScript), or `null` while
@@ -385,11 +382,12 @@ export const Kept = kind => `exact.${kind}.${DEVELOPMENT_STORE ? `@${DEVELOPMENT
 export const Store = {
   map: new Map(), writes: [], pending: new Map(), dirty: false,
   get(k) { return this.map.get(k); },
+  exclusive(k, work) { return import("./storage-environment.js").then(m => m.exclusiveSecret(this, Kept("secret"), k, work)); },
   // Keeping what is already kept is no write, as the runner's `Store::set`.
   set(k, v) { if (v != null && this.map.get(k) === v) return; if (v == null) this.map.delete(k); else this.map.set(k, v); this.writes.push([k, v]); if (Writes) this.dirty = true; Rev++; if (!Writes && !LateStore) { LateStore = true; queueMicrotask(() => { LateStore = false; Store.persist(); lateReaders(); recommit(lateIdle, "a store write outside a commit"); }); } }, // kept now, whatever that commit's settlement does; the commit asks the store's readers again
   save() { return [new Map(this.map), this.writes.length]; },
   restore([m, n]) { this.map = m; this.writes.length = n; this.dirty = false; },
-  persist() { const p = Kept("secret"); for (const [k, v] of this.writes.splice(0)) this.pending.set(k, { v, warned: false }); for (const [k, entry] of this.pending) try { entry.v == null ? localStorage.removeItem(p + k) : localStorage.setItem(p + k, entry.v); this.pending.delete(k); } catch (e) { if (!entry.warned) { entry.warned = true; say(`store ${k} failed: ${e}`); } } },
+  persist() { const p = Kept("secret"), jobs = []; for (const [k, v] of this.writes.splice(0)) this.pending.set(k, { v, warned: false }); for (const [k, entry] of this.pending) { const live = () => this.pending.get(k) === entry, failed = e => { if (!live()) return; if (!Object.hasOwn(entry, "before")) this.pending.delete(k); if (!entry.warned) { entry.warned = true; say(`store ${k} failed: ${e}`); } }, write = () => { try { const before = localStorage.getItem(p + k); if (Object.hasOwn(entry, "before") && entry.before !== before) { this.pending.delete(k); return; } entry.before = before; entry.v == null ? localStorage.removeItem(p + k) : localStorage.setItem(p + k, entry.v); this.pending.delete(k); } catch (e) { failed(e); } }; if (Object.hasOwn(entry, "before") && !this.leased?.has(k)) { entry.retry ??= import("./storage-environment.js").then(m => m.retrySecretWrite(p + k, live, write)).catch(failed).finally(() => { delete entry.retry; }); jobs.push(entry.retry); } else write(); } return Promise.all(jobs); },
   load() { const p = Kept("secret"); try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith(p)) this.map.set(k.slice(p.length), localStorage.getItem(k)); } } catch {} },
 };
 /** Every resource, in plan order: the checkpoint a render writes reads them. */
@@ -608,7 +606,6 @@ export function mut(name, slot, refreshes, type, queue) {
   return m;
 }
 export function M(m, source, args, own) { Sends.push([m, source, args, own]); }
-// ---------------------------------------------------------------- the DOM
 const SVG = "http://www.w3.org/2000/svg";
 /** An element under `p`: its static class, attributes and text. */
 export function h(p, tag, cls, attrs, text, ns) {
@@ -741,7 +738,10 @@ async function markdown() {
 export const Views = new Map();
 const Ids = new WeakMap();
 let NextView = 1;
-export function viewId(e) { let i = Ids.get(e); if (!i) { i = NextView++; Ids.set(e, i); } Views.set(i, e); return i; }
+const forgetView = e => { const i = Ids.get(e); if (!e.isConnected && Views.get(i) === e) Views.delete(i); };
+let ViewObserver = null;
+export function viewId(e) { let i = Ids.get(e); if (!i) { i = NextView++; Ids.set(e, i); } if (!Views.has(i)) onEnd(() => queueMicrotask(() => forgetView(e))); Views.set(i, e); watchViews(); return i; }
+function watchViews() { if (ViewObserver || typeof MutationObserver !== "function") return; ViewObserver = new MutationObserver(records => { for (const r of records) for (const e of r.removedNodes) { forgetView(e); for (const child of e.querySelectorAll?.("*") ?? []) forgetView(child); } }); ViewObserver.observe(document.documentElement, { childList: true, subtree: true }); }
 /** A canvas's surface (LLP 1009 D2): its inputs, evaluated as the runner
  * evaluates them (records as arrays), to the app's GPU module — the web
  * host's own `gpu-glue.js` over `gpu.js`, fetched after the first painted
@@ -955,7 +955,7 @@ export const onFocus = (e, kind, f, l) => { const own = Owner, run = () => e.isC
 export const onClipboard = (e, kind, f, l) => { if (kind === "paste") OnHooks.pasteWarm?.(); return l(kind, atBody(e, kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? "", kind === "paste" ? OnHooks.pasted?.(ev) ?? [] : []]); } finally { KeyEvent = outer; } })); };
 export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState])); export const onFrameCapture = (e, kind, f, l) => l("exactcapture", ev => f(["path", "width", "height", "error", "message"].map(k => ev.detail[k]))); /* a capture's `FrameCapture`, always the refusal (frame-navigation.js, LLP 1020.002 D7) */ export const onFrameNavigation = (e, kind, f) => { inflight.n++; import("./frame-navigation.js").then(m => m.watch(e, (name, r) => { if (name === kind) f(m.positional(r)); })).finally(() => inflight.n--); }; // an iframe's navigation records, the subset a page sees (frame-navigation.js, LLP 1020.002 D2)
 export const onAtompress = (e, kind, f, l) => l(kind, ev => { if (Array.isArray(ev.detail)) f(ev.detail); }); // a press on an inline atom (LLP 1045.000 D7), its `AtomEvent` record the event's detail (atoms.js, markup-editor.js)
-export const onSelectionChange = (e, kind, f, l) => { return sourceField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
+export const onSelectionChange = (e, kind, f, l) => { return sourceField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onEnd(onSelection(e, (text, a, b, rects) => f([text, a, b, rects]))); };
 // ---------------------------------------------------------------- presence (LLP 1063)
 // `-exact-exit-animation` and `-exact-layout-transition`: the web host's own presence-glue.js, fetched after the first
 // painted frame by a plan with either row (its node calls `pr`; a bound layout transition's, `lt`), plays both. Each commit it
