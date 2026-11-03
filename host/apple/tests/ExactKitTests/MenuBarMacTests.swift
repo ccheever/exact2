@@ -208,6 +208,48 @@ final class MenuBarMacTests: XCTestCase {
         XCTAssertEqual(shown(help), ["\(ExactEnv.appName) Help"])
     }
 
+    /// AppKit inserts Writing Tools and a separator after Edit's Find,
+    /// hidden or not (macOS 26.6). With Find to Transformations removed,
+    /// Speech leads them, so Edit reads Select All, Speech, Writing Tools as
+    /// a menu built without them does, with no separator twice; with the
+    /// removal withdrawn, Speech is back after Transformations.
+    func testSpeechLeadsARemovedFindGroupAheadOfWritingTools() {
+        let presenter = Presenter(), window = window(presenter)
+        defer { window.close() }
+        let root = NodeView(id: 900, kind: "view", presenter: presenter)
+        root.props = ["menuRemove": "find spelling-and-grammar substitutions transformations"]
+        presenter.views[root.id] = root; presenter.root.addSubview(root)
+        let bar = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false, develop: false)
+        let edit = bar.items[2].submenu!
+        // What AppKit inserts, where it does.
+        let find = edit.items.firstIndex { $0.title == "Find" }!
+        edit.insertItem(NSMenuItem(title: "Writing Tools", action: nil, keyEquivalent: ""), at: find + 1)
+        edit.insertItem(.separator(), at: find + 1)
+        presenter.shortcuts.sync()
+        let shown = { edit.items.filter { !$0.isHidden }.map { $0.isSeparatorItem ? "—" : $0.title } }
+        XCTAssertEqual(Array(shown().suffix(5)), ["Select All", "—", "Speech", "—", "Writing Tools"])
+        root.props["menuRemove"] = ""
+        presenter.shortcuts.sync()
+        XCTAssertEqual(Array(shown().suffix(9)), ["Select All", "—", "Find", "—", "Writing Tools", "Spelling and Grammar",
+                                                  "Substitutions", "Transformations", "Speech"])
+    }
+
+    /// Help's authored items follow the menu's own: AppKit's Send Feedback
+    /// to Apple and its separator, which it puts at the top, then
+    /// Help ▸ App Help.
+    func testHelpItemsFollowAppKitsFeedbackAndTheAppsHelp() {
+        let presenter = Presenter(), window = window(presenter)
+        defer { window.close() }
+        button(1, "Check for Updates…", menu: "help", in: presenter)
+        let bar = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false, develop: false)
+        let help = bar.items.last!.submenu!
+        help.insertItem(.separator(), at: 0)
+        help.insertItem(NSMenuItem(title: "Send Feedback to Apple", action: nil, keyEquivalent: ""), at: 0)
+        presenter.shortcuts.sync()
+        XCTAssertEqual(help.items.map { $0.isSeparatorItem ? "—" : $0.title },
+                       ["Send Feedback to Apple", "—", "\(ExactEnv.appName) Help", "Check for Updates…"])
+    }
+
     /// `-exact-menu-keys` (LLP 1021 §5.3.3): Close Window keeps its place
     /// without ⌘W, and a command's ⌘W takes nothing from it; a declared ⇧⌘W
     /// that a command claims comes back when the command goes; without the
