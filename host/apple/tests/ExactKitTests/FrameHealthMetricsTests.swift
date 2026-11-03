@@ -866,6 +866,38 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertEqual([exact.fps, exact.frames, exact.mainLongest, exact.mainLong], ["—", "—", "—", "—"])
     }
 
+    func testTheScreensFrameRateIsItsFramesOfTheLastHalfSecondAndFallsAsTheyLeave() {
+        let chart = FrameHealthChart(in: CALayer())
+        chart.start()
+        for n in 0...120 { chart.screenFrame(at: 100 + Double(n) / 120, work: 0.002, budget: 1 / 120.0) }
+        let column = { (t: Double) in chart.columns[Int(Int64((t / FrameHealthChart.columnSeconds).rounded(.down)) % 300)] }
+        XCTAssertEqual(column(101).fps, 120, accuracy: 2)
+        XCTAssertEqual(column(101).work, 2, accuracy: 0.01)
+        XCTAssertEqual(column(101).budget, 1000 / 120, accuracy: 0.01)
+        XCTAssertFalse(chart.columns.contains { $0.frame > 0 }, "the screen's frames bound no frame time")
+        // Once motion ends, the line falls as the frames leave the last half second, as the figures do
+        chart.tick(at: 101.25)
+        XCTAssertEqual(column(101.25).fps, 60, accuracy: 4)
+        chart.tick(at: 101.6)
+        XCTAssertEqual(column(101.6).fps, 0)
+    }
+
+    func testTheScreensReportGivesNoFrameTimes() {
+        let screen = FrameHealth(policy: .always, source: FrameHealth.screenSource), exact = FrameHealth(enabled: true)
+        defer { screen.destroy(); exact.destroy() }
+        screen.record(arrival: 1, target: 1.008, period: 0, finished: 1.01)
+        let report = FrameHealthReport.snapshot(health: screen, session: nil)
+        let core = report["coreSinceReload"] as? [String: Any] ?? [:]
+        XCTAssertEqual(report["evidence"] as? String, "ui-update-commit-deadlines")
+        for key in ["frameIntervals", "activeNs", "maximumFrameIntervalNs", "scheduledPeriodNs", "missedFrames"] {
+            XCTAssertTrue(core[key] is NSNull, key)
+        }
+        XCTAssertEqual(core["lateFrames"] as? String, "1", "UIKit's deadlines hold on the simulator too")
+        XCTAssertEqual((report["unobserved"] as? [String])?.first, "frame times")
+        let exactCore = FrameHealthReport.snapshot(health: exact, session: nil)["coreSinceReload"] as? [String: Any] ?? [:]
+        XCTAssertEqual(exactCore["frameIntervals"] as? String, "0")
+    }
+
     func testEachReadTakesTheMainThreadsWorkAndAPausedCardsCopyReadsNoMore() {
         let health = FrameHealth(enabled: true)
         defer { health.destroy() }

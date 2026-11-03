@@ -56,9 +56,12 @@ extension FrameHealth {
         }
     }
 
+    /// While a capture runs, the conditions a frame met it under, such as thermal state and Low Power Mode
+    var environmentFlags: UInt64 { captureID != 0 ? FrameHealthEnvironment.flags | (1 << 23) : 0 }
+
     func frameFlags(_ frames: Frames, session: ExactSession) -> UInt64 {
         guard captureID != 0 else { return 0 }
-        var bits = FrameHealthEnvironment.flags | (1 << 23)
+        var bits = environmentFlags
         if frames.motion { bits |= 1 << 16 }
         if frames.spatial { bits |= 1 << 17 }
         if frames.canvas2d { bits |= 1 << 18 }

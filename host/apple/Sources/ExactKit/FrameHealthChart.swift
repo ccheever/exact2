@@ -40,6 +40,8 @@ final class FrameHealthChart {
     /// Whether the card follows the time, and the timer that moves the plots between frames while it does
     private var following = false
     private(set) var clock: Timer?
+    /// The screen's frames feed the charts, so their rate is the frames of the last half second
+    private var counting = false
     /// Runs after each move between frames that changed the layers, a change of the card's own, with the seconds the
     /// move took
     var moved: ((Double) -> Void)?
@@ -93,6 +95,7 @@ final class FrameHealthChart {
     func stop() {
         follow(false)
         (columns, times, first, count, newest, latest, head, shown, pending, plots, held) = ([], [], 0, 0, 0, 0, 0, 0, nil, [:], nil)
+        counting = false
         for (window, layer) in zip(windows, lines) {
             window.isHidden = true
             layer.contents = nil
@@ -149,6 +152,7 @@ final class FrameHealthChart {
     /// frame time; its line reaches back to a column whose frames lie within that half second.
     func screenFrame(at time: Double, work: Double, budget: Double) {
         guard !columns.isEmpty, time > newest else { return }
+        counting = true
         let index = Self.index(time), at = slot(index)
         let before = newest > 0 ? Self.index(newest) : index
         if count == times.count { (first, count) = ((first + 1) % times.count, count - 1) }
@@ -219,9 +223,22 @@ final class FrameHealthChart {
         guard latest > 0 else { clock?.invalidate(); clock = nil; return }
         guard now > head, now - latest >= Self.columnSeconds else { return }
         head = now
+        if counting { recount(at: now) }
         let begin = CACurrentMediaTime()
         if present() { moved?(CACurrentMediaTime() - begin) }
         if now - latest >= Self.span { clock?.invalidate(); clock = nil }
+    }
+
+    /// The screen's frame rate falls as its frames leave the last half second: the column at `now` takes the rate of
+    /// those left, until none is, so the line falls as the figures do once motion ends.
+    private func recount(at now: Double) {
+        guard count > 0 else { return }
+        while count > 0, times[first] <= now - Self.average { (first, count) = ((first + 1) % times.count, count - 1) }
+        let index = Self.index(now), at = slot(index)
+        if columns[at].index != index { columns[at] = Column(index: index, joined: true) }
+        columns[at].fps = Float(Double(count) / Self.average)
+        latest = max(latest, now)
+        changed(lineStart(index)...index)
     }
 
     /// Hold the picture, as the card pauses, or show the present again from `now`, as it resumes. Frames and spells

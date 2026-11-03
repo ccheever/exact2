@@ -82,7 +82,8 @@ enum FrameHealthReport {
         var packet: [String: Any] = [
             "format": format, "source": health.source, "identity": identity, "capturedAt": Date().timeIntervalSince1970,
             "nativeUpdateSamplesLost": String(health.nativeSampleLoss),
-            "qualification": "unqualified", "evidence": "callback-and-apply-timing-proxies",
+            "qualification": "unqualified",
+            "evidence": health.screenFrames ? "ui-update-commit-deadlines" : "callback-and-apply-timing-proxies",
             "available": health.enabled && !health.virtual,
             "unavailableReason": health.unavailableCode as Any? ?? (health.virtual ? "virtual-clock" : NSNull()),
             "time": ["clock": "CACurrentMediaTime", "unit": "us", "clamped": clamped],
@@ -96,12 +97,10 @@ enum FrameHealthReport {
                 "expiredAtRead": expired, "overwrittenSinceClear": String(history.overwritten),
                 "eventsSinceClear": String(history.total), "automaticDiskBytes": 0, "maximumReportBytes": maximumBytes,
                 "omittedForBudget": 0, "selection": "newest"],
-            "coreSinceReload": ["callbacks": String(snapshot.callbacks), "heldCallbacks": String(snapshot.held),
-                "frameIntervals": String(snapshot.intervals), "activeNs": String(snapshot.active_ns),
-                "maximumFrameIntervalNs": String(snapshot.max_interval_ns), "scheduledPeriodNs": snapshot.period_ns,
-                "missedFrames": String(snapshot.missed_frames),
-                "lateFrames": FrameHealthAssessment.deadlinesObserved ? String(snapshot.late) as Any : NSNull(), "detailMayHaveBeenOff": true],
-            "unobserved": ["presentation", "GPU execution", "CPU-versus-descheduled time", "other main-thread work", "native-only animations", "uncaptured owner work", "app input latency"],
+            "coreSinceReload": coreSinceReload(snapshot, screen: health.screenFrames),
+            // The screen's frames have no frame times, which a passive observer cannot tell from idle time
+            "unobserved": (health.screenFrames ? ["frame times"] : []) + ["presentation", "GPU execution", "CPU-versus-descheduled time",
+                "other main-thread work", "native-only animations", "uncaptured owner work", "app input latency"],
             "columns": ["sequence", "capture", "generation", "age_us", "flags", "target_offset_us", "period_us", "requested_period_us", "gap_us", "callback_us",
                 "before_gap_us", "before_callback_us", "after_offset_us", "after_gap_us", "after_callback_us",
                 "owner_queued_offset_us", "owner_began_offset_us", "owner_finished_offset_us", "main_landed_offset_us",
@@ -147,6 +146,18 @@ enum FrameHealthReport {
 
     /// Copy bounded evidence on the main thread, then encode it on a utility worker.
     /// Allow one export at a time to prevent an encoding backlog.
+    /// The counts since the collector's last reset. The screen's frames have no frame times, so their intervals, active
+    /// time, period and missed frames are null, and their lateness, by UIKit's deadlines, holds on the simulator too.
+    private static func coreSinceReload(_ snapshot: ExactFrameHealthSnapshot, screen: Bool) -> [String: Any] {
+        let timed = { (value: Any) -> Any in screen ? NSNull() : value }
+        return ["callbacks": String(snapshot.callbacks), "heldCallbacks": String(snapshot.held),
+            "frameIntervals": timed(String(snapshot.intervals)), "activeNs": timed(String(snapshot.active_ns)),
+            "maximumFrameIntervalNs": timed(String(snapshot.max_interval_ns)), "scheduledPeriodNs": timed(snapshot.period_ns),
+            "missedFrames": timed(String(snapshot.missed_frames)),
+            "lateFrames": screen || FrameHealthAssessment.deadlinesObserved ? String(snapshot.late) as Any : NSNull(),
+            "detailMayHaveBeenOff": true]
+    }
+
     static func prepare(health: FrameHealth, session: ExactSession?, now: Double = CACurrentMediaTime(), completion: @escaping (Data) -> Void) {
         guard !health.reportInFlight, !encoding else {
             completion(Data("{\"format\":\"exact.frame-health/2\",\"available\":false,\"error\":\"report-busy\",\"retryAfterMs\":1000}".utf8))

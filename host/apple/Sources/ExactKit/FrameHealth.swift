@@ -74,6 +74,10 @@ final class FrameHealth {
     var hudBounds: CGRect?
     private(set) var virtual = false
     var publicationDirty = false
+    /// The source of the card's observer of the screen, whose frames have work against UIKit's deadlines and no frame
+    /// times (LLP 1079.000 §7.4)
+    static let screenSource = "ui-update"
+    var screenFrames: Bool { source == Self.screenSource }
     /// Whether it collects now
     var enabled: Bool { handle != 0 && (policy != .onDemand || demanded) }
     /// Whether it collects now or can when asked

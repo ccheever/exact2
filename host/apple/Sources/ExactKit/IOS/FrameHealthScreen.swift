@@ -22,7 +22,7 @@ final class FrameHealthScreen {
 
     /// The frames, each with its work, from when its update began until its last Core Animation transaction was
     /// committed, against UIKit's completion deadline; without a schedule, they have no frame times
-    let health = FrameHealth(policy: .always, source: "ui-update")
+    let health = FrameHealth(policy: .always, source: FrameHealth.screenSource)
     /// The card's charts, which take each frame and each long spell
     weak var chart: FrameHealthChart?
     /// Runs in each update before its Core Animation transaction is committed, so what the card changes goes out with
@@ -52,8 +52,8 @@ final class FrameHealthScreen {
     private var cardDepth = 0
     private var main = MainThread()
 
-    /// Seconds: an update this long after the app's newest frame, following a change of the card's own, sends only that
-    /// change; a chart column
+    /// Seconds, one chart column: an update this long after the app's newest frame, following a change of the card's
+    /// own, sends only that change
     static let idle = 0.1
 
     /// Observe `scene`, from a new generation; before iOS 18, nothing.
@@ -141,7 +141,7 @@ final class FrameHealthScreen {
         guard let update else { return }
         self.update = nil
         let finished = update.committed > 0 ? update.committed : CACurrentMediaTime()
-        health.record(arrival: update.start, target: update.deadline, period: 0, finished: finished)
+        health.record(arrival: update.start, target: update.deadline, period: 0, finished: finished, flags: health.environmentFlags)
         chart?.screenFrame(at: presented, work: finished - update.start, budget: update.deadline - update.start)
         newest = max(newest, presented)
     }
