@@ -554,7 +554,7 @@ describe('mobile V2 transcript presentation', () => {
     expect(transcriptRows(client).some(row => row.id === key('first'))).toBe(false);
     await chatLocal(client, { available: true } as Native, 'fold', 'r1', '');
     const expanded = mobileThreadRows(client, now);
-    expect(expanded.map(row => row.kind)).toEqual(['user', 'assistant', 'work', 'entry', 'assistant', 'entry', 'assistant']);
+    expect(expanded.map(row => row.kind)).toEqual(['user', 'assistant', 'work', 'group', 'assistant', 'group', 'assistant']);
     expect(expanded.filter(row => row.id === key('first'))).toHaveLength(1);
     expect(expanded.find(row => row.id === key('middle'))?.body).toBe('Checking status next.');
     expect(expanded[2]).toMatchObject({ toggleId: 'r1', expanded: true });
@@ -643,8 +643,12 @@ describe('mobile V2 transcript presentation', () => {
     expect(mobileThreadRows(client, now)[1]).toMatchObject({ toggleOp: 'chatlocal:fold', toggleId: 'r1', expanded: false });
     await chatLocal(client, { available: true } as Native, 'fold', 'r1', '');
     await chatLocal(withoutCheckpoint, { available: true } as Native, 'fold', 'r1', '');
-    const rows = mobileThreadRows(client, now);
+    let rows = mobileThreadRows(client, now);
     expect(rows).toEqual(mobileThreadRows(withoutCheckpoint, now));
+    const editGroup = rows.find(row => row.kind === 'group');
+    expect(editGroup).toBeDefined();
+    await chatLocal(client, { available: true } as Native, 'group', editGroup!.toggleId, '');
+    rows = mobileThreadRows(client, now);
     const edit = rows.flatMap(row => row.activities).find(activity => activity.id === JSON.stringify(['t1', 'edit']));
     expect(edit?.body).toContain('src/app.ts');
     expect(rows.some(row => row.kind === 'checkpoint')).toBe(false);
@@ -665,6 +669,9 @@ describe('mobile V2 transcript presentation', () => {
     expect(folded.map(row => row.kind)).toEqual(['user', 'work', 'assistant']);
     expect(folded[1]).toMatchObject({ toggleOp: 'chatlocal:fold', toggleId: 'r1', expanded: false });
     await chatLocal(client, { available: true } as Native, 'fold', 'r1', '');
+    const group = mobileThreadRows(client, now).find(row => row.kind === 'group');
+    expect(group).toBeDefined();
+    await chatLocal(client, { available: true } as Native, 'group', group!.toggleId, '');
     expect(mobileThreadRows(client, now).some(row => row.activities.some(activity => activity.body === 'bun test'))).toBe(true);
   });
   test('duration labels use supplied clock and streaming answers have no metadata', () => {

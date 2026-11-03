@@ -308,6 +308,7 @@ describe('pinned shared sources', () => {
         .replace('if (entry === group.terminal) return;', 'if (entry === group.terminal || keepFirstAssistant && entry === group.firstAssistant) return;')
         .replace('    result.set(group.anchor, { runId, createdAt: group.start ?? first.createdAt, hidden, label });',
           '    const firstHidden = group.entries.find(entry => hidden.has(entry.id))!;\n    result.set(keepFirstAssistant ? firstHidden.id : group.anchor,\n      { runId, createdAt: keepFirstAssistant ? firstHidden.createdAt : group.start ?? first.createdAt, hidden, label });');
+      if (name === 'timeline-rows.ts') expected = expected.replace("visible.length === 1 && isToolLike(visible[0]!)", "visible.length === 1 && visible[0]!.questionAnswer");
       if (name === 'client.ts') expected = "// Mobile 365aa87982: selection errors belong to the requesting route, not the thread composer.\n// Additive cleanup visibility from shared commit af0a96dddbd500aa50bc5bbe69ec59597e34efee.\n// Mobile 365aa87982: a read-only connection has no status; its actions refuse (useThreadListActions.ts).\n" + expected
         .replace("const formCommand = ['settings-core',", "const formCommand = ['select-thread', 'settings-core',")
         .replace("  private finishPending(", "  protected finishPending(")
