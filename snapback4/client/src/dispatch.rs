@@ -56,6 +56,21 @@ pub fn dispatch(
         return Ok(json!({"ok": crate::engine_info()}));
     }
     if op == "open" {
+        let acquire_limit = match request.get("acquireLimit") {
+            None => crate::round::PAGE,
+            Some(value) => match value
+                .as_f64()
+                .filter(|n| n.fract() == 0.0 && (1.0..=crate::round::PAGE as f64).contains(n))
+            {
+                Some(limit) => limit as u64,
+                None => {
+                    return Ok(
+                        json!({"denied": crate::client::refusal("E_CLIENT", "client",
+                    "acquireLimit must be an integer from 1 through 10,000")}),
+                    )
+                }
+            },
+        };
         if request.get("backend").is_some_and(|b| !b.is_null()) {
             // A host that brings the backend itself installs it once.
             return core.call(request.clone());
@@ -69,6 +84,7 @@ pub fn dispatch(
             path: text(request, "path")?.into(),
             origin: text(request, "origin")?.into(),
             viewer: text(request, "viewer")?.into(),
+            acquire_limit,
         });
         let opened = opening.open(core)?;
         *client = Some(opening);
@@ -148,4 +164,54 @@ pub fn dispatch(
         _ => return core.call(request.clone()),
     };
     Ok(json!({"ok": answer}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Unopened;
+    impl Core for Unopened {
+        fn call(&mut self, _: Json) -> Result<Json, String> {
+            Err(crate::client::NEEDS_BACKEND.into())
+        }
+    }
+
+    #[test]
+    fn open_validates_acquisition_budget_before_opening_the_device() {
+        let request = json!({"op": "open", "path": "app:/data/history.sqlite",
+            "origin": "http://localhost", "viewer": "dev:alice"});
+        for invalid in [
+            json!(0),
+            json!(-1),
+            json!(10_001),
+            json!(1.5),
+            json!("1"),
+            Json::Null,
+            json!(true),
+        ] {
+            let mut request = request.clone();
+            request["acquireLimit"] = invalid;
+            let mut client = None;
+            let answer = dispatch(&mut client, &mut Unopened, &request).unwrap();
+            assert_eq!(answer["denied"]["code"], "E_CLIENT", "{answer}");
+            assert_eq!(answer["denied"]["family"], "client");
+            assert!(client.is_none());
+        }
+        for limit in [None, Some(1), Some(400), Some(10_000)] {
+            let mut request = request.clone();
+            if let Some(limit) = limit {
+                request["acquireLimit"] = json!(limit);
+            }
+            let mut client = None;
+            assert_eq!(
+                dispatch(&mut client, &mut Unopened, &request).unwrap(),
+                json!({"ok": {"opened": false}})
+            );
+            assert_eq!(
+                client.unwrap().config().acquire_limit,
+                limit.unwrap_or(10_000)
+            );
+        }
+    }
 }

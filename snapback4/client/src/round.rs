@@ -13,7 +13,7 @@ use serde_json::{json, Value as Json};
 use std::sync::{Arc, Mutex};
 
 /// Rows a sync page may carry; the server's own bound cuts a page sooner.
-const PAGE: u64 = 10_000;
+pub(crate) const PAGE: u64 = 10_000;
 /// More pages than any real partition; a server that never ends is refused.
 const PAGES: usize = 100_000;
 
@@ -126,10 +126,10 @@ async fn run(io: &Io, config: &Config, shared: &Mutex<Shared>) -> Result<()> {
     if let Some(why) = failure {
         return Err(denied(why));
     }
-    let progressive = sync(io, shared).await?;
+    let progressive = sync(io, config, shared).await?;
     if flush(io, shared).await? && !progressive {
         // A settled send is observed by the next page; catch up to it now.
-        sync(io, shared).await?;
+        sync(io, config, shared).await?;
     }
     Ok(())
 }
@@ -254,7 +254,7 @@ fn uint(value: &Json) -> u64 {
 /// `syncRound`: page from the device's watermark to the head, observing the
 /// store's identity on every page and adopting a new backend when the
 /// generation or the store changes.
-async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
+async fn sync(io: &Io, config: &Config, shared: &Mutex<Shared>) -> Result<bool> {
     let mut generation =
         io.device(json!({"op": "state"})).await.map_err(denied)?["generation"].clone();
     let mut after: Option<Json> = None;
@@ -263,6 +263,7 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
     let mut restarting_snapshot = false;
     let mut recovering_acquisition = false;
     let mut page_limit = PAGE;
+    let mut acquire_limit = config.acquire_limit;
     // Keep a shrinking request's hint and cursor; reads may change the next hint
     // while this exchange is in flight.
     let mut acquisition_request: Option<Json> = None;
@@ -323,7 +324,11 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
                 .request(&captured, snapshot_request || catching_up);
         }
         let progressive = acquisition_request.is_some();
-        let mut body = json!({"generation": captured["generation"], "from": watermark, "limit": page_limit,
+        let acquiring = acquisition_request
+            .as_ref()
+            .is_some_and(|r| r.get("acquire").is_some());
+        let limit = if acquiring { acquire_limit } else { page_limit };
+        let mut body = json!({"generation": captured["generation"], "from": watermark, "limit": limit,
             "after": after.clone().unwrap_or(Json::Null),
             "stream": !snapshot_request && (catching_up || (after.is_none() && publication_outstanding)),
             "pending": captured["pending_ids"]});
@@ -349,18 +354,13 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
         page["requested_watermark"] = json!(watermark);
         page["captured_watermark"] = json!(captured_watermark);
         // Overwrite untrusted wire fields even on ordinary requests.
-        page["captured_acquisition"] = if acquisition_request
-            .as_ref()
-            .is_some_and(|r| r.get("acquire").is_some())
-        {
+        page["captured_acquisition"] = if acquiring {
             captured["adoption_capture"].clone()
         } else {
             Json::Null
         };
         let refused = page.get("denied").filter(|why| why.is_object()).cloned();
-        let acquire_bound = acquisition_request
-            .as_ref()
-            .is_some_and(|r| r.get("acquire").is_some())
+        let acquire_bound = acquiring
             && refused.as_ref().is_some_and(|why| {
                 why["code"] == "E_BOUND" && why["family"] == "bound" && why["retryable"] != true
             });
@@ -453,7 +453,7 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
             continue;
         }
         if let Some(why) = refused {
-            if acquire_bound && (!too_large(&why) || page_limit == 1) {
+            if acquire_bound && (!too_large(&why) || limit == 1) {
                 // A group may exceed acquisition bounds while its rows fit a
                 // staged snapshot. Publish no partial floor while rescuing it.
                 acquisition_request = None;
@@ -469,7 +469,7 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
                 continue;
             }
             if page["snapshot"] == true
-                && page_limit == 1
+                && limit == 1
                 && (watermark > 0
                     || catching_up
                     || acquisition_request
@@ -483,8 +483,12 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
                 acquisition_request = None;
                 continue;
             }
-            if page_limit > 1 {
-                page_limit = (page_limit / 2).max(1);
+            if limit > 1 {
+                if acquiring {
+                    acquire_limit = (limit / 2).max(1);
+                } else {
+                    page_limit = (limit / 2).max(1);
+                }
                 continue;
             }
             if progressive || recovering_acquisition {

@@ -1353,7 +1353,17 @@ test('blocked uploads do not starve ordinary writes and cancellation survives a 
   } finally {globalThis.fetch=realFetch;await db.close();}
 },60_000);
 
-test.skipIf(!process.env.SNAPBACK4_BIN)('progressive HTTP and wasm rounds expose durable coverage; until acquired yields between turns', async () => {
+test('open refuses invalid acquisition budgets with E_CLIENT before opening storage', async () => {
+  const options = { app: 'test.exact.progressive', name: 'invalid-budget', origin, viewer: 'dev:alice',
+    storage: { sqlite: { async open() { throw new Error('invalid budget reached storage'); } } } };
+  for (const acquireLimit of [0, -1, 10_001, 1.5, NaN, Infinity, -Infinity, null, '1', true]) {
+    await expect(Snapback.open({ ...options, acquireLimit: acquireLimit as number })).rejects.toMatchObject({
+      refusal: { code: 'E_CLIENT', family: 'client' },
+    });
+  }
+});
+
+test.skipIf(!process.env.SNAPBACK4_BIN)('acquireLimit bounds progressive HTTP and wasm rounds; until acquired yields between turns', async () => {
   const project = join(scratch, 'progressive-server');
   mkdirSync(join(project, 'snapback'), { recursive: true });
   writeFileSync(join(project, 'snapback/schema.q'), `use personas alice
@@ -1404,16 +1414,16 @@ test.skipIf(!process.env.SNAPBACK4_BIN)('progressive HTTP and wasm rounds expose
     const device = await webDevice(page, 'test.exact.progressive', 'app:/data/history.sqlite', `file://${wasm}`);
     await device.call({ op: 'open', path: 'app:/data/history.sqlite', origin: at, viewer: 'dev:alice', backend: { initial_backend: backend } });
     await device.close?.();
-    const options = { app: 'test.exact.progressive', name: 'history', origin: at, viewer: 'dev:alice', headers: () => headers, storage: page, wasm: `file://${wasm}` };
+    const options = { app: 'test.exact.progressive', name: 'history', origin: at, viewer: 'dev:alice', headers: () => headers, storage: page, wasm: `file://${wasm}`, acquireLimit: 400 };
     db = await Snapback.open(options);
     // The online fallback sets the hint before its group is available locally.
     await db.read('history', { c: 'g39' }, 1000);
-    let rounds = 0, interleaved = false;
+    let rounds = 0, streams = 0, interleaved = false;
     globalThis.fetch = (async (url, init) => {
       if (String(url) === `${at}/sync`) {
-        const body = JSON.parse(String(init?.body)); body.limit = Math.min(body.limit, 400);
-        if (body.acquire) rounds++;
-        init = { ...init, body: JSON.stringify(body) };
+        const body = JSON.parse(String(init?.body));
+        if (body.acquire) { expect(body.limit).toBe(400); rounds++; }
+        else { expect(body.limit).toBe(10_000); streams++; }
       }
       return realFetch(url, init);
     }) as typeof fetch;
@@ -1424,11 +1434,12 @@ test.skipIf(!process.env.SNAPBACK4_BIN)('progressive HTTP and wasm rounds expose
     const read = await db.read<{ id: string }[]>('history', { c: 'g39' }, 1000);
     expect(read.complete).toBe(true); expect(read.server).not.toBe(true);
     expect(read.data?.map(r => r.id)).toEqual(Array.from({ length: 10 }, (_, n) => `g39-${String(99 - n).padStart(3, '0')}`));
+    expect((await db.read('history', { c: 'g38' }, 1000)).server).toBe(true);
     const all = db.sync({ until: 'acquired' });
     const write = await db.write('add', { c: 'g39' }, 1000, 'during-walk');
     interleaved = !(await db.status()).acquired;
     expect((await all).acquired).toBe(true);
-    expect(interleaved).toBe(true); expect(rounds).toBeGreaterThan(2);
+    expect(interleaved).toBe(true); expect(rounds).toBeGreaterThan(2); expect(streams).toBeGreaterThan(0);
     expect((await db.outcome(write.id)).state).toBe('sent');
     expect((await db.status()).acquisition.flooredGroups).toBe(40);
     for (let i = 0; i < 40; i++) expect((await db.read('history', { c: `g${String(i).padStart(2, '0')}` }, 1000)).complete).toBe(true);

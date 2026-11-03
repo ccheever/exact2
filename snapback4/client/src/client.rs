@@ -134,6 +134,9 @@ pub struct Config {
     pub origin: String,
     /// The principal this device reads and writes as (`dev:alice`, `user:…`).
     pub viewer: String,
+    /// Acquisition rows per page, 1..=10_000. Ordinary stream pages keep
+    /// their default budget. The JSON open defaults this to 10_000.
+    pub acquire_limit: u64,
 }
 
 /// A refusal as Snapback words one: `{code, family, message, ...}`.

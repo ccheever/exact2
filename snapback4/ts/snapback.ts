@@ -203,6 +203,10 @@ export interface Options {
   origin: string;
   /** The principal this device reads and writes as (`dev:alice`, a session's principal). */
   viewer?: string;
+  /** Acquisition rows per page (integer 1..10,000; default 10,000).
+   * A demonstration/tuning knob; ordinary stream pages keep their budget.
+   * Applies when the shared partition is first opened. */
+  acquireLimit?: number;
   /** Password identity: no persona headers or viewer needed. The session is
    * kept under `key`; `now` comes from Contract, never Date.now(). */
   auth?: AuthOptions;
@@ -319,7 +323,8 @@ async function openPartition(options: Options & { viewer: string }, path: string
     ? nativeDevice(options.native)
     : await webDevice(options.storage as SqliteStorage, options.app, path, options.wasm ?? '/assets/snapback4.wasm');
   try {
-    const opened = ok<{ opened: boolean }>(await device.call({ op: 'open', path, origin: options.origin, viewer: options.viewer }));
+    const opened = ok<{ opened: boolean }>(await device.call({ op: 'open', path, origin: options.origin, viewer: options.viewer,
+      ...(options.acquireLimit === undefined ? {} : { acquireLimit: options.acquireLimit }) }));
     return { page, path, origin: options.origin, viewer: options.viewer, device, opened: opened.opened, clients: 0, rounds: Promise.resolve(), routes: new Map(), closing: false, cleaned: false };
   } catch (error) { await device.close?.(); throw error; }
 }
@@ -421,6 +426,8 @@ export class Snapback {
    * may call `open` for itself. A partition belongs to one viewer, so a
    * second viewer needs its own `name` (for example `inbox-${persona}`). */
   static async open(options: Options): Promise<Snapback> {
+    if (options.acquireLimit !== undefined && (!Number.isInteger(options.acquireLimit) || options.acquireLimit < 1 || options.acquireLimit > 10_000))
+      throw refusal('E_CLIENT', 'acquireLimit must be an integer from 1 through 10,000', { family: 'client' });
     if (options.device === 'web') options = { ...options, native: null };
     if (options.device === 'native' && !options.native) throw new Error('Snapback4: device native needs the linked Snapback module');
     if (options.auth) {

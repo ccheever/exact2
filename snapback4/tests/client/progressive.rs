@@ -376,6 +376,59 @@ fn heap_bound_acquisition_row_recovers_through_staged_replacement() {
 }
 
 #[test]
+fn serialization_overflow_shrinks_the_same_acquisition_then_tries_replacement() {
+    let mut server = Server::start();
+    let mut device = Device::new("alice");
+    server.open(&mut device);
+    device.call(json!({"op": "close"}));
+    device.call(json!({"op": "open", "path": "app:/data/inbox.sqlite",
+        "origin": "http://127.0.0.1:1", "viewer": VIEWER, "acquireLimit": 2}));
+    history(&mut device, 39);
+    let why = json!({"code": "E_BOUND", "family": "bound", "message": "the HTTP JSON response exceeds 16 MiB; request a smaller page or return fewer values", "retryable": false});
+    let mut requests = Vec::new();
+    let done = drive(&mut device, |fetch| {
+        if fetch["path"] == "/sync" {
+            let body = &fetch["body"];
+            requests.push(body.clone());
+            if body.get("acquire").is_some() {
+                return json!({"status": 200, "body": {"denied": why,
+                    "store_id": "progressive-fixture", "generation": server.backend["generation"], "watermark": body["from"]}});
+            }
+        }
+        server.fetch(fetch)
+    });
+    assert_eq!(done["ok"], true, "{done}");
+    assert_eq!(done["acquired"], true);
+    assert!(done["acquisition"].get("failure").is_none());
+    let acquire: Vec<_> = requests
+        .iter()
+        .filter(|r| r.get("acquire").is_some())
+        .collect();
+    assert_eq!(
+        acquire
+            .iter()
+            .map(|r| r["limit"].as_u64().unwrap())
+            .collect::<Vec<_>>(),
+        [2, 1]
+    );
+    assert_eq!(acquire[0]["acquire"], acquire[1]["acquire"]);
+    assert_eq!(
+        acquire[0]["acquire"]["hint"],
+        json!({"table": "messages", "group": ["g39"]})
+    );
+    assert!(requests
+        .iter()
+        .any(|r| r.get("acquire").is_none() && r["from"] == 0 && r["stream"] == false));
+    assert!(requests
+        .iter()
+        .filter(|r| r.get("acquire").is_none())
+        .all(|r| r["limit"] == 10_000));
+    for group in 0..GROUPS {
+        complete(&mut device, group);
+    }
+}
+
+#[test]
 fn indivisible_replacement_is_latched_until_reopen_and_does_not_claim_completion() {
     let mut server = Server::start();
     let mut device = Device::new("alice");
