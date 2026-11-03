@@ -363,21 +363,14 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         let value = PromptKey()
         override var key: UIKey? { value }
     }
-    // A synthetic press has no UIKit hardware event. Its native default is
-    // this probe's, while the real alert below exercises UIKeyInput itself.
+    // A synthetic press reaches no gesture recognizer and no text input on its
+    // own: the test hands it to the field's `PromptKeys`, as UIKit does before
+    // the field, then asks the field's delegate for the edit or Return UIKit's
+    // field would make with it (the real alert below makes them itself).
     private final class KeyProbe: UITextField {
-        var forwarded: [String] = []
         var composing = false
         private let marked = UITextRange()
         override var markedTextRange: UITextRange? { composing ? marked : nil }
-        override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-            forwarded.append("down")
-            if presses.first?.key?.keyCode == .keyboardDeleteOrBackspace { deleteBackward() }
-            if presses.first?.key?.keyCode == .keyboardReturnOrEnter { _ = delegate?.textFieldShouldReturn?(self) }
-        }
-        override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) { forwarded.append("up") }
-        override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) { forwarded.append("cancel") }
-        override func deleteBackward() { forwarded.append("delete") }
     }
 
     func testAPromptKeepsTheFieldsDefaultsAndHearsEachHardwareKeyOnce() throws {
@@ -388,6 +381,9 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         let probe = KeyProbe()
         let field: UITextField = probe
         bridge.attach(field)
+        XCTAssertTrue(type(of: field) == KeyProbe.self, "the field keeps its own class")
+        let keys = try XCTUnwrap(field.gestureRecognizers?.compactMap { $0 as? PromptKeys }.first, "a recognizer hears its presses")
+        XCTAssertFalse(keys.cancelsTouchesInView || keys.delaysTouchesBegan || keys.delaysTouchesEnded, "and takes nothing from the field")
         var events: [String] = []
         var prevent = true
         p.onKey = { _, key in
@@ -395,39 +391,45 @@ final class ConfirmationAlertIOSTests: XCTestCase {
             if !key.up && prevent { p.defaultPrevented = true }
         }
         p.onSubmit = { _ in events.append("submit") }
+        let event = UIPressesEvent()
         let press = PromptPress()
-        field.pressesBegan([press], with: nil)
-        field.pressesEnded([press], with: nil)
+        let edit = { (range: NSRange, text: String) in field.delegate?.textField?(field, shouldChangeCharactersIn: range, replacementString: text) }
+        keys.pressesBegan([press], with: event)
+        XCTAssertEqual(edit(NSRange(location: 4, length: 0), "7"), false, "a prevented digit's edit is refused")
+        keys.pressesEnded([press], with: event)
         XCTAssertEqual(events, ["down 7", "up 7"])
-        XCTAssertEqual(probe.forwarded, ["up"], "a prevented digit never reaches the field's default")
-        events.removeAll(); probe.forwarded.removeAll(); prevent = false
+        events.removeAll(); prevent = false
+        XCTAssertEqual(edit(NSRange(location: 4, length: 0), "7"), true, "and the next edit is the field's again")
         press.value.text = "\u{8}"
         press.value.code = .keyboardDeleteOrBackspace
-        field.pressesBegan([press], with: nil)
-        field.pressesEnded([press], with: nil)
-        XCTAssertEqual(events, ["down Backspace", "up Backspace"])
-        XCTAssertEqual(probe.forwarded, ["down", "delete", "up"])
-        events.removeAll(); probe.forwarded.removeAll()
+        keys.pressesBegan([press], with: event)
+        XCTAssertEqual(edit(NSRange(location: 3, length: 1), ""), true)
+        keys.pressesEnded([press], with: event)
+        XCTAssertEqual(events, ["down Backspace", "up Backspace"], "the hardware Backspace's deletion does not dispatch its key twice")
+        events.removeAll()
         press.value.text = "\r"
         press.value.code = .keyboardReturnOrEnter
-        field.pressesBegan([press], with: nil)
-        field.pressesEnded([press], with: nil)
-        XCTAssertEqual(events, ["down Enter", "submit", "up Enter"], "the hardware Return's delegate does not dispatch its key twice")
-        XCTAssertEqual(probe.forwarded, ["down", "up"])
-        events.removeAll(); probe.forwarded.removeAll()
-        field.pressesBegan([press], with: nil)
-        field.pressesCancelled([press], with: nil)
+        keys.pressesBegan([press], with: event)
         _ = field.delegate?.textFieldShouldReturn?(field)
-        XCTAssertEqual(events, ["down Enter", "submit", "down Enter", "submit"], "cancellation clears the heard hardware key")
-        XCTAssertEqual(probe.forwarded, ["down", "cancel"])
-        events.removeAll(); probe.forwarded.removeAll()
+        keys.pressesEnded([press], with: event)
+        XCTAssertEqual(events, ["down Enter", "submit", "up Enter"], "the hardware Return's delegate does not dispatch its key twice")
+        events.removeAll()
+        keys.pressesBegan([press], with: event)
+        keys.pressesCancelled([press], with: event)
+        _ = field.delegate?.textFieldShouldReturn?(field)
+        XCTAssertEqual(events, ["down Enter", "down Enter", "submit"], "cancellation clears the heard hardware key: the delegate's Return dispatches it")
+        events.removeAll(); prevent = true
+        keys.pressesBegan([press], with: event)
+        XCTAssertEqual(field.delegate?.textFieldShouldReturn?(field), false, "a prevented Return does nothing")
+        keys.pressesEnded([press], with: event)
+        XCTAssertEqual(events, ["down Enter", "up Enter"])
+        events.removeAll(); prevent = false
         probe.composing = true
         press.value.text = "7"
         press.value.code = .keyboard7
-        field.pressesBegan([press], with: nil)
-        field.pressesEnded([press], with: nil)
+        keys.pressesBegan([press], with: event)
+        keys.pressesEnded([press], with: event)
         XCTAssertEqual(events, [], "composition belongs to the displayed field, not the input left on the page")
-        XCTAssertEqual(probe.forwarded, ["down", "up"])
     }
 
     func testAPromptCanPreventSoftwareBackspaceAndReturn() throws {
@@ -453,17 +455,35 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         }
         p.onSubmit = { _ in events.append("submit") }
         p.onChange = { _, _ in events.append("change") }
-        field.deleteBackward()
+        // The software keyboard's Backspace: UIKit's keyboard asks the field's
+        // delegate about the deletion, then deletes (`deleteBackward` alone
+        // asks nothing, so the test asks as the keyboard does).
+        func backspace() {
+            guard let selection = field.selectedTextRange else { return XCTFail("no selection") }
+            let start = field.offset(from: field.beginningOfDocument, to: selection.start), end = field.offset(from: field.beginningOfDocument, to: selection.end)
+            let range = selection.isEmpty ? NSRange(location: max(0, start - 1), length: min(1, start)) : NSRange(location: start, length: end - start)
+            if field.delegate?.textField?(field, shouldChangeCharactersIn: range, replacementString: "") != false { field.deleteBackward() }
+        }
+        backspace()
         _ = field.delegate?.textFieldShouldReturn?(field)
         XCTAssertEqual(events, ["down Backspace", "down Enter"])
         XCTAssertEqual(field.text, "Kick", "a prevented Backspace leaves the text alone")
         XCTAssertTrue(field.isFirstResponder)
         events.removeAll(); prevent = false
-        field.deleteBackward()
+        backspace()
         _ = field.delegate?.textFieldShouldReturn?(field)
         XCTAssertEqual(events, ["down Backspace", "down Enter", "change", "submit"])
         XCTAssertEqual(field.text, "Kic")
         XCTAssertTrue(field.isFirstResponder)
+        // A selection's deletion is not told apart from Cut's: no key.
+        events.removeAll()
+        field.selectedTextRange = field.textRange(from: field.beginningOfDocument, to: field.endOfDocument)
+        backspace()
+        XCTAssertEqual(events, [])
+        XCTAssertEqual(field.text, "")
+        let plain = UIAlertController(title: nil, message: nil, preferredStyle: .alert)
+        plain.addTextField()
+        XCTAssertTrue(type(of: field) == type(of: try XCTUnwrap(plain.textFields?.first)), "the alert's field keeps UIKit's class")
     }
 
     /// Return in a prompt's field is its delegate's: it presses the first

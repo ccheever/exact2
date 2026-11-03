@@ -385,7 +385,7 @@ fn platform(args: &[Vec<Item>], text: &str, names: &mut dyn Names) -> Result<Fol
         if !ok || seen.contains(&p) {
             return fail(
                 "tamber-syntax",
-                format!("`{text}`: {shape}, each platform once; an iOS or macOS name is a UIColor/NSColor class property (`systemTealColor`) or `named:<asset>`"),
+                format!("`{text}`: {shape}, each platform once; an iOS or macOS name is a documented UIColor/NSColor class colour (`systemTealColor`) or `named:<asset>`"),
             );
         }
         seen.push(p);

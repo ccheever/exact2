@@ -339,6 +339,19 @@ it is also the compiler's check and the wire's decoder.)
 - **`named:<Asset>`:** `UIColor(named:)` / `NSColor(named:)`, from the app's
   asset catalogue.
 
+> **Amended (2026-11-03, the user's ruling: no private Apple API in shipped
+> code).** The runtime lookup above is replaced by a list: the Apple host
+> resolves a name only if it is one of the documented, non-deprecated class
+> colours of `UIColor` or `NSColor` that this platform's SDK declares
+> (`host/apple/Sources/ExactCore/SystemColorNames.swift`, from Apple's "UI
+> element colors" and "Standard colors"), by a compile-time call, with no
+> `perform`. Any other name, a class method Apple does not document among
+> them, is the fallback, logged once, as a name the OS lacks was. A colour a
+> later OS adds resolves once it is added to the list. The kernel's check is
+> unchanged: it holds a name to the shape, and the host to the list. On
+> watchOS, whose UIKit declares no system colour, the snapshot draws the
+> system hues as SwiftUI's standard colours.
+
 A platform with no entry, a name the OS lacks, or a name that is not a
 colour: **the fallback**. The fallback is **required**
 (`lower-platform-color-fallback`), and it is also the reference's kernel
@@ -962,7 +975,8 @@ whole palette) to validate the API.
   is never a reference.
 - **D5 on Apple.** The Apple wire carries a reference as
   `{"sys": <class property>, "c": <fallback>}`. `SystemColor.swift` looks the
-  name up (`class_getClassMethod`, zero arguments, the result a colour) and
+  name up (`class_getClassMethod`, zero arguments, the result a colour; since
+  2026-11-03 the documented list, D3) and
   resolves it against style, Increased Contrast and, on iOS, the view's
   user-interface level, cached per trait set. Nodes re-apply on a change of
   style, contrast or level. Inline runs resolve per appearance as they are

@@ -128,8 +128,8 @@ enum SnapshotColor {
 
     /// A platform colour by its name, as a role the modes can tint: the
     /// label colours as the hierarchical foreground styles, the tint as the
-    /// accent, and any other `UIColor`/`NSColor` class colour (the system
-    /// fills among them) as the dynamic colour it names.
+    /// accent, and any other documented `UIColor`/`NSColor` class colour (the
+    /// system fills among them) as the dynamic colour it names.
     private static func named(_ name: String, context: Context) -> AnyShapeStyle? {
         if name.hasPrefix("@tint") {
             let alpha = name.contains("/") ? Double(name.split(separator: "/").last ?? "") ?? 1 : 1
@@ -146,16 +146,10 @@ enum SnapshotColor {
     }
 
     /// The dynamic colour a name looks up: an asset (`named:`, in this
-    /// bundle or the app's when this is its extension), or a zero-argument
-    /// class method of `UIColor`/`NSColor` returning a colour (the name is
-    /// checked at the bake; no private selector is reachable). Nil leaves
+    /// bundle or the app's when this is its extension), or a documented
+    /// class colour of `UIColor`/`NSColor` (`SystemColorNames`). Nil leaves
     /// the row's fallback pair to show.
     private static func platformColor(_ name: String) -> Color? {
-        #if canImport(UIKit)
-        typealias Native = UIColor
-        #else
-        typealias Native = NSColor
-        #endif
         if name.hasPrefix("named:") {
             let asset = String(name.dropFirst(6))
             for bundle in SnapshotBundles.all {
@@ -169,18 +163,39 @@ enum SnapshotColor {
             }
             return nil
         }
-        guard name.hasSuffix("Color"), !name.hasPrefix("_"), !name.hasPrefix("@") else { return nil }
-        let selector = NSSelectorFromString(name)
-        guard let method = class_getClassMethod(Native.self, selector), method_getNumberOfArguments(method) == 2 else { return nil }
-        let returns = method_copyReturnType(method)
-        defer { free(returns) }
-        guard String(cString: returns) == "@", let value = (Native.self as AnyObject).perform(selector)?.takeUnretainedValue() as? Native else { return nil }
+        #if os(watchOS)
+        if let hue = watchHue(name) { return hue }
+        #endif
+        guard let value = SystemColorNames.color(name) else { return nil }
         #if canImport(UIKit)
         return Color(uiColor: value)
         #else
         return Color(nsColor: value)
         #endif
     }
+
+    #if os(watchOS)
+    /// watchOS's UIKit declares none of the system colours; SwiftUI's
+    /// standard colours are the watch's own.
+    private static func watchHue(_ name: String) -> Color? {
+        switch name {
+        case "systemRedColor": .red
+        case "systemOrangeColor": .orange
+        case "systemYellowColor": .yellow
+        case "systemGreenColor": .green
+        case "systemMintColor": .mint
+        case "systemTealColor": .teal
+        case "systemCyanColor": .cyan
+        case "systemBlueColor": .blue
+        case "systemIndigoColor": .indigo
+        case "systemPurpleColor": .purple
+        case "systemPinkColor": .pink
+        case "systemBrownColor": .brown
+        case "systemGrayColor": .gray
+        default: nil
+        }
+    }
+    #endif
 }
 
 /// Bundle and loose-file lookup share the containing app, including a Mac appex's extra Contents level.

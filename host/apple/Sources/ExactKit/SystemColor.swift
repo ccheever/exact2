@@ -1,11 +1,10 @@
 // @ref LLP 1095 D3, D5 — a colour row that names a platform colour: a role's
 // class colour property (`secondaryLabelColor`), a `-exact-platform-color()`'s, an
 // asset catalogue colour (`named:Brand`), or the view's inherited tint
-// (`@tint`, `@tint/0.2` with an alpha). Resolved by name at runtime, so a
-// colour an OS adds works with no Exact change, against the appearance the
-// view draws in and the system's Increased Contrast; anything the OS lacks
-// or that is not a colour is the fallback pair, logged once.
-import ObjectiveC
+// (`@tint`, `@tint/0.2` with an alpha). A class colour is one of the
+// documented ones (`SystemColorNames`), resolved against the appearance the
+// view draws in and the system's Increased Contrast; any other name is the
+// fallback pair, logged once.
 #if os(iOS) || os(tvOS)
 import UIKit
 #else
@@ -123,10 +122,8 @@ package enum SystemColor {
         return lookup(name)
     }
 
-    /// The colour a name looks up: an asset, or a zero-argument class method
-    /// of `UIColor`/`NSColor` that returns a colour. The name is already
-    /// checked (`roles.rs`'s `native_name_ok`), so no private or allocating
-    /// selector is reachable.
+    /// The colour a name looks up: an asset, or a documented class colour
+    /// of `UIColor`/`NSColor` (`SystemColorNames`); nil for any other name.
     private static func lookup(_ name: String) -> Native? {
         if name.hasPrefix("named:") {
             let asset = String(name.dropFirst(6))
@@ -136,15 +133,7 @@ package enum SystemColor {
             return NSColor(named: asset)
             #endif
         }
-        guard name.hasSuffix("Color"), !name.hasPrefix("_") else { return nil }
-        let selector = NSSelectorFromString(name)
-        guard let method = class_getClassMethod(Native.self, selector), method_getNumberOfArguments(method) == 2 else { return nil }
-        // An object return (D3): `perform` would read a number or a struct as one.
-        let returns = method_copyReturnType(method)
-        defer { free(returns) }
-        guard String(cString: returns) == "@" else { return nil }
-        let value = (Native.self as AnyObject).perform(selector)?.takeUnretainedValue()
-        return value as? Native
+        return SystemColorNames.color(name)
     }
 
     /// The colour's sRGB channels under an appearance and contrast.

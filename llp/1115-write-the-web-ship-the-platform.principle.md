@@ -175,6 +175,17 @@ the schema changes (LLP 1030 D3a). Agreed in advance: "it's ok if things break a
   > alert's preferred action is the Mac's default button (LLP 1115.000 D7.3): its one
   > `buttonStyle="filled"` action that is not destructive; on a prompt only when that is the action
   > Return presses, so the bold action and Return's are always one.
+  >
+  > **Amended (2026-11-03, the user's ruling: no private Apple API in shipped code).** On iOS the
+  > field's class is UIKit's own, so its keys are heard with public API alone: a hardware key by a
+  > gesture recognizer on the field, which hears it before the field does, and a prevented key's
+  > edit and Return refused by the field's delegate. A software keyboard's Backspace is the
+  > delegate's deletion before the caret. **Known differences:** a prevented hardware key's other
+  > defaults still happen (an arrow moves the caret, Escape cancels, ⌘A selects); Backspace with a
+  > selection, at the start of the text or in an empty field dispatches no `key` (UIKit asks the
+  > delegate nothing for the last two, and a selection's deletion is not told apart from Cut's).
+  > The recognizer's part is tested with synthetic presses and the agent's keys, not yet with a
+  > real keyboard: this machine's Xcode 27 has no Simulator.app to type into (`QUEUE.md`).
 - **D7. Docs say less.** The agent guide, `exact new` and the recipe apps omit colours, fonts and
   control metrics; where colour is needed they name roles. A short starter guide is the only
   required reading.

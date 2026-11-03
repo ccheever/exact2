@@ -590,9 +590,11 @@ pub fn platform(id: u16) -> Option<Arc<PlatformColor>> {
     PLATFORM.lock().ok()?.get(usize::from(id)).cloned()
 }
 
-/// Whether a native name is one a host may look up: a class colour property
-/// (`[a-z][A-Za-z0-9]*Color`, so never a private `_` selector, `new` or
-/// `alloc`), or an asset catalogue colour.
+/// Whether a native name has the shape of one a host may look up: a class
+/// colour's name (`[a-z][A-Za-z0-9]*Color`), or an asset catalogue colour.
+/// The Apple host resolves only the documented class colours
+/// (`SystemColorNames.swift`); any other name shows the fallback there, as a
+/// name the OS lacks does.
 pub fn native_name_ok(name: &str) -> bool {
     if let Some(asset) = name.strip_prefix("named:") {
         return !asset.is_empty()
