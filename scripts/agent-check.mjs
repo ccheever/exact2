@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { decodePng, encodePng, shrink } from './png.mjs';
+import { scaledLines } from './agent-inspect.mjs';
 
 const SHOWN = 12;
 const OFFSCREEN = 'a column taller than the screen runs past it: let it scroll (`overflow-y: auto`), or give it `flex: 1` and `min-height: 0` under a header instead of `height: 100%`';
@@ -278,7 +279,22 @@ export async function checkOp(s, args = [], { shots, accept = [] } = {}) {
     if (preferred && preferred !== first.scheme) await s.prefer({ 'prefers-color-scheme': first.scheme }).catch(() => {});
     rmSync(dir, { recursive: true, force: true });
   }
-  return s.tagged(settle(runs, trees, accept, s.host));
+  const settled = settle(runs, trees, accept, s.host);
+  if (s.host !== 'web' && settled.check.some((r) => r.findings.some((f) => f.kind === 'target'))) {
+    const layout = await s.layout?.().catch(() => null);
+    for (const note of scaledTargetNotes(layout, runs[0].target)) settled.text += `\n  note: ${note}`;
+  }
+  return s.tagged(settled);
+}
+
+/** A target finding's box is what the platform draws, so in a sheet iOS draws scaled (iOS 26's floating sheet, × 0.96)
+ *  a box authored at the minimum is found under it: a line for each such sheet, naming the authored size drawn at
+ *  `min`. `layout` is the host's `layout` reply, whose `scaled` lists the sheets. */
+export function scaledTargetNotes(layout, min) {
+  return scaledLines(layout).map((said, i) => {
+    const scale = layout.scaled[i].scale;
+    return `${said}, so a target in it authored at ${Math.ceil(min / scale - 1e-9)} pt is drawn at ${min}`;
+  });
 }
 
 /** The runs judged, each against the tree its own scheme showed (`trees[i]`): what `accept` takes is the run's `accepted`, each
