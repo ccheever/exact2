@@ -5,7 +5,7 @@ import { requestPresentation } from '../../src/composer/requests';
 import { value } from '../support/contract-action-fixture';
 import { appText } from '../support/app-files';
 
-import { clearCitationDraft, noteCitationDraft, preserveCitationDraft, registerCitationDraft } from '../../src/timeline/citation-draft';
+import { citationCommentDirection, clearCitationDraft, noteCitationDraft, preserveCitationDraft, registerCitationDraft } from '../../src/timeline/citation-draft';
 import { parseAssistantCitationHref, serializeAssistantCitation } from '../../src/timeline/diff-citations';
 
 const link = serializeAssistantCitation({ version: 1, environmentId: 'env', threadId: 't', messageId: 'a', text: 'quoted text', start: 0, end: 11, prefix: '', suffix: '' });
@@ -106,4 +106,14 @@ test('the window retires its typed copy after a citation rewrite through a quest
   expect(shown).toBe(client.draft);
   expect(shown).not.toBe(draft);
   expect(parseAssistantCitationHref(/\[Assistant quote\]\(([^)]+)\)/.exec(String(shown))![1]!)?.comment).toBe('Retain this unsaved review note.');
+});
+
+test('the comment editor follows unsaved text and resets for a different citation', () => {
+  const client = fixture('שלום עולם');
+  expect(citationCommentDirection(client, 7, 'Saved English')).toBe('rtl');
+  noteCitationDraft(client, 7, 'English comment');
+  expect(citationCommentDirection(client, 7, 'שלום עולם')).toBe('ltr');
+  noteCitationDraft(client, 7, '');
+  expect(citationCommentDirection(client, 7, 'שלום עולם')).toBe('ltr');
+  expect(citationCommentDirection(client, 8, 'مرحبا بكم')).toBe('rtl');
 });

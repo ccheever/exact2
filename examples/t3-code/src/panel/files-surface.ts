@@ -697,13 +697,13 @@ async function openInPreviewBrowser(client: T3Client, native: Native, path: stri
  * to the workspace (`cwd`), not the folder.
  */
 /**
- * ChatView's workspaceMutationId: the newest settled file change or command (a command can change files without naming
- * them) and the newest checkpoint's capture time, or null before either. A rendered Markdown file's images sign again
- * when it changes.
+ * deriveWorkspaceMutationId (client-runtime state/threadDetail.ts at 5d3d78ab93): the newest settled file change,
+ * command, tool call or subagent (each can change files without naming them) and the newest checkpoint's capture time,
+ * or null before either. The thread's images and a rendered Markdown file's sign again when it changes.
  */
 export function workspaceMutationId(client: T3Client): string | null {
   const projection = obj(client.projection), items = arr(projection.visibleTurnItems).map(row => obj(row.item));
-  const settled = items.findLast(item => (item.type === 'command_execution' || item.type === 'file_change') && !['pending', 'running', 'waiting'].includes(str(item.status)));
+  const settled = items.findLast(item => ['command_execution', 'file_change', 'dynamic_tool', 'subagent'].includes(str(item.type)) && !['pending', 'running', 'waiting'].includes(str(item.status)));
   const checkpoint = arr(projection.checkpoints).findLast(entry => entry.appRunOrdinal != null && entry.runId != null);
   const itemId = settled ? str(settled.id) : null, capturedAt = checkpoint ? str(checkpoint.capturedAt) || null : null;
   return itemId === null && capturedAt === null ? null : JSON.stringify([itemId, capturedAt]);

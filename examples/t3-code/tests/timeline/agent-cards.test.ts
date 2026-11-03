@@ -123,3 +123,16 @@ test('timeline image cards expose only their Contract fields while signing keeps
   expect(await toolImageUrls(client, native, 0)).toHaveLength(1);
   expect(signed).toEqual([{ _tag: 'tool-output-image', threadId: 't1', itemId: 'capture', index: 0 }]);
 });
+
+test('a subagent card shows which account it runs on where its provider has several or an accent (#24898)', async () => {
+  const { subagent } = await import('../../src/timeline/timeline-events');
+  const agent = (providerInstanceId: string) => ({ id: 's', type: 'subagent', title: 'Review', status: 'running', driver: 'codex', providerInstanceId });
+  const work = { instanceId: 'codex-work', driver: 'codex', displayName: 'Work Codex', enabled: true };
+  const personal = { instanceId: 'codex', driver: 'codex', displayName: 'Codex', enabled: true };
+  expect(subagent(agent('codex-work'), { agents: [], providers: [work, personal] })).toMatchObject({ badge: 'WC', badgeColor: '' });
+  expect(subagent(agent('codex-work'), { agents: [], providers: [work] })).toMatchObject({ badge: '' });
+  expect(subagent(agent('codex-work'), { agents: [], providers: [{ ...work, accentColor: '#ff0000' }] })).toMatchObject({ badge: 'WC', badgeColor: '#ff0000' });
+  // A disabled sibling does not badge an enabled instance.
+  expect(subagent(agent('codex-work'), { agents: [], providers: [work, { ...personal, enabled: false }] })).toMatchObject({ badge: '' });
+  expect(subagent(agent('gone'), { agents: [], providers: [work, personal] }).badge).toBeUndefined();
+});

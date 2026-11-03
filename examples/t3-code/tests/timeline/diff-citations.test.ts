@@ -10,6 +10,7 @@ import {
   renderAssistantCitationsAsText, resolveAssistantCitationCommentDismissal, resolveSelectionActionPosition, serializeAssistantCitation, withAssistantCitationComment,
   type AssistantCitation, type AssistantTextSelector,
 } from '../../src/timeline/diff-citations';
+import { messageChips } from '../../src/timeline/message-chips';
 
 const citation: AssistantCitation = {
   version: 1, environmentId: 'environment/remote', threadId: 'thread:one', messageId: 'assistant?one',
@@ -162,4 +163,11 @@ describe('selection action positioning', () => {
     expect(resolveSelectionActionPosition({ bounds, selectionRect, pointer: { x: 40, y: 20 }, viewport })).toEqual({ x: 100, y: 50 });
     expect(resolveSelectionActionPosition({ bounds: { left: -100, top: -100, width: 2000, height: 2000 }, selectionRect, pointer: { x: 1800, y: -50 }, viewport })).toEqual({ x: 1016, y: 8 });
   });
+});
+
+it('citation labels, quotes and comments choose their own reading direction', () => {
+  const link = serializeAssistantCitation({ version: 1, environmentId: 'env', threadId: 't', messageId: 'm',
+    text: 'שלום עולם', comment: 'English comment', start: 0, end: 9, prefix: '', suffix: '' });
+  const chip = messageChips({ text: link }, '/repo', [], 'message').find(chip => chip.kind === 'citation');
+  expect(chip).toMatchObject({ labelDir: 'ltr', quoteDir: 'rtl', commentDir: 'ltr' });
 });

@@ -167,6 +167,16 @@ describe('T3 pull request tools (18b2132)', () => {
     expect(summaryIcon(summaryKind(entries))).toBe('pull-request');
     expect(summarizeT3ToolCalls('unwatch-pr', [{ input: {}, output: null, outcome: 'unfinished' }]).label).toBe('Tried to stop watching 1 pull request');
   });
+  test('batch link and unlink calls count the pull requests their results report (#27925, #27994)', () => {
+    const completed = (input: unknown, output?: unknown) => ({ input, output, outcome: 'completed' as const });
+    expect(t3ToolPresentation(t3ToolDefinition('mcp__t3-code__link_pull_requests'), 'completed', { arguments: { urls: [] } })?.displayName).toBe('Linked pull requests');
+    expect(t3ToolPresentation(t3ToolDefinition('t3-code.unlink_pull_requests'), 'inProgress', { arguments: { states: ['merged'] } })?.displayName).toBe('Unlinking pull requests by state');
+    const urls = ['https://github.com/o/r/pull/1', 'https://github.com/o/r/pull/1', 'not-a-pr'];
+    expect(summarizeT3ToolCalls('link-pr', [completed({ urls }, { linkedCount: 1 }), completed({ number: 3 })]).label).toBe('Linked 2 pull requests');
+    expect(summarizeT3ToolCalls('link-pr', [completed({ urls }, {})]).label).toBe('Linked pull requests');
+    expect(summarizeT3ToolCalls('unlink-pr', [completed({ states: ['merged'] }, { unlinkedCount: 2 }), completed({ number: 3 })]).label).toBe('Unlinked 3 pull requests');
+    expect(summarizeT3ToolCalls('unlink-pr', [completed({ states: ['merged'] }, { isError: false })]).label).toBe('Unlinked pull requests');
+  });
 });
 
 describe('T3 action tools (#25423) and background waits (#24610)', () => {
@@ -327,4 +337,19 @@ test('workflow Stop tool names its requested effect and counts unique coordinato
   ])).toEqual({ label: 'Requested stops for 2 workflows', failedCount: 1 });
   expect(summarizeT3ToolCalls('workflow-stop', [{ input: {}, output: null, outcome: 'unfinished' }]).label).toBe('Tried to stop 1 workflow');
   expect(t3ActionPriority('workflow-stop')).toBe(0);
+});
+
+describe('the 2026-11-03 follow in the transcript', () => {
+  test('a message that switched the model has its divider above it, inside its burst (#28995)', () => {
+    const providers = [{ instanceId: 'codex', driver: 'codex', models: [{ slug: 'gpt-a', name: 'Alpha' }, { slug: 'gpt-b', name: 'Beta' }] }];
+    const value = client([user('u1', 0, 'one'), user('u2', 1, 'two', { modelSwitch: { from: { instanceId: 'codex', model: 'gpt-a' }, to: { instanceId: 'codex', model: 'gpt-b' } } })]);
+    (value as unknown as { config: { providers: Obj[] } }).config.providers = providers;
+    const presented = transcriptRows(value);
+    expect(presented.map(row => [row.kind, row.title])).toEqual([['user', 'You'], ['event', 'Alpha → Beta'], ['user', 'You']]);
+    expect(presented[1]).toMatchObject({ id: `model-switch:${key('u2')}`, icon: '', tone: 'neutral' });
+  });
+  test('"Run interrupted" wraps its reason (#27399)', () => {
+    const value = client([user('u', 0, 'go'), item('i', 'run_interrupt_result', 1, { message: 'Stopped by a hook:\nfix the lint first' })]);
+    expect(transcriptRows(value).find(row => row.title === 'Run interrupted')).toMatchObject({ kind: 'event', detail: 'Stopped by a hook:\nfix the lint first', shape: 'wrap' });
+  });
 });

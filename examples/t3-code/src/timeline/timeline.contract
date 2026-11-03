@@ -261,7 +261,7 @@ component UserBody
     bubble: string
   derive grid = not message.mediaAbove and message.shape != "media"
   view
-    column width="100%" align-items=(message.shape == "" ? "stretch" : "flex-end")
+    column direction=(message.dir == "rtl" ? "rtl" : "ltr") text-align="start" width="100%" align-items=(message.shape == "" ? "stretch" : "flex-end")
       if message.shape == "media"
         StandaloneMedia(messageId=message.id, images=message.images, urls=attachments, local=local, layout=message.mediaLayout, topTight=message.groupedPrevious, bottomTight=message.groupedNext)
       if (grid and message.images.length > 0) or message.attachFiles.length > 0 or message.audio.length > 0
@@ -587,7 +587,7 @@ component TimelineContent
                             if message.kind == "handoff"
                               HandoffDivider(label=message.title, detail=message.detail, endpoints=message.activities, danger=(message.tone == "danger"))
                             else
-                              SystemDivider(label=message.title, detail=message.detail, icon=message.icon, danger=(message.tone == "danger"))
+                              SystemDivider(label=message.title, detail=message.detail, icon=message.icon, danger=(message.tone == "danger"), wrapDetail=(message.shape == "wrap"))
                           else
                             if message.kind == "status"
                               ThreadStatusLine(message=message, command=command)
