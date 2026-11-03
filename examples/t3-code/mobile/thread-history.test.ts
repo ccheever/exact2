@@ -378,6 +378,26 @@ test('authored paging gates inactive views, preserves prepend anchors and isolat
   expect(anchorCalls).toHaveLength(1);
 });
 
+test('thread follow-end state shows the scroll-to-end control only away from the live edge', () => {
+  const root = contractComponent('mobile/app.contract', 'App');
+  const state = { historyAnchorKey: '', historyAnchorOffset: 0, historyAnchorRoute: '', historyAnchorEnvironment: '', historyAnchorThread: '', historyAnchorRevision: 0, threadEndFollowEnabled: true, threadEndFollowOwner: '' };
+  const scrollCalls: unknown[][] = [], haptics: string[] = [];
+  const scope = {
+    ...({ nav: {}, top: () => ({ id: 7, name: 'thread', params: { threadEnvironment: 'env', threadId: 'thread' } }) }),
+    threadData: { environmentId: 'env', threadId: 'thread', historyRevision: 0, rows: [{ id: 'first' }, { id: 'last' }] },
+    scrollIntoView: (...args: unknown[]) => scrollCalls.push(args), haptic: (name: string) => haptics.push(name),
+  };
+  root.call('threadHistoryScroll', state, scope, [0, 120, { firstVisibleKey: 'first', firstVisibleOffset: 0, scrollTop: 120, scrollHeight: 1800, clientHeight: 600 }]);
+  expect(state).toMatchObject({ threadEndFollowOwner: 'env:thread', threadEndFollowEnabled: false });
+  root.call('threadHistoryScroll', state, scope, [0, 1200, { firstVisibleKey: 'last', firstVisibleOffset: 0, scrollTop: 1200, scrollHeight: 1800, clientHeight: 600 }]);
+  expect(state.threadEndFollowEnabled).toBe(true);
+  root.call('threadHistoryScroll', state, scope, [0, 120, { firstVisibleKey: 'first', firstVisibleOffset: 0, scrollTop: 120, scrollHeight: 1800, clientHeight: 600 }]);
+  root.call('threadScrollToEnd', state, scope, []);
+  expect(state.threadEndFollowEnabled).toBe(true);
+  expect(scrollCalls).toEqual([['thread-feed', 'last', { offset: 1000000, behavior: 'smooth' }]]);
+  expect(haptics).toEqual(['selection']);
+});
+
 test('history chrome keeps one load control mounted while offline', () => {
   const history = contractComponent('mobile/thread.contract', 'ThreadHistory');
   const data = { hasMore: true, historyRequest: 'key', historyLoading: false, historyError: '' };

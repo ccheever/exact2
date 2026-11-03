@@ -171,6 +171,10 @@ shape ThreadSnapshot
   emptyTitle: string
   emptyDetail: string
   error: string
+  errorWarning: bool
+  errorSummary: string
+  errorExpandable: bool
+  errorLimit: string
   uncertain: bool
   hasMore: bool
   historyLoading: bool

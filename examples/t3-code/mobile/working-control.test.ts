@@ -70,6 +70,53 @@ test('empty and populated snapshots match the exact declared producer shape', ()
   for (const data of [view(fixture()), view(fixture({ runs: [run] })), mobileWorkingControl('', '', now, fixture())]) expect(Object.keys(data).sort()).toEqual(fields);
 });
 
+test('working capsule uses the native glass surface while retaining the measured segment host', () => {
+  const source = readFileSync(new URL('./working-control.contract', import.meta.url), 'utf8');
+  expect(source).toContain('glassTint: string');
+  expect(source).toContain('dark: bool');
+  expect(source).toContain('t3-composer-material position="absolute" inset=0');
+  expect(source).toContain('material-radius=32');
+  expect(source).toContain('material-tint=glassTint');
+  expect(source).toContain('material-surface=colors.glassFallback');
+  expect(source).toContain('material-border=colors.border');
+});
+
+test('working control exposes a separate glass scroll-to-end button', () => {
+  const source = readFileSync(new URL('./working-control.contract', import.meta.url), 'utf8');
+  expect(source).toContain('showScrollToEnd: bool');
+  expect(source).toContain('scrollToEnd: action');
+  expect(source).toContain('reducedMotion: bool');
+  expect(source).toContain('if data.visible or showScrollToEnd');
+  expect(source).toContain('translate=capsuleTranslate transition=controlTransition');
+  expect(source).toContain('press=scrollToEnd');
+  expect(source).toContain('aria-label="Scroll to end" testId="scroll-to-end"');
+  expect(source).toContain('symbol-name="chevron.down"');
+});
+
+test('working status changes crossfade and the capsule reflows as labels change', () => {
+  const source = readFileSync(new URL('./working-control.contract', import.meta.url), 'utf8');
+  expect(source).toContain('keyframes workingStatusEnter');
+  expect(source).toContain('keyframes workingStatusExit');
+  expect(source).toContain('-exact-exit-animation="workingStatusExit 100ms ease-in both"');
+  expect(source).toContain('-exact-layout-transition=(reducedMotion ? "none" : "240ms cubic-bezier(.22, 1, .36, 1)")');
+  expect(source).toContain('WorkingStatus(data=data, colors=colors, reducedMotion=reducedMotion)');
+});
+
+test('working control lifts above an expanded pending-input card', () => {
+  const source = readFileSync(new URL('./working-control.contract', import.meta.url), 'utf8');
+  expect(source).toContain('lift: number');
+  expect(source).toContain('derive liftTranslate = `0px ${0 - lift}px`');
+  expect(source).toContain('translate=liftTranslate transition=controlTransition');
+});
+
+test('working control entry and exit fades are reduced-motion aware', () => {
+  const source = readFileSync(new URL('./working-control.contract', import.meta.url), 'utf8');
+  expect(source).toContain('keyframes workingControlEnter');
+  expect(source).toContain('keyframes workingControlExit');
+  expect(source).toContain('animation=(reducedMotion ? "none" : "workingControlEnter 180ms ease-out both")');
+  expect(source).toContain('-exact-exit-animation="workingControlExit 120ms ease-in both"');
+});
+
 test('connecting and reconnecting preserve the pinned connection-error retry copy', () => {
   const client = fixture();
   for (const phase of ['connecting', 'reconnecting']) {
