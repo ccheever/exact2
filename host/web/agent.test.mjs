@@ -1154,6 +1154,20 @@ test('a pick answer keeps a path with a space when it comes one per line', () =>
   expect(pickedPaths('a.png b.png')).toEqual(['a.png', 'b.png']);
 });
 
+test('a typed pick answer split at a space names the pick step that keeps the path whole', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-pick-space-')), file = join(dir, 'Trip plan.pdf'), sent = [];
+  writeFileSync(file, 'pdf');
+  const pending = [{ name: 'pick-files', ticket: 3, device: { capability: 'pick', args: { id: 'pick-files' } } }];
+  const s = await open({ reuse: { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
+    async ask(req) { if (req.op === 'type') sent.push(req.text); return req.op === 'state' ? { pending } : { typed: 3 }; } } });
+  try {
+    await expect(s.type('@pick-files', file)).rejects.toThrow(`type @pick-files: no such file ${join(dir, 'Trip')}; \`type @\` takes paths apart at each space, and \`pick @pick-files ${JSON.stringify(file)}\` keeps a path with a space whole`);
+    await expect(s.type('@pick-files', join(dir, 'none.pdf'))).rejects.toThrow(/no such file \S+none\.pdf$/);
+    await s.type('@pick-files', `${file}\n`); // what that `pick` sends
+    expect(sent).toEqual([`${file}\n`]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('a mouse drag presses and releases the left button on the web', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-mouse-drag-')), contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist');
   writeFileSync(contract, `component MouseDrag

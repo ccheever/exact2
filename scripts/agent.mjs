@@ -1118,7 +1118,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (held?.device?.capability !== 'pick') return s.landed(await s.op({ op, ticket, text: String(value) }));
       const paths = pickedPaths(value).map(p => resolve(p));
       const missing = paths.find(p => !existsSync(p) || !statSync(p).isFile());
-      if (missing) throw new Error(`type ${target}: no such file ${missing}`);
+      const spaced = !String(value).includes('\n') && /\s/.test(String(value).trim()); // split at its spaces: `pick` keeps one path whole
+      if (missing) throw new Error(`type ${target}: no such file ${missing}${spaced ? `; \`type @\` takes paths apart at each space, and \`pick ${target} ${JSON.stringify(String(value).trim())}\` keeps a path with a space whole` : ''}`);
       const req = { op, ticket, text: paths.join('\n') + '\n' };
       if (host === 'web') req.files = paths.map(p => ({ name: basename(p), bytes: readFileSync(p).toString('base64') }));
       return s.landed(await s.op(req));
