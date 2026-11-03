@@ -81,6 +81,16 @@ test('working capsule uses the native glass surface while retaining the measured
   expect(source).toContain('material-border=colors.border');
 });
 
+test('working control exposes a separate glass scroll-to-end button', () => {
+  const source = readFileSync(new URL('./working-control.contract', import.meta.url), 'utf8');
+  expect(source).toContain('showScrollToEnd: bool');
+  expect(source).toContain('scrollToEnd: action');
+  expect(source).toContain('if data.visible or showScrollToEnd');
+  expect(source).toContain('press=scrollToEnd');
+  expect(source).toContain('aria-label="Scroll to end" testId="scroll-to-end"');
+  expect(source).toContain('symbol-name="chevron.down"');
+});
+
 test('connecting and reconnecting preserve the pinned connection-error retry copy', () => {
   const client = fixture();
   for (const phase of ['connecting', 'reconnecting']) {

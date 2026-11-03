@@ -31,6 +31,11 @@ test('feed scrollports measure authored padding and avoid animating stream corre
   expect(home).toContain('keyboardDismissMode="on-drag" scrollbar-width="none" touch-action="pan-y"');
   expect(thread).toContain('column flex=1 min-height=0 min-width=0 justify-content="flex-end"');
   expect(thread).toContain('min-width=0 box-sizing="border-box" overflow-x="hidden" overscroll-behavior="contain" keyboardDismissMode="none" touch-action="pan-y" virtualized=true');
+  expect(thread).toContain('scroll-start="end" scrollFollowEnd=endFollowEnabled scroll=historyScroll');
+  expect(thread).not.toContain('scroll-start="end" scrollFollowEnd=true scroll=historyScroll');
+  const route = appText('mobile/route-content.contract');
+  expect(route).toContain('derive threadScrollToEndVisible = not threadEndFollowEnabled and threadData.loaded and not threadData.loading and threadData.error == "" and threadData.rows.length > 0');
+  expect(route).toContain('(workingControl.visible or threadScrollToEndVisible) ? 48.5 : 0');
   expect(thread).not.toContain('scroll-behavior="smooth"');
   expect(work).toContain('button appearance="none" press=toggleDetail');
   expect(work).toContain('row align-items="center" gap=3.5 width="100%" min-width=0');

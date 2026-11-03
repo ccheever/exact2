@@ -6,9 +6,16 @@ members App
   state historyAnchorEnvironment = ""
   state historyAnchorThread = ""
   state historyAnchorRevision = 0
+  state threadEndFollowEnabled = true
+  state threadEndFollowOwner = ""
   mutation threadHistoryChanged as shape Change queue refreshes data, threadData then didThreadHistoryChanged
   action threadHistoryScroll(x: number, y: number, e: ScrollEvent)
     if top(nav).name.startsWith("thread")
+      let followOwner = `${threadData.environmentId}:${threadData.threadId}`
+      let atEnd = e.scrollHeight <= e.clientHeight or e.scrollTop + e.clientHeight >= e.scrollHeight - 1
+      if threadEndFollowOwner != followOwner
+        threadEndFollowOwner = followOwner
+      threadEndFollowEnabled = atEnd
       match e.firstVisibleKey
         case some(key)
           if not (historyAnchorKey != "" and historyAnchorRoute == `${top(nav).id}` and historyAnchorEnvironment == threadData.environmentId and historyAnchorThread == threadData.threadId and threadData.historyRevision > historyAnchorRevision)
@@ -20,6 +27,15 @@ members App
             historyAnchorRevision = threadData.historyRevision
         case none
           historyAnchorKey = ""
+  action threadScrollToEnd
+    if top(nav).name.startsWith("thread") and threadData.rows.length > 0
+      match threadData.rows.at(-1)
+        case some(row)
+          haptic("selection")
+          threadEndFollowEnabled = true
+          scrollIntoView("thread-feed", row.id, offset=1000000, behavior="smooth")
+        case none
+          threadEndFollowEnabled = true
   action didThreadHistoryChanged
     if historyAnchorKey != "" and historyAnchorRoute == `${top(nav).id}` and historyAnchorEnvironment == threadData.environmentId and historyAnchorThread == threadData.threadId and threadData.historyRevision > historyAnchorRevision
       scrollIntoView("thread-feed", historyAnchorKey, offset=historyAnchorOffset, behavior="instant")
