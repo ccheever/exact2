@@ -6,7 +6,7 @@
 **Author:** Charlie Cheever / Codex
 **Implementer:** Codex, starting 2026-09-05
 **Date:** 2026-09-05
-**Revised:** 2026-09-08
+**Revised:** 2026-11-03 (D9)
 **Related:** LLP 1001 §6, LLP 1008 §3/§5, LLP 1010, LLP 1011, LLP 1030 D2 (the manifest is the one declaration), LLP 1031 D1/D6 (the embedder's value seam), LLP 1016 D1/D2 (the runner does no I/O)
 
 ## Milestone
@@ -38,7 +38,8 @@ The parser is shared Rust so native and wasm consume identical content data.
 2. **Read a real document.** Headings, paragraphs, emphasis, links, images,
    ordered/unordered lists, block quotes, rules, and fenced code blocks. Give
    prose a comfortable reading width and generous line spacing; code preserves
-   whitespace. Unsupported embedded HTML remains inert. Tables and syntax
+   whitespace. Unsupported embedded HTML remains inert (images are supported,
+   D9). Tables and syntax
    highlighting may follow the basic reader and are reported explicitly.
 3. **Deliver macOS.** Open dialog, ⌘O, Finder Open With, filename in the window,
    cancellation/errors, a self-contained `.app`, and a representative real-file
@@ -669,3 +670,55 @@ launching and `dlopen`ing its WebKit arm — the hardened runtime's library
 validation admits it because it carries the same team's signature. The
 submission, the staple, and the Gatekeeper acceptance are **not** verified,
 and cannot be from here: they need a Developer ID this Mac does not have.
+
+## D9 — `<img>` and `<picture>` are images, 2026-11-03
+
+The user's ruling of 2026-11-03, for the T3 Code clone: replies render raw
+HTML `<img>` and `<picture>` as T3 Code does, allowing what its sanitizer
+allows and nothing more. T3 Code renders Markdown through `rehype-raw` and
+`rehype-sanitize` with GitHub's schema (`hast-util-sanitize`), and since
+upstream `b46a4edc03` (#26398) moves a `<picture>`'s `prefers-color-scheme`
+sources onto its `<img>` and picks one by the theme
+(`packages/shared/src/markdownPipeline.ts`, `ChatMarkdown.tsx`). Until now
+the parser showed every raw HTML line literally, so an agent's screenshot
+written as `<img src="…" width="400">` was a line of markup.
+
+**What is read.** Of an `<img>`: `src`, `alt`, `width` and `height`, the
+attributes of that schema an image's drawing depends on (`html.rs`). Of a
+`<picture>`: its `<img>`s, and of its `<source>`s only those whose `media`
+is exactly `(prefers-color-scheme: dark)` or `light`, the first of each
+scheme winning, their `srcset`'s first URL being the source; a browser would
+choose the others by viewport, which a reader of blocks does not do, and
+T3 Code drops them. Nothing else is read: no `style`, `class`, event
+attribute or other element, so nothing in the markup can run or restyle the
+page.
+
+**Where it is read.** A line that starts with `<img` or `<picture`, through
+markup that may span lines up to the next blank one and whose last element
+ends its line. Each such element is an `Image` block (`dark`, `width`,
+`height` beside `href` and the alt in `text`); a picture with no `<img>`
+draws nothing. Markup holding anything else, text after an image on its
+line, or an element left open stays a literal `html` block, as all other raw
+HTML does. Such a line also ends the paragraph above it, where CommonMark
+reads the tag as inline HTML: a reader of blocks draws an image only as one.
+An `<img>` inside a line of prose stays literal.
+
+**What may load.** A source with no scheme, a Windows drive path, or one of
+the schemes the caller allows (`Html::schemes`): `http` and `https` by
+default, the sanitizer's `src` protocols, compared case-sensitively as it
+compares them. A refused `src` leaves the image without one; a refused
+`<source>` is gone, and a later one of its scheme does not take its place.
+Every allowed source goes through the caller's `link`, as a Markdown image's
+does. `Html::LITERAL` keeps all raw HTML literal, for text whose author did
+not write it as Markdown (T3 Code's user messages render with
+`parseRawHtml={false}`).
+
+**How a reader draws it.** The block value gains `dark`, `width` and
+`height` (`@exact/reading`'s `shape Block`). Both readers show `dark` on a
+dark page when it is set, and cap an image at its authored `width`; T3
+Code's further caps (30 rem, an aspect ratio from both sizes) are the
+clone's.
+
+Each line that starts an element reads ahead at most 8 KiB, so a document
+of such lines left open parses in linear time
+(`image_markup_reads_ahead_a_bounded_distance`).

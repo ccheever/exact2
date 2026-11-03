@@ -10,14 +10,17 @@
 //! engineering corpus is written in: headings, paragraphs with emphasis,
 //! links and code spans, fenced code, lists, block quotes, rules, images,
 //! and pipe tables. Reference links, setext headings, footnotes, and inline
-//! HTML are not interpreted; raw HTML stays visible and inert, which is
-//! what a reader that cannot render it should do rather than hide it.
+//! HTML are not interpreted. Raw HTML stays visible and inert, which is
+//! what a reader that cannot render it should do rather than hide it, with
+//! one exception: lines of `<img>` and `<picture>` markup are images, read as
+//! GitHub's sanitizer reads them (`html`; [`Html`] turns it off).
 //!
-//! @ref LLP 1033 (the reader), LLP 1115 §2 (names stay CSS)
+//! @ref LLP 1033 (the reader, D9 raw HTML images), LLP 1115 §2 (names stay CSS)
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod html;
 mod inline;
 pub mod value;
 
@@ -42,7 +45,8 @@ pub enum Kind {
     Rule,
     /// A list item; `depth` is its nesting and `marker` what stands in front.
     Item,
-    /// `![alt](src)` alone on a line; `href` is the source, `text` the alt.
+    /// `![alt](src)` alone on a line, or `<img>` and `<picture>` markup;
+    /// `href` is the source, `text` the alt.
     Image,
     /// One row of a pipe table; `cells` are its cells and `header` says which.
     TableRow,
@@ -86,6 +90,14 @@ pub struct Block {
     pub cells: Vec<Vec<Run>>,
     /// Whether a table row is the header row.
     pub header: bool,
+    /// The source an image shows in a dark appearance instead of `href`, or
+    /// empty: a `<picture>`'s `prefers-color-scheme` choice. With one, `href`
+    /// is the light appearance's.
+    pub dark: String,
+    /// An `<img>`'s authored `width` and `height` in CSS pixels, or 0.
+    pub width: u32,
+    /// See `width`.
+    pub height: u32,
 }
 
 /// A parsed document.
@@ -137,9 +149,33 @@ pub fn parse(source: &str, link: &dyn Fn(&str) -> String) -> Document {
     parse_cancellable(source, link, &|| false).unwrap_or_default()
 }
 
+/// Which raw HTML a parse draws rather than shows as written.
+#[derive(Debug, Clone, Copy)]
+pub struct Html<'a> {
+    /// Whether lines of `<img>` and `<picture>` markup are images.
+    pub images: bool,
+    /// The URL schemes an image may load besides a scheme-less URL
+    /// ([`html::allowed`]); a source naming another loads nothing.
+    pub schemes: &'a [&'a str],
+}
+
+impl Html<'static> {
+    /// GitHub's: images, loaded over `http` and `https`.
+    pub const GITHUB: Html<'static> = Html {
+        images: true,
+        schemes: &["http", "https"],
+    };
+    /// Every line of raw HTML shown as written.
+    pub const LITERAL: Html<'static> = Html {
+        images: false,
+        schemes: &[],
+    };
+}
+
 struct Context<'a> {
     link: &'a dyn Fn(&str) -> String,
     scan: inline::Scan<'a>,
+    html: Html<'a>,
 }
 
 impl Context<'_> {
@@ -156,9 +192,20 @@ pub fn parse_cancellable(
     link: &dyn Fn(&str) -> String,
     cancel: &dyn Fn() -> bool,
 ) -> Option<Document> {
+    parse_with(source, link, cancel, Html::GITHUB)
+}
+
+/// [`parse_cancellable`], drawing the raw HTML `html` names.
+pub fn parse_with(
+    source: &str,
+    link: &dyn Fn(&str) -> String,
+    cancel: &dyn Fn() -> bool,
+    html: Html<'_>,
+) -> Option<Document> {
     let context = Context {
         link,
         scan: inline::Scan::new(cancel),
+        html,
     };
     let mut doc = Document::default();
     let mut lines = Vec::new();
@@ -223,6 +270,12 @@ pub fn parse_cancellable(
         if let Some(image) = image_of(trimmed, context.link) {
             doc.blocks.push(image);
             at += 1;
+            continue;
+        }
+        if let Some((images, next)) = html_images(&lines, at, &context) {
+            let image = |image| image_block(image, context.link);
+            doc.blocks.extend(images.into_iter().map(image));
+            at = next;
             continue;
         }
         if trimmed.starts_with('<') && trimmed.len() > 2 {
@@ -543,7 +596,8 @@ fn paragraph(lines: &[&str], at: usize, context: &Context<'_>, doc: &mut Documen
                     || is_rule(trimmed)
                     || bullet_of(trimmed).is_some()
                     || trimmed.starts_with('>')
-                    || table_at(lines, i, &context.scan).is_some()))
+                    || table_at(lines, i, &context.scan).is_some()
+                    || html_images(lines, i, context).is_some()))
         {
             break;
         }
@@ -559,4 +613,89 @@ fn paragraph(lines: &[&str], at: usize, context: &Context<'_>, doc: &mut Documen
         ..Block::default()
     });
     i
+}
+
+/// How much markup one run of images may span: a `<picture>` with a few
+/// sources is well under 1 KiB. Each line that starts with `<img` or
+/// `<picture` reads ahead this far at most, so a document of such lines that
+/// never close parses in linear time.
+const MARKUP_LIMIT: usize = 8 * 1024;
+
+/// The images of the `<img>` and `<picture>` markup that starts line
+/// `at`, and the line after it. The markup may run over several lines, up to
+/// the next blank one, and its last element must end its line; the lines
+/// after that element are the rest of the document's.
+///
+/// A paragraph ends before such a line, which CommonMark would read as inline
+/// HTML in the paragraph: a reader of blocks draws an image only as one.
+fn html_images(
+    lines: &[&str],
+    at: usize,
+    context: &Context<'_>,
+) -> Option<(Vec<html::Image>, usize)> {
+    if !context.html.images || !html::starts_element(lines[at].trim_start()) {
+        return None;
+    }
+    let mut text = String::new();
+    for line in &lines[at..] {
+        if line.trim().is_empty() || text.len() + line.len() > MARKUP_LIMIT {
+            break;
+        }
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(line);
+    }
+    let mut images = Vec::new();
+    let mut found = None;
+    let mut offset = 0;
+    loop {
+        if context.scan.cancelled() {
+            return None;
+        }
+        offset += text[offset..].len() - text[offset..].trim_start().len();
+        let Some((drawn, len)) = html::element(&text[offset..], context.html.schemes) else {
+            break;
+        };
+        offset += len;
+        images.extend(drawn);
+        let line_end = text[offset..].find('\n').map_or(text.len(), |n| offset + n);
+        if text[offset..line_end].trim().is_empty() {
+            let line = at + text[..line_end].matches('\n').count();
+            found = Some((images.len(), line + 1));
+        }
+    }
+    let (count, next) = found?;
+    images.truncate(count);
+    Some((images, next))
+}
+
+fn image_block(image: html::Image, link: &dyn Fn(&str) -> String) -> Block {
+    let resolve = |url: &str| {
+        if url.is_empty() {
+            String::new()
+        } else {
+            link(url)
+        }
+    };
+    let themed = !image.dark.is_empty() || !image.light.is_empty();
+    let light = if image.light.is_empty() {
+        &image.src
+    } else {
+        &image.light
+    };
+    let dark = if image.dark.is_empty() {
+        &image.src
+    } else {
+        &image.dark
+    };
+    Block {
+        kind: Kind::Image,
+        text: image.alt,
+        href: resolve(light),
+        dark: if themed { resolve(dark) } else { String::new() },
+        width: image.width,
+        height: image.height,
+        ..Block::default()
+    }
 }
