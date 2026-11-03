@@ -1,14 +1,14 @@
 // ExpandedImageDialog for a Mermaid diagram (T3 Code, MIT; see LICENSE-T3):
-// MermaidDiagram's "Expand diagram" opens the diagram on the page's background
-// at its own size, never larger, up to 92% of the window (less the arrows' 96pt)
-// and min(86vh, 100vh − 160pt) high, named "Mermaid diagram". The diagram is the
+// MermaidDiagram's "Expand diagram" opens the diagram on the page's background, named "Mermaid diagram", as an SVG:
+// scaled to fill 92% of the window (less the arrows' 96pt) and min(86vh, 100vh − 160pt) high, larger than its own size
+// where that fits, since a vector scales without loss (ZoomableImage at 5d3d78ab93). The diagram is the
 // fence's Mermaid page again (mermaid-frame.contract MermaidFrameView), laid out as its opener drew it, at that size.
 use MermaidDiagram, MermaidFrameView from "./mermaid-frame.contract"
 use Icon from "../shared/icons.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 
-fn diagramScale(width: number, height: number, maxWidth: number, maxHeight: number): number = min(1, min(maxWidth / max(1, width), maxHeight / max(1, height)))
+fn diagramScale(width: number, height: number, maxWidth: number, maxHeight: number): number = min(maxWidth / max(1, width), maxHeight / max(1, height))
 
 component DiagramPreviewDialog
   inject

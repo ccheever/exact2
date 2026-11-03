@@ -18,7 +18,7 @@ import { ClientError, type Native } from '../client/protocol';
 import { workspaceValues } from './composer-workspace-snapshots';
 import { selectedProvider, workspaceCwd } from './composer-editor';
 import { openFileSurface } from '../panel/panel-surfaces';
-import { clearCitationDraft, noteCitationDraft, registerCitationDraft } from '../timeline/citation-draft';
+import { citationCommentDirection, clearCitationDraft, noteCitationDraft, registerCitationDraft } from '../timeline/citation-draft';
 import { citationCommentLocal, citationPopover, citedStart } from '../timeline/citation-comment';
 import { chipAct, composerImageStep, performChipAct, contextDetails, draftContextRecords } from './composer-chip-details';
 import { composerFileLocal } from './composer-chip-file';
@@ -52,6 +52,8 @@ export type ChipPopover = {
   kind: string;
   /** A citation's saved comment. */
   comment: string;
+  /** The comment editor's reading direction, from what it holds now (unsaved typing included). */
+  commentDir: string;
   /** A citation's anchor: "chip" (its comment button) or "source" (the cited text, after Cite), and its frame. */
   anchor: string;
   ax: number;
@@ -86,7 +88,7 @@ export type ChipPopover = {
 type CodeHighlight = ReturnType<typeof messageCodeBlocks>[number];
 const NO_MARKDOWN_ENV: MarkdownEnv = { codeFont: DEFAULT_CODE_FONT, codeSize: 13, wrap: true, chips: [], runCommands: [], threadGlyphs: [], inks: [] };
 export const NO_CHIP: ChipPopover = { finish: NO_CHIP_FINISH, seq: 0, open: false, surface: '', label: '', title: '', description: '', path: '', x: 0, y: 0, width: 0, height: 0,
-  kind: '', comment: '', anchor: '', ax: 0, ay: 0, aw: 0, ah: 0, message: '', quote: '', at: -1, lines: '', rows: 0, diff: '', image: '', aspect: 0, act: '',
+  kind: '', comment: '', commentDir: 'ltr', anchor: '', ax: 0, ay: 0, aw: 0, ah: 0, message: '', quote: '', at: -1, lines: '', rows: 0, diff: '', image: '', aspect: 0, act: '',
   markdownSource: [], code: [], md: NO_MARKDOWN_ENV, diffLines: [], diffGutter: 0, highlightPending: false };
 export const NO_DESCRIPTION = 'No description is available for this skill.';
 
@@ -136,6 +138,7 @@ export function chipPopoverView(client: T3Client): ChipPopover {
   registerCitationDraft(client, press);
   const popover = chipPopover(press, composer ? workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills') : [], citation => citedStart(client, citation),
     composer ? draftContextRecords(client) : {});
+  if (popover.kind === 'citation') popover.commentDir = citationCommentDirection(client, popover.seq, popover.comment);
   return popover.open && popover.kind === 'review-comment' ? reviewCommentRendered(client, popover) : popover;
 }
 

@@ -59,6 +59,7 @@ shape ChipPopover
   // its anchor ("chip": the comment button, "source": the cited text after Cite) and the anchor's window frame.
   kind: string
   comment: string
+  commentDir: string
   anchor: string
   ax: number
   ay: number

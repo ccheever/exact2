@@ -1,3 +1,4 @@
+import { textDirection } from '../shared/text-direction';
 import { requestComposerField } from '../composer/composer-field-request';
 // An assistant citation's comment, adapted from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
 // AssistantCitationChip.tsx (the chip's PopoverTrigger "Add comment to citation" / "Edit citation comment" and its
@@ -47,7 +48,7 @@ export function citationPopover(press: Obj, base: ChipPopover, startOf: (citatio
   return {
     ...base, seq: Number(press.seq) || 0, open: true, surface: str(press.surface), kind: 'citation', label: str(press.label),
     // The popup's own name (PopoverPopup aria-label); the chip's comment, the textarea's starting value.
-    title: 'Edit citation comment', comment: citation?.comment ?? '',
+    title: 'Edit citation comment', comment: citation?.comment ?? '', commentDir: textDirection(citation?.comment ?? '') ?? 'ltr',
     x: frame[0] || 0, y: frame[1] || 0, width: frame[2] || 0, height: frame[3] || 0,
     anchor: str(press.anchor) === 'source' ? 'source' : 'chip', ax: anchor[0] || 0, ay: anchor[1] || 0, aw: anchor[2] || 0, ah: anchor[3] || 0,
     // The cited text stays marked in its answer while the comment is open (AssistantCitationSource.tsx); the answer's row

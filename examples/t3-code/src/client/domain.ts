@@ -28,6 +28,8 @@ export interface Message { secret?: ReturnType<typeof import('../timeline/secret
   revert?: number; intent?: string; intentTip?: string; attribution?: string; targetId?: string; actionLabel?: string; copied?: number;
   /** A folded automation or agent message's one line. */
   summary?: string;
+  /** A user message's reading direction from its prose (markdownProseDirection); unset reads left to right. */
+  dir?: string;
   /** A user message that switched the model or effort on the same harness (`modelSwitch`). */
   modelSwitch?: ModelSwitch;
   /** A sent message's shape (timeline-attachments.ts userMessageShape), and whether Copy has anything to take. */

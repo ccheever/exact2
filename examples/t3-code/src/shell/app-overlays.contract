@@ -230,7 +230,7 @@ component WindowOverlays
       RevertDialog(busy=commandPending, answer=answerRevert)
     DialogFinalFocus(open=(data.imagePreviewId != ""), owner="image-preview")
     if data.imagePreviewId != ""
-      ImagePreviewHost(id=data.imagePreviewId, urls=attachmentUrls.items, name=data.imagePreviewName, position=data.imagePreviewPosition, previous=data.imagePreviewPrevious, next=data.imagePreviewNext, video=data.imagePreviewVideo, source=data.imagePreviewSource, tip=data.imagePreviewTip, returnFocus=data.imagePreviewReturn, windowWidth=viewport.width, windowHeight=viewport.height, local=chatLocal)
+      ImagePreviewHost(id=data.imagePreviewId, urls=attachmentUrls.items, name=data.imagePreviewName, position=data.imagePreviewPosition, previous=data.imagePreviewPrevious, next=data.imagePreviewNext, video=data.imagePreviewVideo, svg=data.imagePreviewSvg, source=data.imagePreviewSource, tip=data.imagePreviewTip, returnFocus=data.imagePreviewReturn, windowWidth=viewport.width, windowHeight=viewport.height, local=chatLocal)
     DialogFinalFocus(open=(data.diagramPreview.length > 0), owner="diagram-preview")
     for diagram in data.diagramPreview key=diagram.id
       DiagramPreviewDialog(diagram=diagram, windowWidth=viewport.width, windowHeight=viewport.height, scheme=scheme, local=chatLocal)
