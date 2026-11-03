@@ -1372,7 +1372,10 @@ processes".
 For an attachment of any type, use `input type="file"` with no `accept` (or
 `accept="*/*"`) and `multiple` when needed. `showPicker("attach")` opens the
 input with `id="attach"`; `change` receives `Picked[]` with copies under
-`app:/tmp/picked/`. A specific `accept` list remains bounded to image/video
+`app:/tmp/picked/`. A copy's file name is not the file's: `path` is
+`app:/tmp/picked/<id>.<ext>`, `<id>` from the launch and a counter, and `name` is the
+original name. Read the bytes at `path` (grant `fs.read app:/tmp/picked`), and show or
+upload them under `name`. A specific `accept` list remains bounded to image/video
 types and the app's `file_handlers`. On Linux the agent can answer a held
 picker, but the live picker is unavailable. See [the picker
 spec](../llp/1069.002-media-picker.rfc.md#any-type-input-charlie-2026-10-11).
@@ -3119,7 +3122,11 @@ fact, not a CSS media feature, read wherever Exact draws with UIKit's metrics (i
 iPadOS, tvOS, visionOS, watchOS), and false on the Mac, Android, Linux, Windows and
 the web.
 `EmptyState` drops its symbol then. Under the agent on iOS, `prefer root-font-size
-28` (Dynamic Type's AX1 body) or more sets it.
+28` (Dynamic Type's AX1 body) or more sets it. That `prefer` sets only the size of the
+text Exact draws: UIKit's own text, a native field's among them, keeps the simulator's
+text size. To see a screen at the largest size, as `verify` does, set the simulator's:
+`xcrun simctl ui <udid> content_size accessibility-extra-extra-extra-large`. With no
+size, `content_size` prints the current one: set it back after.
 `exactViewport().gpuTier` is `low`, `mid` or `high`: how much GPU work a frame can
 afford, chosen once before the GPU device is made from what the adapter reports
 (a phone GPU of the Adreno 600 class is `low`), else from the screen (a phone-sized
