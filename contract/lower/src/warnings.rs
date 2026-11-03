@@ -20,6 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod container;
 mod counts;
+mod face;
 mod fixed_beside;
 mod launch;
 pub(crate) mod line_height;
@@ -340,39 +341,6 @@ fn holds_heading(node: &Node) -> bool {
     })
 }
 
-/// A box with a literal fill: before the heading, the title's avatar.
-fn filled(node: &Node) -> bool {
-    let Node::Element { attrs, .. } = node else {
-        return false;
-    };
-    has(attrs, "background-color") || has(attrs, "background")
-}
-
-/// A passive box of texts and symbol images, one of each at least: a
-/// subtitle's line of glyphs (Signal's "🔕 Muted ⏱ 1w").
-fn glyph_line(node: &Node) -> bool {
-    let (mut symbol, mut text) = (false, false);
-    for k in kids(node) {
-        match (part(k), k) {
-            (Part::Text, _) => text = true,
-            (
-                Part::Other,
-                Node::Element {
-                    tag, positional, ..
-                },
-            ) if tag == "image" => match positional.first() {
-                // A computed source may be a symbol: the benefit.
-                Some(Expr::Str(s, _)) if !s.starts_with("symbol:") => return false,
-                Some(_) => symbol = true,
-                None => return false,
-            },
-            (Part::Hidden, _) => {}
-            _ => return false,
-        }
-    }
-    symbol && text && !filled(node)
-}
-
 /// What the walk of one header has seen.
 #[derive(Default)]
 struct Bar<'a> {
@@ -390,6 +358,8 @@ struct Bar<'a> {
     tablist: bool,
     tap: bool,
     unplaced: Vec<(Span, String)>,
+    /// Readouts that draw nothing, which the bar hides (`face`).
+    faceless: Vec<Span>,
 }
 
 /// A route's `header` that is not the bar, in `lower-header-no-bar`'s words (LLP 1115.000 D5.2).
@@ -403,8 +373,8 @@ const OR_NO_BAR: &str = "; or, for a site's header, say `appearance=\"none\"` on
 /// bar takes one heading as its title, the first text after it as the
 /// subtitle (a filled box before it as the avatar), one search field, one
 /// tablist, the buttons that press, open a popover or are disabled, and the
-/// readouts (`role="status"`, LLP 1075.003 §9.15); the rest of the header is hidden
-/// with it. With no heading or with two, the bar takes nothing and the
+/// readouts (`role="status"`, LLP 1075.003 §9.15) that draw a text, a symbol or a dot
+/// (`face`); the rest of the header is hidden with it. With no heading or with two, the bar takes nothing and the
 /// header is shown as written: `lower-header-no-bar`'s (LLP 1116.003 D2.2).
 /// An `if` first among the route's children is read branch by branch: a branch's first node
 /// is the route's first child while it is taken, and `after` the route's nodes past that `if`.
@@ -453,13 +423,17 @@ fn route_header<'a>(children: &'a [Node], after: &[&'a Node], out: &mut Vec<Lowe
             span,
         });
     }
+    out.extend(bar.faceless.into_iter().map(face::unshown));
 }
 
 fn walk<'a>(nodes: &'a [Node], bar: &mut Bar<'a>) {
     for node in nodes {
         let span = node.span();
         match part(node) {
-            Part::Doubt => bar.doubt = true,
+            Part::Doubt => {
+                bar.doubt = true;
+                face::faceless(node, &mut bar.faceless);
+            }
             Part::Hidden => {}
             Part::Heading => {
                 bar.headings += 1;
@@ -482,7 +456,7 @@ fn walk<'a>(nodes: &'a [Node], bar: &mut Bar<'a>) {
             Part::Pressable => {}
             // A status around the heading is no readout: walked for it.
             Part::Status if holds_heading(node) => walk(kids(node), bar),
-            Part::Status => {}
+            Part::Status => face::faceless(node, &mut bar.faceless),
             Part::Text if bar.passed && !bar.subtitle => bar.subtitle = true,
             Part::Text => bar.unplaced.push((
                 span,
@@ -492,8 +466,12 @@ fn walk<'a>(nodes: &'a [Node], bar: &mut Bar<'a>) {
                     "this text, before the heading,".into()
                 },
             )),
-            Part::Box if bar.passed && !bar.subtitle && glyph_line(node) => bar.subtitle = true,
-            Part::Box if !bar.passed && !bar.avatar && filled(node) && !holds_heading(node) => {
+            Part::Box if bar.passed && !bar.subtitle && face::glyph_line(node) => {
+                bar.subtitle = true
+            }
+            Part::Box
+                if !bar.passed && !bar.avatar && face::filled(node) && !holds_heading(node) =>
+            {
                 bar.avatar = true;
             }
             Part::Box if holds_placed(node) => walk(kids(node), bar),
