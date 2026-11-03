@@ -1,6 +1,13 @@
 // @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#transcript-ownership
 // FloatingWorkingControl at365aa87982. The parent places this at the composer overlay's top.
 use ThreadColors from "./thread-shapes.contract"
+
+keyframes workingStatusEnter
+  from opacity=0 translate="0px 2px" animation-timing-function="ease-out"
+  to opacity=1 translate="0px 0px"
+keyframes workingStatusExit
+  to opacity=0 translate="0px -2px" animation-timing-function="ease-in"
+
 shape WorkingControlData
   owner: string
   nextRefreshAt: number
@@ -56,17 +63,17 @@ component MobileWorkingControl
       if data.visible or showScrollToEnd
         row position="absolute" z-index=20 top=-40.5 left=0 right=0 height=38.5 justify-content="center" gap=12 pointer-events="none"
           if data.visible
-            row pointer-events="none" height=38.5 min-width=0 align-items="center" overflow="hidden" border-radius=999 background-color=colors.glassFallback border-width=1 border-style="solid" border-color=colors.border box-sizing="border-box" font-family="DM Sans" translate=capsuleTranslate transition=controlTransition
+            row pointer-events="none" height=38.5 min-width=0 align-items="center" overflow="hidden" border-radius=999 background-color=colors.glassFallback border-width=1 border-style="solid" border-color=colors.border box-sizing="border-box" font-family="DM Sans" translate=capsuleTranslate transition=controlTransition -exact-layout-transition=(reducedMotion ? "none" : "240ms cubic-bezier(.22, 1, .36, 1)")
               box-shadow="0px 4px 6px -1px rgba(0, 0, 0, 0.1), 0px 2px 4px -2px rgba(0, 0, 0, 0.1)"
               t3-composer-material position="absolute" inset=0 pointer-events="none" aria-hidden=true
                 material-appearance=(dark ? "dark" : "light") material-radius=32 material-style="regular" material-tint=glassTint material-surface=colors.glassFallback material-border=colors.border
               if data.statusKind != ""
                 if data.reconnect
                   button pointer-events="auto" press=reconnect(data.owner) height=38.5 max-width=labelWidth box-sizing="border-box" min-width=0 flex-shrink=1 padding-left=14 padding-right=14 aria-label=data.statusAccessibility
-                    WorkingStatus(data=data, colors=colors)
+                    WorkingStatus(data=data, colors=colors, reducedMotion=reducedMotion)
                 else
                   row testId="working-status" height=38.5 max-width=labelWidth box-sizing="border-box" min-width=0 flex-shrink=1 align-items="center" padding-left=14 padding-right=14 aria-label=data.statusAccessibility
-                    WorkingStatus(data=data, colors=colors)
+                    WorkingStatus(data=data, colors=colors, reducedMotion=reducedMotion)
               if data.deviceCount > 0 or data.browserCount > 0
                 row testId="working-preview-segments" height=38.5 align-items="center" flex-shrink=0 resize=previewSized
                   if data.statusKind != ""
@@ -100,15 +107,36 @@ component WorkingStatus
   props
     data: WorkingControlData
     colors: ThreadColors
+    reducedMotion: bool
   view
-    row min-width=0 align-items="center" gap=(data.statusKind == "compacting" ? 5.25 : 7)
-      if data.statusSpinning
+    if data.statusKind == "syncing"
+      row min-width=0 align-items="center" gap=7 animation=(reducedMotion ? "none" : "workingStatusEnter 160ms ease-out both") -exact-exit-animation="workingStatusExit 100ms ease-in both"
         t3-archive-spinner spinner-tint=colors.iconMuted width=20 height=20
-      else if data.reconnect
-        view width=7 height=7 border-radius=999 background-color="#fb2c36" flex-shrink=0
-      else if data.statusSymbol != ""
+        text data.statusLabel font-family="DM Sans" font-variant-numeric="normal" min-width=0 flex-shrink=1 font-size=13 line-height="17px" font-weight=500 line-clamp=1 text-overflow="ellipsis" color=colors.foreground
+    else if data.statusKind == "connection"
+      row min-width=0 align-items="center" gap=7 animation=(reducedMotion ? "none" : "workingStatusEnter 160ms ease-out both") -exact-exit-animation="workingStatusExit 100ms ease-in both"
+        if data.statusSpinning
+          t3-archive-spinner spinner-tint=colors.iconMuted width=20 height=20
+        else
+          view width=7 height=7 border-radius=999 background-color="#fb2c36" flex-shrink=0
+        text data.statusLabel font-family="DM Sans" font-variant-numeric="normal" min-width=0 flex-shrink=1 font-size=13 line-height="17px" font-weight=500 line-clamp=1 text-overflow="ellipsis" color=colors.foreground
+    else if data.statusKind == "compacting"
+      row min-width=0 align-items="center" gap=5.25 animation=(reducedMotion ? "none" : "workingStatusEnter 160ms ease-out both") -exact-exit-animation="workingStatusExit 100ms ease-in both"
         t3-symbol symbol-name=data.statusSymbol symbol-tint=colors.foreground width=13 height=13
-      text data.statusLabel font-family=(data.statusKind == "working" ? "system-ui" : "DM Sans") font-variant-numeric=(data.statusKind == "working" ? "tabular-nums" : "normal") min-width=0 flex-shrink=1 font-size=13 line-height="17px" font-weight=500 line-clamp=1 text-overflow="ellipsis" color=colors.foreground
+        text data.statusLabel font-family="DM Sans" font-variant-numeric="normal" min-width=0 flex-shrink=1 font-size=13 line-height="17px" font-weight=500 line-clamp=1 text-overflow="ellipsis" color=colors.foreground
+    else if data.statusKind == "background"
+      row min-width=0 align-items="center" gap=7 animation=(reducedMotion ? "none" : "workingStatusEnter 160ms ease-out both") -exact-exit-animation="workingStatusExit 100ms ease-in both"
+        t3-symbol symbol-name=data.statusSymbol symbol-tint=colors.foreground width=13 height=13
+        text data.statusLabel font-family="DM Sans" font-variant-numeric="normal" min-width=0 flex-shrink=1 font-size=13 line-height="17px" font-weight=500 line-clamp=1 text-overflow="ellipsis" color=colors.foreground
+    else if data.statusKind == "goal"
+      row min-width=0 align-items="center" gap=7 animation=(reducedMotion ? "none" : "workingStatusEnter 160ms ease-out both") -exact-exit-animation="workingStatusExit 100ms ease-in both"
+        t3-symbol symbol-name=data.statusSymbol symbol-tint=colors.foreground width=13 height=13
+        text data.statusLabel font-family="DM Sans" font-variant-numeric="normal" min-width=0 flex-shrink=1 font-size=13 line-height="17px" font-weight=500 line-clamp=1 text-overflow="ellipsis" color=colors.foreground
+    else
+      row min-width=0 align-items="center" gap=7 animation=(reducedMotion ? "none" : "workingStatusEnter 160ms ease-out both") -exact-exit-animation="workingStatusExit 100ms ease-in both"
+        if data.statusSymbol != ""
+          t3-symbol symbol-name=data.statusSymbol symbol-tint=colors.foreground width=13 height=13
+        text data.statusLabel font-family=(data.statusKind == "working" ? "system-ui" : "DM Sans") font-variant-numeric=(data.statusKind == "working" ? "tabular-nums" : "normal") min-width=0 flex-shrink=1 font-size=13 line-height="17px" font-weight=500 line-clamp=1 text-overflow="ellipsis" color=colors.foreground
 component WorkingPreview
   props
     count: number

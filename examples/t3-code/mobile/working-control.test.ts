@@ -93,6 +93,15 @@ test('working control exposes a separate glass scroll-to-end button', () => {
   expect(source).toContain('symbol-name="chevron.down"');
 });
 
+test('working status changes crossfade and the capsule reflows as labels change', () => {
+  const source = readFileSync(new URL('./working-control.contract', import.meta.url), 'utf8');
+  expect(source).toContain('keyframes workingStatusEnter');
+  expect(source).toContain('keyframes workingStatusExit');
+  expect(source).toContain('-exact-exit-animation="workingStatusExit 100ms ease-in both"');
+  expect(source).toContain('-exact-layout-transition=(reducedMotion ? "none" : "240ms cubic-bezier(.22, 1, .36, 1)")');
+  expect(source).toContain('WorkingStatus(data=data, colors=colors, reducedMotion=reducedMotion)');
+});
+
 test('connecting and reconnecting preserve the pinned connection-error retry copy', () => {
   const client = fixture();
   for (const phase of ['connecting', 'reconnecting']) {
