@@ -27,7 +27,8 @@ enum T3MediaActions {
     /// The pasteboard an agent drive writes instead of the person's (read it back by this name).
     static let agentPasteboard = NSPasteboard.Name("com.exact.t3code.agent-media")
 
-    static let fetchFailed = "The file could not be fetched. The host may block browser access (CORS), or the connection may be unavailable."
+    /// The desktop app's words (mediaContent.ts fetchMediaBlob at 5d3d78ab93): URLSession has no CORS to blame.
+    static let fetchFailed = "The file could not be fetched. Check the connection and try again."
     static let webPage = "This link returned a web page instead of media. Open the original URL."
     static let tooLarge = "This image is too large or has no usable dimensions. Try saving it instead."
     static let undecodable = "The browser could not decode this image for copying. Try saving it instead."

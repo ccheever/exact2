@@ -59,8 +59,8 @@ function refreshDue(client: T3Client, id: string, mutationId: string | null): bo
 
 // Signed URLs a surface minted (useAssetUrlState), re-minted after five minutes as the HTML page is. `fileRevision`: the
 // file's identity and contents, which a newer server reports (AssetCreateUrlResult), unlike the URL, which every mint signs
-// anew.
-type Minted = { url: string; at: number; error: boolean; resource: Obj; fileRevision?: string };
+// anew; `expiresAt`, when the URL stops working.
+type Minted = { url: string; at: number; error: boolean; resource: Obj; fileRevision?: string; expiresAt?: number };
 const minted = new WeakMap<T3Client, Map<string, Minted>>();
 const STALE_URL_MS = 5 * 60_000;
 function mintedOf(client: T3Client): Map<string, Minted> {
@@ -68,15 +68,28 @@ function mintedOf(client: T3Client): Map<string, Minted> {
   if (!map) { map = new Map(); minted.set(client, map); }
   return map;
 }
-async function mint(client: T3Client, native: Native | null | undefined, key: string, resource: Obj, now: number, force = false): Promise<Minted | undefined> {
+/**
+ * makeRevisionedAssetUrlFamily's keepUnchangedFile (client-runtime state/assets.ts at 5d3d78ab93): a re-mint signs a new
+ * URL even when the file is unchanged, and a new URL reloads the image, so a revisioned image keeps the URL it shows
+ * while the server reports the same file revision and that URL has over five minutes left.
+ */
+const KEEP_URL_MIN_LIFE_MS = 5 * 60_000;
+function keepUnchangedFile(shown: Minted | undefined, next: Minted, now: number): Minted {
+  if (!shown || shown.error || next.error || next.fileRevision === undefined || next.fileRevision !== shown.fileRevision
+    || shown.expiresAt === undefined || shown.expiresAt - now <= KEEP_URL_MIN_LIFE_MS) return next;
+  return { ...shown, at: next.at };
+}
+async function mint(client: T3Client, native: Native | null | undefined, key: string, resource: Obj, now: number, force = false, revisioned = false): Promise<Minted | undefined> {
   const map = mintedOf(client);
   let entry = map.get(key);
   const stale = !!entry && !entry.error && now > 0 && entry.at > 0 && now - entry.at > STALE_URL_MS;
   if ((!entry || stale || force) && native?.available && client.ready && client.connection === 'connected') {
+    const shown = entry;
     try {
       const result = obj(await client.rpc(native, 'assets.createUrl', { resource }));
-      const url = assetUrl(client.origin, str(result.relativeUrl)), fileRevision = str(result.fileRevision).trim().slice(0, 256);
-      entry = { url, at: now, error: !url, resource, ...(fileRevision ? { fileRevision } : {}) };
+      const url = assetUrl(client.origin, str(result.relativeUrl)), fileRevision = str(result.fileRevision).trim().slice(0, 256), expiresAt = Number(result.expiresAt);
+      entry = { url, at: now, error: !url, resource, ...(fileRevision ? { fileRevision } : {}), ...(Number.isFinite(expiresAt) && expiresAt > 0 ? { expiresAt } : {}) };
+      if (revisioned) entry = keepUnchangedFile(shown, entry, now);
     } catch (error) { if (letGo(error)) throw error; entry = { url: '', at: now, error: true, resource }; }
     map.set(key, entry);
     if (map.size > 256) map.delete(map.keys().next().value!);
@@ -402,8 +415,9 @@ export function markdownMediaChips(text: string, root: string, scope: MediaScope
  * `media-noaccess:<path>` too when the session lacks `filesystem:read`, which the host requires: blockedAssetUrlState
  * skips the request so the label can say to pair again), or a given document's. `threadId` names the thread they sign through (a draft's own id in Files, as the reference's draft
  * thread ref; the server signs an absolute `media-file` path without looking the thread up).
- * A rendered Markdown file passes its workspace's `mutationId` (ChatMarkdownAssetImage at 74541bab17): when it changes,
- * or the connection comes back, each image is signed again so an edited file's picture reloads; a video or a sound is not.
+ * The thread's messages and a rendered Markdown file pass the workspace's `mutationId` (ChatMarkdownAssetImage and
+ * WorkspaceMutationIdContext at 5d3d78ab93): when it changes, or the connection comes back, each image is signed again
+ * so a rewritten file's picture reloads, keeping its URL while the file is unchanged; a video or a sound is not.
  */
 export async function markdownMediaUrls(client: T3Client, native: Native, root: string, now: number, texts?: string[], scope: MediaScope & { threadId?: string; mutationId?: string | null } = {}): Promise<{ id: string; url: string }[]> {
   const out: { id: string; url: string }[] = [];
@@ -423,7 +437,8 @@ export async function markdownMediaUrls(client: T3Client, native: Native, root: 
     if (blocked) { out.push({ id: `media-failed:${key.slice('media:'.length)}`, url: '' }, { id: `media-noaccess:${key.slice('media:'.length)}`, url: '' }); continue; }
     const resource = { ...media.resource!, threadId }, id = `md:${client.environmentId}|${threadId}|${key}`;
     // InlineAudioPreview signs a sound once, as a video is.
-    const entry = await mint(client, native, id, resource, now, scope.mutationId !== undefined && media.kind === 'image' && refreshDue(client, id, scope.mutationId));
+    const revisioned = scope.mutationId !== undefined && media.kind === 'image';
+    const entry = await mint(client, native, id, resource, now, revisioned && refreshDue(client, id, scope.mutationId!), revisioned);
     if (!entry) continue;
     out.push(entry.error ? { id: `media-failed:${key.slice('media:'.length)}`, url: '' } : { id: key, url: entry.url + media.fragment });
   }

@@ -45,6 +45,26 @@ describe('workspaceRelativeFilePath (#22853)', () => {
     expect(workspaceRelativeFilePath('C:\\repo\\project\\src\\..\\..\\notes.md', 'C:\\repo\\project')).toBeNull();
     expect(workspaceRelativeFilePath('/repo/project/docs/a/../b.md', '/repo/project')).toBe('docs/a/../b.md');
   });
+  test('a POSIX root keeps a literal backslash; only Windows and UNC roots fold separators and case (#29245)', () => {
+    const cases: [string, string, string | null][] = [
+      ['/repo/a\\b.txt', '/repo', 'a\\b.txt'],
+      ['/repo/a/b.txt', '/repo', 'a/b.txt'],
+      ['/repo/a\\', '/repo', 'a\\'],
+      ['/repo/..\\notes.md', '/repo', '..\\notes.md'],
+      ['/repo/a\\/../../notes.md', '/repo', null],
+      ['/repo\\project/a.txt', '/repo\\project/', 'a.txt'],
+      ['/repo/project/a.txt', '/repo\\project', null],
+      ['/repo\\project/a.txt', '/repo/project', null],
+      ['C:\\Repo\\src\\main.ts', 'c:/repo/', 'src/main.ts'],
+      ['/C:/Repo/src/main.ts', 'c:\\repo', 'src/main.ts'],
+      ['C:\\Repo\\src\\main.ts', '/c:/repo', 'src/main.ts'],
+      ['\\\\SERVER\\Share\\Repo\\src\\main.ts', '\\\\server\\share\\repo', 'src/main.ts'],
+      ['\\\\SERVER\\Share\\Repo\\src\\main.ts', '//server/share/repo', 'src/main.ts'],
+      ['//server/share/a\\b.txt', '//server/share', 'a\\b.txt'],
+      ['\\\\server\\share\\repo\\..\\notes.md', '\\\\server\\share\\repo', null],
+    ];
+    for (const [path, root, relative] of cases) expect([path, workspaceRelativeFilePath(path, root)]).toEqual([path, relative]);
+  });
   test('opening one keeps the host path (ChatMarkdown panelPath), where a path inside opens in the workspace', () => {
     expect(workspacePath('/repo/project/../other/notes.md', '/repo/project')).toEqual({ path: '/repo/project/../other/notes.md', line: 0 });
     expect(workspacePath('/repo/project/docs/a/../b.md:3', '/repo/project')).toEqual({ path: 'docs/a/../b.md', line: 3 });

@@ -1,5 +1,6 @@
 // T3's own MCP tools in the work log, adapted from T3 Code (MIT, see LICENSE-T3):
-// Sources at 7c3b3b3605ef: packages/shared/src/t3McpToolPresentation.ts (the inventory, name resolution and
+// Sources at 7c3b3b3605ef (the pull request tools, their counts and schedule_task at 5d3d78ab93):
+// packages/shared/src/t3McpToolPresentation.ts (the inventory, name resolution and
 // action tools), packages/client-runtime/src/work-log/presentation.ts
 // (resolveT3McpToolPresentation: tense, failure and the PR target, in the host's term) and
 // packages/client-runtime/src/t3ToolSummary.ts (group summaries).
@@ -44,7 +45,9 @@ const device = (labels: T3ToolDefinition['labels']) => tool(labels, 'device', 'd
 
 const TOOLS: Readonly<Record<string, T3ToolDefinition>> = {
   link_pull_request: pr(['Link', 'Linking', 'Linked', 'a pull request'], 'link-pr'),
+  link_pull_requests: pr(['Link', 'Linking', 'Linked', 'pull requests'], 'link-pr'),
   unlink_pull_request: pr(['Unlink', 'Unlinking', 'Unlinked', 'a pull request'], 'unlink-pr'),
+  unlink_pull_requests: pr(['Unlink', 'Unlinking', 'Unlinked', 'pull requests by state'], 'unlink-pr'),
   list_thread_pull_requests: pr(['Check', 'Checking', 'Checked', 'linked pull requests'], 'list-prs'),
   watch_pull_request: pr(['Watch', 'Watching', 'Watching', 'a pull request'], 'watch-pr'),
   unwatch_pull_request: pr(['Stop watching', 'Unwatching', 'Stopped watching', 'a pull request'], 'unwatch-pr'),
@@ -55,7 +58,7 @@ const TOOLS: Readonly<Record<string, T3ToolDefinition>> = {
   delegate_task: tool(['Delegate', 'Delegating', 'Delegated', 'a child task'], 'delegate'),
   task_status: tool(['Get', 'Getting', 'Got', 'delegated task status'], 'task-status'),
   task_cancel: tool(['Cancel', 'Canceling', 'Requested cancellation of', 'a delegated task'], 'task-cancel'),
-  schedule_task: tool(['Schedule', 'Scheduling', 'Scheduled', 'a recurring task'], 'schedule-create'),
+  schedule_task: tool(['Schedule', 'Scheduling', 'Scheduled', 'a task'], 'schedule-create'),
   list_scheduled_tasks: tool(['List', 'Listing', 'Listed', 'scheduled tasks'], 'schedule-list'),
   update_scheduled_task: tool(['Update', 'Updating', 'Updated', 'a scheduled task'], 'schedule-update'),
   delete_scheduled_task: tool(['Delete', 'Deleting', 'Requested deletion of', 'a scheduled task'], 'schedule-delete'),
@@ -220,6 +223,19 @@ export interface T3ToolCall { input: unknown; output: unknown; outcome: 'complet
 const quantity = (count: number, noun: string, plural = `${noun}s`) => `${count} ${count === 1 ? noun : plural}`;
 const countEntities = (ids: (string | undefined)[]) => new Set(ids.filter(value => value !== undefined)).size + ids.filter(value => value === undefined).length;
 
+/** One PR per single call; a batch counts what its result reports. */
+function pullRequestQuantity(calls: readonly { input?: Record<string, unknown>; output?: Record<string, unknown> }[], countKey: 'linkedCount' | 'unlinkedCount'): string {
+  let count = 0;
+  for (const call of calls) {
+    const reported = call.output?.[countKey];
+    if (typeof reported === 'number') count += reported;
+    else if (call.input?.url !== undefined || call.input?.number !== undefined) count += 1;
+    // A batch result too large to compact loses its count, so the label drops the number.
+    else return 'pull requests';
+  }
+  return quantity(count, 'pull request');
+}
+
 /** summarizeT3ToolCalls: successful effects, counted apart from failed or unfinished calls. */
 export function summarizeT3ToolCalls(action: T3SummaryAction, calls: readonly T3ToolCall[]): { label: string; failedCount: number } {
   const results = calls.map(call => {
@@ -309,8 +325,8 @@ export function summarizeT3ToolCalls(action: T3SummaryAction, calls: readonly T3
         const targets = threadsKnown ? ` to ${quantity(new Set(threadIds).size, 'thread')}` : '';
         return phrase('Sent', 'send', countsKnown ? `${quantity(attachments, 'attachment')}${targets}` : `attachments${targets} ${times}`);
       }
-      case 'link-pr': return phrase('Linked', 'link', quantity(selected.length, 'pull request'));
-      case 'unlink-pr': return phrase('Unlinked', 'unlink', quantity(selected.length, 'pull request'));
+      case 'link-pr': return phrase('Linked', 'link', pullRequestQuantity(selected, 'linkedCount'));
+      case 'unlink-pr': return phrase('Unlinked', 'unlink', pullRequestQuantity(selected, 'unlinkedCount'));
       case 'watch-pr': return phrase('Watching', 'watch', quantity(selected.length, 'pull request'));
       case 'unwatch-pr': return phrase('Stopped watching', 'stop watching', quantity(selected.length, 'pull request'));
       case 'list-prs': return phrase('Checked', 'check', `linked pull requests${selected.length === 1 ? '' : ` ${times}`}`);

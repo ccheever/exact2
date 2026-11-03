@@ -577,6 +577,7 @@ shape Snapshot
   imagePreviewPrevious: bool
   imagePreviewNext: bool
   imagePreviewVideo: bool
+  imagePreviewSvg: bool // an SVG fills the viewer (ZoomableImage)
   imagePreviewSource: string
   // The shown media's tooltip (MediaActions: its full path, URL or name).
   imagePreviewTip: string

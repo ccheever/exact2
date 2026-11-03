@@ -587,7 +587,7 @@ component TimelineContent
                             if message.kind == "handoff"
                               HandoffDivider(label=message.title, detail=message.detail, endpoints=message.activities, danger=(message.tone == "danger"))
                             else
-                              SystemDivider(label=message.title, detail=message.detail, icon=message.icon, danger=(message.tone == "danger"))
+                              SystemDivider(label=message.title, detail=message.detail, icon=message.icon, danger=(message.tone == "danger"), wrapDetail=(message.shape == "wrap"))
                           else
                             if message.kind == "status"
                               ThreadStatusLine(message=message, command=command)

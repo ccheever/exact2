@@ -1,4 +1,4 @@
-// Copy image (T3 Code 7c3b3b3605ef, MIT; see LICENSE-T3): MediaActions copyImage over mediaContent.ts readMediaPng,
+// Copy image (T3 Code 5d3d78ab93, MIT; see LICENSE-T3): MediaActions copyImage over mediaContent.ts readMediaPng,
 // and the Browser's screenshot (PreviewView copyImage, Manager.ts copyArtifactToClipboard). The image goes to the
 // clipboard as a PNG through @exact/clipboard's `write` (LLP 1133.006), which re-encodes its pixels as Chrome's
 // clipboard does. readMediaPng's steps: the media's bytes as readMediaBlob reads them (a failed fetch, an HTTP error
@@ -13,7 +13,9 @@ import { appFiles } from './save-file';
 import { letGo } from '../client/let-go';
 
 export const COPY_IMAGE_DIR = 'app:/tmp/copy-image';
-export const FETCH_FAILED = 'The file could not be fetched. The host may block browser access (CORS), or the connection may be unavailable.';
+/** The desktop app's words: its fetch has no CORS, so only the connection can stop it. */
+export const FETCH_FAILED = 'The file could not be fetched. Check the connection and try again.';
+export const INLINE_UNDECODABLE = 'This inline media could not be decoded.';
 export const WEB_PAGE = 'This link returned a web page instead of media. Open the original URL.';
 export const UNDECODABLE = 'The browser could not decode this image for copying. Try saving it instead.';
 export const TOO_LARGE = 'This image is too large or has no usable dimensions. Try saving it instead.';
@@ -55,16 +57,23 @@ async function fetchTo(url: string, path: string): Promise<string> {
   return mimeOf(reply.headers.get('content-type'));
 }
 
-/** An inline `data:` URL's media type and bytes (RFC 2397). */
-export function dataUrlBytes(url: string): { type: string; bytes: Uint8Array } {
-  const comma = url.indexOf(',');
-  if (!url.startsWith('data:') || comma < 0) throw new Error(FETCH_FAILED);
-  const meta = url.slice(5, comma), body = url.slice(comma + 1), base64 = /;base64$/i.test(meta);
+/**
+ * readDataUrlBlob: an inline `data:` URL's media type and bytes (RFC 2397). A fragment is never part of the payload, and
+ * a `%XX` escape is one raw byte, not UTF-8.
+ */
+export function dataUrlBytes(src: string): { type: string; bytes: Uint8Array } {
+  const url = src.split('#', 1)[0]!, comma = url.indexOf(',');
+  if (!url.startsWith('data:') || comma < 0) throw new Error(INLINE_UNDECODABLE);
+  const [type = '', ...parameters] = url.slice(5, comma).split(';'), body = url.slice(comma + 1);
+  const base64 = parameters.some(parameter => parameter.trim().toLowerCase() === 'base64');
   if ((base64 ? body.length * 0.75 : body.length) > MAX_BYTES) throw new Error(TOO_LARGE);
   let bytes: Uint8Array;
-  try { bytes = base64 ? Uint8Array.from(atob(body.replace(/\s+/g, '')), c => c.charCodeAt(0)) : new TextEncoder().encode(decodeURIComponent(body)); }
-  catch { throw new Error(FETCH_FAILED); }
-  return { type: mimeOf(base64 ? meta.slice(0, -7) : meta) || 'text/plain', bytes };
+  try {
+    bytes = base64
+      ? Uint8Array.from(atob(decodeURIComponent(body)), c => c.charCodeAt(0))
+      : Uint8Array.from(body.split(/(%[0-9a-f]{2})/i).flatMap(part => /^%[0-9a-f]{2}$/i.test(part) ? [Number.parseInt(part.slice(1), 16)] : [...new TextEncoder().encode(part)]));
+  } catch { throw new Error(INLINE_UNDECODABLE); }
+  return { type: mimeOf(type) || 'text/plain', bytes };
 }
 
 let copies = 0;

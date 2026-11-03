@@ -1,4 +1,4 @@
-// T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3): apps/web/src/textDirection.ts and
+// T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3): apps/web/src/textDirection.ts (at 5d3d78ab93) and
 // components/chat/markdownTextDirection.ts. Each top-level element takes the direction of its
 // own words, so an Arabic or Hebrew reply reads right to left beside English ones; a list's or
 // quote's lines follow the whole list or quote, and code keeps left to right.
@@ -9,22 +9,24 @@ fn rtl_letter(c: char) -> bool {
     matches!(c as u32, 0x0590..=0x08FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF | 0x10800..=0x10FFF | 0x1E800..=0x1EFFF)
 }
 
-/// textDirection: words are counted so mixed prose follows its main language (`dir="auto"` reads only the first
-/// strong letter); a tie goes to the first word, and text without letters has none ("").
-fn text_direction(text: &str) -> &'static str {
-    let (mut rtl, mut ltr, mut first) = (0usize, 0usize, "");
-    for word in text.split_whitespace() {
-        let Some(letter) = word.chars().find(|c| {
-            unicode_general_category::get_general_category(*c)
-                .abbreviation()
-                .starts_with('L')
-        }) else {
-            continue;
-        };
-        let direction = if rtl_letter(letter) { "rtl" } else { "ltr" };
-        if first.is_empty() {
-            first = direction;
-        }
+/// A word's direction by its first letter, or none when it has no letter.
+fn word_direction(word: &str) -> Option<&'static str> {
+    let letter = word.chars().find(|c| {
+        unicode_general_category::get_general_category(*c)
+            .abbreviation()
+            .starts_with('L')
+    })?;
+    Some(if rtl_letter(letter) { "rtl" } else { "ltr" })
+}
+
+/// The units' majority direction; a tie goes to `tie`, else to the first unit with one.
+fn majority(
+    units: impl Iterator<Item = Option<&'static str>>,
+    tie: Option<&dyn Fn() -> Option<&'static str>>,
+) -> Option<&'static str> {
+    let (mut rtl, mut ltr, mut first) = (0usize, 0usize, None);
+    for direction in units.flatten() {
+        first = first.or(Some(direction));
         if direction == "rtl" {
             rtl += 1;
         } else {
@@ -32,12 +34,68 @@ fn text_direction(text: &str) -> &'static str {
         }
     }
     if rtl == ltr {
-        first
+        tie.map_or(first, |tie| tie())
     } else if rtl > ltr {
-        "rtl"
+        Some("rtl")
     } else {
-        "ltr"
+        Some("ltr")
     }
+}
+
+/// textDirection's SENTENCE_END: the text split after `.`, `!`, `?` or `؟` and the whitespace that follows, unless
+/// the stop ends "e.g." or "i.e."; and at every run of line breaks.
+fn sentences(text: &str) -> Vec<&str> {
+    let (mut out, mut start, mut chars) = (Vec::new(), 0, text.char_indices().peekable());
+    let mut previous = None;
+    while let Some((at, c)) = chars.next() {
+        let stop = c.is_whitespace()
+            && matches!(previous, Some('.' | '!' | '?' | '؟'))
+            && !abbreviation_end(&text[..at]);
+        if stop || c == '\n' {
+            let keep = |c: char| if stop { c.is_whitespace() } else { c == '\n' };
+            let mut end = at + c.len_utf8();
+            while let Some(&(next, c)) = chars.peek() {
+                if !keep(c) {
+                    break;
+                }
+                end = next + c.len_utf8();
+                previous = Some(c);
+                chars.next();
+            }
+            out.push(&text[start..at]);
+            start = end;
+            continue;
+        }
+        previous = Some(c);
+    }
+    out.push(&text[start..]);
+    out
+}
+
+/// Whether `before` ends with "e.g." or "i.e." (any case) that starts a word.
+fn abbreviation_end(before: &str) -> bool {
+    let bytes = before.as_bytes();
+    let Some(tail) = bytes.len().checked_sub(4).map(|at| &bytes[at..]) else {
+        return false;
+    };
+    let word = |b: &u8| b.is_ascii_alphanumeric() || *b == b'_';
+    (tail.eq_ignore_ascii_case(b"e.g.") || tail.eq_ignore_ascii_case(b"i.e."))
+        && !bytes[..bytes.len() - 4].last().is_some_and(word)
+}
+
+/// textDirection: each sentence follows its main language by word count, and the text follows most of its sentences,
+/// so one long English sentence cannot outvote the Arabic ones around it (`dir="auto"` reads only the first strong
+/// letter). Sentence ties go to the whole text's words, then its first word; text without letters has none ("").
+fn text_direction(text: &str) -> &'static str {
+    let words = |text: &str| majority(text.split_whitespace().map(word_direction), None);
+    if !text.chars().any(rtl_letter) {
+        return words(text).unwrap_or("");
+    }
+    majority(
+        sentences(text).into_iter().map(words),
+        Some(&|| words(text)),
+    )
+    .unwrap_or("")
 }
 
 /// proseText: a block's words, each run, cell or item apart. Inline code is a space, and an image has no words (its
@@ -310,7 +368,7 @@ mod direction_tests {
     }
 
     #[test]
-    fn words_decide_and_a_tie_goes_to_the_first() {
+    fn sentences_decide_by_words_and_the_text_by_sentences() {
         for (text, direction) in [
             ("اكتب دالة تجمع الأرقام", "rtl"),
             ("תקן את הבאג", "rtl"),
@@ -321,6 +379,12 @@ mod direction_tests {
             ("مكتبة React", "rtl"),
             ("عدّل السطر 42، ثم شغّل الاختبارات (3)", "rtl"),
             ("42 — 7 ✓", ""),
+            ("Done. تم إصلاح المشكلة في الملف الرئيسي", "rtl"),
+            ("هذا مثال على paragraph يحتوي على نص عربي و English words معًا. Arabic text should flow right-to-left while English words like JavaScript, React, and API should remain left-to-right within the same line. الأرقام 1234567890 ورموز مثل @username و #hashtag و 100$ تظهر في الاتجاه الصحيح. هذه جملة لاختبار RTL rendering في المتصفح أو المحرر.", "rtl"),
+            ("Run the migration first. ثم شغّل الاختبارات كلها. Then deploy to staging.", "ltr"),
+            ("هذه جملة عربية تتحدث عن e.g. React i.e. TypeScript JavaScript", "rtl"),
+            ("This long English sentence describes the technology sector in the U.S. هذه جملة عربية. وهذه جملة عربية أخرى.", "rtl"),
+            ("Line one is English\nسطر عربي هنا\nسطر عربي آخر", "rtl"),
         ] {
             assert_eq!(text_direction(text), direction, "{text}");
         }
