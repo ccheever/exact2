@@ -697,9 +697,9 @@ Differences that belong to the app:
   `persist:` partition per environment and Incognito an in-memory one, and cookies cannot be imported from other
   browsers (LLP 1020.002 D4). A profile's cookies from the module's old stores move into its partition once, and the
   page reloads for them; its local storage, IndexedDB and cache stay behind, since WebKit reads none of them out of a
-  store, so a site that keeps its sign-in there asks again once. A hidden tab is not displayed, and its timers are not
-  held to WebKit's one a second for a hidden page (`apple.inactiveSchedulingPolicy="none"`), though it draws no
-  animation frames; one that is recorded or shown in its separate window stays laid out, transparent, and keeps drawing. With
+  store, so a site that keeps its sign-in there asks again once. A hidden tab is not displayed: WebKit runs its timers
+  about once a second and draws no animation frames, where the reference's tabs keep running (LLP 1020.002 §9); one
+  that is recorded or shown in its separate window stays laid out, transparent, and keeps drawing. With
   the page focused, ⌘R reloads it and the zoom chords zoom it (the page is asked `document.hasFocus()`, since a frame
   reports no focus) and ⌘L puts the focus in the address bar, selecting the address; ⇧⌘R reloads the window, as the
   reference's menu does. A page's dialog while

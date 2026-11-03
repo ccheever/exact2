@@ -292,8 +292,5 @@ describe('BrowserStage slot and the frame in it (clone)', () => {
     const box = lines.slice(start).find(line => line.trim().startsWith('box position="absolute" left=left top=top'))!;
     expect(box).toContain('display=(shown or behind ? "block" : "none")');
     expect(box).toContain('pointer-events=(behind ? "none" : "auto")');
-    // Hidden, its page's timers are not held to WebKit's once a second (LLP 1020.002 §9).
-    const iframe = lines.slice(start).find(line => line.trim().startsWith('iframe id=f.frameId'))!;
-    expect(iframe).toContain('apple.inactiveSchedulingPolicy="none"');
   });
 });
