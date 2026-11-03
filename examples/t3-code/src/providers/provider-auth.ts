@@ -1,5 +1,5 @@
 // ProviderAuthenticationSection and ProviderWizardAuthenticationStep, T3 Code 1e2ecbd975 (the
-// starting description 7c3b3b3605ef; MIT, see LICENSE-T3):
+// starting description 7c3b3b3605ef, the credentials wording 5d3d78ab93; MIT, see LICENSE-T3):
 // apps/web/src/components/settings/ProviderAuthenticationSection.tsx:59-101, 162-472 (active,
 // signedIn, isDiscovering, needsExternalSetup, the description and status text, which controls
 // show and when they are disabled, the forms under the row) and
@@ -24,12 +24,17 @@ export function providerAccount(instanceId: string, provider: Obj, entry: Provid
   const signedIn = providerAuth.status === 'authenticated' || (providerAuth.status === 'unknown' && phase === 'succeeded');
   const isDiscovering = provider.driver === 'acpRegistry' && !active && !signedIn && !queryError && methods === undefined;
   const needsExternalSetup = !active && !signedIn && (setup?.canAuthenticate === false || (provider.driver === 'acpRegistry' && methods?.length === 0));
+  // An Antigravity API key or Agent Platform credentials connect rather than sign in; the server names the type
+  // on an unauthenticated record from 5d3d78ab93, and an older one sends none (so Sign in).
+  const usesCredentials = provider.driver === 'antigravity' && (providerAuth.type === 'gemini-api-key' || providerAuth.type === 'agent-platform');
   const description = active
-    ? phase === 'starting' ? (typeof auth?.message === 'string' ? auth.message : 'Starting sign-in…') : phase === 'verifying' ? 'Checking your account…'
+    ? phase === 'starting' ? (typeof auth?.message === 'string' ? auth.message : usesCredentials ? 'Connecting…' : 'Starting sign-in…')
+      : phase === 'verifying' ? (usesCredentials ? 'Checking credentials and loading models…' : 'Checking your account…')
       : interaction.type === 'terminal' ? 'Complete sign-in in the terminal below.'
         : interaction.type === 'credentials' ? 'Enter your credentials below.' : 'Finish signing in in your browser.'
     : signedIn ? 'Signed in.' : isDiscovering ? 'Discovering sign-in methods…'
-      : needsExternalSetup ? "No in-app sign-in advertised. Follow the provider's docs to finish setup." : `Sign in on ${environmentLabel}.`;
+      : needsExternalSetup ? "No in-app sign-in advertised. Follow the provider's docs to finish setup."
+        : usesCredentials ? `Connect on ${environmentLabel} to load models.` : `Sign in on ${environmentLabel}.`;
   const email = signedIn && !active ? redactedValue(providerAuth.email) : redactedValue('');
   const disabled = readOnly || entry.authPending || queryError !== '' || isDiscovering;
   const draftId = authDraftId(auth), url = authUrl(auth), flowId = str(auth?.flowId);
@@ -45,7 +50,7 @@ export function providerAccount(instanceId: string, provider: Obj, entry: Provid
     status: phase === 'failed' ? str(auth?.message) : '', disabled, token: `${phase}:${flowId}`, draftId,
     methods: (methods ?? []).map(method => ({ id: str(method.id), name: str(method.name) })), pickMethod: !active && (methods?.length ?? 0) > 1,
     url, docsUrl, showCancel, showStart,
-    startLabel: signedIn ? 'Change account' : phase === 'failed' || phase === 'cancelled' ? 'Retry sign-in' : 'Sign in',
+    startLabel: signedIn ? 'Change account' : phase === 'failed' || phase === 'cancelled' ? (usesCredentials ? 'Retry connection' : 'Retry sign-in') : usesCredentials ? 'Connect' : 'Sign in',
     startDisabled: disabled || provider.enabled !== true || provider.installed !== true || !auth,
     showSignOut: !active && signedIn && canLogout, signOutDisabled: disabled || !auth, signOutTitle: signOut.title, signOutBody: signOut.description,
     details: interaction.type === 'terminal' || interaction.type === 'credentials' || interaction.type === 'deviceCode' || callback || error !== '',

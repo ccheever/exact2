@@ -223,6 +223,7 @@ const FAILURE_TITLES: Record<string, string> = {
   'shell:archive': 'Failed to archive thread', 'shell:delete': 'Failed to delete thread',
   'shell:regenerate-title': 'Failed to regenerate thread title', 'shell:auto-settle': 'Failed to update auto-settle',
   'shell:open-editor': 'Unable to open editor', 'shell:git-action': 'Git action failed', 'copy-diagnostic': 'Could not copy trace ID',
+  'grouping-override': 'Could not save grouping rule',
 };
 
 /**

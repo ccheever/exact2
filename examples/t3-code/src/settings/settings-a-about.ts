@@ -19,6 +19,8 @@ import { defaultUpdateChannel, writeDesktopSettings, type DesktopUpdateChannel }
 import { letGo } from '../client/let-go';
 import { pushToast } from '../shell/toast';
 import { announce } from '../shell/announce';
+import { managedUpdatesDenial, managedUpdatesMessage } from '../client/managed-policy';
+import { primaryManagedPolicy } from './managed-policy';
 
 export type DeliveryFacts = { stream: string; staged: boolean };
 const facts = new WeakMap<T3Client, DeliveryFacts>();
@@ -39,24 +41,37 @@ export const updateChannel = (delivery: DeliveryFacts) => delivery.stream.split(
 /** The saved track (`DesktopSettings.updateChannel`), the reference's `updateState.channel` while it has no feed. */
 const savedChannel = (client: T3Client): DesktopUpdateChannel => client.localBackend?.settings.updateChannel ?? defaultUpdateChannel(CLIENT_VERSION);
 
-/** The About rows: Version (with its update button) and Update track. */
+/**
+ * The About rows: Organization (AboutSettingsPanel, on a managed environment), Version (with its update button) and Update track.
+ * The desktop updates this machine, whose policy the primary environment reports: `updates.mode` "off" makes both
+ * update controls inert with the policy's message, and `allowNightly: false` leaves Nightly unavailable.
+ */
 export function aboutRows(client: T3Client, version: string): CoreRow[] {
   const delivery = factsOf(client), enabled = updatesEnabled(delivery), channel = enabled ? updateChannel(delivery) : savedChannel(client);
-  const options = [['latest', 'Stable'], ['nightly', 'Nightly']].map(([value, label]) => ({ id: value!, value: value!, label: label!, detail: '', icon: '', selected: value === channel, disabled: false }));
+  const policy = primaryManagedPolicy(client), updatesDenial = managedUpdatesDenial(policy);
+  const nightlyDeniedBy = policy?.limits?.updates?.allowNightly === false ? policy.organization : undefined;
+  const options = [['latest', 'Stable'], ['nightly', 'Nightly']].map(([value, label]) => ({ id: value!, value: value!, label: label!, detail: '', icon: '', selected: value === channel,
+    disabled: value === 'nightly' && nightlyDeniedBy !== undefined && channel !== 'nightly' }));
+  const managed = updatesDenial === undefined ? {} : { inert: true, note: updatesDenial };
   return [
-    coreRow('version', 'Version', delivery.staged ? 'Update available.' : 'Current version of the application.', 'version', {
+    ...(policy ? [coreRow('organization', 'Organization', `This environment is managed by ${policy.organization}. Some settings and features follow its policy.`, policy.supportUrl ? 'external-link' : 'none',
+      { label: 'Get help', target: policy.supportUrl ?? '', resettable: false })] : []),
+    coreRow('version', 'Version', delivery.staged ? 'Update available.' : updatesDenial ?? 'Current version of the application.', 'version', {
       value: version || 'Unknown', amount: versionCopies.get(client) ?? 0,
       // resolveDesktopUpdateButtonAction: install once staged; otherwise check (the contract shows Checking… while one runs).
       label: delivery.staged ? 'Install' : 'Check for Updates', value2: delivery.staged ? 'install' : 'check',
       disabled: !enabled && !delivery.staged,
       note: delivery.staged ? 'Update downloaded. Click to restart and install.' : 'Up to date',
+      ...managed,
     }),
     // No store: the saved preference, switchable (disabled only while a change runs, the command's busy).
     // A linked stream's channel was fixed when the binary was delivered: shown, not switchable here.
     // AboutVersionSection's "N machines still run … Review" line is left out: Review opens the fleet's Stable and
     // Nightly switch (UpdateTrackSwitchDialog), which is not ported, so the row keeps its plain description.
-    coreRow('update-track', 'Update track', 'Switches this app and every connected machine whose database the target release supports.', 'select', {
-      value: channel, label: channel === 'nightly' ? 'Nightly' : 'Stable', options, width: 160, disabled: enabled, menuWidth: 0,
+    coreRow('update-track', 'Update track', nightlyDeniedBy !== undefined
+      ? `${managedUpdatesMessage(nightlyDeniedBy)} Nightly builds are not available${channel === 'nightly' ? '; switch to Stable to keep getting updates.' : '.'}`
+      : 'Switches this app and every connected machine whose database the target release supports.', 'select', {
+      value: channel, label: channel === 'nightly' ? 'Nightly' : 'Stable', options, width: 160, disabled: enabled, menuWidth: 0, ...managed,
     }),
     mobileAppRow(),
   ];

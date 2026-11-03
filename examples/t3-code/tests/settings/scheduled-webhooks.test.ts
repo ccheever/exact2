@@ -90,7 +90,7 @@ describe('webhook scheduled tasks', () => {
 
   test('rejects dedupe templates without a request placeholder', () => {
     const task = webhookTask({});
-    expect(() => webhookSchedule(formInput(task, { replayKey: 'literal' }), task)).toThrow('Replay key must contain a valid request placeholder.');
+    expect(() => webhookSchedule(formInput(task, { replayKey: 'literal' }), task)).toThrow('Duplicate request key must contain a valid request placeholder.');
     expect(() => webhookSchedule(formInput(task, { coalesceKey: '{{body.bad' }), task)).toThrow('Coalesce key must contain a valid request placeholder.');
     expect(webhookSchedule(formInput(task, { replayKey: 'gh-{{ headers.x-github-delivery }}-{{request}}' }), task)).toMatchObject({ dedupe: { replayKey: 'gh-{{ headers.x-github-delivery }}-{{request}}' } });
   });
@@ -111,7 +111,7 @@ describe('webhook delivery labels and validation messages', () => {
   });
 
   const cases: [Record<string, string>, string][] = [
-    [{ replayKey: 'literal' }, 'Replay key must contain a valid request placeholder.'],
+    [{ replayKey: 'literal' }, 'Duplicate request key must contain a valid request placeholder.'],
     [{ coalesceKey: '{{body.bad' }, 'Coalesce key must contain a valid request placeholder.'],
     [{ coalesceWindowSeconds: '9' }, 'Coalesce window must be whole seconds from 10 to 3600.'],
   ];
@@ -123,14 +123,14 @@ describe('webhook delivery labels and validation messages', () => {
 
   test('reports separate short errors when several dedupe fields fail', () => {
     expect(webhookDraftErrors({ replayKey: 'bad', coalesceKey: 'bad', coalesceWindowSeconds: '0' }).map(error => error.description)).toEqual([
-      'Replay key must contain a valid request placeholder.',
+      'Duplicate request key must contain a valid request placeholder.',
       'Coalesce key must contain a valid request placeholder.',
       'Coalesce window must be whole seconds from 10 to 3600.',
     ]);
     // One `Title: description` line each, which settingsFailure toasts one by one.
     const task = webhookTask({});
     expect(() => webhookSchedule(formInput(task, { replayKey: 'bad', coalesceWindowSeconds: '0' }), task))
-      .toThrow('Invalid webhook settings: Replay key must contain a valid request placeholder.\nInvalid webhook settings: Coalesce window must be whole seconds from 10 to 3600.');
+      .toThrow('Invalid webhook settings: Duplicate request key must contain a valid request placeholder.\nInvalid webhook settings: Coalesce window must be whole seconds from 10 to 3600.');
   });
 });
 

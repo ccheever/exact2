@@ -9,7 +9,7 @@ import { storeSidebarWidth } from '../sidebar/sidebar-width';
 import { str, initialShell, applyShell } from './domain';
 import { ClientError, type Native, type Files } from './protocol';
 import { letGo } from './let-go';
-import { settingsGroups } from '../settings/projects-fleet';
+import { memberRef, settingsGroups } from '../settings/projects-fleet';
 import { updateProjectGroup } from '../sidebar/project-pin';
 import { pushToast } from '../shell/toast';
 import { backgroundProjectThreads, forgetBackgroundDrafts, isBackground, writeBackgroundProject } from '../sidebar/background-threads';
@@ -22,10 +22,11 @@ export async function sidebarOps(this: T3Client, op: string, id: string, value: 
       if (!groupingModes.includes(value)) throw new ClientError('Unsupported grouping mode.');
       this.local.groupingMode = value;
     } else if (op === 'grouping-override') {
-      const project = this.shell.projects.find(project => project.id === id);
+      // Settings › Project › Checkouts: `id` is a settings member, `fleet:<environment>:<project>` off the focused environment.
+      const project = settingsGroups(this).flatMap(group => group.members).find(member => member.id === id);
       if (!project) throw new ClientError('That project is no longer available.');
       if (!groupingModes.includes(value) && value !== 'inherit') throw new ClientError('Unsupported grouping mode.');
-      const key = `${this.environmentId}:${projectPath(project.workspaceRoot)}`;
+      const key = `${memberRef(this, id).environmentId}:${projectPath(project.workspaceRoot)}`;
       if (value === 'inherit') delete this.local.groupingOverrides[key];
       else this.local.groupingOverrides[key] = value;
     } else if (op === 'search') { this.query = value; startThreadSearch(this, native, value); }

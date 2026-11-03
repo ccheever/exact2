@@ -220,6 +220,42 @@ describe('settings scope across environments', () => {
   });
 });
 
+describe('Model across environments (ProjectDefaultsSettings, 5d3d78ab93)', () => {
+  const effort = { optionDescriptors: [{ id: 'reasoningEffort', type: 'select', options: [{ id: 'low', label: 'Low' }, { id: 'medium', label: 'Medium', isDefault: true }] }] };
+  const codex = { instanceId: 'codex', driver: 'codex', enabled: true, installed: true, status: 'ready', auth: { status: 'authenticated' }, models: [{ slug: 'luna', name: 'Luna', isDefault: true, capabilities: effort }] };
+  const claude = { instanceId: 'claudeAgent', driver: 'claudeAgent', enabled: true, installed: true, status: 'ready', auth: { status: 'authenticated' }, models: [{ slug: 'opus', name: 'Opus', isDefault: true }] };
+  function rows(settingsA: Obj, settingsB: Obj, providersB: Obj[]) {
+    const client = focused(settingsA);
+    client.config.providers = [codex];
+    const other = entry(B, 'env-b', 'Server', settingsB);
+    other.config = { ...other.config, providers: providersB };
+    fleet.entries.set(B, other);
+    const all = generalSections(as(client), serverContext(as(client), resolveScope(as(client), '', '', ''), new Map())).flatMap(section => section.rows);
+    return { model: all.find(row => row.id === 'default-model')!, fallback: all.find(row => row.id === 'fallback-model')! };
+  }
+  const shared = 'Select one environment or choose a shared model to edit effort.';
+  test('mixed is judged on each target\'s resolved default; automatic defaults that differ read "Automatic (mixed)"', () => {
+    const same = rows({}, {}, [codex]).model;
+    expect([same.label, same.label2, same.status, same.mixed]).toEqual(['Luna', 'Medium', '', false]);
+    const automatic = rows({}, {}, [claude]).model;
+    expect([automatic.label, automatic.label2, automatic.status, automatic.mixed, automatic.description])
+      .toEqual(['Automatic (mixed)', '', `Automatic defaults differ. ${shared}`, true, 'Default model for new threads, selected automatically. Projects can override it.']);
+    const saved = rows({ defaultModelSelection: { instanceId: 'codex', model: 'luna' } }, {}, [codex]).model;
+    expect([saved.label, saved.label2, saved.status, saved.description]).toEqual(['Mixed', '', `Defaults differ. ${shared}`, 'Default model for new threads. Projects can override it.']);
+    const options = rows({ defaultModelSelection: { instanceId: 'codex', model: 'luna' } }, { defaultModelSelection: { instanceId: 'codex', model: 'luna', options: [{ id: 'reasoningEffort', value: 'low' }] } }, [codex]).model;
+    expect([options.label, options.status]).toEqual(['Mixed', `Defaults differ. ${shared}`]);
+  });
+  test('a shared model some target cannot run hides the effort picker and names that target', () => {
+    const selection = { defaultModelSelection: { instanceId: 'codex', model: 'luna' } };
+    const model = rows(selection, selection, [{ ...codex, driver: 'claudeAgent' }]).model;
+    expect([model.label, model.label2, model.status]).toEqual(['Luna', '', 'This model is unavailable on Server. Select that environment to choose its model separately.']);
+  });
+  test('a fallback the targets disagree on reads Mixed without a traits picker', () => {
+    const { fallback } = rows({ fallbackModelSelection: { instanceId: 'codex', model: 'luna' } }, {}, [codex]);
+    expect([fallback.label, fallback.label2, fallback.options2]).toEqual(['Mixed', '', []]);
+  });
+});
+
 describe('the primary represents a scope that includes it', () => {
   const P = 'http://127.0.0.1:16109\nenv-p';
   const ready = { instanceId: 'acp', driver: 'acp', enabled: true, installed: true, status: 'ready', auth: { status: 'authenticated' }, models: [{ slug: 'stand-in', name: 'Stand-in', isDefault: true }] };
@@ -236,7 +272,9 @@ describe('the primary represents a scope that includes it', () => {
     const scope = resolveScope(as(client), '', '', '');
     expect(scope.environmentChoices.map(choice => choice.label)).toEqual(['All environments', "Daehyeon's MacBook Pro", 'Lane Second', 'Lane Third']);
     const model = generalSections(as(client), serverContext(as(client), scope, new Map())).flatMap(section => section.rows).find(row => row.id === 'default-model')!;
-    expect([model.status, model.kind, model.label, model.description]).toEqual(['', 'text-only', 'No providers available', 'Default model for new threads, selected automatically. Projects can override it.']);
+    // The primary has no providers while the focused environment has one, so their automatic defaults differ (defaultModelSelectionsAreMixed).
+    expect([model.status, model.kind, model.label, model.description]).toEqual(['Automatic defaults differ. Select one environment or choose a shared model to edit effort.', 'text-only', 'Mixed',
+      'Default model for new threads, selected automatically. Projects can override it.']);
     // Without a primary the focused environment represents the scope, as before.
     resetPrimary();
     const focusedModel = generalSections(as(client), serverContext(as(client), resolveScope(as(client), '', '', ''), new Map())).flatMap(section => section.rows).find(row => row.id === 'default-model')!;

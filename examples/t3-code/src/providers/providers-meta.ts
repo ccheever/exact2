@@ -81,6 +81,11 @@ export const DRIVERS: Driver[] = [
       field('gcpProject', 'GCP project', 'Required for Gemini Enterprise. Agent Platform uses it when no API key is set.', 'my-project-id'),
       field('gcpLocation', 'GCP location', 'Region for Gemini Enterprise or Agent Platform.', 'us-central1'),
       field('binaryPath', 'Binary path', 'Custom ACP executable. Leave empty to select automatically.', 'Automatic', { persist: true })] },
+  // packages/provider-kiro (5d3d78ab93): an ACP agent, listed under Add provider's Show more.
+  { id: 'kiro', label: 'Kiro', enabledByDefault: false, defaultSlot: true, color: '#9046FF', featured: false, badgeLabel: 'Early Access',
+    legacyDefault: { enabled: false, binaryPath: 'kiro-cli', customModels: [] },
+    env: [field('KIRO_API_KEY', 'Kiro API key', 'Optional. Signs in without `kiro-cli login` (Kiro Pro and above).', 'Paste API key', { control: 'password' })],
+    fields: [binary('Path to the Kiro CLI binary.', 'kiro-cli')] },
   { id: 'muse', label: 'Muse Code', enabledByDefault: false, defaultSlot: true, color: '#0081fb',
     legacyDefault: { enabled: false, binaryPath: 'muse', customModels: [] }, env: [],
     fields: [binary('Path to the Muse Code binary on this environment. Sign in with muse login on that host.', 'muse')] },

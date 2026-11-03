@@ -34,6 +34,10 @@ shape ProjectMember
   path: string
   environment: string
   first: bool
+  // CheckoutGroupingSelect: its name, the rule it shows and its choices.
+  groupingLabel: string
+  groupingValue: string
+  groupingOptions: SelectOption[]
 shape ProjectAction
   id: string
   first: bool
@@ -78,6 +82,8 @@ shape ProjectsPage
   nameResettable: bool
   members: ProjectMember[]
   checkoutGroups: ProjectCheckoutGroup[]
+  // More than one checkout in scope: each can be removed here (a lone one is removed from Danger).
+  multipleCheckouts: bool
   hasOther: bool
   threads: number
   workspace: ScopedRow
@@ -215,26 +221,26 @@ component ProjectsPanel
           column width="100%" gap="0.625rem" testId="project-checkouts"
             row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
               SectionTitle(title="Checkouts")
+            // SettingsGroup's divider falls between its children, so every row below the intro draws one.
             Card()
+              text "Grouping rule decides how each checkout joins project groups in the sidebar. Changing it can move a checkout to a different project." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="1rem" padding-right="1rem" testId="project-checkouts-intro"
               if data.checkoutGroups.length > 0
                 for group in data.checkoutGroups key=group.id
-                  column width="100%" box-sizing="border-box" padding="1rem" gap="0.5rem" border-top-style="solid" border-top-width=(group.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff0a)"
+                  column width="100%" box-sizing="border-box" padding="1rem" gap="0.5rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff0a)"
                     text group.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
                     if group.secondary != ""
                       text group.secondary title=group.secondary line-clamp=1 font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
                     for member in group.members key=member.id
                       row width="100%" gap="0.75rem" align-items="center"
                         text member.path title=member.path flex=1 min-width=0 line-clamp=1 font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
-                        button id=`remove-checkout-${member.id}` press=openFrom(`remove-checkout-${member.id}`, "project-remove-member", member.id, member.title) disabled=busy aria-label=`Remove checkout ${member.path}` testId=`remove-checkout-${member.id}` class=PjOutline data-focus-stop=(busy ? "" : "enabled page")
-                          text "Remove" font-size="0.875rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+                        CheckoutControls(member=member, multiple=data.multipleCheckouts, busy=busy, raw=raw, openFrom=openFrom)
               else
                 for member in data.members key=member.id
-                  row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-top-style="solid" border-top-width=(member.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff0a)"
+                  row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff0a)"
                     column flex=1 min-width=0 gap="0.25rem"
                       text member.environment font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
                       text member.path font-size="0.75rem" line-height="1.125rem" color="light-dark(#71717b, #a1a1a1)" max-width="42rem" text-wrap="balance"
-                    button id=`remove-checkout-${member.id}` press=openFrom(`remove-checkout-${member.id}`, "project-remove-member", member.id, member.title) disabled=busy aria-label=`Remove checkout ${member.path}` testId=`remove-checkout-${member.id}` display="flex" flex-direction="row" align-items="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff09)" data-focus-stop=(busy ? "" : "enabled page")
-                      text "Remove" font-size="0.875rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+                    CheckoutControls(member=member, multiple=data.multipleCheckouts, busy=busy, raw=raw, openFrom=openFrom)
         column width="100%" gap="0.625rem" testId="project-danger"
           row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
             SectionTitle(title="Danger")
@@ -250,6 +256,22 @@ component ProjectsPanel
                   background-color="light-dark(#fb2c360a, #fb414a0a)"
                 LucideTrash2(size=16, color="light-dark(#c10007, #ff6467)")
                 text data.removeLabel font-size="0.875rem" font-weight=500 color="light-dark(#c10007, #ff6467)"
+
+// A checkout's controls: its grouping rule (CheckoutGroupingSelect, a device setting written by `grouping-override`), and
+// Remove while another checkout remains.
+component CheckoutControls
+  props
+    member: ProjectMember
+    multiple: bool
+    busy: bool
+    raw: action
+    openFrom: action
+  view
+    row flex-shrink=0 min-width=0 align-items="center" gap="0.5rem"
+      SettingsPageSelect(selectId=`checkout-grouping-${member.id}`, label=member.groupingLabel, valueLabel=member.groupingValue, empty=false, value="", width=288, disabled=busy, options=member.groupingOptions, choose=raw("grouping-override", member.id))
+      if multiple
+        button id=`remove-checkout-${member.id}` press=openFrom(`remove-checkout-${member.id}`, "project-remove-member", member.id, member.title) disabled=busy aria-label=`Remove checkout ${member.path}` testId=`remove-checkout-${member.id}` class=PjOutline data-focus-stop=(busy ? "" : "enabled page")
+          text "Remove" font-size="0.875rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
 
 // Name: commits on blur or Enter; blank is refused (renameGroup).
 component ProjectName

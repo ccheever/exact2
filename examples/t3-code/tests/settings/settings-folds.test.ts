@@ -145,7 +145,7 @@ describe('copy', () => {
     expect(commandLabel('thread.steerQueuedMessage')).toBe('Queue: Send First Queued Message');
     expect(sourceControlRows({}, '', 'Local', [], true).repositories.find(row => row.key === 'removeAgentCreditsOnMerge')!.description)
       .toBe('Remove recognized agent credit lines from merge and squash messages on hosts that support it, keeping human co-authors. Includes auto-merge. Excludes merge queues, stack merges, and existing commits.');
-    expect(appText('settings-scheduled.contract')).toContain('"Run a prompt automatically on an interval, at a fixed time, or when a webhook is called."');
+    expect(appText('settings-scheduled.contract')).toContain('"Run a prompt automatically on an interval, at a fixed time, once at a set date, or when a webhook is called."');
     expect(appText('settings-a-telemetry.contract')).toMatch(/else\n\s+text "-" font-size="0\.625rem"/);
     expect(appText('providers.contract')).toContain('Custom intervals appear as Advanced in Maintenance settings.');
   });

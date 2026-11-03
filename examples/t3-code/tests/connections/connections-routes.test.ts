@@ -152,10 +152,11 @@ describe('environment routes', () => {
     const { native, calls } = store(saved);
     await runConnectionOp(native, 'environment-route-add', `env-a ${B}`, 'PAIRCODE', false);
     expect(calls.find(call => call.op === 'pairEnvironment')).toMatchObject({ origin: B, expectedEnvironmentId: 'env-a' });
-    expect((saved[0]!.routes as Obj[]).map(item => item.id)).toEqual([A, B]);
-    await expect(runConnectionOp(native, 'environment-route-add', 'env-a http://127.0.0.1:16125', 'PAIRCODE', false)).rejects.toThrow('a different machine');
-    await runConnectionOp(native, 'environment-route-move', environmentKey(A, 'env-a'), `${B}>${A}`, false);
+    // The route paired at the new address goes first among its kind, so its fresh token connects.
     expect((saved[0]!.routes as Obj[]).map(item => item.id)).toEqual([B, A]);
+    await expect(runConnectionOp(native, 'environment-route-add', 'env-a http://127.0.0.1:16125', 'PAIRCODE', false)).rejects.toThrow('a different machine');
+    await runConnectionOp(native, 'environment-route-move', environmentKey(A, 'env-a'), `${A}>${B}`, false);
+    expect((saved[0]!.routes as Obj[]).map(item => item.id)).toEqual([A, B]);
     await runConnectionOp(native, 'environment-route-remove', environmentKey(A, 'env-a'), A, false);
     expect((saved[0]!.routes as Obj[]).map(item => item.id)).toEqual([B]);
     await expect(runConnectionOp(native, 'environment-route-remove', environmentKey(A, 'env-a'), B, false)).rejects.toThrow('The last route goes with the machine');

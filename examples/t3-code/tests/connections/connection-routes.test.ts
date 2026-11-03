@@ -43,6 +43,20 @@ describe('connection routes', () => {
     const repaired = direct('lan', 'http://192.168.1.11:3773/');
     expect(upsertRoute([RELAY, LAN], repaired)).toEqual([RELAY, repaired]);
   });
+
+  // 5d3d78ab93 routes.test.ts and registry.test.ts "re-pairing at another loopback address prefers the new route".
+  it('puts a newly paired route ahead of saved routes of the same kind', () => {
+    const pasted = direct('lan-2', 'http://192.168.1.11:3773/');
+    expect(upsertRoute([LAN, TAILNET], pasted)).toEqual([pasted, LAN, TAILNET]);
+    const saved = direct('http://127.0.0.1:3773', 'http://127.0.0.1:3773/'), localhost = direct('http://localhost:3773', 'http://localhost:3773/');
+    expect(registerRoute([saved, RELAY], localhost)).toEqual([localhost, saved, RELAY]);
+  });
+
+  it('keeps a newly paired route behind a different kind of the same rank', () => {
+    const vpn = direct('vpn', 'http://100.101.102.103:3773/');
+    const pasted = direct('ts-2', 'http://[fd7a:115c:a1e0::2]:3773/');
+    expect(upsertRoute([vpn, TAILNET], pasted)).toEqual([vpn, pasted, TAILNET]);
+  });
 });
 
 describe('learned routes', () => {
@@ -206,10 +220,10 @@ describe('EnvironmentRegistry routes', () => {
     const again = direct('lan-again', 'http://192.168.1.10:3773');
     expect(ids(registerRoute([LAN, RELAY], again))).toEqual(['lan-again', 'relay']);
   });
-  it('a second SSH host for the same machine adds a route beside the first', () => {
+  it('a second SSH host for the same machine adds a route ahead of the first', () => {
     const one: ConnectionRoute = { id: 'http://127.0.0.1:41001', origin: 'http://127.0.0.1:41001', kind: 'ssh', ssh: { alias: 'devbox', hostname: 'devbox', username: null, port: null } };
     const two: ConnectionRoute = { id: 'http://127.0.0.1:41002', origin: 'http://127.0.0.1:41002', kind: 'ssh', ssh: { alias: 'devbox-ts', hostname: 'devbox.tail.ts.net', username: null, port: null } };
-    expect(ids(registerRoute([LOOPBACK, one], two))).toEqual([LOOPBACK.id, one.id, two.id]);
+    expect(ids(registerRoute([LOOPBACK, one], two))).toEqual([LOOPBACK.id, two.id, one.id]);
     expect(connectionRouteLabel(two)).toBe('SSH devbox.tail.ts.net');
     expect(connectionRouteAddress(two)).toBe('devbox-ts');
   });

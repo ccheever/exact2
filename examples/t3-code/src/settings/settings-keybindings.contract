@@ -212,7 +212,7 @@ component KeybindingsPanel
                 SettingsPageSelect(selectId="new-keybinding-command", label="Command", valueLabel=(newCommand == "" ? "Command" : newLabel), empty=(newCommand == ""), value=newCommand, width=224, disabled=busy, options=data.commands, choose=chooseCommand)
                 if newConflict != ""
                   Warning(label=newConflict, detail=`${newConflict} The most recent matching binding wins when both conditions can apply.`)
-                CaptureField(rowId="new", label=newLabel, value=newKey, original="", recording=(recording and newActive), setKey=setKey, record=record("new", newCommand, newKey, newWhen), capture=capture, held=held)
+                CaptureField(rowId="new", label=newLabel, value=newKey, original="", escapeTo="", recording=(recording and newActive), setKey=setKey, record=record("new", newCommand, newKey, newWhen), capture=capture, held=held)
                 button press=save("new", `action=save&command=${encodeURIComponent(newCommand)}&key=${encodeURIComponent(newKey)}&when=${encodeURIComponent(newWhen)}`) disabled=(busy or newCommand == "" or newKey == "" or not newValid) class=KbPrimary testId="save-new-keybinding" opacity=(busy or newCommand == "" or newKey == "" or not newValid ? 0.64 : 1) id="save-new-keybinding" data-focus-stop=(busy or newCommand == "" or newKey == "" or not newValid ? "" : "enabled page")
                   text (busy ? "Saving" : "Save") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
                 button press=cancelAdd disabled=busy class=KbIcon width="1.75rem" height="1.75rem" aria-label="Cancel new keybinding" testId="cancel-new-keybinding" title="" id="cancel-new-keybinding" data-focus-stop=(busy ? "" : "enabled page")
@@ -298,12 +298,13 @@ component KeybindingRow
             for pill in row.pills key=pill.id
               text pill.text font-size="0.75rem" font-weight=500 line-height="1rem" min-width="1.25rem" height="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" text-align="center" display="flex" align-items="center" justify-content="center" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#71717b, #a1a1a1)"
         if dirty or recording or row.key == ""
-          CaptureField(rowId=row.id, label=row.label, value=shownKey, original=row.key, recording=recording, setKey=setKey, record=record(row.id, row.command, shownKey, shownWhen), capture=capture, held=held)
+          CaptureField(rowId=row.id, label=row.label, value=shownKey, original=row.key, escapeTo=(shownWhen == row.condition and row.key != "" ? `edit-keybinding-${row.id}` : ""), recording=recording, setKey=setKey, record=record(row.id, row.command, shownKey, shownWhen), capture=capture, held=held)
 
 // The capture field (KeybindingsSettings.tsx's Input and NewKeybindingKeyInput): a text field that records while it
-// has the focus. Taking the focus (a click, Tab) starts recording; a recorded chord or Escape ends it, and the field
-// keeps the focus and goes on taking keys, as the reference's input does: the next chord replaces the draft and Escape
-// restores the binding without leaving Settings; leaving it stops recording and keeps the draft. An existing binding's
+// has the focus. Taking the focus (a click, Tab) starts recording; a recorded chord ends it, and the field keeps the
+// focus and goes on taking keys, as the reference's input does: the next chord replaces the draft. Escape restores
+// the binding without leaving Settings and gives the focus to `escapeTo`, the Edit shortcut pill that then shows
+// again, or with none lets go of it; leaving the field stops recording and keeps the draft. An existing binding's
 // field mounts from its pill already recording and takes the focus (autoFocus={isRecording}); the new binding's
 // does not, so the focus stays on "Add keybinding". The recorder (key-recorder.contract) fills it.
 component CaptureField
@@ -312,6 +313,7 @@ component CaptureField
     label: string
     value: string
     original: string
+    escapeTo: string
     recording: bool
     setKey: action
     record: action
@@ -322,12 +324,17 @@ component CaptureField
   // From the recorder's first key to its blur, though recording ended: it stays up, the window's modal scope.
   state taking = false
   action took(key: string)
-    taking = key != "blur"
+    taking = key != "blur" and key != "escape"
     // Another row's field can have started recording as this one let go of the focus: its blur is not this row's.
     if key != "blur" or recording
       capture(original, key)
     if key == "blur"
       held(`keybinding-recorder-${rowId}`, false)
+    if key == "escape"
+      if escapeTo != ""
+        focus(escapeTo)
+      else
+        blur()
   action entered
     held(`keybinding-recorder-${rowId}`, true)
     if not recording

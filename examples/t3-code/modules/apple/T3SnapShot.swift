@@ -287,6 +287,37 @@ final class T3SnapShot {
         if animating { return (false, false) }
         return (true, last.map { now - $0 >= shortcutCooldown } ?? true)
     }
+    /// ActiveWindow.ts MAC_HELPER_STRIP_MAX_THICKNESS_RATIO (reference 5d3d78ab93).
+    static let helperStripMaxThicknessRatio = 0.25
+    /// macActiveWindow: of `pid`'s layer-0 windows, front to back, the first visible one (alpha above 0, sized) that
+    /// is titled or is not a thin helper strip along the top or left edge of a window behind it. A helper belongs to
+    /// the content behind it, which may not be the app's largest window.
+    static func frontWindowId(_ windows: [[String: Any]], pid: Int32) -> UInt32? {
+        let visible: [(id: UInt32, title: String, bounds: CGRect)] = windows.compactMap { window in
+            guard (window[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid,
+                  (window[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+                  let id = window[kCGWindowNumber as String] as? NSNumber,
+                  ((window[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 0) > 0,
+                  let bounds = CGRect(dictionaryRepresentation: (window[kCGWindowBounds as String] as? [String: Any] ?? [:]) as CFDictionary),
+                  bounds.width > 0, bounds.height > 0 else { return nil }
+            return (id: id.uint32Value, title: window[kCGWindowName as String] as? String ?? "", bounds: bounds)
+        }
+        let ratio = helperStripMaxThicknessRatio
+        let picked = visible.indices.first { index in
+            let candidate = visible[index]
+            if !candidate.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+            let b = candidate.bounds
+            return !visible[(index + 1)...].contains { reference in
+                let r = reference.bounds
+                let topStrip = b.minX == r.minX && b.width == r.width && b.minY <= r.minY && r.minY - b.minY <= r.height * ratio
+                    && b.height <= b.width * ratio && b.height <= r.height * ratio
+                let leftStrip = b.minY == r.minY && b.height == r.height && b.minX <= r.minX && r.minX - b.minX <= r.width * ratio
+                    && b.width <= b.height * ratio && b.width <= r.width * ratio
+                return topStrip || leftStrip
+            }
+        }
+        return picked.map { visible[$0].id }
+    }
     private func captureFrontWindow() {
         guard enabled, !shortcut.recording else { return }
         let now = ProcessInfo.processInfo.systemUptime
@@ -297,9 +328,8 @@ final class T3SnapShot {
         lastShortcutAt = now
         guard let front = NSWorkspace.shared.frontmostApplication,
               let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]],
-              let window = windows.first(where: { ($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == front.processIdentifier && ($0[kCGWindowLayer as String] as? NSNumber)?.intValue == 0 }),
-              let id = window[kCGWindowNumber as String] as? NSNumber else { return }
-        perform(["op": "snapshotCapture", "windowId": id.uint32Value, "includeAccessibility": includeAccessibility]) { [weak self] response in
+              let id = Self.frontWindowId(windows, pid: front.processIdentifier) else { return }
+        perform(["op": "snapshotCapture", "windowId": id, "includeAccessibility": includeAccessibility]) { [weak self] response in
             self?.lastError = (response["error"] as? [String: Any])?["message"] as? String ?? ""
             self?.changed("t3.status")
         }

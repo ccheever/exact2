@@ -10,6 +10,8 @@
 //    Contract to dispatch. A write failure stays under the dialog's description.
 // A refused development build (no T3_LOCAL_HOME / T3_LOCAL_PORT) draws no primary and shows the
 // refusal here only; a missing or failed runtime shows its reason here too.
+import { managedPolicySummary, managedUpdatesDenial } from '../client/managed-policy';
+import { managedByOrganization } from '../settings/managed-policy';
 import { obj, str } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { writeDesktopSettings } from './local-backend';
@@ -51,6 +53,7 @@ function project(source: Source | undefined, row: SavedRowView | null, local: Lo
   const update = source ? serverUpdateStateFor(source.environmentId, serverVersion || null) : { status: 'idle' as const };
   const mismatch = serverVersion ? versionMismatch(serverVersion) : null;
   const capabilities = obj(environment.capabilities);
+  const policy = managedPolicySummary(config), updatesDenial = managedUpdatesDenial(policy);
   const displayUrl = local.target?.httpBaseUrl ?? '';
   const status = local.status.state === 'refused' ? local.status.refused
     : local.status.state === 'runtime-missing' || local.status.state === 'failed' ? `Connection failed: ${local.status.failure || local.status.install?.reason || 'The local server could not start.'}` : '';
@@ -65,8 +68,9 @@ function project(source: Source | undefined, row: SavedRowView | null, local: Lo
     version: update.status !== 'idle' ? '' : [serverVersion, displayUrl].filter(Boolean).join(' · ') || 'Loading…',
     progress: update.status === 'running' ? serverUpdateStageLabel(update.stage) : '',
     progressFailed: update.status === 'failed' ? update.message : '',
-    update: mismatch && source && update.status !== 'running' && !desktopManagedOnly(capabilities) ? (update.status === 'failed' ? 'Retry update' : `Update to ${mismatch.clientVersion}`) : '',
-    updateNote: mismatch && source && update.status !== 'running' && desktopManagedOnly(capabilities) ? DESKTOP_MANAGED_NOTE : '',
+    // ServerUpdateAction: a policy that stops updates says so instead of the button.
+    update: mismatch && source && update.status !== 'running' && !updatesDenial && !desktopManagedOnly(capabilities) ? (update.status === 'failed' ? 'Retry update' : `Update to ${mismatch.clientVersion}`) : '',
+    updateNote: mismatch && source && update.status !== 'running' ? updatesDenial ?? (desktopManagedOnly(capabilities) ? DESKTOP_MANAGED_NOTE : '') : '',
     updateKey: source?.key ?? '', updateVersion: mismatch?.clientVersion ?? '',
     upToDate: !mismatch && update.status === 'idle' && Object.keys(config).length > 0,
     status, statusError: status !== '' && local.status.state !== 'refused',
@@ -74,6 +78,8 @@ function project(source: Source | undefined, row: SavedRowView | null, local: Lo
     dialogBody: enabled ? TURN_OFF.body : TURN_ON.body,
     dialogConfirm: enabled ? TURN_OFF.confirm : TURN_ON.confirm,
     error: failure,
+    // ManagedByOrganization at the top of the section: the primary environment's policy.
+    managedNotice: policy ? managedByOrganization(policy).text : '', managedHelp: policy ? managedByOrganization(policy).helpUrl : '',
   };
 }
 export type ThisMachineView = ReturnType<typeof project>;

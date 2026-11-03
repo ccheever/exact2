@@ -4,8 +4,9 @@
 // `calculateRestartDelay`; app/DesktopApp.ts `stopAllPoolInstances`).
 //
 // One instance owns one server process at a time: start, readiness rounds (a probe every 100 ms,
-// 1 s each, 60 s rounds repeated while the process lives), a restart after an unexpected exit
-// with min(500 ms × 2ⁿ, 10 s), n back to 0 once ready, and stop (SIGTERM, SIGKILL after 5 s).
+// 1 s each, 3 min rounds repeated while the process lives; 5d3d78ab93 waits 3 min, as large state
+// databases can take over a minute), a restart after an unexpected exit with min(500 ms × 2ⁿ, 10 s),
+// n back to 0 once ready, and stop (SIGTERM, SIGKILL after 5 s).
 // An exit with code 78 (`SERVER_EXIT_CODE_STATE_DIR_OWNED`: another server owns the T3 home) is
 // not restarted: the instance stops wanting to run and reports it once (`onStateDirOwned`).
 // Effect's fibers become callbacks on one serial executor; its clock becomes `T3LocalClock`, so
@@ -134,7 +135,7 @@ struct T3LocalBackendSpec {
 final class T3LocalBackendManager {
     static let initialRestartDelay = 500.0
     static let maxRestartDelay = 10_000.0
-    static let readinessTimeout = 60_000.0
+    static let readinessTimeout = 180_000.0
     static let readinessInterval = 100.0
     static let readinessProbeTimeout = 1_000.0
     static let outputDrainTimeout = 5_000.0

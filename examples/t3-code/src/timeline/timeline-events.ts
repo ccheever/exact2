@@ -65,7 +65,7 @@ function latestRunModelBefore(runs: Obj[], instanceId: string, beforeOrdinal: nu
 const PROVIDER_TEXT_COLOR: Record<string, [string, string]> = {
   codex: ['#000000', '#ffffff'], claudeAgent: ['#d97757', '#d97757'], antigravity: ['#5b87bf', '#5b87bf'],
   acpRegistry: ['#000000', '#FFFFFF'], cursor: ['#26251E', '#EDECEC'], grok: ['#0F0F0F', '#F5F5F5'],
-  muse: ['#0081fb', '#0081fb'], opencode: ['#211E1E', '#F1ECEC'], pi: ['#0F0F0F', '#F5F5F5'],
+  kiro: ['#9046FF', '#9046FF'], muse: ['#0081fb', '#0081fb'], opencode: ['#211E1E', '#F1ECEC'], pi: ['#0F0F0F', '#F5F5F5'],
 };
 
 /**

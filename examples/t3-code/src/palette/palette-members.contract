@@ -1,5 +1,6 @@
 // T3Code's command palette (LLP 1091.002).
 use PaletteView, PaletteResult from "./palette.contract"
+use resolvePastedPath from "../shared/pasted-path.contract"
 members T3Code
   state paletteOpen = false
   state paletteMode = "command"
@@ -114,7 +115,7 @@ members T3Code
     if value == "" and palette.popOnEmpty
       paletteGo(palette.parent, "", true)
     else
-      paletteQuery = value
+      paletteQuery = palette.pastePaths ? resolvePastedPath(paletteQuery, value) : value
   action paletteKey(name: string)
     if name == "ArrowDown" and palette.count > 0
       let next = (paletteHighlight < 0 or paletteHighlight + 1 >= palette.count) ? 0 : paletteHighlight + 1

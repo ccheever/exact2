@@ -132,7 +132,7 @@ describe('general rows', () => {
       'Snooze', 'Usage limits', 'Auto-settle', 'Text generation', 'Creation', 'Updates', 'Background activity', 'App', 'Legal', 'Legacy']);
     expect(sections.flatMap(section => section.rows.map(row => row.title))).toEqual(['Thread notifications', 'In-app notifications', 'Project grouping', 'Project order', 'Working section',
       'Unpin confirmation', 'Archive confirmation', 'Delete confirmation', 'Quit shortcut', 'Time format', 'Rich text composer', 'Send shortcut',
-      'Follow-up behavior', 'Diff layout', 'Hide whitespace changes', 'Default diff file state', 'Diff colors', 'Proactive panels', 'Open pull requests in T3 Code', 'Add project starts in', 'Model', 'Fallback model', 'Permissions', 'Workspace',
+      'Follow-up behavior', 'Diff layout', 'Hide whitespace changes', 'Default diff file state', 'Diff colors', 'Open pull requests and changes panels proactively', 'Open pull requests in T3 Code', 'Add project starts in', 'Model', 'Fallback model', 'Permissions', 'Workspace',
       'Snooze options', 'Resume after usage limits', 'Snooze until limits reset', 'Auto-settle merged threads', 'Auto-settle inactive threads', 'Days of inactivity before auto-settle',
       'Text generation model', 'Start from remote', 'Provider update checks', 'Continue threads after restarts', 'Background activity',
       'Version', 'Update track', 'Mobile app', 'Open source licenses', 'Plan mode (legacy)', 'Context window indicator (legacy)']);
@@ -148,7 +148,7 @@ describe('general rows', () => {
     expect([row('new-threads').label, row('worktree-submodules').label, row('days-before-auto-settle').value]).toEqual(['Current checkout', 'Recursive', '3']);
     expect(row('version').value).toBe('0.1.6'); // this app's own release, not the server's
   });
-  test('Fallback model: None until set, the picked model once saved, no traits, and absent in a project scope', async () => {
+  test('Fallback model: None until set, the picked model once saved with its traits, and absent in a project scope', async () => {
     const client = fake();
     const rowOf = (scope = resolveScope(as(client), '', '', '')) => generalSections(as(client), serverContext(as(client), scope, new Map())).flatMap(section => section.rows).find(entry => entry.id === 'fallback-model');
     expect(rowOf()).toMatchObject({ kind: 'model', label: 'None', driver: '', label2: '', value: 'fixture|luna', resettable: false,
@@ -156,6 +156,12 @@ describe('general rows', () => {
     await applyCoreSetting(as(client), native, 'fallback-model:|||', 'fixture|astra');
     expect(client.writes.at(-1)).toEqual({ patch: { fallbackModelSelection: { instanceId: 'fixture', model: 'astra' } } });
     expect(rowOf()).toMatchObject({ label: 'GPT-6-Astra', driver: 'codex', label2: '', options2: [], resettable: true });
+    // A saved fallback gets a TraitsPicker beside its model, and an effort pick keeps the model (cb1de7ba23).
+    await applyCoreSetting(as(client), native, 'fallback-model:|||', 'fixture|luna');
+    expect(rowOf()).toMatchObject({ label: 'GPT-5.6-Luna', label2: 'Medium', value2: 'medium' });
+    await applyCoreSetting(as(client), native, 'fallback-model:effort|||', 'reasoningEffort=high');
+    expect(client.writes.at(-1)).toEqual({ patch: { fallbackModelSelection: { instanceId: 'fixture', model: 'luna', options: [{ id: 'reasoningEffort', value: 'high' }] } } });
+    expect(rowOf()).toMatchObject({ label2: 'High', value2: 'high' });
     await expect(applyCoreSetting(as(client), native, 'fallback-model:|||', 'gone|x')).rejects.toThrow('unavailable');
     await applyCoreSetting(as(client), native, 'fallback-model:reset|||', '');
     expect(client.writes.at(-1)).toEqual({ patch: { fallbackModelSelection: null } });
@@ -481,7 +487,15 @@ describe('navigation and search', () => {
     expect([breadcrumbLabel('open-source-licenses'), breadcrumbLabel('access')]).toEqual(['Open source licenses', 'Sharing & access']);
   });
   test('search ranks like the reference and keybinding commands sort last', () => {
-    expect(searchSettings('model', context).map(item => item.title).slice(0, 2)).toEqual(['Default model', 'Text generation model']);
+    expect(searchSettings('model', context).map(item => item.title).slice(0, 3)).toEqual(['Default model', 'Fallback model', 'Text generation model']);
+    // Fallback model (cae3ced9fb) is an environment default, and rows are found by the words of their titles (220bc7cc50).
+    for (const query of ['fallback', 'fallback agent', 'fallback model']) expect(searchSettings(query, context)[0]).toMatchObject({ id: 'fallback-model', route: 'threads', scope: 'environment-defaults' });
+    expect(searchSettings('fallback', { ...context, connected: false })).toEqual([]);
+    expect(searchSettings('proactive', context)[0]).toMatchObject({ id: 'proactive-panels', title: 'Open pull requests and changes panels proactively' });
+    expect(searchSettings('settled', context).map(item => item.id)).toContain('storage-worktrees');
+    expect(searchSettings('delete old browser artifacts', context).map(item => item.id)).toEqual(['storage-artifacts']);
+    expect(searchSettings('codex_home', context).map(item => item.id)).toEqual(['providers']);
+    expect(searchSettings('kiro', context).map(item => item.id)).toEqual(['provider-update-checks', 'providers']);
     expect(searchSettings('mod+b', context).map(item => item.title)).toEqual(['Sidebar: Toggle']);
     expect(searchSettings('wrap', context)[0]!.id).toBe('word-wrap');
     expect(searchSettings('auto settle', { ...context, autoSettle: false }).map(item => item.id)).not.toContain('auto-settle-inactive-threads');
@@ -505,14 +519,15 @@ describe('navigation and search', () => {
     expect(titles('worktree')).toEqual(['Worktree cleanup / Worktrees', 'Worktree location / Worktrees', 'Worktree branch naming / Worktrees', 'Keep worktrees with local changes / Worktrees',
       'New threads / Threads', 'Submodules / Worktrees', 'Start from remote / Worktrees', 'Actions / Projects']);
     expect(titles('theme')).toEqual(['Themes / Appearance']);
-    expect(titles('model')).toEqual(['Default model / Threads', 'Text generation model / Threads', 'Source control writer model / Source control', 'Review guide model / Source control',
+    expect(titles('model')).toEqual(['Default model / Threads', 'Fallback model / Threads', 'Text generation model / Threads', 'Source control writer model / Source control', 'Review guide model / Source control',
       'Project defaults and overrides / Threads', 'Providers / Providers', 'Health check interval / Providers']);
     expect(titles('token')).toEqual(['GitHub accounts and token / Source control', 'Thread details / Appearance', 'Compact idle threads / Providers', 'Response streaming / Threads', 'Context window indicator (legacy) / Labs', 'Cursor account usage / Providers',
       'GitCafe credentials / Source control', 'Bitbucket credentials / Source control']);
     expect(titles('mcp')).toEqual([]);
     expect(titles('sidebar')).toEqual(['Project grouping / General', 'Project order / General', 'Working section / General', 'Auto-settle inactive threads / Threads',
       'Auto-settle merged threads / Threads', 'Keep threads with a PR / Threads', 'Days of inactivity before auto-settle / Threads', 'Environment icon / Sharing & access']);
-    expect(titles('settle')).toEqual(['Auto-settle inactive threads / Threads', 'Auto-settle merged threads / Threads', 'Days of inactivity before auto-settle / Threads', 'Keep threads with a PR / Threads']);
+    expect(titles('settle')).toEqual(['Auto-settle inactive threads / Threads', 'Auto-settle merged threads / Threads', 'Days of inactivity before auto-settle / Threads', 'Worktree cleanup / Worktrees',
+      'Keep threads with a PR / Threads']);
     // 7c3b3b3605ef's moves: network access on Sharing & access, pull request sharing on Environments, the fetch interval in
     // Background activity's dialog (its jump lands on that row), Diff colors on Diffs.
     expect(titles('network access')).toEqual(['Network access / Sharing & access', 'Tailscale HTTPS / Sharing & access']);

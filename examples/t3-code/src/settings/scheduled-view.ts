@@ -1,11 +1,12 @@
 // Settings → Scheduled tasks view model (MIT reference, see LICENSE-T3; T3 Code 7c3b3b3605ef, the editor's
-// project list at 2359643cff: components/settings/ScheduledTasksSettings.tsx ScheduledTasksSettings,
+// project list at 2359643cff, the Once schedule at 5d3d78ab93: components/settings/ScheduledTasksSettings.tsx ScheduledTasksSettings,
 // ScheduledTaskEnvironmentSection, ScheduledTaskRow, ScheduledTaskEditorDialog): one section
 // per environment in scope (a heading only when there is more than one), each fed by its live
 // `scheduledTasks.subscribe` list (live-streams.ts) with its loading, error and "Environment
 // disconnected" states, the `taskId` deep link that opens the editor once, and the editor's
 // draft, choices and branch refs. The editor never enables or runs a task by itself; Enabled
 // is the user's own switch. Labels and the scope rule are scheduled-tasks.ts ports.
+import { managedCapabilityDenial, managedPolicySummary } from '../client/managed-policy';
 import { fleet, trimOrigin } from '../connections/settings-b-fleet';
 import { catalogOrder, isPrimaryEnvironment } from '../connections/local-primary';
 import { savedRoutes } from '../connections/connection-routes';
@@ -20,7 +21,8 @@ import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
 import { providerBadge } from '../client/presentation';
 import { triggerModelName } from '../composer/composer-controls-model';
-import { defaultScheduledTaskProjectId, emptyDraft, matchesScheduledTaskScope, resolveTaskScope, scheduledTaskDefaultModel, taskStatus, taskToDraft, type TaskScope } from './scheduled-tasks';
+import { defaultScheduledTaskProjectId, emptyDraft, matchesScheduledTaskScope, offersOnceSchedules, onceDraftErrors, onceSchedule, resolveTaskScope, scheduledTaskDefaultModel, suggestedRunAt, taskStatus, taskToDraft, type TaskScope } from './scheduled-tasks';
+import { wallEpoch } from '../shared/wall-clock';
 import { liveEnvironments, watchLive, type LiveEnvironment } from '../client/live-streams';
 import { scopeEnvironments, scopeProjectGroups } from './settings-scope-sources';
 import { settingsScopeEnvironmentLabel, settingsScopeEnvironmentLabels } from './settings-scope';
@@ -30,12 +32,17 @@ import { REF_PAGE, firstPage, morePages, pageWanted, refScrollEnds, refsStatus, 
 export const WORKSPACE_LABELS: Record<string, string> = { worktree: 'Create a new worktree', root: 'Use the project checkout', existing_worktree: 'Use a specific checkout' };
 export { scheduleLabel, relativeLabel as runLabel, taskStatus } from './scheduled-tasks';
 
-/** The editor's Contract draft from taskToDraft / EMPTY_DRAFT. */
-export function editorDraft(task: Obj | undefined, projectId: string, modelKey: string, environmentId = '') {
+/**
+ * The editor's Contract draft from taskToDraft / EMPTY_DRAFT; `now` is the window time Once suggests its run time from,
+ * `webhookDenial` why the environment's managed policy refuses webhook tasks ('' when it allows them).
+ */
+export function editorDraft(task: Obj | undefined, projectId: string, modelKey: string, environmentId = '', offersOnce = false, now = 0, webhookDenial = '') {
   const draft = task ? taskToDraft(task) : emptyDraft(projectId, modelKey);
-  const schedule = obj(task?.schedule);
+  const schedule = obj(task?.schedule), suggestion = suggestedRunAt(wallEpoch(now));
   return { ...webhookDraft(task), id: draft.editingId, environmentId, title: draft.title, prompt: draft.prompt, enabled: draft.enabled, scheduleMode: draft.scheduleMode, intervalMinutes: draft.intervalMinutes,
-    timeOfDay: draft.timeOfDay, sunday: draft.sunday, monday: draft.monday, tuesday: draft.tuesday, wednesday: draft.wednesday, thursday: draft.thursday, friday: draft.friday,
+    timeOfDay: draft.timeOfDay, runAt: draft.runAt, savedRunAt: draft.savedRunAt, offersOnce, webhookDenial,
+    suggestedRunAt: suggestion.runAt, suggestedSavedRunAt: suggestion.savedRunAt,
+    sunday: draft.sunday, monday: draft.monday, tuesday: draft.tuesday, wednesday: draft.wednesday, thursday: draft.thursday, friday: draft.friday,
     saturday: draft.saturday, projectId: draft.projectId, threadId: draft.threadId, workspaceMode: draft.workspaceMode, baseRef: draft.baseRef, startFromOrigin: draft.startFromOrigin,
     path: draft.existingWorktreePath, modelKey: draft.modelKey, legacyInterval: schedule.type === 'interval' && num(schedule.everyMs) < 60000 };
 }
@@ -255,7 +262,8 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     const scopedProjects = editing.shell.projects.filter(project => matchesScheduledTaskScope(scope, editing.environmentId, str(project.id)));
     const defaultId = defaultScheduledTaskProjectId(scopedProjects, scope);
     const defaultProject = scopedProjects.find(project => str(project.id) === defaultId) ?? null;
-    const draft = editorDraft(task, defaultId, defaultModelKey(config, defaultId, defaultProject), editing.environmentId);
+    const draft = editorDraft(task, defaultId, defaultModelKey(config, defaultId, defaultProject), editing.environmentId, offersOnceSchedules(config, task), now,
+      managedCapabilityDenial(managedPolicySummary(config), 'webhookTasks') ?? '');
     const marks = taskModelMarks(arr(config.providers), draft.modelKey);
     // Base-branch refs for each selectable project (WorktreeBaseBranchPicker's vcs.listRefs), the picker's search and
     // pages for the project it shows, and the base when the shown list does not have it: the picker's selectedRefQuery
@@ -373,7 +381,7 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
 }
 
 /** The editor's submit(): field names from Contract, validation messages from the reference. */
-export function taskInput(input: Record<string, string>, existing: Obj | undefined): Obj {
+export function taskInput(input: Record<string, string>, existing: Obj | undefined, offersOnce = offersOnceSchedules({}, existing)): Obj {
   const fail = (title: string, detail: string) => { throw new Error(`${title}: ${detail}`); };
   const title = str(input.title).trim(), prompt = str(input.prompt).trim(), projectId = str(input.projectId), modelKey = str(input.modelKey);
   const split = modelKey.indexOf(':');
@@ -383,6 +391,11 @@ export function taskInput(input: Record<string, string>, existing: Obj | undefin
     const everyMs = Math.round(Number(input.intervalMinutes) * 60000);
     if (!Number.isSafeInteger(everyMs) || everyMs < 60000) fail('Invalid interval', 'Enter an interval of at least one minute.');
     schedule = { type: 'interval', everyMs };
+  } else if (input.scheduleMode === 'once') {
+    const once = onceSchedule(str(input.runAt), str(input.savedRunAt));
+    if (!once) { const [error] = onceDraftErrors(str(input.runAt)); fail(error!.title, error!.description); }
+    if (!offersOnce) fail('Once is not available here', 'This environment runs an older T3 Code. Update it to schedule a one-time task, or pick another schedule.');
+    schedule = once!;
   } else if (input.scheduleMode === 'webhook') schedule = webhookSchedule(input, existing);
   else {
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].flatMap((day, index) => input[day] === 'true' ? [index] : []);

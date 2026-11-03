@@ -9,7 +9,7 @@ import { applyShell, arr, initialShell, obj, str, type Obj } from '../client/dom
 import type { Files, Native } from '../client/protocol';
 import { dismissToast, pushToast } from '../shell/toast';
 import { openFileSurface, openSurface } from '../panel/panel-surfaces';
-import { cloneDestination, cloneDirectoryName, flowOf, newProjectPublishTargets, inferTitle, initialBrowseQuery, normalizeCloneUrl, resolvePath, SOURCE_LABELS } from './palette-add';
+import { cloneDestination, cloneDirectoryName, flowOf, githubIncompleteOwnerRepositoryMessage, newProjectPublishTargets, inferTitle, initialBrowseQuery, normalizeCloneUrl, resolvePath, SOURCE_LABELS } from './palette-add';
 import { sortedThreads } from './palette';
 import { activeTarget } from './palette-files';
 import { favoriteEditor } from '../shell/keyboard-dispatch';
@@ -213,6 +213,8 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
     if (op.startsWith('clone-repository:')) {
       const kind = op.slice('clone-repository:'.length), raw = id.trim();
       if (!raw) return stay(client);
+      const incomplete = githubIncompleteOwnerRepositoryMessage(kind, raw);
+      if (incomplete) { pushToast(client, { kind: 'error', title: 'Repository name incomplete', description: incomplete, stacked: true }); return stay(client); }
       const parentPath = initialBrowseQuery(target.config);
       if (kind === 'url') {
         flow.clone = { source: kind, repositoryInput: raw, title: raw, description: normalizeCloneUrl(raw), remoteUrl: normalizeCloneUrl(raw), pinned: cloneDirectoryName(raw) };
