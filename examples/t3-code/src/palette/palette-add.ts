@@ -1,4 +1,4 @@
-// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
+// Adapted from T3 Code 9c161462c9 (MIT; the browser's Tab and listing lifetime at 5d3d78ab93); see LICENSE-T3.
 import { sourceControlHosts } from '../shared/source-control-hosts';
 // The palette's Add project pages: reference CommandPalette.tsx (buildAddProjectSourceGroups,
 // startAddProjectBrowse, the clone flow, the New project name step) with the path helpers of
@@ -65,6 +65,15 @@ export function normalizeCloneUrl(input: string): string {
   const trimmed = input.trim();
   return SHORTHAND.test(trimmed) ? `https://github.com/${trimmed.endsWith('.git') ? trimmed : `${trimmed}.git`}` : trimmed;
 }
+/** Owner present, repository name missing: `owner/` or `owner//`. */
+const INCOMPLETE_GITHUB_OWNER_PATH = /^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,38})\/+$/;
+/**
+ * githubIncompleteOwnerRepositoryMessage: a GitHub lookup of only `owner/` would come back as a generic failure, so it
+ * is refused with this; null for complete names, bare repository names, URLs and other sources.
+ */
+export function githubIncompleteOwnerRepositoryMessage(source: string, input: string): string | null {
+  return source === 'github' && INCOMPLETE_GITHUB_OWNER_PATH.test(input.trim()) ? 'Enter the full owner/repository name.' : null;
+}
 export function cloneDirectoryName(value: string): string {
   const withoutQuery = (value.split(/[?#]/)[0] ?? '').trim();
   const scheme = withoutQuery.indexOf('://');
@@ -94,6 +103,11 @@ export function flowOf(client: T3Client): Flow {
   if (!flow) { flow = { clone: null, publish: false, publishKind: '', discovery: null, browse: null }; flows.set(client, flow); }
   return flow;
 }
+/**
+ * A folder listing is kept only while the browser shows it (the reference's BROWSE_IDLE_TTL_MS: a listing kept alive
+ * while unread is never revalidated), so a browser opened again lists folders added or removed meanwhile.
+ */
+export function forgetBrowse(client: T3Client): void { const flow = flows.get(client); if (flow) flow.browse = null; }
 
 export type Readiness = Record<string, { ready: boolean; hint: string }>;
 /** buildAddProjectRemoteSourceReadiness over server.discoverSourceControl. */
@@ -148,8 +162,24 @@ export function sourceItems(config: Obj, ready: Readiness, page: string): Item[]
   return items;
 }
 
-/** The Directories group for a browse query (filterFilesystemBrowseEntries + buildBrowseGroups). */
-async function browseGroups(client: T3Client, native: Native, target: AddEnvironment, query: string, label: string, cwd: string): Promise<{ groups: Group[]; exact: string; parent: string; pending: boolean; error: string }> {
+/** getFilesystemBrowseTabCompletion: shell-style Tab: a single match enters the directory, several extend to their common prefix. */
+export function browseTabCompletion(names: string[], filterQuery: string): { name: string; isComplete: boolean } | null {
+  const [first, ...rest] = names;
+  if (first === undefined) return null;
+  if (rest.length === 0) return { name: first, isComplete: true };
+  let prefix = Array.from(first);
+  for (const name of rest) {
+    const characters = Array.from(name);
+    let length = 0;
+    while (length < prefix.length && prefix[length]?.toLowerCase() === characters[length]?.toLowerCase()) length += 1;
+    prefix = prefix.slice(0, length);
+  }
+  const name = prefix.join(''), lowerName = name.toLowerCase();
+  return lowerName.length > filterQuery.toLowerCase().length && names.every(entry => entry.toLowerCase().startsWith(lowerName)) ? { name, isComplete: false } : null;
+}
+
+/** The Directories group for a browse query (filterFilesystemBrowseEntries + buildBrowseGroups), and what Tab does. */
+async function browseGroups(client: T3Client, native: Native, target: AddEnvironment, query: string, label: string, cwd: string, pinned: boolean): Promise<{ groups: Group[]; exact: string; parent: string; pending: boolean; error: string; tabOp: string; tabArg: string }> {
   const directory = browseDirectory(query), leaf = hasTrailingSeparator(query) ? '' : browseLeaf(query);
   const flow = flowOf(client), key = `${target.environmentId}:${target.generation}:${directory}:${cwd}`;
   if (flow.browse?.key !== key) {
@@ -163,7 +193,11 @@ async function browseGroups(client: T3Client, native: Native, target: AddEnviron
   const items: Item[] = [];
   if (parentPath !== null && directory !== '~/') items.push({ terms: [query, '..'], row: row({ key: 'up', op: 'browse-to', arg: parentPath, icon: 'corner-left-up', title: '..' }) });
   for (const entry of visible) items.push({ terms: [query, str(entry.fullPath), str(entry.name)], row: row({ key: str(entry.fullPath), op: 'browse-to', arg: appendSegment(query, str(entry.name)), icon: 'folder', title: str(entry.name) }) });
-  return { groups: [{ value: 'directories', label, items }], exact, parent: str(flow.browse.value.parentPath), pending: false, error: flow.browse.error };
+  // A partial completion would edit the clone destination's pinned folder name, so it extends nothing there.
+  const completion = browseTabCompletion(visible.map(entry => str(entry.name)), leaf);
+  const tab = completion?.isComplete ? { tabOp: 'browse-to', tabArg: appendSegment(query, completion.name) }
+    : completion && !pinned ? { tabOp: 'browse-to', tabArg: `${directory}${completion.name}` } : { tabOp: 'stay', tabArg: '' };
+  return { groups: [{ value: 'directories', label, items }], exact, parent: str(flow.browse.value.parentPath), pending: false, error: flow.browse.error, ...tab };
 }
 
 /** buildEnvironmentItem: an environment of the Environments step; choosing it opens its Sources. */
@@ -221,7 +255,8 @@ export async function addProjectView(client: T3Client, native: Native | null | u
   const current = target.focused ? client.shell.projects.find(project => project.id === client.projectId) : undefined;
   const cwd = str(current?.workspaceRoot);
   const leafPage = page.split('/').pop() ?? '';
-  const flow = flowOf(client);
+  const flow = flowOf(client), listing = flow.browse;
+  flow.browse = null;
   const discovery = await discover(client, native, target);
   // Clone: the repository step, then the destination step.
   const cloneSource = leafPage.startsWith('clone:') ? leafPage.slice(6) : '';
@@ -236,8 +271,9 @@ export async function addProjectView(client: T3Client, native: Native | null | u
   // Browsing: a typed path (root or submenu), Local folder, and the clone destination step.
   if (confirming || leafPage === 'browse' || isBrowseQuery(query)) {
     const relativeBlocked = (query.startsWith('./') || query.startsWith('../')) && !cwd;
-    const browse = relativeBlocked ? { groups: [] as Group[], exact: '', parent: '', pending: false, error: '' }
-      : await browseGroups(client, native, target, query, confirming ? 'Select where to clone' : 'Directories', cwd);
+    flow.browse = listing;
+    const browse = relativeBlocked ? { groups: [] as Group[], exact: '', parent: '', pending: false, error: '', tabOp: '', tabArg: '' }
+      : await browseGroups(client, native, target, query, confirming ? 'Select where to clone' : 'Directories', cwd, confirming && !!flow.clone?.pinned);
     const filtered = browse.groups[0]!.items.length ? browse.groups : [];
     const rows = flatten(filtered);
     const resolved = hasTrailingSeparator(query) ? (browse.parent || query.trim()) : (browse.exact || query.trim());
@@ -248,7 +284,7 @@ export async function addProjectView(client: T3Client, native: Native | null | u
     return { ...base, addon: submenu ? 'back' : 'folder-plus', placeholder: submenu ? 'Enter path (e.g. ~/projects/my-app)' : 'Enter project path (e.g. ~/projects/my-app)', rows, count: rows.length,
       autoHighlight: false, popOnEmpty: leafPage === 'browse', enterLabel: context.highlighted ? 'Select' : '', enterOp: 'flow', enterArg: submitOp, enterArg2: resolved,
       accessory: label, accessoryKey: context.highlighted ? '⌘ Enter' : 'Enter', accessoryEnabled: !relativeBlocked && query.trim().length > 0, accessoryOp: 'flow', accessoryArg: submitOp, accessoryArg2: resolved,
-      inputPaddingRight: willCreate ? 152 : context.highlighted ? 120 : 96, footerAction: target.isPrimary ? 'Open in Finder' : '', // canOpenProjectFromFileManager: the primary environment only (local-primary.ts)
+      inputPaddingRight: willCreate ? 152 : context.highlighted ? 120 : 96, tabOp: browse.tabOp, tabArg: browse.tabArg, footerAction: target.isPrimary ? 'Open in Finder' : '', // canOpenProjectFromFileManager: the primary environment only (local-primary.ts)
       contextLabel: confirming && clone ? 'Repository' : '', contextTitle: clone && confirming ? clone.title : '', contextDescription: clone && confirming ? clone.description : '', contextIcon: clone && confirming ? `source-${clone.source}` : '',
       empty: rows.length ? '' : relativeBlocked ? 'Relative paths require an active project.' : confirming ? 'Choose a destination path and press Enter to clone.'
         : willCreate ? 'Press Enter to create this folder and add it as a project.' : browse.error || '' };

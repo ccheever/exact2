@@ -15,7 +15,7 @@ import { attachOffered, preparingImages } from './composer-controls-attach';
 import { readySend, uploadBlock, uploadTable } from './composer-uploads';
 import { fanoutSelections, fanoutView } from './composer-controls-fanout';
 import { composerSelection } from './composer-provider-selection';
-import { chordGlyphs, displayModelName, optionValue, REASONING_SELECT_DESCRIPTOR_IDS, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './composer-controls-model';
+import { chordGlyphs, displayModelName, optionLabel, optionValue, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './composer-controls-model';
 import { composerRequiresModifier, sendChords, sendCommandChords } from './composer-editor-intent';
 import { layoutFrames } from '../shell/layout-frames';
 import { draftHoldsCommandEnter } from '../diff/diff';
@@ -30,11 +30,14 @@ import { environmentView } from '../details/git-env';
 import { ultrathinkTraits, withImplicitFastModeDefault } from './composer-provider-state';
 import { ultrathinkFrame } from './composer-ultrathink';
 import { acpInstanceIcon } from './acp-instance-icon'; // the trigger's ACP agent mark
-import { effortColumn, effortColumnHeight, effortFocus, speedSegments } from './composer-model-effort'; // the picker's effort column and footer
+import { columnControls, effortColumn, effortFocus, speedSegments } from './composer-model-effort';
+import { childApprovalCards } from './child-approvals';
+import { nativeChildWorkView } from './native-child-work';
 import { overflowMenu } from './composer-overflow';
 import { usageConfirm, usageResetClock } from './composer-controls-usage'; // the reset credit confirm and the reset's clock
 import { stripLabelsCompact, stripLabelTexts } from './context-strip'; // the context strip's labels or icons
 import type { ComposerNotice, FooterSteps } from './composer-controls-view';
+import { managedPolicySummary, managedRuntimeModeDenial, type RuntimeMode } from '../client/managed-policy';
 
 /** runtimeModeConfig.ts (v0.1.5): label, description and lucide icon per mode; full access is a crossed shield, since an
  *  open lock reads like a closed one at small sizes. */
@@ -164,7 +167,10 @@ export function composerView(client: ComposerSource, requests: { approval: boole
   const effortInput = { driver: str(provider?.driver), descriptors, selections: shown, selection, reported, ultra, unavailable: model?.isUnavailable === true, labels: SAVED_OPTION_LABELS };
   const column = effortColumn(effortInput), speed = speedSegments(effortInput);
   const supported = Array.isArray(provider?.supportedRuntimeModes) ? (provider!.supportedRuntimeModes as unknown[]).map(value => str(value)) : [];
-  const runtimes = runtimeModes.filter(option => !supported.length || supported.includes(option.mode));
+  // Modes above a managed policy's ceiling stay listed, disabled with the reason (ChatComposer at 5d3d78ab93).
+  const policy = managedPolicySummary(client.config);
+  const runtimes = runtimeModes.filter(option => !supported.length || supported.includes(option.mode))
+    .map(option => ({ ...option, disabledReason: managedRuntimeModeDenial(policy, option.mode as RuntimeMode) ?? '' }));
   const runtime = runtimes.find(option => option.mode === client.runtimeMode) ?? runtimes[0] ?? runtimeModes[0]!;
   const planVisible = client.local.deviceSettings.planModeEnabled && !!provider && provider.showInteractionModeToggle !== false;
   const display = traitsDisplay(str(provider?.driver), descriptors, shown, selection, reported, ultra);
@@ -174,16 +180,23 @@ export function composerView(client: ComposerSource, requests: { approval: boole
   const modelLabel = model ? `${displayModelName(model)}${model.isUnavailable === true ? ' (Unavailable)' : ''}` : modelTitle;
   // ProviderModelPicker's Unavailable Badge (outline, sm): its text with 3pt padding and the 1pt border each side.
   const badge = model?.isUnavailable === true && !fanoutSelections(client as unknown as T3Client) ? measured(client.presentation, UNAVAILABLE_BADGE, 10, 500) + 8 : 0;
-  // describeComposerEffort (2359643cff), after the model name in its trigger: the primary reasoning select as a word
-  // ("High", Settings › Appearance › Effort display "label", the default) or rising bars ("bars"); Max, Ultracode and
-  // Ultrathink keep their names, and traits the bars cannot show (an agent mode) read as their label.
-  const primary = descriptors.find(descriptor => descriptor.type === 'select' && descriptor.id === ultra.primaryId);
-  const glyph = primary && REASONING_SELECT_DESCRIPTOR_IDS.has(str(primary.id))
-    ? resolveEffortGlyph(primary, ultra.controlled ? 'ultrathink' : stringOrNull(optionValue(primary, resolvedCurrent(primary, shown), selection, reported))) : null;
+  // describeComposerEffort (5d3d78ab93), after the model name in its trigger: the reasoning control the picker's column
+  // lists, as a word ("High", Settings › Appearance › Effort display "label", the default) or rising bars ("bars"); Max,
+  // Ultracode and Ultrathink keep their names, a reasoning switch reads "<label> On|Off". Then a bolt for Fast, and of
+  // the other traits only the context window: an agent's options such as modes live in the picker.
+  const reasoning = columnControls(str(provider?.driver), descriptors).effort;
+  const ultrathinkShown = ultra.controlled && !!reasoning && str(reasoning.id) === ultra.primaryId;
+  const glyph = reasoning?.type === 'select'
+    ? resolveEffortGlyph(reasoning, ultrathinkShown ? 'ultrathink' : stringOrNull(optionValue(reasoning, resolvedCurrent(reasoning, shown), selection, reported))) : null;
   const effortDisplay = (client.local as { clientSettings?: { effortDisplay?: unknown } }).clientSettings?.effortDisplay === 'bars' ? 'bars' : 'label';
-  const effortWord = glyph ? (glyph.special ?? (effortDisplay === 'label' ? glyph.label : '')) : display.label;
-  const effort = { shown: display.label !== '', word: effortWord, bars: glyph && !effortWord ? glyph.count : 0,
-    speed: glyph ? display.speedLabel ?? '' : '', other: glyph ? display.otherLabels.join(' · ') : '' };
+  const effortWord = glyph ? (glyph.special ?? (effortDisplay === 'label' ? glyph.label : '')) : !reasoning ? ''
+    : reasoning.type === 'boolean' ? `${str(reasoning.label, str(reasoning.id))} ${resolvedCurrent(reasoning, shown) === true ? 'On' : 'Off'}`
+    : ultrathinkShown ? 'Ultrathink' : optionLabel(reasoning, resolvedCurrent(reasoning, shown), selection, reported);
+  const fast = display.speedLabel === 'Fast' || display.speedLabel === 'Ultrafast';
+  const contextWindowDescriptor = descriptors.find(descriptor => descriptor.type === 'select' && descriptor.id === 'contextWindow');
+  const contextWindow = contextWindowDescriptor ? optionLabel(contextWindowDescriptor, resolvedCurrent(contextWindowDescriptor, shown), selection, reported) : '';
+  const effort = { shown: !!effortWord || !!glyph || fast || !!contextWindow, word: effortWord, bars: glyph && !effortWord ? glyph.count : 0,
+    speed: fast ? display.speedLabel ?? '' : '', other: contextWindow };
   // ComposerControlsBar: Permissions hide while the thread's mode is the project's default, or while the new thread's
   // strip names them (permissionsShownInStrip: a draft of a project, whose strip always shows).
   const defaultRuntimeMode = defaultRuntimeModeOf(client);
@@ -208,7 +221,7 @@ export function composerView(client: ComposerSource, requests: { approval: boole
       phase: client.threadId ? threadPhase(client.projection) : 'disconnected' }),
     modelTip: modelShortcut ? `${modelLabel} · ${modelShortcut}` : modelLabel, fieldLabel: fieldLabel(client),
     // The trigger's name: the model, then its effort and other traits (triggerDetail), as one control.
-    modelDetail: effort.shown ? display.label : '',
+    modelDetail: display.label,
     effortShown: effort.shown, effortWord: effort.word, effortBars: glyph && !effort.word ? effortBars(glyph) : [], effortBarsWidth: glyph ? 4 * glyph.count - 2 : 0,
     effortSpeed: effort.speed, effortOther: effort.other,
     providerIcon: acpInstanceIcon(client.config, provider),
@@ -216,9 +229,11 @@ export function composerView(client: ComposerSource, requests: { approval: boole
     // The model picker's effort column (its header names the reasoning control), how many option rows it has and its
     // natural height, the rows a model pick and composer.effort focus, and its footer's speed control
     // (ComposerModelEffort.tsx).
-    effortHeader: column.header, effortGroups: column.groups, effortRows: column.rows.length, effortHeight: effortColumnHeight(column.groups),
-    effortFocusLevel: effortFocus(column.rows, 'levels'), effortFocusAny: effortFocus(column.rows, 'any'),
+    effortHeader: column.header, effortGroups: column.groups, effortOrder: column.order,
+    effortFocusLevel: effortFocus(column, 'levels'), effortFocusAny: effortFocus(column, 'any'),
     speedLabel: speed.label, speedSegments: speed.segments,
+    // ChildThreadApprovals: a card per approval a subagent or side chat below this thread waits on (child-approvals.ts).
+    childApprovals: childApprovalCards(client as unknown as T3Client), nativeChildWork: nativeChildWorkView(client),
     // Where Permissions live (resolveComposerControlsOwnership): the chip shows its label, its icon or nothing; the
     // model picker or the overflow menu answers composer.mode while it does not.
     accessDisplay: ownership.accessDisplay, accessEmphasized: !accessMatchesDefault, showModeBlock: ownership.showModeBlock,

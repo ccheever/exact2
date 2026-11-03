@@ -97,6 +97,22 @@ test('a transcript directory two environments share counts once; incompatible se
   expect(merged.mismatches).toEqual([{ environment: 'Old', direction: 'serverBehind' }]);
 });
 
+// usageMerge.test.ts at 5d3d78ab93 "keeps new cells from a later partial scan without recounting older cells".
+test('a later partial scan adds only its new cells, unless it ran under another model filter', () => {
+  const complete = { id: 'old', label: 'old', summary: { contractVersion: 4, readAt: '2026-10-04T00:00:00Z', sources: [source('codex', '/c', 1)], buckets: [bucket({ costUsd: 10, records: 5 })] } };
+  const partial = { id: 'new', label: 'new', summary: { contractVersion: 6, readAt: '2026-10-05T01:00:00Z', sources: [source('codex', '/c', 2, 'partial')],
+    buckets: [bucket({ sourcePath: '/c', costUsd: 4, records: 2 }), bucket({ day: '2026-10-02', sourcePath: '/c', costUsd: 3, records: 1 })] } };
+  for (const ordered of [[complete, partial], [partial, complete]]) {
+    const merged = mergeUsage(ordered);
+    expect([merged.costUsd, merged.records, merged.sessions]).toEqual([13, 6, 2]);
+    expect(merged.daily.map(day => [day.key, day.costUsd])).toEqual([['2026-10-01', 10], ['2026-10-02', 3]]);
+    expect(merged.duplicates).toEqual(['new: /c']);
+  }
+  const filtered = { ...partial, summary: { ...partial.summary, modelFilter: { exclude: [{ model: 'gpt-6-astra' }] } } };
+  const merged = mergeUsage([complete, filtered]);
+  expect([merged.costUsd, merged.sessions]).toEqual([10, 1]);
+});
+
 test('the chart rounds its scale up and draws monotone curves in plot pixels', () => {
   expect(niceScale(1386, 4)).toEqual({ max: 1500, ticks: [0, 500, 1000, 1500] });
   expect(niceScale(0, 4)).toEqual({ max: 0, ticks: [0] });

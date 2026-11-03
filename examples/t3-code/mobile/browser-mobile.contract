@@ -21,6 +21,8 @@ shape MobilePreviewColors
   primary: string
   primaryForeground: string
   subtle: string
+  glassTint: string
+  glassFallback: string
   stream: string
 shape MobileBrowserSnapshot
   owner: string

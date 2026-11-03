@@ -17,9 +17,9 @@ function recorder(names: string[], extra: Env = {}) {
 
 describe('Settings › Keybindings: the capture field keeps the focus after a chord', () => {
   const field = contractComponent('settings-keybindings.contract', 'CaptureField');
-  test('a chord ends recording and the field keeps the focus; Escape restores the binding there; leaving it keeps the field', () => {
+  test('a chord ends recording and the field keeps the focus; leaving it keeps the field', () => {
     const state = field.state();
-    const { calls, scope } = recorder(['capture', 'held'], { original: 'mod+n', value: 'mod+n', label: 'Chat: New', rowId: 'chat-new', recording: true });
+    const { calls, scope } = recorder(['capture', 'held', 'focus', 'blur'], { original: 'mod+n', value: 'mod+n', label: 'Chat: New', rowId: 'chat-new', escapeTo: 'edit-keybinding-chat-new', recording: true });
     const modal = () => field.drawn('aria-modal=true', state, scope);
     expect(modal()).toBe(true);
     // The chord: the root sets the draft and ends recording; the field still takes keys, so the row stays the window's
@@ -27,13 +27,23 @@ describe('Settings › Keybindings: the capture field keeps the focus after a ch
     field.call('took', state, scope, ['mod+k']);
     scope.recording = false;
     expect(modal()).toBe(true);
-    field.call('took', state, scope, ['escape']);
-    expect(calls).toEqual(['capture:mod+n,mod+k', 'capture:mod+n,escape']);
     // KeybindingsSettings.tsx's Input stays mounted, unfocused, once the focus leaves it.
     field.call('took', state, { ...scope, recording: true }, ['blur']);
     expect(field.drawn('testId=`keybinding-field-${rowId}`', state, scope)).toBe(true);
     expect(modal()).toBe(false);
-    expect(calls.slice(-2)).toEqual(['capture:mod+n,blur', 'held:keybinding-recorder-chat-new,false']);
+    expect(calls).toEqual(['capture:mod+n,mod+k', 'capture:mod+n,blur', 'held:keybinding-recorder-chat-new,false']);
+  });
+  // d64888fbc4: Escape restores the binding, stays out of Settings, and leaves the field: to the Edit shortcut pill of an
+  // existing binding, else (the new binding, or a row whose condition is still edited) nowhere.
+  test('Escape restores the binding and gives the focus to the Edit shortcut pill, or lets go of it', () => {
+    for (const [escapeTo, moved] of [['edit-keybinding-chat-new', 'focus:edit-keybinding-chat-new'], ['', 'blur']] as const) {
+      const state = field.state();
+      const { calls, scope } = recorder(['capture', 'held', 'focus', 'blur'], { original: 'mod+n', value: 'mod+n', label: 'Chat: New', rowId: 'chat-new', escapeTo, recording: true });
+      field.call('took', state, scope, ['escape']);
+      scope.recording = false;
+      expect(calls).toEqual(['capture:mod+n,escape', moved]);
+      expect(field.drawn('aria-modal=true', state, scope)).toBe(false);
+    }
   });
 });
 

@@ -5,6 +5,8 @@ import { toolImages } from './tool-images';
 import { secretCard } from './secret-card';
 import { focusDiffFind } from '../diff/diff-find';
 import { threadFindAction, threadFindExpanded, threadFindView } from './thread-find-runtime';
+import { markdownProseDirection } from '../shared/text-direction';
+import { modelSwitchLabel } from './timeline-model-switch';
 // Message presentation adapted from T3 Code 9c161462c9 (MIT; see LICENSE-T3):
 // apps/web/src/components/chat/MessagesTimeline.tsx and packages/client-runtime/src/userMessage.ts.
 import { copyPromptLink, promptLinkFor } from '../prompt-links/copy-prompt-link';
@@ -47,7 +49,7 @@ import { noteRefScrollEnd } from '../composer/ref-paging';
 import { isCompacting } from '../composer/composer-controls';
 import { workflowOpening, workflowOpeningMessage, type WorkflowOpening } from './timeline-workflow-opening';
 import { preparationFailureRunId, retryableActivities } from './workspace-retry'; // Retry a failed workspace preparation
-import { numericDateFormatter, timestampFormatter } from '../shared/timestamp-format'; // the host's locale
+import { formatUpcomingTimestamp, numericDateFormatter, timestampFormatter } from '../shared/timestamp-format'; // the host's locale
 import { letGo } from '../client/let-go';
 import { pushToast } from '../shell/toast';
 import { CHATGPT_WORKSPACE_ADMIN_REQUEST } from './timeline-errors';
@@ -370,7 +372,9 @@ export function workspaceRoot(client: T3Client): string {
   return str(thread.worktreePath) || str(project?.workspaceRoot);
 }
 
-function activity(entry: WorkEntry, root: string, client: T3Client, label?: string): Activity {
+/** An activity before timelineMessages: a usage-limit failure carries its reset instant ('' when unknown). */
+type WorkActivity = Activity & { usageResetAt?: string };
+function activity(entry: WorkEntry, root: string, client: T3Client, label?: string): WorkActivity {
   const fetches = turnItemNeedsDetailFetch(entry.item);
   const detail = turnItemDetailView(client, entry.item, undefined, entry.id);
   entry = { ...entry, item: detail.item };
@@ -404,6 +408,7 @@ function activity(entry: WorkEntry, root: string, client: T3Client, label?: stri
     // A created thread's Open chat; a subagent notification the parent has no record of keeps Open subagent.
     targetId: entry.itemType === 'thread_created' ? str(item.targetThreadId) : notificationChildThreadId(item), targetLabel: entry.itemType === 'thread_created' ? 'Open chat' : 'Open subagent',
     retryRunId: preparationFailureRunId(item), // upstream 737993303d
+    ...(usage ? { usageResetAt: str(obj(item.failure).resetAt) } : {}),
     answer: entry.questionAnswer && hasQuestionAnswer(entry.questionAnswer) ? questionAnswerPreview(entry.questionAnswer) : '' };
 }
 
@@ -438,7 +443,12 @@ export function transcriptRows(client: T3Client): Message[] {
   const context: PresentContext = { client, root, view, subagents: arr(projection.subagents), providers: arr(client.config.providers), format: client.local.deviceSettings.timestampFormat,
     preparing: setup.preparing, compacting: isCompacting(client) && !rows.some(row => row.kind === 'compaction' && row.active || row.kind === 'working' && row.compacting === true), detailsOpen: worktreeDetailsOpen(client), threads: client.shell.threads,
     workflow: workflowOpening(client), background, findEntry: threadFindExpanded(client) ? threadFindView(client).entry : '', approvals };
-  const messages = rows.map(row => present(row, context));
+  // UserMessageRow: a message that switched the model or effort on the same harness has a divider above it.
+  const messages = rows.flatMap(row => {
+    const message = present(row, context);
+    const switched = row.kind === 'message' && row.entry.item.type === 'user_message' ? modelSwitchLabel(row.entry.item.modelSwitch, context.providers) : '';
+    return switched ? [{ id: `model-switch:${row.id}`, createdAt: row.createdAt, kind: 'event', title: switched, body: '', detail: '', icon: '', tone: 'neutral' }, message] : [message];
+  });
   // An approval whose item is not among the rows (not loaded yet) still answers, after them.
   const drawn = new Set(messages.flatMap(message => message.approval?.map(approval => approval.id) ?? []));
   for (const approval of approvals.values()) if (!drawn.has(approval.id)) messages.push({ id: `pending-approval:${approval.id}`, kind: 'entry', title: '', body: '', activities: [], approval: [approval] });
@@ -613,7 +623,7 @@ function present(row: Row, context: PresentContext): Message {
       if ((automation || agent) && context.findEntry === row.id) view.open.add(foldKey);
       // A file with a chip in the prose needs no standalone row (images always show); an automation's prompt shows none.
       const shaped = userMessageShape(item, text, attached, chipped, automation || agent);
-      return { ...common, kind: 'user', title: automation ? 'Automation' : agent ? senderTitle : 'You', summary, body: text, revert: row.revert,
+      return { ...common, kind: 'user', title: automation ? 'Automation' : agent ? senderTitle : 'You', summary, body: text, dir: markdownProseDirection(text) ?? 'ltr', revert: row.revert,
         images: automation ? [] : attached.images, attachFiles: automation ? [] : shaped.files, audio: automation ? [] : attached.audio, chips, code: messageCodeBlocks(text, 'data', `message:${row.id}`), diagrams: messageDiagrams(text),
         shape: shaped.shape, mediaAbove: shaped.mediaAbove, mediaLayout: shaped.layout, copyable: sender.text !== '' || shaped.copy !== '',
         collapsible: !automation && !agent && shouldCollapseUserMessage(text),
@@ -624,6 +634,15 @@ function present(row: Row, context: PresentContext): Message {
         status: ['completed', 'pending', 'waiting'].includes(str(item.status)) ? '' : str(item.status) };
     }
   }
+}
+
+/**
+ * WorkEntryLogRow's usage-limit label: the reset in the viewer's time, naming the zone so it is unambiguous. Both read
+ * the zone now, since the device's can change.
+ */
+export function usageLimitLabel(resetAt: string, format: string, now: number): string {
+  const timeZone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return `Usage limit reached.${resetAt ? ` Retry after ${formatUpcomingTimestamp(resetAt, format, now, timeZone)} (${timeZone}).` : ''}`;
 }
 
 type RowActivity = Activity & Required<Pick<Activity, 'tone' | 'ok' | 'reasoning' | 'expandable' | 'detail' | 'status' | 'targetId' | 'answer' | 'retryRunId' | 'outputState' | 'detailOpen' | 'iconLight' | 'iconDark'
@@ -656,7 +675,7 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
     // checkpointFileTotals: a huge checkpoint sends a prefix of its files with the totals of all of them.
     const totals = message.filesTotal ?? { count: files.length, additions: files.reduce((sum, file) => sum + file.additions, 0), deletions: files.reduce((sum, file) => sum + file.deletions, 0) };
     const hidden = message.kind === 'checkpoint' ? totals.count - files.length : 0;
-    return { id: message.id, kind: message.kind, title: message.title, body: message.body,
+    return { id: message.id, kind: message.kind, title: message.title, body: message.body, dir: message.dir ?? 'ltr',
       checkpointId: message.checkpointId ?? '', checkpointOrdinal: num(checkpoint?.appRunOrdinal, -1),
       additions: totals.additions, deletions: totals.deletions,
       filesLabel: message.kind === 'checkpoint' ? `${totals.count.toLocaleString('en-US')} changed file${totals.count === 1 ? '' : 's'}` : '',
@@ -667,7 +686,8 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
       canFork: (message.kind === 'assistant' || message.kind === 'meta') && message.canFork === true && message.completed === true && message.streaming !== true && message.local !== true,
       completed: message.completed === true, createdAt: message.createdAt ?? '', timestamp: messageTime(message.createdAt, now, format),
       timeTip: timestampTooltip(message.createdAt, format), actionsTimeTip: '', ...codeCopy,
-      activities: retryableActivities(client, (message.activities ?? []).map(activity => ({ ...blankActivity({ ...activity, timestamp: messageTime(activity.timestamp, now, format) }), timeTip: timestampTooltip(activity.timestamp, format) }))),
+      activities: retryableActivities(client, (message.activities ?? []).map(({ usageResetAt, ...activity }: WorkActivity) => ({ ...blankActivity({ ...activity,
+        label: usageResetAt === undefined ? activity.label : usageLimitLabel(usageResetAt, format, now), timestamp: messageTime(activity.timestamp, now, format) }), timeTip: timestampTooltip(activity.timestamp, format) }))),
       first: false, attached: false, hoverKey: message.id, actionsId: '', actionsFork: false, actionsTime: '', expanded: message.kind === 'checkpoint' ? tree.all : message.expanded === true, last: false,
       icon: message.icon ?? '', tone: message.tone ?? '', failed: message.failed === true, live: message.live === true,
       startedMs: message.startedMs ?? 0, elapsed: message.elapsed ?? '', detail: message.detail ?? '', status: message.status ?? '', groupId: message.groupId ?? '',
@@ -681,11 +701,13 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
   const rawText = new Map(transcript.map(message => [message.id, message.rawText]));
   timelineView(client).lastRows = { threadId: client.threadId, rows: rows.map(row => ({ id: row.id, kind: row.kind, body: row.body, text: rawText.get(row.id) })) };
   // deriveMessagesTimelineRows: your back-to-back messages stack as one burst, a run of steers labelled once.
+  // A model switch's divider sits inside its message's row in the reference, so it does not break a burst.
   const own = (row: typeof rows[number] | undefined) => row?.kind === 'user' && row.attribution === '';
+  const switchAt = (index: number) => rows[index]?.id.startsWith('model-switch:') === true;
   rows.forEach((row, index) => {
     if (!own(row)) return;
-    const previous = rows[index - 1];
-    row.groupedNext = own(rows[index + 1]);
+    const previous = rows[switchAt(index - 1) ? index - 2 : index - 1];
+    row.groupedNext = own(rows[switchAt(index + 1) ? index + 2 : index + 1]);
     row.groupedPrevious = own(previous);
     row.continuesSteer = row.groupedPrevious && row.intent === 'Steer' && previous!.intent === 'Steer';
   });

@@ -31,6 +31,7 @@ use SettingsADialogs from "../settings/settings-a-dialogs.contract"
 use ProvidersPanel from "../providers/providers.contract"
 use ProviderPage from "../providers/providers.contract"
 use ProviderSetupConfirm from "../providers/providers-setup.contract"
+use ProviderRemoveConfirm from "../providers/providers.contract"
 use AcpConfirm from "../providers/providers-upkeep.contract"
 use AddProviderDialog from "../providers/providers-wizard.contract"
 use ProviderWizard from "../providers/providers-wizard.contract"
@@ -494,6 +495,11 @@ component SettingsModals
             ProviderSetupConfirm(what=providerDialog, instanceId=editor.id, title=account.signOutTitle, body=account.signOutBody, busy=setupBusy, op=providerOp, ui=providerUi)
           for runtime in (providerDialog == "setup-remove" ? editor.setup.runtime : []) key=runtime.key
             ProviderSetupConfirm(what=providerDialog, instanceId=editor.id, title=runtime.removeTitle, body=runtime.removeBody, busy=setupBusy, op=providerOp, ui=providerUi)
+    // Delete (an added instance) and Reset (a built-in one) ask first.
+    if providerDialog == "provider-remove" or providerDialog == "provider-reset"
+      for editor in providerPage.editors key=editor.key
+        if editor.id == providerTarget
+          ProviderRemoveConfirm(what=providerDialog, instanceId=editor.id, title=(providerDialog == "provider-remove" ? editor.removeTitle : editor.resetTitle), body=(providerDialog == "provider-remove" ? editor.removeBody : editor.resetBody), busy=commandPending, op=providerOp, ui=providerUi)
     // An ACP session's Delete and an ACP provider's Disable ask first (dialogs.confirm, destructive).
     if providerDialog == "acp-delete" or providerDialog == "acp-disable"
       for editor in providerPage.editors key=editor.key

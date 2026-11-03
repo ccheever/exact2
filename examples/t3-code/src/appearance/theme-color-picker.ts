@@ -72,13 +72,13 @@ export function themeRgbValue(hex: string): string {
 }
 
 /**
- * What a picker op commits for the row's current value, or null to leave it alone. `color`
- * (the plane, the hue slider and their keys) and `rgb` keep the incoming alpha suffix; `hex`
- * commits a complete six-digit value as typed, lowercased (handleHexChange), so it drops it.
+ * What a picker op commits for the row's current value, or null to leave it alone. Each keeps the
+ * value's alpha suffix: `color` (the plane, the hue slider and their keys), `rgb`, and `hex`, a
+ * complete six-digit value as typed, lowercased (handleHexChange at 5d3d78ab93).
  */
 export function pickerCommit(part: string, text: string, current: string): string | null {
   if (part === 'color') return /^#[0-9a-f]{6}$/.test(text) ? text + themePickerAlphaSuffix(current) : null;
-  if (part === 'hex') return /^#[0-9a-f]{6}$/i.test(text) ? text.toLowerCase() : null;
+  if (part === 'hex') return /^#[0-9a-f]{6}$/i.test(text) ? text.toLowerCase() + themePickerAlphaSuffix(current) : null;
   if (part === 'rgb') { const hex = themeRgbToHex(text); return hex ? hex + themePickerAlphaSuffix(current) : null; }
   return null;
 }

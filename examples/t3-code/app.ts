@@ -28,6 +28,7 @@ import { composerIntentAnswer } from './src/composer/composer-intent-source';
 import { chipPopoverView } from './src/composer/composer-chip-popover'; // a skill chip's details popover
 import { composerChipObserved, composerChipPressed } from './src/composer/composer-chip-events';
 import { composerBranches } from './src/composer/composer-controls-branch';
+import { childApprovalsPrepare } from './src/composer/child-approvals';
 import { providerFieldValues } from './src/providers/providers';
 import { providersRoute, scopedAcpRegistry, scopedProviderPage, scopedProviderWizard, scopedSetupOp, scopedUpkeepOp } from './src/providers/providers-scope';
 import { connectionsPage } from './src/connections/connections';
@@ -156,6 +157,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     noteLayoutFrames(client, args[9]); // the boxes app.contract measured (layout-frames.ts)
     await client.refresh(native, storage);
     await prepareTimeline(client, native); // Mermaid layouts and the worktree setup stream (timeline-prepare.ts).
+    await childApprovalsPrepare(client, native); // child-approvals.ts: the requests of the children asking for approval
     await autoBalancePrepare(client, native); // auto-balance.ts
     await keepAlivePrepare(client, native); migrationToast(client); // keep-alive.ts, local-lifecycle.ts: running threads stay live; "Restoring your threads…"
     await codexPrepare(client, native); // codex-setup-host.ts: the managed Codex setups' effects and loopback callbacks

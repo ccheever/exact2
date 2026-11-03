@@ -2,7 +2,7 @@
 // the bytes `fetch` writes to a file, a PNG written as it is, anything else drawn into a PNG, the reference's sentences,
 // and @exact/clipboard's `write`, here a fake.
 import { afterEach, describe, expect, test } from 'bun:test';
-import { copyImageFile, copyMediaImage, dataUrlBytes, FETCH_FAILED, NOT_PNG, TOO_LARGE, UNDECODABLE, useClipboardCalls, WEB_PAGE } from '../../src/media/media-copy-image';
+import { copyImageFile, copyMediaImage, dataUrlBytes, FETCH_FAILED, INLINE_UNDECODABLE, NOT_PNG, TOO_LARGE, UNDECODABLE, useClipboardCalls, WEB_PAGE } from '../../src/media/media-copy-image';
 import { adoptAppFiles } from '../../src/media/save-file';
 import type { Obj } from '../../src/client/domain';
 
@@ -93,5 +93,10 @@ describe('copyMediaImage', () => {
     expect(copy.written).toEqual([[{ 'image/png': path }]]);
     expect(dataUrlBytes('data:,a%20b')).toEqual({ type: 'text/plain', bytes: new TextEncoder().encode('a b') });
     expect(dataUrlBytes('data:image/svg+xml;charset=utf-8,%3Csvg%2F%3E').type).toBe('image/svg+xml');
+    // readDataUrlBlob: an escape is one raw byte, the fragment is dropped, and a bad payload is refused in its words.
+    expect([...dataUrlBytes('data:application/octet-stream,%89P#frag').bytes]).toEqual([0x89, 0x50]);
+    expect([...dataUrlBytes('data:image/png;BASE64,iVBO%52w0K').bytes].slice(0, 4)).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    expect(() => dataUrlBytes('data:image/png;base64,***')).toThrow(INLINE_UNDECODABLE);
+    expect(() => dataUrlBytes('data:image/png')).toThrow(INLINE_UNDECODABLE);
   });
 });

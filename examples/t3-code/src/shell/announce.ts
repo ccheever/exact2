@@ -219,8 +219,9 @@ const phaseOf = (status: string | null): string => status === null ? 'disconnect
 function acknowledged(sent: LocalDispatch, now: DispatchFacts, waitingOnPerson: boolean, error: string): boolean {
   if (waitingOnPerson || (error !== '' && error !== sent.error)) return true;
   const phase = phaseOf(now.runtimeStatus);
-  if (phase === 'connecting') return false;
   const userMessageChanged = sent.userMessageId !== now.userMessageId;
+  // A message queued behind other work, such as an idle compaction the shell hides, has landed.
+  if (phase === 'connecting') return now.runtimeStatus === 'queued' && userMessageChanged;
   const runChanged = sent.runId !== now.runId || sent.requestedAt !== now.requestedAt || sent.startedAt !== now.startedAt || sent.completedAt !== now.completedAt;
   if (phase === 'running') {
     if (userMessageChanged) return true;

@@ -30,6 +30,7 @@ export async function serverUpdateOps(this: T3Client, op: string, id: string, va
     const target = op === 'su:confirm' ? confirms.get(this) : updateTargetFromConfig(this.config, focusedKey(this), this.environmentId, serverUpdateLabel(this));
     confirms.delete(this);
     if (!target || !this.environmentId) return true;
+    if (target.managedDenial) { await updateEnvironment(target, nativeUpdateDeps(native, this)); return true; }
     // ServerUpdateAction: the only confirmation in the flow; the remote machine installs without asking.
     if (op === 'su:update' && target.selfUpdate === 'desktop-managed' && target.desktopAppUpdate) { confirms.set(this, target); return true; }
     await updateEnvironment(target, nativeUpdateDeps(native, this));

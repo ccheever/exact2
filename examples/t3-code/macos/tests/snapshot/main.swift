@@ -25,6 +25,21 @@ expect(T3SnapShot.acceptsShortcut(animating: false, now: 10, last: nil) == (true
 expect(T3SnapShot.acceptsShortcut(animating: false, now: 10.1, last: 10) == (true, false), "a press within the cooldown verifies but does not capture")
 expect(T3SnapShot.acceptsShortcut(animating: false, now: 10.25, last: 10) == (true, true), "a press after the cooldown captures")
 print("8 test-capture message and shortcut gate checks passed")
+// ActiveWindow.test.ts: the front app's first visible window, past untitled helper strips over another window.
+func cgWindow(_ id: Int, pid: Int = 7, layer: Int = 0, title: String = "", alpha: Double = 1, _ x: Double, _ y: Double, _ width: Double, _ height: Double) -> [String: Any] {
+    [kCGWindowNumber as String: id, kCGWindowOwnerPID as String: pid, kCGWindowLayer as String: layer, kCGWindowName as String: title, kCGWindowAlpha as String: alpha,
+     kCGWindowBounds as String: ["X": x, "Y": y, "Width": width, "Height": height]]
+}
+let editor = cgWindow(3, 0, 40, 800, 600)
+expect(T3SnapShot.frontWindowId([cgWindow(1, pid: 8, title: "Other", 0, 0, 800, 600), cgWindow(2, layer: 3, title: "Menu", 0, 0, 80, 20), editor], pid: 7) == 3, "another app's and other layers' windows are skipped")
+expect(T3SnapShot.frontWindowId([cgWindow(1, title: "Hidden", alpha: 0, 0, 0, 800, 600), cgWindow(2, title: "Empty", 0, 0, 0, 600), editor], pid: 7) == 3, "transparent and unsized windows are skipped")
+expect(T3SnapShot.frontWindowId([cgWindow(1, 0, 0, 800, 40), editor], pid: 7) == 3, "an untitled strip above a window is its helper")
+expect(T3SnapShot.frontWindowId([cgWindow(1, -300, 40, 30, 600), editor], pid: 7) == 1, "a strip further left of a window than a quarter of its width is no helper")
+expect(T3SnapShot.frontWindowId([cgWindow(1, 0, 40, 30, 600), editor], pid: 7) == 3, "an untitled strip along a window's left edge is its helper")
+expect(T3SnapShot.frontWindowId([cgWindow(1, title: "Toolbar", 0, 0, 800, 40), editor], pid: 7) == 1, "a titled window is picked even when thin")
+expect(T3SnapShot.frontWindowId([cgWindow(1, 0, 0, 400, 300), editor], pid: 7) == 1, "an untitled window that is no strip is picked")
+expect(T3SnapShot.frontWindowId([cgWindow(1, 0, 0, 800, 40)], pid: 7) == 1, "a strip over nothing is the window")
+print("8 front-window choice checks passed")
 
 let active = T3SnapshotLifetime(owner: "draft-a")
 expect(active.canPublish(owner: "draft-a", enabled: true, closing: false), "active capture may publish")

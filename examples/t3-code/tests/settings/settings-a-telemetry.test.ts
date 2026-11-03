@@ -166,4 +166,12 @@ describe('diagnostics tables', () => {
     expect(client.requests.filter(([method]) => method === 'server.getTraceDiagnostics').length).toBe(2);
     expect(client.requests.find(([method]) => method === 'server.getProcessResourceHistory')![1]).toEqual({ windowMs: 900000, bucketMs: 60000 });
   });
+  test('memory picks its unit after rounding, so it never reads "1024.0 MB" (formatBytes)', async () => {
+    const client = fake(), t3 = as(client), rss = Math.round(1023.96 * 1024 * 1024);
+    client.replies['server.getProcessDiagnostics'] = { readAt: '2026-10-04T00:47:00.000Z', processCount: 1, totalCpuPercent: 0, totalRssBytes: rss, serverPid: 1,
+      processes: [{ pid: 20, depth: 0, command: 'codex', childPids: [], cpuPercent: 0, rssBytes: 150 * 1024 * 1024, startTimeMs: 5 }] };
+    const page = await diagnosticsPage(t3, native, '', '15m', true, NOW, 0);
+    expect(page.processes.rows[0]!.cells[2]!.text).toBe('150 MB');
+    expect(JSON.stringify(page)).toContain('"1.00 GB"');
+  });
 });

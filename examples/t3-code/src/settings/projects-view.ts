@@ -1,5 +1,5 @@
 // Settings → Project view model (reference ProjectsSettings.tsx and
-// ProjectSettingsPanel.tsx, its Pin and Archive rows at 2359643cff): the selected project group's name, icon, pin,
+// ProjectSettingsPanel.tsx, its Pin and Archive rows at 2359643cff and its Checkouts at 5d3d78ab93): the selected project group's name, icon, pin,
 // archive, new-thread defaults, checkouts and removal copy, over every environment's project groups
 // (projects-fleet.ts). Group key and checkout come from the settings scope
 // (settings-core's resolveScope), so this never guesses a target.
@@ -16,8 +16,27 @@ import { settingsScopeEnvironmentLabels } from './settings-scope';
 import { scopeNoticeGroups, type ScopeNoticeGroup } from './settings-scope-notice';
 import { scopeEnvironments, scopeProjectGroups } from './settings-scope-sources';
 import { isScratch } from '../composer/scratch-machine';
+import { projectPath } from '../client/client-shared';
 
 type Choice = { value: string; label: string; selected: boolean };
+type Checkout = { id: string; title: string; path: string; groupingLabel: string; groupingValue: string; groupingOptions: Choice[] };
+
+// PROJECT_GROUPING_MODE_LABELS (sidebarProjectGrouping.ts).
+const GROUPING_LABELS: Record<string, string> = { repository: 'Group by repository', repository_path: 'Group by repository path', separate: 'Keep separate' };
+/**
+ * CheckoutGroupingSelect: the checkout's own grouping rule (this device's override by its physical key), else
+ * "Default (<the global mode>)". The option values are the `grouping-override` op's (client-ops-sidebar.ts).
+ */
+function checkoutRow(client: T3Client, member: Obj): Checkout {
+  const { environmentId } = memberRef(client, str(member.id));
+  const local = client.local as { groupingMode?: string; groupingOverrides?: Record<string, string> };
+  const selection = local.groupingOverrides?.[`${environmentId}:${projectPath(member.workspaceRoot)}`] ?? 'inherit';
+  const label = environmentLabel(client, environmentId);
+  return { id: str(member.id), title: str(member.title), path: str(member.workspaceRoot),
+    groupingLabel: `Grouping rule for ${str(member.workspaceRoot)} on ${label ? `${label} (${environmentId})` : environmentId}`,
+    groupingValue: selection === 'inherit' ? `Default (${GROUPING_LABELS[local.groupingMode ?? 'repository'] ?? GROUPING_LABELS.repository})` : GROUPING_LABELS[selection] ?? selection,
+    groupingOptions: [['inherit', 'Use global default'], ...Object.entries(GROUPING_LABELS)].map(([value, text]) => ({ value: value!, label: text!, selected: value === selection })) };
+}
 
 // ProjectSettingsPanel.logic.ts: the No project (Scratch) project's own name and icon, which its resets restore.
 export const SCRATCH_PROJECT_TITLE = 'No project';
@@ -36,7 +55,7 @@ export function hasDefaultProjectIcon(member: Obj, scratch: boolean): boolean {
   if (!scratch) return icon === null;
   return icon?.kind === 'lucide' && icon.name === SCRATCH_PROJECT_ICON.name && icon.color === SCRATCH_PROJECT_ICON.color;
 }
-const blank: ScopedRow = { key: '', kind: 'select', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], layerGroups: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', traitsLabel: '', traits: [], target: '' };
+const blank: ScopedRow = { key: '', kind: 'select', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], layerGroups: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', traitsLabel: '', traits: [], target: '', managed: '' };
 
 function iconDescription(project: Obj): string {
   const icon = obj(project.projectIcon);
@@ -48,7 +67,7 @@ function iconDescription(project: Obj): string {
 
 export function projectsPage(client: T3Client, projectKey: string, checkout: string, active: boolean) {
   const empty = { ready: false, selected: false, message: '', noticeGroups: [] as ScopeNoticeGroup[], confirmTitle: '', confirmDescription: '', key: '', name: '', mark: '', ink: '', surface: '', icon: 'Automatic', iconCustom: false, nameResettable: false,
-    members: [] as { id: string; title: string; path: string; environment: string; first: boolean }[], checkoutGroups: [] as { id: string; label: string; secondary: string; members: { id: string; title: string; path: string }[]; first: boolean }[], hasOther: false, threads: 0,
+    members: [] as (Checkout & { environment: string; first: boolean })[], checkoutGroups: [] as { id: string; label: string; secondary: string; members: Checkout[]; first: boolean }[], multipleCheckouts: false, hasOther: false, threads: 0,
     workspace: blank, removeTitle: '', removeDescription: '', removeLabel: '', confirm: '', removeTarget: '', names: [] as string[], organize: false, pinned: false, archived: false };
   if (!active) return empty;
   const groups = settingsGroups(client);
@@ -73,10 +92,10 @@ export function projectsPage(client: T3Client, projectKey: string, checkout: str
   const identity = projectIdentity(group.name);
   const whole = members.length === group.members.length && !hasOther;
   const kind = hasOther || !whole ? 'checkout' : 'project';
-  const machines = scopeEnvironments(client), checkouts = new Map<string, { id: string; title: string; path: string }[]>();
+  const machines = scopeEnvironments(client), checkouts = new Map<string, Checkout[]>();
   for (const member of members) {
     const environmentId = memberRef(client, str(member.id)).environmentId;
-    checkouts.set(environmentId, [...(checkouts.get(environmentId) ?? []), { id: str(member.id), title: str(member.title), path: str(member.workspaceRoot) }]);
+    checkouts.set(environmentId, [...(checkouts.get(environmentId) ?? []), checkoutRow(client, member)]);
   }
   const checkoutGroups = checkouts.size > 1 ? [...checkouts].map(([id, entries], index) => {
     const environment = machines.find(machine => machine.environmentId === id);
@@ -90,8 +109,9 @@ export function projectsPage(client: T3Client, projectKey: string, checkout: str
     icon: iconDescription(representative), iconCustom: group.members.some(member => !hasDefaultProjectIcon(member, memberIsScratch(client, member))),
     // canResetScratchTitle: every member is a Scratch project and one of them was renamed.
     nameResettable: group.members.every(member => memberIsScratch(client, member)) && group.members.some(member => str(member.title) !== SCRATCH_PROJECT_TITLE),
-    members: group.members.length > 1 ? members.map((member, index) => ({ id: str(member.id), title: str(member.title), path: str(member.workspaceRoot), environment: environmentLabel(client, memberRef(client, str(member.id)).environmentId), first: index === 0 })) : [],
-    hasOther, threads, checkoutGroups,
+    // Checkouts lists a lone checkout too, for its grouping rule; Remove needs another checkout to keep.
+    members: members.map((member, index) => ({ ...checkoutRow(client, member), environment: environmentLabel(client, memberRef(client, str(member.id)).environmentId), first: index === 0 })),
+    multipleCheckouts: members.length > 1, hasOther, threads, checkoutGroups,
     workspace: { ...blank, ...inheritance(settings, projectId, 'defaultThreadEnvMode', environment), key: 'defaultThreadEnvMode', kind: 'select', title: 'Workspace', description: 'Where new threads in this project start.', disabled: !home.writable,
       value: envMode, valueLabel: envMode === 'worktree' ? 'New worktree' : 'Current checkout', options: [{ value: 'local', label: 'Current checkout', selected: envMode === 'local' }, { value: 'worktree', label: 'New worktree', selected: envMode === 'worktree' }],
       reset: Object.prototype.hasOwnProperty.call(override, 'defaultThreadEnvMode') ? 'key=defaultThreadEnvMode&value=__inherit__' : '' },

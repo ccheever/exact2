@@ -7,6 +7,12 @@
 import { textDirection, type TextDirection } from '../shared/text-direction';
 import { composerLines, type ComposerBlock, type ComposerRange } from './composer-markdown';
 
+const MARKDOWN_CODE_OR_URL = /(`{3,}|~{3,})[\s\S]*?(?:\1|$)|(`{1,2})(?!`)[\s\S]*?(?<!`)\2(?!`)|https?:\/\/\S+/g;
+/** markdownProseDirection (packages/shared/src/textDirection.ts at T3 Code 5d3d78ab93): code and URLs do not count. */
+export function markdownProseDirection(markdown: string): TextDirection | undefined {
+  return textDirection(markdown.replace(MARKDOWN_CODE_OR_URL, ' '));
+}
+
 type ListBlock = Extract<ComposerBlock, { kind: 'list' }>;
 type Group = { code: boolean; lines: number[]; texts: string[] };
 

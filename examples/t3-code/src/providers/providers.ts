@@ -2,17 +2,19 @@ import { notifyChatGptCreated } from './provider-created-callback';
 import { providerSettingsWritable, providerWritable } from './provider-permissions';
 // T3 Code 74541bab17 (MIT, LICENSE-T3), ProviderSettingsPanel projected for Contract, and
 // the provider-instance writes it offers; the Add provider wizard and its ACP Registry search
-// follow 7c3b3b3605ef (AddProviderInstanceDialog, AcpRegistrySearchStep, MultipleAccountsNote); the environment
-// variables (ProviderInstanceCard ProviderEnvironmentSection), the model rows' labels (ProviderModelsSection) and the
-// usage hub ids (AddUsageLimitSourceDialog.logic.ts) follow 2359643cff.
+// follow 7c3b3b3605ef (AddProviderInstanceDialog, AcpRegistrySearchStep, MultipleAccountsNote); the
+// model rows' labels (ProviderModelsSection) and the usage hub ids (AddUsageLimitSourceDialog.logic.ts) follow
+// 2359643cff; the environment variables (ProviderInstanceCard ProviderEnvironmentSection) and the Delete and Reset
+// confirmations (confirmProviderInstanceRemoval) follow 5d3d78ab93.
 // Every write reads fresh server settings first and changes only the selected instance (atomic mutation).
 import { setupOf } from './provider-setup'; // the Account and Runtime rows
 import { providerAccount, providerWizardAuth } from './provider-auth';
 import { providerRuntime, configuredBinaryPath } from './provider-install';
 import { redactedValue } from '../shared/redacted-text';
+import { confirmDialogCopy } from '../connections/server-update';
 import { codexSetupView, codexRuntimeFields, codexPicker, codexFlow, readCodexSetupMode } from './codex-setup'; // CodexSetupSection
 import { usesChatGptSharing } from './chatgpt-plan';
-import { REASONING_SELECT_DESCRIPTOR_IDS } from '../composer/composer-controls-model';
+import { isReasoningControl } from '../client/server-fields';
 import { obj, str, arr, num, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
@@ -28,6 +30,8 @@ import { letGo } from '../client/let-go';
 import { deriveProviderModelsForDisplay, readCustomModelEntries, storedCustomModels } from './custom-model-editor';
 import { instanceIconUrl, resolveOfficialAcpRegistryIconUrl, resolveProviderInstanceAcpRegistryIconUrl } from './acp-icons';
 import { hostClient } from './codex-fleet-host';
+import { disallowedProviderMessage, isManagedDriverAllowed, managedPolicySummary } from '../client/managed-policy';
+import { managedInstanceLocks, type ManagedInstanceLocks } from '../settings/managed-policy';
 
 export interface ProviderHost {
   config: Obj; ready: boolean; writable: boolean; scopes?: readonly string[]; local: { favoriteModels: string[] };
@@ -98,10 +102,12 @@ const fieldRow = (instanceId: string, field: DriverField, value: string, extra: 
   clearable: extra.clearable === true || field.control === 'password' && value.length > 0,
   options: (field.options || []).map(option => ({ value: option.value, label: option.label, selected: option.value === (value || field.options![0]!.value) })),
   secretProvider: '', sources: [] as ReturnType<typeof secretSources>,
+  /** ProviderSettingsForm `managed`: the policy's reason when it pins this key, shown inert. */
+  managed: '',
 });
 
 const PROVIDER_ALIAS_SLUGS = new Set(['default', 'auto']);
-const hasReasoningControl = (model: Obj) => arr(obj(model.capabilities).optionDescriptors).some(item => REASONING_SELECT_DESCRIPTOR_IDS.has(str(item.id)));
+const hasReasoningControl = (model: Obj) => arr(obj(model.capabilities).optionDescriptors).some(isReasoningControl);
 /**
  * ProviderModelsSection describeModelCapabilities (T3 Code 2359643cff). Reasoning is the norm, so only its absence is
  * labeled, and only when another model has it (`flagMissingReasoning`); custom models, models without capabilities
@@ -182,9 +188,11 @@ export function sourceIdFromUrl(url: string, parsed: URL, sources: Obj): string 
  * provider is the T3CODE_FEATURE_SECRETS build's (useSecretSources is empty in a release), so the picker offers only
  * Value and the provider a reference already names.
  */
-function variableView(instanceId: string, variable: Obj, index: number) {
+function variableView(instanceId: string, variable: Obj, index: number, locks?: ManagedInstanceLocks) {
   const secret = secretOf(variable), value = variable.valueRedacted === true ? '' : str(variable.value);
   return {
+    // A variable an administrator's policy pins is listed by name, with the reason, and cannot be edited or removed.
+    managed: locks?.environmentNames.has(str(variable.name)) ? locks.reason : '',
     rowKey: `${instanceId}:env:${index}:${str(variable.name)}:${value}:${variable.sensitive === true}:${variable.valueRedacted === true}:${secret ? `${secret.provider}:${secret.reference}` : ''}`,
     index, name: str(variable.name), value: secret ? secret.reference : value, sensitive: variable.sensitive === true,
     redacted: variable.valueRedacted === true, label: str(variable.name) || String(index + 1),
@@ -222,12 +230,26 @@ export function providerSetupStreams(host: ProviderHost, selectedId: string): { 
   return { auth: editor.setup.account.length || codex ? [editor.id] : [], install: editor.setup.runtime.length || codex ? [editor.id] : [] };
 }
 
+/**
+ * confirmProviderInstanceRemoval's copy for Delete and Reset, split as ConfirmDialogHost splits it. Resetting a
+ * built-in that is on while its driver defaults to off also turns it off.
+ */
+function removalConfirms(row: Row, name: string) {
+  const removed = 'Its saved settings, including any custom binary path, will be removed.';
+  const remove = confirmDialogCopy(`Remove the ${name} provider instance?\n${removed}`);
+  const turnsOff = instanceEnabled(row.instance) && !instanceEnabled({ driver: row.driver });
+  const reset = confirmDialogCopy(`Reset the ${name} provider to its defaults?\n${removed}${turnsOff ? ' It will also be turned off.' : ''}`);
+  return { removeTitle: remove.title, removeBody: remove.description, resetTitle: reset.title, resetBody: reset.description };
+}
+
 function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
   const meta = driverMeta(row.driver), provider = live.find(candidate => candidate.instanceId === row.id);
   const status = rowStatus(row, provider), config = obj(row.instance.config);
   const displayName = str(row.instance.displayName).trim() || meta?.label || row.driver;
   const dedicated = new Set((meta?.env || []).map(field => field.key));
   const variables = envRows(host, row.id, row.instance, dedicated);
+  const locks = managedInstanceLocks(managedPolicySummary(host.config), row.driver);
+  const environmentLock = (name: string) => locks?.wholeEnvironment || locks?.environmentNames.has(name) ? locks.reason : '';
   // deriveProviderModelsForDisplay: built-ins from the server, custom rows from the current config.
   const models = deriveProviderModelsForDisplay({ liveModels: arr(provider?.models), customModels: row.driver === 'antigravity' ? [] : readCustomModelEntries(config.customModels) });
   // ProviderModelsSection: favorites, visible, then hidden, using this environment’s preferences.
@@ -243,29 +265,34 @@ function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
     nameRows: [{ key: `${row.id}:${str(row.instance.displayName)}` }], // the accent picker keeps its popover open across commits
     modelBlocks: [{ key: `${row.id}:${hash(JSON.stringify(config.customModels ?? null))}:${modelRevisionsOf(host).get(row.id) ?? 0}` }],
     displayName: str(row.instance.displayName), placeholder: meta?.label || 'Instance label', accent: str(row.instance.accentColor), ...accentHsv(str(row.instance.accentColor)),
-    version: versionLabel(provider?.version), enabled: status.enabled, icon: instanceIconUrl(row.instance, row.driver),
+    version: versionLabel(provider?.version), badge: meta?.badgeLabel ?? '', enabled: status.enabled, icon: instanceIconUrl(row.instance, row.driver),
     // ProviderInstanceCard editorStatusNode: "Authenticated as" <redacted email> "· label", else the headline.
     statusLead: status.authenticated && status.authEmail ? 'Authenticated as' : status.summary.headline,
     statusEmail: status.authenticated ? redactedValue(status.authEmail).value : '', statusEmailPlaceholder: status.authenticated ? redactedValue(status.authEmail).placeholder : '',
     statusLabel: status.authenticated && status.authEmail && status.authLabel ? `· ${status.authLabel}` : '',
     statusDetail: status.inlineDetail ? `· ${status.inlineDetail}` : '', dot: status.needsAttention ? status.statusKey : '',
-    canDelete: !row.isDefault, canReset: row.isDefault && row.isDirty, known: meta !== undefined,
+    canDelete: !row.isDefault, canReset: row.isDefault && row.isDirty, known: meta !== undefined, ...removalConfirms(row, displayName),
     showSetup: (meta?.env.length || 0) > 0 || setupKind(host, row, provider) !== '',
     envFields: (meta?.env || []).map(field => {
       const variable = arr(row.instance.environment).find(entry => entry.name === field.key);
       const redacted = variable?.valueRedacted === true, secret = secretOf(variable);
       // ProviderEnvironmentFieldRow's SecretSourceInput: a reference shows in its own field beside the source picker.
       if (secret) return { ...fieldRow(row.id, field, '', { clearable: true }), rowKey: `${row.id}:${field.key}:secret:${secret.provider}:${secret.reference}`,
-        value: secret.reference, placeholder: '', redacted: false, secretProvider: secret.provider, sources: secretSources(secret.provider) };
-      return fieldRow(row.id, field, redacted ? '' : str(variable?.value), { placeholder: redacted ? 'Stored secret - enter a new value to replace' : field.placeholder, redacted, clearable: variable !== undefined });
+        value: secret.reference, placeholder: '', redacted: false, secretProvider: secret.provider, sources: secretSources(secret.provider), managed: environmentLock(field.key) };
+      return { ...fieldRow(row.id, field, redacted ? '' : str(variable?.value), { placeholder: redacted ? 'Stored secret - enter a new value to replace' : field.placeholder, redacted, clearable: variable !== undefined }),
+        managed: environmentLock(field.key) };
     }),
     // A managed Codex instance folds its read-only runtime paths instead (CodexManagedRuntimeFields).
     localAcp: row.driver === 'acpRegistry' && config.source === 'local',
     commandArgs: (Array.isArray(config.commandArgs) ? config.commandArgs : []).filter((arg): arg is string => typeof arg === 'string').map((value, index) => ({ key: `${row.id}:${index}:${value}`, index, value })),
-    fields: row.driver === 'codex' && readCodexSetupMode(config) === 'managed' ? [] : (meta?.fields || []).filter(field => row.driver !== 'acpRegistry' || config.source !== 'local' || field.key === 'source' || field.key === 'commandPath').map((field, index) => fieldRow(row.id, row.driver === 'acpRegistry' && config.source === 'local' && field.key === 'commandPath' ? { ...field, label: 'Executable', description: 'Executable name or path on this environment.', placeholder: 'e.g. dsh' } : field, str(config[field.key]) || (field.key === 'source' ? 'registry' : ''), {}, index === 0)),
+    argsManaged: locks?.configKeys.has('commandArgs') ? locks.reason : '',
+    // Under a runtime-mode ceiling every variable is the administrator's: the section is inert under the policy's notice.
+    envManaged: locks?.wholeEnvironment ? locks.reason : '',
+    fields: row.driver === 'codex' && readCodexSetupMode(config) === 'managed' ? [] : (meta?.fields || []).filter(field => row.driver !== 'acpRegistry' || config.source !== 'local' || field.key === 'source' || field.key === 'commandPath').map((field, index) => fieldRow(row.id, row.driver === 'acpRegistry' && config.source === 'local' && field.key === 'commandPath' ? { ...field, label: 'Executable', description: 'Executable name or path on this environment.', placeholder: 'e.g. dsh' } : field, str(config[field.key]) || (field.key === 'source' ? 'registry' : ''), {}, index === 0))
+      .map(field => locks?.configKeys.has(field.key) ? { ...field, managed: locks.reason } : field),
     codexRuntime: row.driver === 'codex' && readCodexSetupMode(config) === 'managed' ? [codexRuntimeFields(host, row.id, provider)] : [],
-    variables: variables.map((variable, index) => variableView(row.id, variable, index)),
-    hasVariables: variables.length > 0,
+    variables: variables.map((variable, index) => variableView(row.id, variable, index, locks)),
+    hasVariables: variables.length > 0, hasRedactedVariables: variables.some(variable => variable.valueRedacted === true),
     models: display.map(({ model, group }, index) => {
       const previous = display[index - 1], next = display[index + 1], starts = !previous || previous.group !== group;
       const hidden = !model.isCustom && hiddenSet.has(model.slug);
@@ -296,7 +323,7 @@ export function healthInterval(settings: Obj): { seconds: number; preset: number
  * a removed target shows no editor instead of another account.
  */
 export function providerPage(host: ProviderHost, selection: string, nowMs: number, projectIds: string[] = []) {
-  if (!host.ready) return { projectIds: '', available: false, writable: false, settingsWritable: false, enableWritable: false, message: 'Connect an environment to set up its providers.', checked: '', selectedId: '', rows: [], editors: [], emptyEditor: '', healthSeconds: '300', healthDown: '270', healthUp: '330', healthCustom: false, cursorUsage: false, macos: false, hubs: [] };
+  if (!host.ready) return { projectIds: '', available: false, writable: false, canAdd: false, settingsWritable: false, enableWritable: false, message: 'Connect an environment to set up its providers.', checked: '', selectedId: '', rows: [], editors: [], emptyEditor: '', healthSeconds: '300', healthDown: '270', healthUp: '330', healthCustom: false, cursorUsage: false, macos: false, hubs: [] };
   const target = selection.startsWith('target:') ? selection.slice(7) : '', selectedId = target || selection;
   const settings = settingsOf(host), live = liveProviders(host), rows = providerRows(settings, live, selectedId);
   const scoped = projectIds.length > 0 && obj(obj(host.config.environment).capabilities).projectProviderInstanceOverrides === true;
@@ -307,14 +334,19 @@ export function providerPage(host: ProviderHost, selection: string, nowMs: numbe
   const selected = displayRows.find(row => row.id === selectedId) ?? (targetMissing ? undefined : displayRows[0]);
   const latest = live.reduce((value, provider) => str(provider.checkedAt) > value ? str(provider.checkedAt) : value, '');
   const health = healthInterval(settings);
+  const policy = managedPolicySummary(host.config);
   return {
+    // A policy that allows no provider leaves nothing to add.
+    canAdd: providerWritable(host) && policy?.limits?.providers?.allowedDrivers?.length !== 0,
     projectIds: scoped ? JSON.stringify(projectIds) : '', available: true, settingsWritable: providerSettingsWritable(host), enableWritable: scoped ? providerSettingsWritable(host) : providerWritable(host), writable: providerWritable(host), message: providerWritable(host) ? '' : "This session can view providers but cannot manage provider instances.",
     checked: live.length ? checkedLabel(latest, nowMs) : 'Not checked yet', selectedId: selected?.id || '',
     rows: displayRows.map((row, index) => {
       const provider = live.find(candidate => candidate.instanceId === row.id), status = rowStatus(row, provider);
       const name = str(row.instance.displayName).trim() || driverMeta(row.driver)?.label || row.driver;
       const override = scoped ? obj(obj(obj(settings.projectSettingsOverrides)[projectIds[0]!]).providerInstances)[row.id] : undefined;
-      return { projectOverride: typeof obj(override).enabled === 'boolean', id: row.id, first: index === 0, name, driver: row.driver, enabled: status.enabled, selected: row.id === selected?.id, version: versionLabel(provider?.version),
+      // The policy refuses switching on a driver it leaves out; switching it off stays the user's call.
+      const managedDriver = isManagedDriverAllowed(policy, row.driver) ? '' : disallowedProviderMessage(policy?.organization, driverMeta(row.driver)?.label ?? row.driver);
+      return { managedDriver: status.enabled ? '' : managedDriver, projectOverride: typeof obj(override).enabled === 'boolean', id: row.id, first: index === 0, name, driver: row.driver, enabled: status.enabled, selected: row.id === selected?.id, version: versionLabel(provider?.version),
         status: `${status.summary.headline}${status.needsAttention && status.inlineDetail ? ` · ${status.inlineDetail}` : ''}`,
         dot: status.needsAttention ? status.statusKey : '', accent: normalizedAccent(row.instance.accentColor), badge: normalizedAccent(row.instance.accentColor) ? providerInstanceInitials(name) : '', icon: instanceIconUrl(row.instance, row.driver) };
     }),
@@ -353,7 +385,8 @@ function wizardIdentity(settings: Obj, driverId: string, labelSet: boolean, labe
   return { meta, existing, shownLabel, instanceId, error: validateInstanceId(instanceId, existing) };
 }
 
-const wizardDrivers = (selected: string, featured: boolean) => DRIVERS.filter(driver => driver.id !== 'acpRegistry' && (driver.featured !== false) === featured)
+// Drivers the administrator's policy leaves out are not offered at all.
+const wizardDrivers = (selected: string, featured: boolean, allowed: (driver: string) => boolean = () => true) => DRIVERS.filter(driver => driver.id !== 'acpRegistry' && (driver.featured !== false) === featured && allowed(driver.id))
   .map(driver => ({ id: driver.id, label: driver.label, badge: driver.badgeLabel ?? '', selected: driver.id === selected }));
 const MULTIPLE_ACCOUNT_PROVIDERS: Record<string, string> = { codex: 'Codex', claudeAgent: 'Claude' };
 /** MultipleAccountsNote: the provider's name while adding a Claude or Codex account where one is already signed in, else ''. */
@@ -368,18 +401,25 @@ export function providerWizard(host: ProviderHost, open: boolean, serial: number
   if (serial !== wizardSerial) { wizardSerial = serial; acpPrepared = null; acpCreated = null; chatgptCreated = null; }
   // Enter manually and Local ACP command drop an agent added before them (handleManualAcpConfiguration's selectedAcp = null).
   if (agentEpoch !== wizardAgentEpoch) { wizardAgentEpoch = agentEpoch; acpPrepared = null; }
-  const identity = wizardIdentity(settingsOf(host), driverId, labelSet, label, idSet, id);
+  const policy = managedPolicySummary(host.config), allowed = (driver: string) => isManagedDriverAllowed(policy, driver);
+  // The first driver the policy allows stands in for one it leaves out, as the dialog's initial driver does.
+  const firstAllowed = [...wizardDrivers('', true, allowed), ...wizardDrivers('', false, allowed)][0]?.id ?? (allowed('acpRegistry') ? 'acpRegistry' : driverId);
+  const identity = wizardIdentity(settingsOf(host), allowed(driverId) ? driverId : firstAllowed, labelSet, label, idSet, id);
+  // A policy that owns this driver's launch settings also rules out ChatGPT's own runtime.
+  const driverLocks = managedInstanceLocks(policy, identity.meta.id);
   const prepared = identity.meta.id === 'acpRegistry' && acpPrepared?.serial === serial ? acpPrepared.agent : null;
   const created = open && acpCreated?.serial === serial ? acpCreated.instanceId : '';
   return {
     created, auth: created ? [providerWizardAuth(created, liveProviders(host).find(provider => provider.instanceId === created), setupOf(host, created), environmentLabelOf(host))] : [],
     sessions: open ? [{ key: `wizard:${serial}` }] : [], prepared: prepared ? [prepared] : [],
     // FEATURED_DRIVER_OPTIONS up front, MORE_DRIVER_OPTIONS under Show more; the ACP Registry is its own search.
-    drivers: wizardDrivers(identity.meta.id, true), moreDrivers: wizardDrivers(identity.meta.id, false),
+    drivers: wizardDrivers(identity.meta.id, true, allowed), moreDrivers: wizardDrivers(identity.meta.id, false, allowed),
+    acpAllowed: allowed('acpRegistry'), chatgptAllowed: driverLocks?.configKeys.has('setupMode') !== true,
     accountsNote: open ? multipleAccountsNote(host, identity.meta.id) : '', chatgptAccountsNote: open ? multipleAccountsNote(host, 'codex') : '',
     driver: identity.meta.id, driverLabel: identity.meta.label, label: identity.shownLabel, instanceId: identity.instanceId, idError: identity.error,
     preview: identity.shownLabel.trim() || `${identity.meta.label} Workspace`, idPlaceholder: `${identity.meta.id}_work`,
-    fields: identity.meta.fields.map((field, index) => { const { secretProvider: _provider, sources: _sources, ...row } = fieldRow('wizard', field, field.key === 'source' ? 'registry' : ''); return { ...row, index }; }), // the wizard's field shape has no secret source
+    fields: identity.meta.fields.map((field, index) => { const { secretProvider: _provider, sources: _sources, ...row } = fieldRow('wizard', field, field.key === 'source' ? 'registry' : '');
+      return { ...row, index, managed: driverLocks?.configKeys.has(field.key) ? driverLocks.reason : '' }; }), // the wizard's field shape has no secret source
     environment: str(obj(host.config.environment).label) || 'this environment',
     chatgpt: chatgptDialog(host, open && dialog === 'chatgpt', serial), chatgptConnected: open && dialog === 'chatgpt' && chatgptConnected(host, serial),
     codexPicker: open && dialog === 'codex-picker' && target ? [codexTargetResolver?.(host, target) ?? codexPicker(host, target)].filter(picker => picker !== null) : [],
@@ -630,7 +670,11 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
       if (op === 'provider-env-add') { rows.push({ name: '', value: '', sensitive: true }); envDraftsOf(host).set(id, rows); return ''; }
       if (index < 0 || index >= rows.length) throw new ClientError('That variable is no longer available.');
       if (op === 'provider-env-remove') rows.splice(index, 1);
-      else if (op === 'provider-env-name') rows[index]!.name = str(input.value).trim();
+      else if (op === 'provider-env-name') {
+        // A row named like a pinned variable would render as the policy's, with no way to edit or remove it.
+        if (managedInstanceLocks(managedPolicySummary(host.config), row.driver)?.environmentNames.has(str(input.value).trim())) return '';
+        rows[index]!.name = str(input.value).trim();
+      }
       else if (op === 'provider-env-value' && secretOf(rows[index])) {
         // SecretSourceInput's reference field: an empty commit returns to a stored value; an invalid one is refused.
         const reference = str(input.value).trim(), current = rows[index]!;
@@ -638,7 +682,11 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
         else if (!SECRET_REFERENCE.test(reference)) return 'Enter a valid secret reference.';
         else current.secret = { provider: secretOf(current)!.provider, reference };
       }
-      else if (op === 'provider-env-value') { if (str(input.value) !== str(rows[index]!.value) || rows[index]!.valueRedacted === true) { rows[index]!.value = str(input.value); rows[index]!.valueRedacted = false; } }
+      else if (op === 'provider-env-value') {
+        // A saved secret shows an empty field: an empty commit keeps it, as DraftInput commits only a change.
+        const current = rows[index]!, shown = current.valueRedacted === true ? '' : str(current.value);
+        if (str(input.value) !== shown) { current.value = str(input.value); current.valueRedacted = false; }
+      }
       else if (op === 'provider-env-source') { const current = rows[index]!; if (input.value === '__stored__' && secretOf(current)) { delete current.secret; current.value = ''; delete current.valueRedacted; } }
       else if (op === 'provider-env-sensitive') { const current = rows[index]!; current.sensitive = input.value === 'true'; if (current.sensitive !== true && current.valueRedacted === true) current.valueRedacted = false; }
       else throw new ClientError(`Unknown action: ${op}`);

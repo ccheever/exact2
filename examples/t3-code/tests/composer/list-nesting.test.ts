@@ -77,3 +77,28 @@ describe('⇧Tab on a nested list item', () => {
     }
   });
 });
+
+// composer-list-split.browser.test.ts "Backspace at the start of a line" at T3 Code 5d3d78ab93 (#27384).
+describe('Backspace at a nested item\'s start', () => {
+  const backspace = (value: string, caret: number) => {
+    const outcome = composerMarkdownKey(value, { start: caret, end: caret }, { name: 'Backspace', shift: false, command: false } as never);
+    return outcome.kind === 'edit' ? applyComposerEdit(value, outcome.edit) : outcome.kind;
+  };
+  test.each([
+    ['- a\n  - [ ] x\n  - [ ] y', '- a\n  - [ ] xy'],
+    ['- [ ] a\n  - x\n  - y', '- [ ] a\n  - xy'],
+    ['- a\n  - [ ] y\n  - [ ] q', '- ay\n  - [ ] q'],
+  ])('joins y in %j onto the line above, with no list of its kind to lift into', (value, expected) => {
+    expect(backspace(value, value.indexOf('y'))).toBe(expected);
+  });
+  test('removes an empty checkbox under a bullet', () => {
+    const value = '- a\n  - [ ] x\n  - [ ]';
+    expect(backspace(value, value.length)).toBe('- a\n  - [ ] x');
+  });
+  test('lifts an item under a parent of its kind, and leaves a top-level item to the field', () => {
+    expect(backspace('- a\n  - b', '- a\n  - '.length)).toBe('- a\n- b');
+    expect(backspace('- [ ] a\n  - [ ] b', '- [ ] a\n  - [ ] '.length)).toBe('- [ ] a\n- [ ] b');
+    expect(backspace('- a\n- b', '- a\n- '.length)).toBe('default');
+    expect(backspace('- a\n  - b', '- a\n  - b'.length)).toBe('default');
+  });
+});

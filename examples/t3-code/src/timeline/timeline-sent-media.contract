@@ -130,7 +130,7 @@ component StandaloneVideo
     local("image-open", image.id, messageId)
   view
     column flex=1 min-width=0
-      MediaActions(source=`attachment:${image.id}`, tip=image.name, local=local, elementId="", testId=`attachment-video-actions-${image.id}`, full=false)
+      MediaActions(source=`attachment:${image.id}`, tip=image.name, local=local, elementId="", testId=`attachment-video-actions-${image.id}`, full=false, showTooltip=true)
         box position="relative" width="100%" aspect-ratio="4 / 3" overflow="hidden" border-top-left-radius="1rem" border-bottom-left-radius="1rem" border-top-right-radius=topRight border-bottom-right-radius=bottomRight background-color="#000000" testId=`attachment-video-${image.id}`
           if url != ""
             video url muted=true playsinline=true preload="metadata" aria-hidden=true width="100%" height="100%" object-fit="contain"

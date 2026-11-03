@@ -13,7 +13,7 @@ import { composerNow, stagesChanges, stage, rememberModel, rememberOptions, stag
 import { fanoutSelections, fanoutSupported, sendFanout, setFanout, toggleFanout } from '../composer/composer-controls-fanout';
 import { acknowledgeWoke, lockedProviderReason, applyOptionChoice, backgroundStarted } from '../composer/composer-controls-commands';
 import { keepsFullHistory, resumeCompactionTokens, setKeepFullHistory } from '../composer/composer-controls-resume';
-import { contextSnapshot } from '../composer/composer-controls-view';
+import { contextSnapshot, runtimeModeCeiling } from '../composer/composer-controls-view';
 import { dispatchSelection, promptForSend, ultrathinkChoice } from '../composer/composer-ultrathink';
 import { stepReasoningEffort } from '../composer/composer-effort-step';
 import { queuedEdit, saveQueuedEdit } from '../composer/composer-controls-queue';
@@ -209,6 +209,8 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   if (Array.isArray(provider.supportedRuntimeModes) && !provider.supportedRuntimeModes.includes(this.runtimeMode)) {
     throw new ClientError('Choose a permission mode supported by this provider.');
   }
+  const ceiling = runtimeModeCeiling(this).denial;
+  if (ceiling) throw new ClientError(ceiling);
   // An unstarted server thread set to New worktree starts in one with its first message (ChatView onSend).
   const setupQueue = sendQueuesBehindSetup(this);
   const serverWorkspace = selection.threadId && !setupQueue ? serverThreadWorkspace(this) : null;

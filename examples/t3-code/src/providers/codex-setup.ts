@@ -10,6 +10,8 @@ import { providerWritable } from './provider-permissions';
 // the native receiver are codex-setup-ops.ts. The hosted-web pieces (remoteWeb, handoffUrl,
 // providerAuthReturnUrl) are out of scope: this app is a desktop client, so `remoteWeb` is
 // always false and the pasted-URL form sits behind "Having trouble signing in?".
+import { managedPolicySummary } from '../client/managed-policy';
+import { managedInstanceLocks } from '../settings/managed-policy';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { setupOf } from './provider-setup';
 import type { ProviderHost } from './providers';
@@ -135,6 +137,8 @@ export type CodexSetupView = {
   secondary: string; secondaryDisabled: boolean;
   showCancel: boolean; cancelDisabled: boolean; savedAccount: boolean; differentDisabled: boolean; accountDisabled: boolean;
   usage: boolean; logoutWarning: string; callback: boolean; formKey: string; flowId: string; pasteDisabled: boolean; error: string;
+  /** The managed policy's reason Continue with ChatGPT is unavailable (it owns Codex's launch settings), else ''. */
+  chatgptManaged: string;
 };
 
 const emailView = (provider: Obj | undefined) => redactedValue(obj(provider?.auth).email);
@@ -142,6 +146,7 @@ const base = (instanceId: string, presentation: string, title: string, token: st
   target, key: `${target}:${presentation}`, instanceId, token, presentation, title, kind: 'managed', description: '', email: '', emailPlaceholder: '', help: '',
   control: '', controlLabel: '', controlDisabled: false, secondary: '', secondaryDisabled: false, showCancel: false, cancelDisabled: false,
   savedAccount: false, differentDisabled: false, accountDisabled: false, usage: false, logoutWarning: '', callback: false, formKey: '', flowId: '', pasteDisabled: false, error: '',
+  chatgptManaged: '',
 });
 
 /** getOnboardingProviderState (providerReadiness.logic.ts), as pages-welcome.ts ports it. */
@@ -169,6 +174,9 @@ export function codexSetupView(host: CodexHost, instanceId: string, provider: Ob
     view.control = ready ? 'ready' : checking ? 'checking' : authenticated ? 'headline' : 'connect';
     view.controlLabel = view.control === 'headline' ? summary.headline : 'Continue with ChatGPT';
     view.controlDisabled = options.readOnly;
+    // CodexSetupSection: a policy that owns Codex's launch settings also rules out ChatGPT's own runtime.
+    const locks = managedInstanceLocks(managedPolicySummary(host.config), 'codex');
+    view.chatgptManaged = locks?.configKeys.has('setupMode') ? locks.reason : '';
     view.secondary = !authenticated && !ready && !checking ? 'existing' : '';
     return view;
   }

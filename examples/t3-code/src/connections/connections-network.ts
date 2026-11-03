@@ -14,6 +14,8 @@
 //    Tailscale and Create link only after success (they stay open with a toast on failure).
 //  - Expiry labels tick each second while the section shows (the root's clock,
 //    issues/closed/20261009-typescript-failure-parity.md).
+import { managedCapabilityDenial } from '../client/managed-policy';
+import { primaryManagedPolicy } from '../settings/managed-policy';
 import { obj, str, type Obj } from '../client/domain';
 import { bridgeReply, type Native } from '../client/protocol';
 import type { AdvertisedEndpoint } from './advertised-endpoint';
@@ -85,13 +87,18 @@ export type NetworkView = {
   endpoints: NetEndpointRow[]; tailscale: boolean; tailscaleOn: boolean; tailscaleDescription: string; tailscaleUrl: string; tailscaleHost: string; servePort: number;
   clientsVisible: boolean; summary: string; accessError: string; accessLoading: boolean; pairings: NetPairingRow[]; clients: NetClientRow[]; empty: boolean;
   othersDisabled: boolean; networkSerial: number; tailscaleSerial: number; createSerial: number; settled: number; reveal: NetReveal; ticking: boolean;
+  /**
+   * Why the managed policy refuses connecting from other devices ('' when it allows it): the way in is managed,
+   * so turning Network access or Tailscale HTTPS on, Tailscale's Setup and Create link are inert; turning off stays possible.
+   */
+  networkManaged: string; tailscaleManaged: string; pairingManaged: string;
 };
 
 const closedReveal = (): NetReveal => ({ open: false, linkId: '', title: '', description: '', value: '', rows: 3, qr: false, cells: [] });
 export function emptyNetworkView(): NetworkView {
   return { scopeOptions: pairingScopeOptions(), visible: false, loading: true, networkOn: false, switchReady: false, summaryUrl: '', fallback: '', hidden: 0, error: '', endpoints: [], tailscale: false, tailscaleOn: false,
     tailscaleDescription: 'Start Tailscale to set up HTTPS access through MagicDNS.', tailscaleUrl: '', tailscaleHost: '', servePort: 443, clientsVisible: false, summary: '',
-    accessError: '', accessLoading: true, pairings: [], clients: [], empty: false, othersDisabled: true, networkSerial: 0, tailscaleSerial: 0, createSerial: 0, settled: 0,
+    accessError: '', accessLoading: true, pairings: [], clients: [], empty: false, othersDisabled: true, networkManaged: '', tailscaleManaged: '', pairingManaged: '', networkSerial: 0, tailscaleSerial: 0, createSerial: 0, settled: 0,
     reveal: closedReveal(), ticking: false };
 }
 
@@ -119,7 +126,7 @@ const scopeCount = (scopes: readonly string[]) => `${scopes.length} ${scopes.len
 
 export type NetworkInput = { canManage: boolean; state: DesktopServerExposureState | null; endpoints: readonly AdvertisedEndpoint[]; defaultKey: string | null;
   access: { loaded: boolean; error: string; pairingLinks: readonly AuthPairingLink[]; clientSessions: readonly AuthClientSession[] }; credentials: ReadonlyMap<string, string>; now: number;
-  loadError?: string };
+  loadError?: string; remoteDenial?: string };
 
 function pairingRow(link: AuthPairingLink, input: NetworkInput, visibleAll: readonly AdvertisedEndpoint[], defaultKey: string | null): NetPairingRow {
   const credential = input.credentials.get(link.id);
@@ -196,6 +203,7 @@ export function networkProjection(input: NetworkInput): NetworkView {
     othersDisabled: sessions.every(session => session.current),
     reveal: revealView(networkUi.reveal, visibleAll),
     ticking: reachable,
+    networkManaged: networkOn ? '' : input.remoteDenial ?? '', tailscaleManaged: tailscale?.status === 'available' ? '' : input.remoteDenial ?? '', pairingManaged: input.remoteDenial ?? '',
   };
 }
 
@@ -325,7 +333,8 @@ export async function networkPage(client: T3Client, native: Native, open: boolea
   const sameMachine = access.environmentId === primary.target?.environmentId;
   return networkProjection({ canManage, state: live.snapshot?.state ?? null, endpoints: live.snapshot?.endpoints ?? [], defaultKey: defaultEndpointKey(client),
     access: { loaded: sameMachine && access.loaded, error: sameMachine ? access.error : '', pairingLinks: sameMachine ? access.snapshot.pairingLinks : [],
-      clientSessions: sameMachine ? access.snapshot.clientSessions : [] }, credentials: createdCredentials, now, loadError: live.error });
+      clientSessions: sameMachine ? access.snapshot.clientSessions : [] }, credentials: createdCredentials, now, loadError: live.error,
+    remoteDenial: managedCapabilityDenial(primaryManagedPolicy(client), 'remoteClients') });
 }
 
 // ── Commands ─────────────────────────────────────────────────────────────

@@ -1210,9 +1210,9 @@ component T3Code
                 paletteRun("new-thread", item.target, "")
           case none
   action chatLocal(op: string, id: string, value: string)
-    // A disclosure toggled with the transcript at its end keeps the end in view while the rows re-measure (the list goes
-    // on following it); anywhere else the toggled row holds its place (MessagesTimeline's disclosurePinsEnd).
-    if (op == "fold" or op == "group" or op == "attempt" or op == "tree-all" or op == "tree-dir") and not (restAtEnd and restOwner == composerOwner)
+    // A toggled disclosure holds its place while the rows re-measure, also with the transcript at its end
+    // (MessagesTimeline's disclosure anchor): the list stops following the end until it is scrolled back there.
+    if op == "fold" or op == "group" or op == "attempt" or op == "tree-all" or op == "tree-dir"
       foldHold = true
     if op == "surface-close-others" or op == "surface-close-to-right" or op == "surface-close-all" or (op == "surface-close" and shell.panel.tabs.filter((tab) => tab.id == id and tab.closeTitle != "").length == 0) or (op == "surface-browser-float" and not shell.panel.browser.capture.floating) or op == "surface-session-float" or (op == "surface-files-search-key" and id == "sheet" and value == "Escape")
       rightPanelAt = ""

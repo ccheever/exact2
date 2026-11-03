@@ -334,6 +334,8 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
     }
     rows = [...threads, ...pathRows(entries)];
   }
+  // The cwd's skills may still arrive while its snapshot is scanned (useComposerMenuItems' workspaceSkillsScanning).
+  if ((trigger.kind === 'skill' || trigger.kind === 'slash-command') && entry.discovery.scanning(current, cwd)) loading = true;
   rows = rows.map((row, index) => ({ ...row, index }));
   entry.rows = rows;
   entry.rowsTarget = { query: trigger.query.trim(), environmentId: client.environmentId, cwd };
@@ -341,7 +343,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   return {
     owner: client.snapshotOwner, promptLimit, overLimit, usageLimits: entry.usageLimits, stash,
     menu: { open: true, kind: trigger.kind, listLabel: LIST_LABEL[trigger.kind] ?? '', searchKey, loading: loading && rows.length === 0,
-      emptyText: loading ? (trigger.kind === 'pull-request' ? 'Finding pull request...' : trigger.kind === 'skill' ? 'Searching workspace skills...' : 'Searching workspace files...') : emptyText(trigger.kind, trigger.query, prAvailable, prFailed),
+      emptyText: loading ? (trigger.kind === 'pull-request' ? 'Finding pull request...' : trigger.kind === 'skill' || trigger.kind === 'slash-command' ? 'Searching workspace skills...' : 'Searching workspace files...') : emptyText(trigger.kind, trigger.query, prAvailable, prFailed),
       count: rows.length, rows: rows.map(({ insert: _insert, ...rest }) => rest) },
   };
 }

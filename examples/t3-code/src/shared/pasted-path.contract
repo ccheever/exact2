@@ -1,0 +1,31 @@
+// resolvePastedPath (T3 Code 5d3d78ab93, MIT; see LICENSE-T3): packages/shared/src/path.ts, for the folder fields whose
+// edits Contract keeps (the palette's query, a scheduled task's checkout path, Add project starts in, Worktree
+// location). project-paths.ts holds the same function for the fields TypeScript keeps, and the tests hold both to the
+// reference's cases. Contract has no regular expressions, so its two are spelled out: QUOTED_PATH_AT_END is the
+// quote closing the text (trailing whitespace aside) and the leftmost opening quote whose contents parse, and
+// SHELL_ESCAPE unescapes a backslash run left to right, each even backslash of a run escaping the character after it.
+
+fn pathIsWindowsDrive(v: string): bool = v.length >= 2 and "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".includes(v.slice(0, 1)) and v.slice(1, 2) == ":" and (v.length == 2 or v.slice(2, 3) == "/" or v.slice(2, 3) == "\\")
+fn pathIsWindowsAbsolute(v: string): bool = v.startsWith("\\\\") or pathIsWindowsDrive(v)
+fn pathIsHost(v: string): bool = v.startsWith("/") or pathIsWindowsAbsolute(v) or v.startsWith("~/")
+fn pathTrimEnd(v: string): string = v.trim() == "" ? "" : v.slice(0, v.indexOf(v.trim()) + v.trim().length)
+fn pathPart(parts: string[], i: number): string = match parts.at(i) { case some(p) => p, case none => "" }
+// `(?:[^']|'\\'')+`: a quote inside single quotes only as the shell's `'\''`.
+fn pathSingleQuoted(content: string): bool = content != "" and not content.replaceAll("'\\''", "").includes("'")
+fn pathSingleStart(parts: string[]): number = match first(range(max(0, parts.length - 2)).filter((k) => pathSingleQuoted(parts.slice(k + 1, parts.length - 1).join("'")))) { case some(k) => parts.slice(0, k + 1).join("'").length, case none => -1 }
+fn pathDoubleStart(parts: string[]): number = parts.length >= 3 and pathPart(parts, parts.length - 2) != "" ? parts.slice(0, parts.length - 2).join("\"").length : -1
+fn pathQuotedStart(body: string): number = body.endsWith("'") ? pathSingleStart(body.split("'")) : (body.endsWith("\"") ? pathDoubleStart(body.split("\"")) : -1)
+fn pathQuotedValue(body: string, at: number): string = body.endsWith("'") ? body.slice(at + 1, body.length - 1).replaceAll("'\\''", "'") : body.slice(at + 1, body.length - 1)
+// Text before the quote that wasn't in the box is a search, not a folder to paste after.
+fn pathPastedQuoted(previous: string, next: string, body: string, at: number): string = at >= 0 and previous.startsWith(pathTrimEnd(next.slice(0, at))) and pathIsHost(pathQuotedValue(body, at)) ? pathQuotedValue(body, at) : ""
+// Without a trailing separator, `/a` then `/a/b` is a longer path, not one pasted after a folder.
+fn pathTail(previous: string, next: string): string = (previous.endsWith("/") or previous.endsWith("\\")) and next.startsWith(previous) ? next.slice(previous.length) : next
+fn pathEscapable(c: string): bool = c != "" and (c.trim() == "" or "'\"\\()[]{}<>|&;$\`!*?#~^=".includes(c))
+fn pathRunStart(parts: string[], b: number): number = match range(b + 1).filter((j) => j == 0 or pathPart(parts, j) != "").at(-1) { case some(j) => j, case none => 0 }
+fn pathUnescapeAt(parts: string[], b: number): string = (b - pathRunStart(parts, b)) % 2 == 1 ? `\\${pathPart(parts, b + 1)}` : (pathEscapable(pathPart(parts, b + 1).slice(0, 1)) ? pathPart(parts, b + 1) : (pathPart(parts, b + 1) == "" and b + 1 < parts.length - 1 ? "" : `\\${pathPart(parts, b + 1)}`))
+fn pathUnescape(v: string): string = `${pathPart(v.split("\\"), 0)}${range(max(0, v.split("\\").length - 1)).map((b) => pathUnescapeAt(v.split("\\"), b)).join("")}`
+// `\` separates folders in Windows paths, so it only escapes in `/` and `~/` paths.
+fn pathPlain(previous: string, next: string): string = not pathIsHost(pathTail(previous, next)) ? next : (pathIsWindowsAbsolute(pathTail(previous, next)) ? pathTail(previous, next) : pathUnescape(pathTail(previous, next)))
+// What a folder box holds after a change: a full path pasted into it replaces the box, even after the text already
+// there, because `~/'/a b'` would create that nested folder. One character typed or any deletion is kept as it is.
+fn resolvePastedPath(previous: string, next: string): string = (next.startsWith(previous) ? next.length == previous.length + 1 : previous.startsWith(next)) ? next : (pathPastedQuoted(previous, next, pathTrimEnd(next), pathQuotedStart(pathTrimEnd(next))) != "" ? pathPastedQuoted(previous, next, pathTrimEnd(next), pathQuotedStart(pathTrimEnd(next))) : pathPlain(previous, next))

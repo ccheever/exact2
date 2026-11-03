@@ -1,3 +1,4 @@
+import { noteNow } from '../../src/composer/composer-controls';
 // Wire errors, config folding, read tagging and abandoned-reply traces.
 import { describe, test, expect } from 'bun:test';
 import { ClientError, reply, bridgeReply, applyConfig, type Native } from '../../src/client/protocol';
@@ -62,6 +63,7 @@ describe('config stream folding (0080e80, serverConfigProjection.ts)', () => {
     expect(keybindingsToastDecision({ type: 'keybindingsUpdated', payload: { issues: [{ kind: 'keybindings.malformed-config', message: 'Expected a JSON array' }] } }))
       .toEqual({ tag: 'InvalidConfiguration', message: 'Expected a JSON array' });
     const client = new T3Client(); client.environmentId = 'env';
+    noteNow(client, 1000);
     configEventSideEffects(client, { type: 'keybindingsUpdated', payload: { keybindings: [], issues: [] } });
     configEventSideEffects(client, { type: 'keybindingsUpdated', payload: { keybindings: [], issues: [] } });
     expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['success', 'Keybindings updated', 'Keybindings configuration reloaded successfully.']]);
@@ -70,6 +72,13 @@ describe('config stream folding (0080e80, serverConfigProjection.ts)', () => {
     expect([warning.kind, warning.title, warning.description, warning.action?.label, warning.action?.op, warning.action?.id, warning.actionVariant, warning.stacked])
       .toEqual(['warning', 'Invalid keybindings configuration', 'Entry 3 is invalid.', 'Open keybindings.json', 'rest:keybinding-open', 'env:', 'outline', true]);
     expect(toasts(client).map(toast => toast.title)).toEqual(['Keybindings updated', 'Invalid keybindings configuration']);
+    // The save and the file watcher publish the same issue: one warning. Another issue stacks.
+    configEventSideEffects(client, { type: 'keybindingsUpdated', payload: { keybindings: [], issues: [{ kind: 'keybindings.invalid-entry', message: 'Entry 3 is invalid.' }] } });
+    configEventSideEffects(client, { type: 'keybindingsUpdated', payload: { keybindings: [], issues: [{ kind: 'keybindings.invalid-entry', message: 'Entry 4 is invalid.' }] } });
+    expect(toasts(client).map(toast => toast.description)).toEqual(['Keybindings configuration reloaded successfully.', 'Entry 3 is invalid.', 'Entry 4 is invalid.']);
+    noteNow(client, 3000);
+    configEventSideEffects(client, { type: 'keybindingsUpdated', payload: { issues: [{ kind: 'keybindings.invalid-entry', message: 'Entry 4 is invalid.' }] } });
+    expect(toasts(client).filter(toast => toast.description === 'Entry 4 is invalid.')).toHaveLength(2);
   });
 });
 

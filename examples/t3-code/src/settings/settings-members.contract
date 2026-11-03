@@ -307,7 +307,7 @@ members T3Code
       acpQuery = ""
     if what == "close"
       providerDialog = ""
-    if what == "hub-remove" or what == "setup-logout" or what == "setup-remove" or what == "codex-picker" or what == "acp-delete" or what == "acp-disable"
+    if what == "hub-remove" or what == "setup-logout" or what == "setup-remove" or what == "codex-picker" or what == "acp-delete" or what == "acp-disable" or what == "provider-remove" or what == "provider-reset"
       providerDialog = what
       providerTarget = value
     // Enter manually keeps the ACP Registry (handleManualAcpConfiguration), and so does Search registry, whose inline

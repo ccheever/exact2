@@ -98,6 +98,14 @@ function announcer() {
 describe('ServerUpdateAction', () => {
   beforeEach(() => setJobs({}));
 
+  it('refuses a managed update before copying a command or starting a job', async () => {
+    const state = harness();
+    const target = updateTargetFromConfig({ managedPolicy: { organization: 'Example', lockedSettings: [], limits: { updates: { mode: 'off' } } } }, key, 'env-test', 'Test server');
+    expect(await updateEnvironment(target, state.deps)).toBe('failed');
+    expect(state.copied).toEqual([]);
+    expect(state.toasted.at(-1)).toMatchObject({ kind: 'error', description: 'Example manages T3 Code updates.' });
+  });
+
   it.each([
     [{ kind: 'npm-global', prefix: '/opt/node' } as const, "npm install --global --prefix '/opt/node' t3@0.0.45", 'Update command copied', 'then restart t3'],
     [{ kind: 'npx' } as const, 'npx t3@0.0.45', 'Relaunch command copied', 'This does not update an installed t3 command.'],

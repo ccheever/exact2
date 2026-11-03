@@ -131,7 +131,7 @@ test('repository_path and physical overrides persist; guarded member removal ret
   expect(native.committed).toHaveLength(0);
   expect((await command('remove-group-member', 'p1', 'repo')).message).toBe('');
   expect(client.shell.projects.map(project => project.id)).toEqual(['p2']);
-  expect((await command('grouping-override', 'p1', 'separate')).message).toBe('That project is no longer available.');
+  expect((await command('grouping-override', 'p1', 'separate')).message).toBe('toasted:That project is no longer available.');
   await command('grouping-mode', '', 'repository_path');
   await command('grouping-override', 'p2', 'separate');
   const restored = new T3Client(); await restored.refresh(native, disk.files);

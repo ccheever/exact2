@@ -129,7 +129,8 @@ component ChipThumb
     image url error=failed aria-hidden=true width="0.875rem" height="0.875rem" flex-shrink=0 border-radius="0.25rem" object-fit="cover"
 
 // ExpandedImageDialog: the image at its own size up to 92% of the window
-// (less 96pt for the arrows) and min(86vh, 100vh − 160pt) high, the close
+// (less 96pt for the arrows) and min(86vh, 100vh − 160pt) high, an SVG fitted to that box however small it is (its
+// own size unknown here, the picture fills the whole box and contains the drawing), the close
 // button at the popup's top-right corner, "name (1/2)" below the image, and the
 // previous/next arrows at the dialog's edges. The media and its caption sit in
 // MediaActions (Save, Copy image); an image with no URL says it is unavailable, and a video that
@@ -143,6 +144,7 @@ component ImagePreviewHost
     previous: bool
     next: bool
     video: bool
+    svg: bool
     source: string
     // The media's tooltip (MediaActions: its full path, URL or name), and the node the dialog gives the focus back to.
     tip: string
@@ -154,9 +156,9 @@ component ImagePreviewHost
   view
     if shown.length > 0
       for preview in shown key=preview.id
-        ImagePreviewDialog(id=id, url=preview.url, failed=false, name=name, position=position, previous=previous, next=next, video=video, source=source, tip=tip, returnFocus=returnFocus, windowWidth=windowWidth, windowHeight=windowHeight, local=local)
+        ImagePreviewDialog(id=id, url=preview.url, failed=false, name=name, position=position, previous=previous, next=next, video=video, svg=svg, source=source, tip=tip, returnFocus=returnFocus, windowWidth=windowWidth, windowHeight=windowHeight, local=local)
     else
-      ImagePreviewDialog(id=id, url="", failed=(urls.filter((entry) => entry.id == `failed:${id}`).length > 0), name=name, position=position, previous=previous, next=next, video=video, source=source, tip=tip, returnFocus=returnFocus, windowWidth=windowWidth, windowHeight=windowHeight, local=local)
+      ImagePreviewDialog(id=id, url="", failed=(urls.filter((entry) => entry.id == `failed:${id}`).length > 0), name=name, position=position, previous=previous, next=next, video=video, svg=svg, source=source, tip=tip, returnFocus=returnFocus, windowWidth=windowWidth, windowHeight=windowHeight, local=local)
 
 component ImagePreviewDialog
   inject
@@ -173,6 +175,8 @@ component ImagePreviewDialog
     previous: bool
     next: bool
     video: bool
+    // An SVG scales up to fill the viewer (a vector scales without loss); a bitmap stops at its own size.
+    svg: bool
     // The media's actions source (a sent attachment's `attachment:<id>`, or a file link's media JSON).
     source: string
     tip: string
@@ -213,7 +217,7 @@ component ImagePreviewDialog
         Icon(name="x", size=16, color="#ffffff")
       row width=(windowWidth * 0.92) align-items="center" justify-content="space-between"
         PreviewStep(label="Previous media", shown=(previous and not full), flip=true, press=local("image-step", "", "previous"), elementId="image-preview-previous", testId="image-preview-previous")
-        MediaActions(source=source, tip=(tip != "" ? tip : name), local=local, elementId="image-preview-actions", testId="image-preview-actions", full=full)
+        MediaActions(source=source, tip=(tip != "" ? tip : name), local=local, elementId="image-preview-actions", testId="image-preview-actions", full=full, showTooltip=false)
           column min-width=0 align-items="center"
             // In full screen neither this box nor MediaActions' is a containing block: the video's box is placed against the dialog's.
             box position=(full ? "static" : "relative")
@@ -229,7 +233,10 @@ component ImagePreviewDialog
                     box width=min(windowWidth * 0.92 - 96, 512) height="12rem" border-radius="0.5rem" background-color="#000000" role="status" aria-label="Loading video"
               else
                 if url != "" and not videoFailed
-                  image url aria-label=name error=broke max-width=(windowWidth * 0.92 - 6 * rem) max-height=min(windowHeight * 0.86, windowHeight - 160) object-fit="contain" border-radius="0.5rem" testId="image-preview-picture"
+                  if svg
+                    image url aria-label=name error=broke width=(windowWidth * 0.92 - 6 * rem) height=min(windowHeight * 0.86, windowHeight - 160) object-fit="contain" border-radius="0.5rem" testId="image-preview-picture"
+                  else
+                    image url aria-label=name error=broke max-width=(windowWidth * 0.92 - 6 * rem) max-height=min(windowHeight * 0.86, windowHeight - 160) object-fit="contain" border-radius="0.5rem" testId="image-preview-picture"
                 else
                   if failed or videoFailed
                     column role="alert" width=min(windowWidth * 0.92 - 96, 512) height="12rem" padding="1.5rem" box-sizing="border-box" gap="0.75rem" align-items="center" justify-content="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0d)" background-color="#000000" testId="image-preview-unavailable"

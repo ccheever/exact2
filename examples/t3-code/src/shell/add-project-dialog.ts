@@ -1,4 +1,4 @@
-// AddProjectToMachineDialog, ported from T3 Code 74541bab17 (MIT; see LICENSE-T3):
+// AddProjectToMachineDialog, ported from T3 Code 74541bab17 (MIT; the path field's paste at 5d3d78ab93; see LICENSE-T3):
 // apps/web/src/components/AddProjectToMachineDialog.tsx. The Run on menus open it
 // (`shelllocal:add-machine-open`, with the machine picked from the submenu or none), its
 // fields are `shelllocal:add-machine-*`, and "Clone to <machine>" is the connection op
@@ -19,6 +19,7 @@ import { draftSelection, moveDraftSelection } from '../composer/auto-balance';
 import { composerNow } from '../composer/composer-controls';
 import { wakeShell } from '../client/command-waits';
 import { letGo } from '../client/let-go';
+import { resolvePastedPath } from '../shared/project-paths';
 import { addProjectTargets, addProjectToMachine, cloneUrlForProtocol, cloneUrlProtocol, COPYABLE_FILE_MAX_BYTES, defaultSelection, dismissProjectFileCopy,
   projectRemoteUrl, projectSubdirectory, type CloneProtocol, type IgnoredFile } from './add-project-machine';
 
@@ -161,7 +162,8 @@ export async function addMachineLocal(client: T3Client, native: Native, op: stri
   if (op === 'close') { state.open = false; return ''; }
   if (op === 'target') { if (value) state.targetId = value; return ''; }
   if (op === 'protocol') { if (value === 'ssh' || value === 'https') state.protocol = value; return ''; }
-  if (op === 'path') { state.pathOverride = value; return ''; }
+  // A path pasted from Finder or Explorer replaces the field (resolvePastedPath).
+  if (op === 'path') { state.pathOverride = resolvePastedPath(state.pathOverride ?? derive(client, state, source).destinationPath, value); return ''; }
   const view = derive(client, state, source);
   const copyable = view.files.filter(file => file.byteLength <= COPYABLE_FILE_MAX_BYTES);
   if (op === 'file') {

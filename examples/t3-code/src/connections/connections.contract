@@ -1,3 +1,4 @@
+use ManagedNotice from "../settings/managed-policy.contract"
 use PvSectionTitle from "../settings/providers-kit.contract"
 use PvGroup from "../settings/providers-kit.contract"
 use PvRow from "../settings/providers-kit.contract"
@@ -123,6 +124,9 @@ shape ThisMachine
   dialogBody: string
   dialogConfirm: string
   error: string
+  // ManagedByOrganization's line and its Get help URL ("" when the primary environment is unmanaged).
+  managedNotice: string
+  managedHelp: string
 shape ConnectionsPage
   connected: bool
   state: string
@@ -304,6 +308,9 @@ component ThisMachineSection
               CnMenu(menuId="this-machine-menu-popup", invoker="this-machine-menu", label="More actions for this machine", width=196, area="bottom span-left", items=menuItems, keyed=0)
                 EnvironmentIconMenu(keysId="this-machine-menu-popup-keys", environment=machine.environment, op=op)
       PvGroupOpen()
+        if machine.managedNotice != ""
+          box width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.5rem" padding-bottom="0.5rem"
+            ManagedNotice(message=machine.managedNotice, helpUrl=machine.managedHelp, noticeId="this-machine-managed")
         if machine.canManage
           column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" gap="0.75rem" testId="this-machine-version"
             row width="100%" gap="2rem" align-items="center" flex-wrap=(wide ? "nowrap" : "wrap")

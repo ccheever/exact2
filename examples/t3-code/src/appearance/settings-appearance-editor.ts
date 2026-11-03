@@ -100,7 +100,9 @@ export function updateFamily(colors: Record<string, string>, role: string, input
 // the window's root state opens and closes; it outlives Settings.
 export type Draft = { kind: string; subject: string; sessionId: number; editingId: string; name: string; appearance: Mode; advanced: boolean; filter: string; colors: Record<Mode, Record<string, string>>;
   /** The stamp of the last colour-picker op applied, per role (themeLocal). */
-  pickerSeq: Record<string, number> };
+  pickerSeq: Record<string, number>;
+  /** Every colour as it was when a picker opened (ThemeEditorPanel colorEditSnapshotRef), which its Escape restores. */
+  editSnapshot?: Record<Mode, Record<string, string>> | null };
 const drafts = new WeakMap<T3Client, Draft>();
 const customOf = (client: T3Client): CustomTheme[] => (client.local as unknown as { customThemes?: CustomTheme[] }).customThemes || [];
 /**
@@ -207,7 +209,7 @@ const isFamilyRole = (role: string) => ROLE_GROUPS.some(group => group.families.
 /**
  * `themelocal:<part>` (theme-color-picker.contract) with the id `<session>|<role>`: the picker's `color`
  * (the plane, the hue slider and their keys), `hex` and `rgb` (the typed fields, each keystroke) for
- * one family of the session's draft. The control stamps each op, strictly increasing from the runner
+ * one family of the session's draft, and `edit-start` and `edit-cancel` as the picker opens and Escape closes it. The control stamps each op, strictly increasing from the runner
  * time, so a late older op never overwrites a newer one (and an op from a closed session reaches no
  * other), and the row echoes the stamp back (`seq`) so the control knows its op has landed. Never an
  * error: an incomplete field changes nothing, as the reference ignores it until it parses.
@@ -223,6 +225,9 @@ export function themeLocal(client: T3Client, part: string, id: string, value: st
   if (!draft || session !== `session-${draft.sessionId}` || !isFamilyRole(role)) return '';
   if (n <= (draft.pickerSeq[role] ?? -Infinity)) return '';
   draft.pickerSeq[role] = n;
+  // A colour edit rewrites derived roles too, so Escape restores the whole snapshot rather than the one value.
+  if (part === 'edit-start') { draft.editSnapshot = { light: { ...draft.colors.light }, dark: { ...draft.colors.dark } }; return ''; }
+  if (part === 'edit-cancel') { if (draft.editSnapshot) draft.colors = draft.editSnapshot; draft.editSnapshot = null; return ''; }
   const colors = draft.colors[draft.appearance];
   const next = pickerCommit(part, value, colors[role] ?? STANDARD[draft.appearance][role] ?? '#000000');
   if (next) draft.colors[draft.appearance] = updateFamily(colors, role, next);

@@ -7,10 +7,11 @@ import { requestComposerField } from './composer-field-request';
 // and ChatComposer.tsx (stepReasoningEffort).
 // Changes: a stored step is one option id and value, saved as an effort pick
 // saves it; the prompt and caret are the native editor's.
+import { isReasoningSelect } from '../client/server-fields';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { bridgeReply, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
-import { optionValue, REASONING_SELECT_DESCRIPTOR_IDS, reportedSelection, type Selection } from './composer-controls-model';
+import { optionValue, reportedSelection, type Selection } from './composer-controls-model';
 import { currentDescriptors, modelDescriptors, ultrathinkTraits, withImplicitFastModeDefault } from './composer-provider-state';
 import { selectableChoices } from './composer-model-effort';
 import { composerSelection } from './composer-provider-selection';
@@ -37,7 +38,7 @@ export function reasoningStep(input: { driver: string; model: string; models: Ob
   const descriptors = currentDescriptors(modelDescriptors(input.models.find(model => model.slug === input.model), input.planModeEnabled), input.options);
   const flags = ultrathinkTraits(descriptors, prompt);
   if (flags.inBody) return null;
-  const descriptor = descriptors.find(entry => entry.type === 'select' && REASONING_SELECT_DESCRIPTOR_IDS.has(str(entry.id)));
+  const descriptor = descriptors.find(isReasoningSelect);
   const options = arr(descriptor?.options), choices = descriptor ? selectableChoices(descriptor) : [];
   if (!descriptor || choices.length < 2) return null;
   const isPrimary = descriptor.id === flags.primaryId;

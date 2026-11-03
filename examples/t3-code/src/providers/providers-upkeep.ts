@@ -4,7 +4,7 @@ import { providerWritable } from './provider-permissions';
 // list row and the editor), providerStatus.ts getProviderVersionAdvisoryPresentation,
 // ProviderSettingsPanel.tsx:723-767 and :1162-1186 (runProviderUpdate, onInstallRecommended,
 // onRunUpdate, isUpdating), ProviderUpdatesAction.tsx (useProviderUpdates and "Update all" on every
-// connected environment, one toast) and the `upkeep:` ops that drive them, the ACP section
+// connected environment whose session grants providers:manage, as of 5d3d78ab93; one toast) and the `upkeep:` ops that drive them, the ACP section
 // (acp-sessions.ts) and the custom model editor (custom-model-editor.ts).
 // Changes: pending updates are kept here per connection (the reference's
 // updatingProviderInstanceIds and ProviderUpdatesAction's isPending); an update runs inside its
@@ -97,10 +97,11 @@ export function updateTargets(host: UpkeepHost, native: Native | null): UpdateTa
   }
   return targets;
 }
-/** A connected machine with one-click provider updates (useProviderUpdates' `machines`). */
+/** A connected machine this client may manage providers on, with one-click provider updates (useProviderUpdates' `machines`). */
 export type ProviderUpdateMachine = { key: string; environmentId: string; label: string; target: UpdateTarget; candidates: Obj[] };
 export function providerUpdateMachines(targets: readonly UpdateTarget[]): ProviderUpdateMachine[] {
   return targets.flatMap(target => {
+    if (!target.manageable) return [];
     const candidates = collectProviderUpdateCandidates(target.providers).filter(candidate => canOneClickUpdateProviderCandidate(candidate, target.providers));
     return candidates.length > 0 ? [{ key: target.key, environmentId: target.environmentId ?? target.key, label: target.label, target, candidates }] : [];
   });

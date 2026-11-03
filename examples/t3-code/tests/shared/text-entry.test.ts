@@ -21,7 +21,7 @@ async function elements(tag: 'textarea' | 'input'): Promise<{ at: string; line: 
 }
 const textareas = () => elements('textarea');
 /** An input that takes no typed text (AppKit draws a control, not a field editor). */
-const typesNoText = (line: string) => /\btype="(checkbox|radio|range|color|date|time|file|hidden)"/.test(line);
+const typesNoText = (line: string) => /\btype="(checkbox|radio|range|color|date|time|datetime-local|file|hidden)"/.test(line);
 
 describe('typed text is kept as typed', () => {
   test('every editable textarea has autocorrect="off"', async () => {

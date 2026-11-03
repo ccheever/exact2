@@ -333,6 +333,27 @@ describe('usage across environments', () => {
     expect(rig.of('server.getUsageSummary')).toHaveLength(2);
   });
 
+  // usage.test.ts at 5d3d78ab93 "rescans each environment with its own configured model filter".
+  it('each environment is asked with its own settings.usageModelFilter, and a changed filter reads again', async () => {
+    const modelFilter = { include: [{ provider: 'claude', model: 'orbit-1' }] };
+    const rig = new Rig({ ...laptop(), settings: { usageModelFilter: modelFilter } }, desktop());
+    await rig.page({ metric: 'cost' });
+    const reads = () => rig.of('server.getUsageSummary').map(entry => [entry.env, entry.payload.modelFilter]).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+    expect(reads()).toEqual([['env-a', modelFilter], ['env-b', undefined]]);
+    for (const read of rig.of('server.getUsageSummary')) await rig.reply(read, summary());
+    await rig.page({ metric: 'cost' });
+    expect(rig.of('server.getUsageSummary')).toHaveLength(2);
+    // A settings snapshot rebuilding the same filter reads nothing again; another filter does.
+    rig.client.config = { ...rig.client.config, settings: { usageModelFilter: { include: [{ provider: 'claude', model: 'orbit-1' }] } } };
+    await rig.page({ metric: 'cost' });
+    expect(rig.of('server.getUsageSummary')).toHaveLength(2);
+    const narrower = { exclude: [{ model: 'drift-9' }] };
+    rig.client.config = { ...rig.client.config, settings: { usageModelFilter: narrower } };
+    const page = await rig.page({ metric: 'cost' });
+    expect(rig.of('server.getUsageSummary', 'env-a').map(entry => entry.payload.modelFilter)).toEqual([modelFilter, narrower]);
+    expect(page.environments[0]!.status).toBe('Scanning…');
+  });
+
   it('refresh sends the rates once per selected connected environment, then rescans each, even after a failed rates call; a stopped environment makes no refetch', async () => {
     const rig = new Rig(laptop(), desktop());
     await rig.page({ metric: 'cost' });

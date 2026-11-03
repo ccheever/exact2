@@ -29,7 +29,7 @@ describe('provider subagent bar', () => {
     client.thread!.projection.nodes = [{ id: 'n1', kind: 'root_turn', runId: null, status: 'running', startedAt: '2026-10-03T01:00:00.000Z', completedAt: null }];
     const bar = subagentBar(client, Date.parse('2026-10-03T01:00:05.000Z'));
     expect(bar).toEqual({ subagent: true, subagentModel: 'Model A', subagentEffort: 'High', subagentStatus: 'Working 5s',
-      subagentAnnounce: 'Model A, High subagent: Working', subagentParent: 't2', subagentWidth: 0 });
+      subagentAnnounce: 'Model A, High subagent: Working', subagentParent: 't2', subagentWidth: 0, subagentNativeWork: false });
     const view = snapshot(client, Date.parse('2026-10-03T01:00:05.000Z')).composer;
     expect(view).toMatchObject({ subagent: true, notices: [] });
     Object.assign(thread, { creationSource: 'web' });

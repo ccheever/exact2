@@ -194,6 +194,20 @@ export function listOutdentForTab(value: string, start: number, end: number, chi
   return listEdit(line.start, replacedEnd, replacement, caret);
 }
 
+/** backspaceAcrossList (composer-rich-text-doc.ts): Backspace at a nested item's start lifts it into a parent item of
+ *  its kind (a task under a task, a bullet or numbered item under either) as ⇧Tab does; under an item of the other
+ *  kind there is no list to lift into, so it joins the line above, and an empty item goes. Null for a top-level item,
+ *  which the field deletes as text. */
+export function listBackspaceAtStart(value: string, cursor: number, chips: readonly ComposerRange[]): ComposerEdit | null {
+  if (!Number.isInteger(cursor) || cursor <= 0 || cursor > value.length || insideChip(chips, cursor)) return null;
+  const line = currentLine(value, cursor), parsed = parseListMarker(line.text);
+  if (!parsed?.marker.indent || cursor !== line.start + parsed.markerEnd) return null;
+  const parent = parentMarker(value, line.start, parsed.marker, chips);
+  if (!parent) return null;
+  if ((parent.kind === 'task') === (parsed.marker.kind === 'task')) return listOutdentForTab(value, cursor, cursor, chips);
+  return listEdit(line.start - 1, cursor, '', line.start - 1);
+}
+
 /** The list lines of a plain composer, for the Contract's Tab admission (a projected `list` block). */
 export function plainListLines(value: string): ComposerRange[] {
   const lines: ComposerRange[] = [];

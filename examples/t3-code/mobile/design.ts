@@ -117,6 +117,14 @@ export function mobileThreadColors(scheme: string, palette = 't3-code', baseFont
   };
 }
 
+/** Glass tokens used by native preview chrome without widening the thread color shape. */
+export function mobileGlassColors(scheme: string, palette = 't3-code') {
+  const dark = scheme === 'dark';
+  const variant = `${palette === 't3-code' ? '' : `${palette}-`}${dark ? 'dark' : 'light'}`;
+  const tokens = themes[variant] ?? themes[dark ? 'dark' : 'light'];
+  return { glassTint: tokens['--color-glass-tint'], glassFallback: tokens['--color-glass-fallback'] };
+}
+
 export function mobileComposerColors(scheme: string, palette = 't3-code') {
   const dark = scheme === 'dark';
   const variant = `${palette === 't3-code' ? '' : `${palette}-`}${dark ? 'dark' : 'light'}`;

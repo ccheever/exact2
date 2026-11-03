@@ -81,7 +81,9 @@ describe('composer source chips and active triggers', () => {
   });
   test('commands open only at the line start; code and chip interiors suppress suggestions', () => {
     expect(composerTrigger('line\n/plan', 10)).toMatchObject({ kind: 'slash-command', query: 'plan', start: 5 });
-    expect(composerTrigger('word /plan', 10)).toBeNull();
+    expect(composerTrigger('word /plan', 10)).toMatchObject({ kind: 'slash-command', query: 'plan', start: 5 });
+    expect(composerTrigger('word /tmp/x', 8)).toBeNull();
+    expect(composerTrigger('/Model opus', 11)).toBeNull();
     expect(composerTrigger('see #1234', 9)).toMatchObject({ kind: 'pull-request', query: '1234' });
     expect(composerTrigger('$de', 3)).toMatchObject({ kind: 'skill', query: 'de' });
     const code = '```\n@src/x\n```';

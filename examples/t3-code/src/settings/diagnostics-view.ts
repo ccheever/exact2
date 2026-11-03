@@ -11,6 +11,7 @@ import { relativeTimeLabel } from './settings-data';
 import { dxCell, dxFinish, dxHeaders, dxRow, fixedTrim, liveCollapsed, option, syncTelemetry, telemetryTimeline, telemetryView, type DxTable } from './settings-a-telemetry';
 import { preferredEditor } from '../details/shell-details';
 import { letGo } from '../client/let-go';
+import { formatBytes } from './format-bytes';
 
 // RESOURCE_HISTORY_WINDOWS: the process history buckets per period.
 const WINDOWS: Record<string, [number, number]> = { '5m': [300000, 30000], '15m': [900000, 60000], '30m': [1800000, 120000], '1h': [3600000, 300000] };
@@ -18,13 +19,7 @@ type Stat = { id: string; label: string; value: string; tone: string; tip: strin
 
 export const count = (value: unknown) => Math.round(num(value)).toLocaleString('en-US');
 export function duration(value: unknown): string { const v = num(value); return v < 1000 ? `${Math.round(v)} ms` : `${fixedTrim(v / 1000, v >= 10000 ? 1 : 2)} s`; }
-export function bytes(value: unknown): string {
-  let next = num(value);
-  if (next < 1024) return `${next} B`;
-  const units = ['KB', 'MB', 'GB']; let index = -1;
-  do { next /= 1024; index++; } while (next >= 1024 && index < units.length - 1);
-  return `${next.toFixed(next >= 10 ? 1 : 2)} ${units[index]}`;
-}
+const bytes = (value: unknown) => formatBytes(num(value));
 /** DiagnosticsSettings formatCpuTime (seconds). */
 export function cpuTime(value: unknown): string {
   const seconds = num(value);

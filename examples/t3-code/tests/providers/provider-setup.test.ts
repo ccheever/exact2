@@ -297,6 +297,21 @@ describe('provider setup in the clone', () => {
     expect(fake.calls.at(-1)).toEqual({ method: 'provider.auth.cancel', payload: { instanceId, flowId: 'flow-1' } });
   });
 
+  test('an API key or Agent Platform record says Connect; one without a type keeps Sign in', async () => {
+    const fake = await rendered(authState({ phase: 'idle', flowId: null, authorizationUrl: null }), idle(),
+      new Fake([provider({ auth: { status: 'unauthenticated', type: 'gemini-api-key', label: 'Gemini API key' } })]));
+    expect(fake.account()).toMatchObject({ description: 'Connect on Remote Google device to load models.', startLabel: 'Connect' });
+    fake.emit('auth', authState({ phase: 'starting', authorizationUrl: null }));
+    expect(fake.account()).toMatchObject({ description: 'Connecting…' });
+    fake.emit('auth', authState({ phase: 'verifying', authorizationUrl: null }));
+    expect(fake.account()).toMatchObject({ description: 'Checking credentials and loading models…' });
+    fake.emit('auth', authState({ phase: 'failed', authorizationUrl: null, message: 'Invalid key.' }));
+    expect(fake.account()).toMatchObject({ startLabel: 'Retry connection' });
+    const google = await rendered(authState({ phase: 'idle', flowId: null, authorizationUrl: null }), idle(),
+      new Fake([provider({ auth: { status: 'unauthenticated', type: 'oauth-personal' } })]));
+    expect(google.account()).toMatchObject({ description: 'Sign in on Remote Google device.', startLabel: 'Sign in' });
+  });
+
   test('sign out asks with the reference copy; Change account starts a new flow', async () => {
     const fake = await rendered(authState({ phase: 'idle', flowId: null, authorizationUrl: null }), idle(),
       new Fake([provider({ displayName: 'Google work', status: 'ready', auth: { status: 'authenticated', email: 'dev@example.com' } })]));

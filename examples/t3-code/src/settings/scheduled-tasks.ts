@@ -1,5 +1,5 @@
-// Scheduled task logic (MIT reference, see LICENSE-T3; T3 Code 9c161462c9, defaultScheduledTaskProjectId at 2359643cff:
-// apps/web/src/components/settings/scheduledTasksSettings.logic.ts, and scheduleLabel /
+// Scheduled task logic (MIT reference, see LICENSE-T3; T3 Code 9c161462c9, defaultScheduledTaskProjectId at 2359643cff,
+// the one-time schedule at 5d3d78ab93: apps/web/src/components/settings/scheduledTasksSettings.logic.ts, and scheduleLabel /
 // relativeLabel / statusVariant from ScheduledTasksSettings.tsx). Changes from the
 // reference: `now` is an argument (data sources have no clock,
 // issues/closed/20261009-typescript-failure-parity.md); the draft's weekdays
@@ -7,8 +7,10 @@
 // provider snapshots (`deriveProviderInstanceEntries` read inline); a scope is the plain
 // record below instead of ResolvedSettingsScope.
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { oneTimeSchedules } from '../client/server-fields';
 import { webhookDraft } from './scheduled-webhook';
 import { relativeTimeLabel } from './settings-data';
+import { RUNTIME_LOCALE } from '../shared/timestamp-format';
 
 /** ResolvedSettingsScope, reduced to what matchesScheduledTaskScope reads. */
 export type TaskScope = {
@@ -72,14 +74,18 @@ export type Weekdays = Record<(typeof DAY_FIELDS)[number], boolean>;
 const weekdayFields = (days: number[]): Weekdays => Object.fromEntries(DAY_FIELDS.map((day, index) => [day, days.includes(index)])) as Weekdays;
 
 export type TaskDraft = Weekdays & ReturnType<typeof webhookDraft> & {
-  editingId: string; title: string; prompt: string; enabled: boolean; scheduleMode: 'fixed' | 'interval' | 'webhook'; intervalMinutes: string; timeOfDay: string;
+  editingId: string; title: string; prompt: string; enabled: boolean; scheduleMode: 'fixed' | 'once' | 'interval' | 'webhook'; intervalMinutes: string; timeOfDay: string;
+  /** Local date and time as a `datetime-local` input value, such as 2026-11-02T15:00. */
+  runAt: string;
+  /** The stored ISO run time, sent back unchanged when the field was not edited. */
+  savedRunAt: string;
   projectId: string; threadId: string; workspaceMode: string; baseRef: string; startFromOrigin: boolean; existingWorktreePath: string; modelKey: string;
   runtimeMode: string; interactionMode: string; baseModelSelection: Obj | null;
 };
 
 /** EMPTY_DRAFT, with the first project of the scope. */
 export function emptyDraft(projectId: string, modelKey = ''): TaskDraft {
-  return { ...webhookDraft(), editingId: '', title: '', prompt: '', enabled: true, scheduleMode: 'fixed', intervalMinutes: '15', timeOfDay: '09:00', ...weekdayFields([1, 2, 3, 4, 5]),
+  return { ...webhookDraft(), editingId: '', title: '', prompt: '', enabled: true, scheduleMode: 'fixed', intervalMinutes: '15', timeOfDay: '09:00', runAt: '', savedRunAt: '', ...weekdayFields([1, 2, 3, 4, 5]),
     projectId, threadId: '', workspaceMode: 'worktree', baseRef: 'main', startFromOrigin: true, existingWorktreePath: '', modelKey,
     runtimeMode: 'full-access', interactionMode: 'default', baseModelSelection: null };
 }
@@ -89,9 +95,10 @@ export function taskToDraft(task: Obj): TaskDraft {
   const weekdays = schedule.type === 'fixed_time' && Array.isArray(schedule.weekdays) && schedule.weekdays.length > 0 ? schedule.weekdays.map(Number) : [0, 1, 2, 3, 4, 5, 6];
   return {
     ...webhookDraft(task), editingId: str(task.id), title: str(task.title), prompt: str(task.prompt), enabled: task.enabled === true,
-    scheduleMode: schedule.type === 'interval' ? 'interval' : schedule.type === 'webhook' ? 'webhook' : 'fixed',
+    scheduleMode: schedule.type === 'interval' || schedule.type === 'once' || schedule.type === 'webhook' ? schedule.type : 'fixed',
     intervalMinutes: schedule.type === 'interval' ? String(Math.max(1, num(schedule.everyMs) / 60000)) : '15',
-    timeOfDay: schedule.type === 'fixed_time' ? str(schedule.timeOfDay) : '09:00', ...weekdayFields(weekdays),
+    timeOfDay: schedule.type === 'fixed_time' ? str(schedule.timeOfDay) : '09:00',
+    runAt: schedule.type === 'once' ? onceInputValue(str(schedule.runAt)) : '', savedRunAt: schedule.type === 'once' ? str(schedule.runAt) : '', ...weekdayFields(weekdays),
     projectId: str(task.projectId), threadId: str(task.threadId), workspaceMode: str(workspace.type, 'worktree'),
     baseRef: workspace.type === 'worktree' ? str(workspace.baseRef) : 'main',
     startFromOrigin: workspace.type === 'worktree' ? workspace.startFromOrigin === true : true,
@@ -123,8 +130,54 @@ export function scheduledTaskDefaultModel(settings: Obj, project: Obj | null, pr
   return fallback ? { instanceId: fallback.instanceId, model: str(fallback.model.slug) } : null;
 }
 
+/** Formats a date as a `datetime-local` input value in the local time zone. */
+export function toDateTimeLocalValue(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+const onceInputValue = (runAt: string) => { const date = new Date(runAt); return Number.isNaN(date.getTime()) ? '' : toDateTimeLocalValue(date); };
+
+/** Older servers reject one-time schedules, so Once is offered only where it can save, or for a task that has it. */
+export function offersOnceSchedules(config: Obj, task: Obj | undefined): boolean {
+  return oneTimeSchedules(config) || obj(task?.schedule).type === 'once';
+}
+
+/**
+ * Picking Once with no run time suggests the next whole hour, keeping its instant too, so an hour that repeats when
+ * clocks go back stays exact. `now` is an epoch, or null when the time is unknown (no suggestion).
+ */
+export function suggestedRunAt(now: number | null): { runAt: string; savedRunAt: string } {
+  if (now === null) return { runAt: '', savedRunAt: '' };
+  const suggested = new Date(Math.ceil(now / 3_600_000) * 3_600_000);
+  return { runAt: toDateTimeLocalValue(suggested), savedRunAt: suggested.toISOString() };
+}
+
+/** scheduleDraftErrors' one-time part. */
+export function onceDraftErrors(runAt: string): { title: string; description: string }[] {
+  const date = new Date(runAt);
+  if (Number.isNaN(date.getTime())) return [{ title: 'Invalid run time', description: 'Pick a date and time.' }];
+  // A time skipped by a daylight saving change parses to a different clock time.
+  if (toDateTimeLocalValue(date) !== runAt) return [{ title: 'Invalid run time', description: 'That time does not exist in your time zone.' }];
+  return [];
+}
+
+/** scheduleFromDraft's one-time part, or null when the run time is invalid. */
+export function onceSchedule(runAt: string, savedRunAt: string): { type: 'once'; runAt: string } | null {
+  if (onceDraftErrors(runAt).length > 0) return null;
+  const saved = savedRunAt ? new Date(savedRunAt) : null;
+  if (saved !== null && toDateTimeLocalValue(saved) === runAt) return { type: 'once', runAt: savedRunAt };
+  // A `datetime-local` value has no offset. In an hour that repeats when clocks go
+  // back, keep the saved time's offset; otherwise Date reads it as local time.
+  const withSavedOffset = saved === null ? null : new Date(Date.parse(`${runAt}Z`) + saved.getTimezoneOffset() * 60_000);
+  return { type: 'once', runAt: withSavedOffset !== null && toDateTimeLocalValue(withSavedOffset) === runAt ? withSavedOffset.toISOString() : new Date(runAt).toISOString() };
+}
+
+const ONCE_FORMATTER = new Intl.DateTimeFormat(RUNTIME_LOCALE, { dateStyle: 'medium', timeStyle: 'short' });
+
 export function scheduleLabel(schedule: Obj): string {
   if (schedule.type === 'webhook') return 'On webhook';
+  if (schedule.type === 'once') { const date = new Date(str(schedule.runAt)); return Number.isNaN(date.getTime()) ? 'Once' : `Once, ${ONCE_FORMATTER.format(date)}`; }
   if (schedule.type === 'interval') {
     const minutes = num(schedule.everyMs) / 60000;
     return Number.isInteger(minutes) ? `Every ${minutes} min` : `Every ${Math.round(num(schedule.everyMs) / 1000)} sec`;
@@ -147,8 +200,9 @@ export function relativeLabel(value: unknown, now: number): string {
   return hours < 24 ? `in ${hours}h` : `in ${Math.round(hours / 24)}d`;
 }
 
-/** The settings row's status line: "Every 5 min · Next run in 4m", "… · Paused". */
+/** The settings row's status line: "Every 5 min · Next run in 4m", "… · Paused", or why a managed policy blocks the task. */
 export function taskStatus(task: Obj, now: number): string {
+  if (typeof task.blockedByPolicy === 'string') return `${scheduleLabel(obj(task.schedule))} · ${task.blockedByPolicy}`;
   return `${scheduleLabel(obj(task.schedule))} · ${task.enabled === true ? (obj(task.schedule).type === 'webhook' ? 'Listening' : task.nextRunAt ? `Next run ${relativeLabel(task.nextRunAt, now)}` : 'Not scheduled') : 'Paused'}`;
 }
 

@@ -10,8 +10,9 @@
 // Changes: one plain view record for a Contract card; the brand-label table of
 // resolveProviderInstanceDisplayName is the snapshot's displayName, else the
 // humanized instance id; elapsed time is the caller's string.
+import { REASONING_EFFORT_OPTION_IDS } from '../client/server-fields';
 import { arr, obj, str, type Obj } from '../client/domain';
-import { formatModelSlugName, REASONING_EFFORT_OPTION_IDS, resolveSelectableModel, traitsSpeed } from '../composer/composer-controls-model';
+import { formatModelSlugName, resolveSelectableModel, traitsSpeed } from '../composer/composer-controls-model';
 import { triggerDisplayModelName } from './model-short-name';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'interrupted', 'rolled_back', 'idle']);

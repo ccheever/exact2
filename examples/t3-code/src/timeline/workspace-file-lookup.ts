@@ -1,7 +1,7 @@
 // The file a chat file link names (MIT reference, see LICENSE-T3: T3 Code 74541bab17
 // packages/client-runtime/src/workspaceBasenameLookup.ts, apps/web/src/markdownFileHostPath.ts,
 // markdown-links.ts resolveMarkdownFileLinkMeta's workspaceLookupPath, ChatMarkdown.tsx findWorkspaceFileMatch and
-// openFileInPanel, packages/shared/src/path.ts workspaceRelativeFilePath, client-runtime mediaActions.ts
+// openFileInPanel, packages/shared/src/path.ts workspaceRelativeFilePath (at 5d3d78ab93), client-runtime mediaActions.ts
 // formatFilePathForClipboard). A link written from the workspace root can name a file by its bare name, or repeat a
 // subfolder project's own folders (`apps/web/src/x.ts` in `/repo/apps/web`); the workspace search finds the file it
 // means. Opening it, its editor and Finder actions and its copied paths all use that file.
@@ -52,12 +52,17 @@ export function pickStrippedWorkspaceMatch(strippedPath: string, cwd: string, en
   return entries.find(entry => entry.kind === 'file' && key(entry.path) === key(strippedPath))?.path ?? null;
 }
 
-/** workspaceRelativeFilePath: `path` inside `root` with `/`, "." for the root itself, null outside it. */
+/**
+ * workspaceRelativeFilePath: `path` inside `root`, "." for the root itself, null outside it. Only a Windows root, or a
+ * UNC path under a network root, reads `\` as a separator and ignores case; on POSIX `\` is a file name character.
+ */
 export function workspaceRelativeFilePath(path: string, root: string | null | undefined): string | null {
   if (!root) return null;
   const strip = (value: string) => /^\/[A-Za-z]:[\\/]/.test(value) ? value.slice(1) : value;
-  const normalizedPath = strip(path.replaceAll('\\', '/')), normalizedRoot = strip(root.replaceAll('\\', '/')).replace(/\/+$/, '');
-  const fold = isWindowsAbsolutePath(strip(root)) ? (value: string) => value.toLowerCase() : (value: string) => value;
+  const windows = isWindowsAbsolutePath(strip(root)) || (/^[\\/]{2}/.test(root) && path.startsWith('\\\\'));
+  const normalizedPath = windows ? strip(path.replaceAll('\\', '/')) : path;
+  const normalizedRoot = (windows ? strip(root.replaceAll('\\', '/')) : root).replace(/\/+$/, '');
+  const fold = windows ? (value: string) => value.toLowerCase() : (value: string) => value;
   if (fold(normalizedPath).replace(/\/+$/, '') === fold(normalizedRoot)) return '.';
   if (!fold(normalizedPath).startsWith(`${fold(normalizedRoot)}/`)) return null;
   const relativePath = normalizedPath.slice(normalizedRoot.length + 1);
