@@ -734,6 +734,8 @@ test('interactive faults resolve backend, warn on impossible prefixes, and reloa
   expect(calls).toEqual(['data',{keep:true,failFetch:''}]);
   expect(session.now).toBe(0);
   expect(driverCapabilities()).toContain('reload (interactive)');
+  await expect(reloadWeb({host:'ios', keptStore:'default'})).rejects.toThrow('on ios each drive is a new launch, so run a second drive to see a relaunch (it opens on the store `default` this one kept)');
+  await expect(reloadWeb({host:'android'})).rejects.toThrow(/on android each drive is a new launch, so run a second drive to see a relaunch, and an authored test's `reload` relaunches the host$/);
 });
 
 test('authored-test clock advances once per mutation request, not per input reply or resource', async()=>{
