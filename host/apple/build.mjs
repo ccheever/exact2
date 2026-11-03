@@ -623,9 +623,9 @@ async function main(args, lockHeld = false) {
     console.error('--tvos takes neither --host nor --embed');
     process.exitCode = 1; return;
   }
-  const tvTarget = device ? tvosDeviceTarget : tvosTarget;
-  if (tv && !read('rustup', ['target', 'list', '--installed'], { cwd: root }).stdout?.split('\n').includes(tvTarget)) {
-    console.error(`--tvos needs Rust's ${tvTarget} std, which this toolchain lacks. Install it with \`rustup target add ${tvTarget}\``);
+  const tvTarget = device ? tvosDeviceTarget : tvosTarget, rustTarget = tv ? tvTarget : 'aarch64-apple-ios';
+  if ((tv || device) && !read('rustup', ['target', 'list', '--installed'], { cwd: root }).stdout?.split('\n').includes(rustTarget)) {
+    console.error(`${tv ? '--tvos' : '--device'} needs Rust's ${rustTarget} std, which this toolchain lacks. Install it with \`rustup target add ${rustTarget}\` (once, in the app's directory so its pinned toolchain gets it)`);
     process.exitCode = 1; return;
   }
   const ipa = args.includes('--archive') ? resolve(process.cwd(), args[args.indexOf('--archive') + 1] ?? '') : null;

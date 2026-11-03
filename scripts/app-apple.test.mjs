@@ -18,6 +18,21 @@ test('the Apple build rejects --phone before selecting a simulator or resolving 
   assert.match(result.stderr, /--phone needs --device; for a simulator use --sim/);
 });
 
+test.skipIf(process.platform === 'win32')('a phone or Apple TV build checks its Rust target before resolving an app', () => {
+  const bin = mkdtempSync(resolve(tmpdir(), 'exact-rustup-'));
+  try {
+    const build = (installed, ...args) => {
+      writeFileSync(resolve(bin, 'rustup'), `#!/bin/sh\nprintf '${installed}\\n'\n`, { mode: 0o755 });
+      return spawnSync(process.execPath, ['host/apple/build.mjs', ...args, 'no-such-app'], { encoding: 'utf8', env: { ...process.env, PATH: bin + delimiter + process.env.PATH } });
+    };
+    const phone = build('aarch64-apple-ios-sim', '--device');
+    assert.equal(phone.status, 1);
+    assert.match(phone.stderr, /--device needs Rust's aarch64-apple-ios std, which this toolchain lacks\. Install it with `rustup target add aarch64-apple-ios`/);
+    assert.match(build('aarch64-apple-ios', '--tvos', '--device').stderr, /--tvos needs Rust's aarch64-apple-tvos std/);
+    assert.match(build('aarch64-apple-ios', '--device').stderr, /no app at /);
+  } finally { rmSync(bin, { recursive: true, force: true }); }
+});
+
 // These cases run cargo (the filesystem tool, bakes, locks). A shell whose PATH
 // omits rustup's bin directory still finds it there; without cargo, say so.
 const cargoBin = resolve(process.env.CARGO_HOME ?? resolve(homedir(), '.cargo'), 'bin');
