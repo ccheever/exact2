@@ -193,7 +193,7 @@ describe('the filter\'s keys', () => {
   test('Return picks the highlighted row, and nothing when no row is highlighted', () => {
     const picks = (hovered: string, scopeHighlight: string) => {
       const calls: unknown[][] = [];
-      menu.call('submitScope', { hovered, pinOver: '' }, { data: { sidebar: { scopes: [], scopeHighlight } }, local: (...args: unknown[]) => calls.push(args) }, []);
+      menu.call('submitScope', { hovered, pinOver: '' }, { data: { sidebar: { scopes: [], scopeHighlight } }, local: (...args: unknown[]) => calls.push(args), focus: () => {} }, []);
       return calls;
     };
     expect(picks('\n', 'g1')).toEqual([['scope', '', 'g1']]);

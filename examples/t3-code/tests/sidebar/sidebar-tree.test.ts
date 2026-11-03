@@ -80,8 +80,9 @@ test('the list is no tree: Tab visits each row, a button, and its actions; the a
   expect(rows).toHaveLength(5); // the card and the slim row, a draft, a shelf header and Show more
   for (const row of rows) {
     expect(row.trimStart().startsWith('button ')).toBe(true);
-    for (const part of ['role="treeitem"', 'aria-level', 'tabindex=']) expect(row).not.toContain(part);
+    for (const part of ['role="treeitem"', 'aria-level']) expect(row).not.toContain(part);
     expect(row).toMatch(/key=(treeKey|rowKey)/);
+    expect(row).toContain('tabindex=0');
   }
   // The hidden actions are in the Tab order of every row, not only the focused one's.
   expect(lines('sidebar-row.contract', 'inert=')).toHaveLength(0);

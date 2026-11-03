@@ -79,7 +79,7 @@ describe('the row takes the focus back once the field has gone', () => {
   test('the row\'s button is the one whose id the root focuses, in the Tab order', () => {
     const rows = appText('src/sidebar/sidebar-row.contract').split('\n').filter(line => line.includes('button cursor="pointer" id=`thread-${t.id}`'));
     expect(rows.length).toBe(2); // the card row and the compact row
-    for (const row of rows) expect(row).not.toContain('tabindex=');
+    for (const row of rows) expect(row).toContain('tabindex=0');
   });
 });
 

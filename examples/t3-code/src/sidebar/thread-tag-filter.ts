@@ -8,6 +8,7 @@
 import type { T3Client } from '../client/client';
 import { isListedThreadLineage, obj, str, type Obj } from '../client/domain';
 import { fleet, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { hiddenThreadTags, threadTags } from '../client/server-fields';
 
 export type TagFilteredEnvironment = {
   environmentId: string;
@@ -16,18 +17,11 @@ export type TagFilteredEnvironment = {
   hiddenTags: readonly string[] | null;
 };
 
-/** A list's strings: storage and peers are read leniently, so a bad entry drops alone. */
-const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
 export const NO_HIDDEN_THREADS: ReadonlySet<string> = new Set();
 export const threadKey = (environmentId: string, threadId: string): string => `${environmentId}\n${threadId}`;
 
-/** hiddenThreadTagsAtom: the tags a server's settings hide, trimmed as a hand edit may not be; null while off. */
-export function hiddenTagsOf(config: Obj | undefined): string[] | null {
-  const settings = obj(config?.settings);
-  if (settings.hideTaggedThreads !== true) return null;
-  const tags = strings(settings.hiddenThreadTags).map(tag => tag.trim()).filter(tag => tag !== '');
-  return tags.length ? tags : null;
-}
+/** hiddenThreadTagsAtom over a server config's settings; null while its filter is off. */
+export const hiddenTagsOf = (config: Obj | undefined): string[] | null => hiddenThreadTags(obj(config?.settings));
 
 /** The thread a subagent, side chat or delegated task takes its visibility from, if any. */
 export function visibilityParentKey(environmentId: string, thread: Obj): string | null {
@@ -47,7 +41,7 @@ export function visibleLinkedThreads<Row extends { id?: unknown }>(rows: Row[], 
   return rows.filter(row => loadedThreadIds.has(str(row.id)) ? !hiddenKeys.has(threadKey(environmentId, str(row.id))) : !hidingAnywhere);
 }
 
-const hasHiddenTag = (tags: unknown, hiddenTags: readonly string[] | null) => hiddenTags?.some(tag => strings(tags).includes(tag)) === true;
+const hasHiddenTag = (thread: Obj, hiddenTags: readonly string[] | null) => hiddenTags?.some(tag => threadTags(thread).includes(tag)) === true;
 
 /**
  * Keys of threads the tag filter hides. Children (subagents, side chats, delegated tasks) follow their parent; while
@@ -75,7 +69,7 @@ export function hiddenThreadKeys(environments: readonly TagFilteredEnvironment[]
     if (parentKey !== null && !followsParent && loadedElsewhere.has(parentKey)) { hiddenByKey.set(key, false); return false; }
     if (parentKey !== null && !followsParent && hidingAnywhere) { hiddenByKey.set(key, true); return true; }
     if (!followsParent) {
-      const hidden = hasHiddenTag(thread.tags, environment.hiddenTags);
+      const hidden = hasHiddenTag(thread, environment.hiddenTags);
       hiddenByKey.set(key, hidden);
       return hidden;
     }
