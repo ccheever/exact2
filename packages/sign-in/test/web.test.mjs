@@ -4,7 +4,7 @@
 // it, the host glue adopting it, and the fixture server's return route.
 //
 //   bun test packages/sign-in/test/web.test.mjs
-import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { afterAll, beforeAll, expect, jest, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -71,20 +71,26 @@ function page() {
   return { element, opened };
 }
 
-test("the button opens the popup's window in its own click handler, leaving press to the page, and closes one no request claims", async () => {
+test("the button opens the popup's window in its own click handler, leaving press to the page, and closes one no request claims", () => {
   const { element, opened } = page();
   let pressed = 0;
   const events = { load() {}, press() { pressed++; } };
   const View = roster['exact-sign-in-button'].view;
   const button = new View({ implementation: { agent: false }, element, props: { provider: 'google' }, events });
-  button.button.listeners.click();
-  expect(pressed).toBe(0); // the click bubbles to the element, whose press the page delivers (rt.js onPress)
-  expect(opened.length).toBe(1);
-  expect(opened[0].url).toBe('about:blank');
-  expect(globalThis.exact.authWaiting.window).toBe(opened[0]);
-  await new Promise(r => setTimeout(r, 2100));
-  expect(opened[0].closed).toBe(true);
-  expect(globalThis.exact.authWaiting).toBe(null);
+  // Run the click on fake timers, so the unclaimed window's 2 s timeout comes due without waiting
+  jest.useFakeTimers();
+  try {
+    button.button.listeners.click();
+    expect(pressed).toBe(0); // the click bubbles to the element, whose press the page delivers (rt.js onPress)
+    expect(opened.length).toBe(1);
+    expect(opened[0].url).toBe('about:blank');
+    expect(globalThis.exact.authWaiting.window).toBe(opened[0]);
+    jest.advanceTimersByTime(1999);
+    expect(opened[0].closed).toBe(false);
+    jest.advanceTimersByTime(1);
+    expect(opened[0].closed).toBe(true);
+    expect(globalThis.exact.authWaiting).toBe(null);
+  } finally { jest.useRealTimers(); }
 });
 
 test('under the agent the button opens nothing', () => {
