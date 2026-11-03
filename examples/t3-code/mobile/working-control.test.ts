@@ -85,7 +85,9 @@ test('working control exposes a separate glass scroll-to-end button', () => {
   const source = readFileSync(new URL('./working-control.contract', import.meta.url), 'utf8');
   expect(source).toContain('showScrollToEnd: bool');
   expect(source).toContain('scrollToEnd: action');
+  expect(source).toContain('reducedMotion: bool');
   expect(source).toContain('if data.visible or showScrollToEnd');
+  expect(source).toContain('translate=capsuleTranslate transition=controlTransition');
   expect(source).toContain('press=scrollToEnd');
   expect(source).toContain('aria-label="Scroll to end" testId="scroll-to-end"');
   expect(source).toContain('symbol-name="chevron.down"');
