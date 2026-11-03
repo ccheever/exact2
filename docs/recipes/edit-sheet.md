@@ -4,6 +4,8 @@ A row that opens its item's sheet is a `link`: a tap, a deep link and Back arriv
 `follow`, which runs nothing of the row's, so an action that fills a draft (`openEdit`)
 never runs and the sheet shows the last draft. Make the form a child whose states start
 from the item when its route shows it; the item's `key` makes it again for another item.
+The child's root is the route (`navigationKey` is the entry's id, passed in), so its
+`header` is the route's first child: iOS draws it as the sheet's bar.
 
 ```contract
 routes nav
@@ -35,12 +37,12 @@ component App
                   link href=path("edit", l.id) testId=`lift-${l.id}`
                     text `${l.name} × ${l.reps}`
         if e.name == "edit"
-          column navigationKey=`${e.id}` navigationPresentation="modal" position="absolute" inset=0
-            for l in lifts.filter(x => x.id == e.params.id) key=l.id
-              EditLift(lift=l, save=save, cancel=back)
+          for l in lifts.filter(x => x.id == e.params.id) key=l.id
+            EditLift(route=e.id, lift=l, save=save, cancel=back)
 
 component EditLift
   props
+    route: number
     lift: Lift
     save: action
     cancel: action
@@ -49,7 +51,7 @@ component EditLift
   action edit(v: string)
     reps = v
   view
-    column flex=1 min-height=0
+    column navigationKey=`${route}` navigationPresentation="modal" position="absolute" inset=0
       header display="flex" align-items="center" justify-content="space-between" padding="8px 16px"
         button id="back" press=cancel aria-label="Cancel"
           image "symbol:close"
