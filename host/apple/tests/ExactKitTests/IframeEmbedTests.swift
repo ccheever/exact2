@@ -62,10 +62,7 @@ final class IframeEmbedTests: XCTestCase {
         host.view.addSubview(view)
         #endif
         self.window = window
-        until(5) { session.firstDrawMs != nil }
-        // First pixel's activation, the module's preparation with it, runs on the next turn.
-        until(5) { !session.activationInFlight }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        waitForActivation(session)
         return session
     }
 

@@ -77,9 +77,7 @@ final class AtomPictureTests: XCTestCase {
         for name in ["assets/missing.svg", "assets/broken.svg", "assets/fine.svg"] {
             XCTAssertNil(AtomIcons.image(name, pixels: 30, resolver: resolver, log: { lines.append($0) }) { ready += 1 }, "\(name): read off main")
         }
-        let deadline = Date().addingTimeInterval(10)
-        while ready < 3, Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
-        XCTAssertEqual(ready, 3, "each field is told")
+        waitFor("each field is told", facts: { "\(ready) told" }) { ready == 3 }
         XCTAssertNotNil(AtomIcons.image("assets/fine.svg", pixels: 30, resolver: resolver) {}, "an SVG asset is drawn")
         XCTAssertTrue(AtomIcons.failed("assets/missing.svg", pixels: 30) && AtomIcons.failed("assets/broken.svg", pixels: 30))
         XCTAssertFalse(AtomIcons.failed("assets/fine.svg", pixels: 30))
@@ -185,10 +183,8 @@ final class AtomPictureMacTests: XCTestCase {
         let waiting = try drawn(f)
         XCTAssertFalse(waiting.red, "not read yet")
         AtomIcons.queue.resume(); holding = false
-        let deadline = Date().addingTimeInterval(10)
-        while try !drawn(f).red, Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        waitFor("the picture is drawn") { (try? drawn(f))?.red == true }
         let arrived = try drawn(f)
-        XCTAssertTrue(arrived.red, "the picture")
         let at = try XCTUnwrap(arrived.label), before = try XCTUnwrap(waiting.label)
         XCTAssertEqual(before, at, accuracy: 1, "the label does not move when the picture comes")
     }
@@ -202,8 +198,7 @@ final class AtomPictureMacTests: XCTestCase {
         defer { other.close() }
         // Drawing the pill asks for its picture.
         _ = try drawn(f)
-        let deadline = Date().addingTimeInterval(10)
-        while try width(f) > without + 0.5, Date() < deadline { _ = try drawn(f); RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        waitFor("the pill leaves no room for the picture it cannot read") { _ = try? drawn(f); return (try? width(f)).map { $0 <= without + 0.5 } ?? false }
         XCTAssertEqual(try width(f), without, accuracy: 0.5)
     }
 }

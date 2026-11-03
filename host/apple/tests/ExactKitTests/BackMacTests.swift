@@ -643,7 +643,8 @@ final class BackSessionMacTests: XCTestCase {
             XCTAssertTrue(pushed(), "the swipe went forward (navigate: \(navigate))")
             // The mouse's buttons, at the pad of the pushed route.
             let at = NSPoint(x: 200, y: 150)
-            let settle = { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+            // Wait for the main-queue turn after the button's up, which runs the history step (BackMac.swift `historyButton`)
+            let settle = { self.waitForMainQueue() }
             let heard = { () -> String in
                 let json = try? JSONSerialization.jsonObject(with: Data(session.agent(#"{"op":"state"}"#).utf8)) as? [String: Any]
                 return (json?["slots"] as? [String: Any])?["heard"] as? String ?? ""

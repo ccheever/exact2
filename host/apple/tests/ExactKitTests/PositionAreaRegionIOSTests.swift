@@ -30,7 +30,7 @@ final class PositionAreaRegionIOSTests: XCTestCase {
         XCTAssertNil(session.boot(plan: plan, size: window.bounds.size).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        waitForActivation(session)
         return session
     }
 
@@ -39,13 +39,11 @@ final class PositionAreaRegionIOSTests: XCTestCase {
         let session = try booted(rtl ? "EXACT_POSITION_AREA_RTL_PLAN" : "EXACT_POSITION_AREA_PLAN", in: scene), p = session.presenter
         if rtl { p.documentDirection = "rtl" }
         func node(_ id: String) throws -> NodeView { try XCTUnwrap(p.views.values.first { $0.props["testId"] == id }, id) }
-        func settle(_ seconds: TimeInterval = 0.1) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
         for (i, row) in rows.enumerated() {
             let pop = try node("p\(i)")
             p.press(try node("a\(i)").id)
-            let end = Date().addingTimeInterval(3)
-            while !p.menus.isOpen(pop), Date() < end { settle(0.05) }
-            settle(0.3)
+            // Wait for the region the press tells the kernel on the next turn, whose layout places the popover again
+            waitFor("popover \(i) opens and its region is told") { p.menus.isOpen(pop) && p.regionsUntold[pop.id] == nil }
             let layer = try XCTUnwrap(pop.superview, "lifted")
             XCTAssertEqual(layer.bounds.size, CGSize(width: 400, height: 600), "the page's area, Chrome's viewport")
             let got = pop.convert(pop.bounds, to: layer)
@@ -54,7 +52,7 @@ final class PositionAreaRegionIOSTests: XCTestCase {
                 XCTAssertEqual(a, b, accuracy: 0.5, note)
             }
             p.press(try node("a\(i)").id) // the invoker toggles it closed
-            settle(0.2)
+            waitFor("popover \(i) closes and is covered again") { !p.menus.isOpen(pop) && !p.menus.isLaidOut(pop) }
         }
     }
 

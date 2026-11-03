@@ -250,13 +250,13 @@ final class RowCellsIOSTests: XCTestCase {
         window.isHidden = true; window = shown
         let row = try XCTUnwrap(p.views[11])
         XCTAssertNotNil(p.rowCells.select(row))
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05)) // a frame shows it
+        waitFor("a frame shows it") { p.showed(row) }
         let held = try XCTUnwrap(ground(p), "the selected row's ground")
         UIView.animate(withDuration: 0.5) { p.apply(wireBatch([["op": "frame", "id": 11, "x": 0.0, "y": 50.0, "w": 400.0, "h": 44.0]])) }
         XCTAssertNotNil(held.layer.animation(forKey: "position"), "with a row that showed, it moves")
         held.layer.removeAllAnimations()
         row.isHidden = true
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05)) // a frame shows the row hidden
+        waitFor("a frame shows the row hidden") { row.layer.presentation()?.isHidden == true }
         row.isHidden = false
         UIView.animate(withDuration: 0.5) { p.apply(wireBatch([["op": "frame", "id": 11, "x": 0.0, "y": 44.0, "w": 400.0, "h": 44.0]])) }
         XCTAssertEqual(held.frame.minY, 44, "where the row is")

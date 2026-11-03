@@ -183,12 +183,14 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         }
         p.apply(wireBatch([["op": "frame", "id": 10, "x": 16.0, "y": 0.0, "w": 354.0, "h": 85.0],
                            ["op": "frame", "id": 11, "x": 16.0, "y": 85.0, "w": 354.0, "h": 79.0]]))
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         let l = try list(p)
+        // (Not `cell`: its XCTUnwrap records a failure while a cell is on its way.)
+        let listCell = { (id: UInt32) -> UICollectionViewListCell? in l.collection.layoutIfNeeded(); return l.cell(id) as? UICollectionViewListCell }
+        waitFor("the cells take their rows' heights and the list is laid out") {
+            [10, 11].map { (listCell($0) as? GroupedCell)?.height } == [85, 79] && !l.resized
+        }
         let a = try XCTUnwrap(try cell(p, 10) as? GroupedCell), b = try XCTUnwrap(try cell(p, 11) as? GroupedCell)
         let pathA = try XCTUnwrap(l.collection.indexPath(for: a)), pathB = try XCTUnwrap(l.collection.indexPath(for: b))
-        XCTAssertEqual([a.height, b.height], [85, 79])
-        XCTAssertFalse(l.resized, "laid out")
         // UIKit shows each cell for the other's row, then gives them back.
         l.collectionView(l.collection, willDisplay: a, forItemAt: pathB)
         l.collectionView(l.collection, willDisplay: b, forItemAt: pathA)
@@ -200,8 +202,7 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         XCTAssertFalse(l.resized)
         // A row whose own height changes still lays the list out again.
         p.apply(wireBatch([["op": "frame", "id": 11, "x": 16.0, "y": 85.0, "w": 354.0, "h": 120.0]]))
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        XCTAssertEqual(try cell(p, 11).bounds.height, 120, accuracy: 0.5, "its row grew")
+        waitFor("row 11's cell grows to 120") { listCell(11).map { abs($0.bounds.height - 120) <= 0.5 } ?? false }
     }
 
     /// A row inserted at the top of a list of custom rows: the shown rows
