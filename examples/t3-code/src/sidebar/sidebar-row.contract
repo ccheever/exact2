@@ -82,6 +82,7 @@ component TerminalPulse
 component ThreadRow
   inject
     threadJumpHints: bool // a thread.jump.N shortcut's modifiers held alone for 200 ms (app.contract)
+    keyboardLast: bool // the reader's last input was a key, not the pointer (app.contract)
     // The thread list's arrow keys (sidebar.contract).
     treeKey: action
     // A file drop on the row (app.contract attachFiles, row-drop.ts queueRowDrop).
@@ -149,8 +150,11 @@ component ThreadRow
   // from the snooze menu returns to a trigger that stays focusable after the toggle unpins it.
   // exact2: focus is a local state from focusin/focusout (any focus, not only focus-visible).
   state actionsFocused = false
-  derive shown = hovering or snoozeOpen or actionsFocused
-  derive compactLit = hovering or actionsFocused
+  // The card a visible focus opened (keyCard) is a tooltip's, not the pointer's hover: the actions stay hidden.
+  state keyCarded = false
+  derive pointerOver = hovering and not keyCarded
+  derive shown = pointerOver or snoozeOpen or actionsFocused
+  derive compactLit = pointerOver or actionsFocused
   derive actionIds = [`discard-trigger-${t.id}`, `snooze-trigger-${t.id}`, `sweep-${t.id}`]
   action actionsIn
     actionsFocused = true
@@ -190,9 +194,17 @@ component ThreadRow
         let openingTarget = kmTriggerTarget(snoozeItems, k)
         if openingTarget != ""
           focus(openingTarget)
+  // SidebarThreadTooltip is a Base UI Tooltip, which opens on a visible focus too: Tab onto the row shows its card.
+  action keyCard(on: bool)
+    if keyboardLast
+      keyCarded = on
+      hoverCard(t.hoverKey, on)
+  action rowHover(over: bool)
+    keyCarded = false
+    hoverCard(t.hoverKey, over)
   view
     column id=`row-${t.id}` dragenter=fileDragged(true) dragleave=fileDragged(false) drop=filesDropped width="100%" position="relative" opacity=(lifted ? 0 : recede and t.status == "Working" and not hovering ? 0.7 : 1)
-      column id=`row-${t.hoverKey}` hover=hoverCard(t.hoverKey) contextmenu=menu(t.id, `thread-${t.id}`) contextPopover="thread-menu" dblclick=local("rename-start", t.id, "") width="100%" position="relative" padding-top=(t.card ? "0.125rem" : "0px") padding-bottom=(t.card ? "0.125rem" : "0px") box-sizing="border-box" testId=`row-${t.id}`
+      column id=`row-${t.hoverKey}` hover=rowHover contextmenu=menu(t.id, `thread-${t.id}`) contextPopover="thread-menu" dblclick=local("rename-start", t.id, "") width="100%" position="relative" padding-top=(t.card ? "0.125rem" : "0px") padding-bottom=(t.card ? "0.125rem" : "0px") box-sizing="border-box" testId=`row-${t.id}`
         // Tooltip anchors at the row's top: a control's hover keeps the hover card where the row put it.
         SidebarTipAnchors(t=t)
         if t.card
@@ -208,10 +220,10 @@ component ThreadRow
                   SidebarRemoteMark(t=t)
                   SidebarProviderMark(driver=t.providerDriver, icon=t.providerIcon, badge=t.providerBadge, accent=t.providerBadgeColor)
               if not t.metaEmpty
-                row width="100%" height="0.875rem" margin-top="0.125rem" align-items="center" justify-content="flex-end"
+                row width="100%" height="1rem" margin-top="0.125rem" align-items="center" justify-content="flex-end"
                   SidebarProviderMark(driver=t.providerDriver, icon=t.providerIcon, badge=t.providerBadge, accent=t.providerBadgeColor)
           else
-            button cursor="pointer" id=`thread-${t.id}` press=openPress pan=drag(t.id, t.section) panrelease=dragEnd(t.id) touch-action="none" testId=`thread-${t.id}` aria-label=t.label aria-current=(isOpen ? "page" : "false") key=treeKey(`thread-${t.id}`) width="100%" height=(t.metaEmpty ? "auto" : "4.875rem") box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lifted ? "light-dark(#ffffff, #1b1b1b)" : surface) box-shadow=(lifted ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : (fileDrag ? "inset 0 0 0 1px light-dark(#1b4ed8b3, #346bf1b3)" : ring)) display="flex" flex-direction="column" align-items="stretch" gap=0 tabindex=0
+            button cursor="pointer" id=`thread-${t.id}` press=openPress focus=keyCard(true) blur=keyCard(false) pan=drag(t.id, t.section) panrelease=dragEnd(t.id) touch-action="none" testId=`thread-${t.id}` aria-label=t.label aria-current=(isOpen ? "page" : "false") key=treeKey(`thread-${t.id}`) width="100%" height=(t.metaEmpty ? "auto" : "4.875rem") box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lifted ? "light-dark(#ffffff, #1b1b1b)" : surface) box-shadow=(lifted ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : (fileDrag ? "inset 0 0 0 1px light-dark(#1b4ed8b3, #346bf1b3)" : ring)) display="flex" flex-direction="column" align-items="stretch" gap=0 tabindex=0
               // SidebarThreadRow: focus-visible:ring-2 ring-inset ring-ring.
               :focus-visible
                 box-shadow="inset 0 0 0 2px light-dark(#1b4ed8, #346bf1)"
@@ -254,8 +266,8 @@ component ThreadRow
                   SidebarRemoteMark(t=t)
                   SidebarProviderMark(driver=t.providerDriver, icon=t.providerIcon, badge=t.providerBadge, accent=t.providerBadgeColor)
               if not t.metaEmpty
-                // The line's text is secondary-label; the worktree glyph is icon-muted (size-3.5).
-                row width="100%" height="0.875rem" margin-top="0.125rem" align-items="center" gap="0.375rem"
+                // mt-0.5 text-xs: a 16 px line. Its text is secondary-label; the worktree glyph is icon-muted (size-3.5).
+                row width="100%" height="1rem" margin-top="0.125rem" align-items="center" gap="0.375rem"
                   if t.branch != ""
                     if t.worktree
                       SidebarIcon(name="folder-git-2", size=14, color="light-dark(#71717b, #a1a1a1)")
@@ -293,7 +305,7 @@ component ThreadRow
               SidebarProjectGlyph(g=t.glyph, size=16, dim=false)
               SidebarRenameField(t=t, local=local, run=run)
           else
-            button cursor="pointer" id=`thread-${t.id}` press=openPress pan=drag(t.id, t.section) panrelease=dragEnd(t.id) touch-action="none" testId=`thread-${t.id}` aria-label=t.label aria-current=(isOpen ? "page" : "false") key=treeKey(`thread-${t.id}`) width="100%" height="2.25rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.375rem" border-width=0 background-color=(lifted ? "light-dark(#ffffff, #1b1b1b)" : surface) box-shadow=(lifted ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : (fileDrag ? "inset 0 0 0 1px light-dark(#1b4ed8b3, #346bf1b3)" : ring)) display="flex" flex-direction="row" align-items="center" gap="0.625rem" tabindex=0
+            button cursor="pointer" id=`thread-${t.id}` press=openPress focus=keyCard(true) blur=keyCard(false) pan=drag(t.id, t.section) panrelease=dragEnd(t.id) touch-action="none" testId=`thread-${t.id}` aria-label=t.label aria-current=(isOpen ? "page" : "false") key=treeKey(`thread-${t.id}`) width="100%" height="2.25rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.375rem" border-width=0 background-color=(lifted ? "light-dark(#ffffff, #1b1b1b)" : surface) box-shadow=(lifted ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : (fileDrag ? "inset 0 0 0 1px light-dark(#1b4ed8b3, #346bf1b3)" : ring)) display="flex" flex-direction="row" align-items="center" gap="0.625rem" tabindex=0
               // SidebarThreadRow: focus-visible:ring-2 ring-inset ring-ring.
               :focus-visible
                 box-shadow="inset 0 0 0 2px light-dark(#1b4ed8, #346bf1)"
@@ -383,12 +395,18 @@ component SidebarTipAnchors
 // (sidebar-overlays.contract) draws that control's bubble outside the list's
 // scroll view, where the top row's bubble is not clipped.
 component SidebarTip
+  inject
+    keyboardLast: bool
   props
     tip: string
     hoverCard: action
   slot
+  // Base UI opens a tooltip on a visible focus too: Tab onto the control shows its tip, a click does not.
+  action keyTip(on: bool)
+    if keyboardLast
+      hoverCard(tip, on)
   view
-    box hover=hoverCard(tip) flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0 testId=`tip-${tip}`
+    box hover=hoverCard(tip) focusin=keyTip(true) focusout=keyTip(false) flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0 testId=`tip-${tip}`
       children
 
 // The card's hover actions: Discard draft, Snooze (its menu) and Settle,

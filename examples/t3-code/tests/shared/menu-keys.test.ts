@@ -280,16 +280,16 @@ describe('#298 bug 4: Custom snooze from the sidebar row by the real pointer and
     expect(row).toMatch(/id=`snooze-\$\{t.id\}` popover="auto" toggle=snoozeChanged/);
     const owner = contractComponent('sidebar-row.contract', 'ThreadRow'), state = owner.state();
     const shown = row.match(/^  derive shown = (.+)$/m)![1]!;
-    expect(value(shown, { ...state, hovering: false })).toBe(false);
+    expect(value(shown, { ...state, pointerOver: false })).toBe(false);
     owner.call('snoozeChanged', state, {}, [{ newState: 'open' }]);
     const menu = contractComponent('menu-keys.contract', 'KeyMenu'), menuState = menu.state();
     for (const target of ['alpha', 'beta', 'again', '']) {
       menu.call('rowEntered', menuState, { ...await helpers, items }, [{ target }]);
-      expect(value(shown, { ...state, hovering: false })).toBe(true);
+      expect(value(shown, { ...state, pointerOver: false })).toBe(true);
     }
     owner.call('snoozeChanged', state, {}, [{ newState: 'closed' }]);
-    expect(value(shown, { ...state, hovering: false })).toBe(false);
-    expect(value(shown, { ...state, hovering: true })).toBe(true);
+    expect(value(shown, { ...state, pointerOver: false })).toBe(false);
+    expect(value(shown, { ...state, pointerOver: true })).toBe(true);
     const item = await component('sidebar-row.contract', 'SnoozeMenuItem');
     expect(item).toContain('button id=itemId cursor="pointer" press=press popovertarget=popId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem"');
     expect(item).toContain('background-color=(lit ?');
@@ -310,7 +310,7 @@ describe('Escape from the snooze menu with the pointer outside', () => {
     const actionIds = value(row.match(/^  derive actionIds = (.+)$/m)![1]!, { t });
     expect(actionIds).toEqual(['discard-trigger-thread', 'snooze-trigger-thread', 'sweep-thread']);
     const owner = contractComponent('sidebar-row.contract', 'ThreadRow'), state = owner.state(), scope: Env = { t, actionIds };
-    const isShown = () => value(shown, { ...state, hovering: false });
+    const isShown = () => value(shown, { ...state, pointerOver: false });
     // ↓ on the focused trigger: the menu opens and its first row takes the focus.
     owner.call('actionsIn', state, scope, []);
     owner.call('snoozeChanged', state, scope, [{ newState: 'open' }]);
