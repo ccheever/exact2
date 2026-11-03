@@ -3,6 +3,7 @@
 // "buildDiffFileTreeUpdates" is n/a: the clone keeps collapsed folders by path (diff-tree.ts header).
 import { describe, expect, it } from 'bun:test';
 import { allDirectoriesExpanded, collectDirectoryPaths, diffFileTreeEntries, diffTreeRows, orderDiffFilesLikeTree } from '../../src/diff/diff-tree';
+import { fileIconToken } from '../../src/shared/timeline-files';
 
 describe('diffFileTreeEntries', () => {
   it("maps each change type to its git status under the file's current path", () => {
@@ -45,6 +46,12 @@ describe('diff tree reading order', () => {
     expect(diffTreeRows(entries, closed, '').map(row => [row.path, row.expanded])).toEqual([['README.md', false], ['src/', true], ['src/a.ts', false], ['src/ui/', false]]);
     expect(allDirectoriesExpanded(entries.map(entry => entry.path), closed)).toBe(false);
     expect(allDirectoriesExpanded(entries.map(entry => entry.path), new Set())).toBe(true);
+  });
+  it('a file carries the Pierre icon the Files tree draws for it; a folder none', () => {
+    const entries = diffFileTreeEntries([{ path: 'notes/outline.ts', status: 'added' }, { path: 'shots/dark.png', status: 'added' }]);
+    expect(diffTreeRows(entries, new Set(), '').map(row => [row.path, row.token]))
+      .toEqual([['notes/', ''], ['notes/outline.ts', fileIconToken('notes/outline.ts')], ['shots/', ''], ['shots/dark.png', fileIconToken('shots/dark.png')]]);
+    expect(fileIconToken('notes/outline.ts')).not.toBe(fileIconToken('shots/dark.png'));
   });
 });
 

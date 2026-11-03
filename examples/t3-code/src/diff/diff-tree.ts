@@ -8,6 +8,8 @@
 // stats, not Pierre's FileDiffMetadata; `buildDiffFileTreeUpdates` is not needed because the
 // collapsed folders are kept by path in DiffState and survive a new slice or a refresh.
 
+import { fileIconToken } from '../shared/timeline-files';
+
 export type DiffTreeStatus = 'added' | 'deleted' | 'renamed' | 'modified';
 /** One changed file as the tree shows it: its current path and how it changed. */
 export interface DiffFileTreeEntry { readonly path: string; readonly status: DiffTreeStatus }
@@ -79,7 +81,7 @@ export function compareDiffFileTreeEntries(getPositions: () => ReadonlyMap<strin
 
 export type DiffTreeRow = {
   id: string; kind: 'folder' | 'file'; path: string; name: string; depth: number; status: string; letter: string;
-  markdown: boolean; expanded: boolean; selected: boolean;
+  markdown: boolean; token: string; expanded: boolean; selected: boolean;
 };
 type Node = { path: string; name: string; depth: number; file?: DiffFileTreeEntry; children: Map<string, Node> };
 const LETTER: Record<string, string> = { modified: 'M', added: 'A', deleted: 'D', renamed: 'R' };
@@ -115,7 +117,7 @@ export function diffTreeRows(entries: ReadonlyArray<DiffFileTreeEntry>, collapse
       if (child.file) {
         const path = child.file.path;
         rows.push({ id: `file:${path}`, kind: 'file', path, name: child.name, depth, status: child.file.status, letter: LETTER[child.file.status] ?? 'M',
-          markdown: /\.(md|mdx|markdown)$/i.test(path), expanded: false, selected: path === selectedPath });
+          markdown: /\.(md|mdx|markdown)$/i.test(path), token: fileIconToken(path), expanded: false, selected: path === selectedPath });
         continue;
       }
       let name = child.name;
@@ -126,7 +128,7 @@ export function diffTreeRows(entries: ReadonlyArray<DiffFileTreeEntry>, collapse
         child = only;
       }
       const expanded = !collapsed.has(child.path);
-      rows.push({ id: `dir:${child.path}`, kind: 'folder', path: child.path, name, depth, status: '', letter: '', markdown: false, expanded, selected: false });
+      rows.push({ id: `dir:${child.path}`, kind: 'folder', path: child.path, name, depth, status: '', letter: '', markdown: false, token: '', expanded, selected: false });
       if (expanded) visit(child, depth + 1);
     }
   };
