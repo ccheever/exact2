@@ -265,7 +265,7 @@ component Sidebar
         else
           row margin-left="auto" flex-shrink=0
             SidebarTip(tip="sidebar-update", hoverCard=hoverCard)
-              SidebarUpdatePill(color="light-dark(#86868e, #8b8b8b)", testId="sidebar-check-updates")
+              SidebarUpdatePill(color="light-dark(#86868e, #8b8b8b)", testId="sidebar-check-updates", updatesDenial=data.sidebar.updatesDenial)
       // The resize rail is SidebarOverlays' (sidebar-rail.contract): a strip reaching past the sidebar is not hit-testable here.
 
 // The hover a section's rows see: none while a row-action sweep is live (the

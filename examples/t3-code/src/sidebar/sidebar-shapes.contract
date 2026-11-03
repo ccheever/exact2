@@ -256,6 +256,8 @@ shape SidebarView
   newThreadPicks: bool
   // The thread pin shortcut as `aria-keyshortcuts` spells it, which pins the project filter's highlighted row.
   scopePinChord: string
+  // Why this machine's policy refuses updates (managedUpdatesDenial), or ''; the update pill's tooltip names it.
+  updatesDenial: string
   dragEnabled: bool
   scopeKey: string
   scopeLabel: string

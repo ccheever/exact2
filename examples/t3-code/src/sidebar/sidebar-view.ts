@@ -46,6 +46,8 @@ import { isScratch, scratchRootOf } from '../composer/scratch-machine';
 import { triggerDisplayModelName } from './model-short-name';
 import { inboxReturns } from './thread-inbox';
 import { autoDirection } from './title-direction';
+import { managedUpdatesDenial } from '../client/managed-policy';
+import { primaryManagedPolicy } from '../settings/managed-policy';
 import { textDirection } from '../shared/text-direction';
 import { splitForMiddleTruncate } from '../details/middle-truncate';
 import { paintOf } from '../appearance/settings-appearance-look';
@@ -105,6 +107,8 @@ export interface SidebarView {
   graceOwed: number;
   settledExpanded: boolean; snoozedExpanded: boolean; workingExpanded: boolean; showMore: number;
   emptyText: string; emptyAddProject: boolean; hasProjects: boolean; projectGroupCount: number; newThreadPicks: boolean; scopePinChord: string; dragEnabled: boolean;
+  /** managedUpdatesDenial of this machine's policy, which the primary environment reports ('' when updates are allowed). */
+  updatesDenial: string;
   /** The chosen projects' keys, newline-joined ('' for all), and their names, comma-joined. */
   scopeKey: string; scopeLabel: string; scopeMark: string; scopeInk: string; scopeSurface: string; scopeGlyph: ProjectGlyph; scopeGlyphSecond: ProjectGlyph; scopeCount: number; scopes: SidebarScope[];
   scopeOpen: boolean; scopeQuery: string;
@@ -513,6 +517,7 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       hasProjects: client.shell.projects.length > 0, projectGroupCount: scopes.length,
       newThreadPicks: !shouldCreateNewThreadInCurrentProject(false, pickableScopes(client, scopes).length, scopes.length),
       scopePinChord: pinChord(client),
+      updatesDenial: managedUpdatesDenial(primaryManagedPolicy(client)) ?? '',
       dragEnabled: !searching && capabilities(client.config).pinning && capabilities(client.config).pinReorder && session.renameId === '',
       scopeKey: chosen.map(group => group.key).join('\n'), scopeLabel: chosen.map(group => group.name).join(', '),
       scopeMark: scope ? identity.projectMark : '', scopeInk: scope ? identity.projectInk : '', scopeSurface: scope ? identity.projectSurface : '',

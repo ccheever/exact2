@@ -94,7 +94,7 @@ component SidebarOverlays
       PlacementProbes(probes=data.sidebar.probes)
     // The sidebar chrome's tooltips (rail, search row, footer), above the page.
     if open and dragId == ""
-      SidebarEdgeTips(width=width, hoverId=hoverId, historyLeft=(data.controlsLeft + 1 + 2.4375 * rem + navigationHistory.brandWidth + 0.25 * rem), goBack=(navigationHistory.backKind == "" ? "" : navigationHistory.backTip), goForward=(navigationHistory.forwardKind == "" ? "" : navigationHistory.forwardTip), newThread=`New thread${shell.keyNewThread == "" ? "" : ` (${shell.keyNewThread})`}`, newThreadDetail=(data.sidebar.newThreadPicks ? `New thread in current project: Shift+click${shell.keyNewThreadLocal == "" ? "" : ` (${shell.keyNewThreadLocal})`}` : ""), pullRequests=pullRequests)
+      SidebarEdgeTips(width=width, hoverId=hoverId, historyLeft=(data.controlsLeft + 1 + 2.4375 * rem + navigationHistory.brandWidth + 0.25 * rem), goBack=(navigationHistory.backKind == "" ? "" : navigationHistory.backTip), goForward=(navigationHistory.forwardKind == "" ? "" : navigationHistory.forwardTip), newThread=`New thread${shell.keyNewThread == "" ? "" : ` (${shell.keyNewThread})`}`, newThreadDetail=(data.sidebar.newThreadPicks ? `New thread in current project: Shift+click${shell.keyNewThreadLocal == "" ? "" : ` (${shell.keyNewThreadLocal})`}` : ""), pullRequests=pullRequests, updatesDenial=data.sidebar.updatesDenial)
     if open and data.sidebar.scopeOpen
       button press=local("scope-open", "", "close") position="absolute" left=0 top=0 width="100%" height="100%" z-index=30 background-color="#00000000" border-width=0 aria-label="Close project filter" testId="scope-backdrop" title=""
       SidebarScopeMenu(data=data, width=width, local=local, run=run)

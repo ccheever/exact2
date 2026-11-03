@@ -1,4 +1,4 @@
-// Ported from T3 Code 2359643cff updateEverything.logic.test.ts (MIT; LICENSE-T3).
+// Ported from T3 Code 5d3d78ab93 updateEverything.logic.test.ts (MIT; LICENSE-T3).
 import { obj } from '../../src/client/domain';
 type ServerSelfUpdateCapability = "boot-service" | "respawn" | "desktop-managed";
 const EnvironmentId = { make: (id: string) => id };
@@ -110,6 +110,48 @@ describe("collectServerUpdateTargets", () => {
       ["busy", "already updating"],
       ["manual", "needs a manual update"],
     ]);
+  });
+
+  it("skips servers whose policy refuses the update, with the policy's message", () => {
+    const managed = (
+      id: string,
+      updates: { mode: "off" } | { mode: "auto"; allowNightly: false },
+      selfUpdate: "boot-service" | "desktop-managed" = "boot-service",
+    ) => {
+      const base = machine(id, "0.0.40", selfUpdate);
+      return {
+        ...base,
+        serverConfig: {
+          ...base.serverConfig!,
+          managedPolicy: { organization: "Example Corp", lockedSettings: [], limits: { updates } },
+        },
+      };
+    };
+    const machines = [
+      managed("off", { mode: "off" }),
+      managed("no-nightly", { mode: "auto", allowNightly: false }),
+      // A desktop app updates from its own feed, whatever track this app is on.
+      managed("desktop-no-nightly", { mode: "auto", allowNightly: false }, "desktop-managed"),
+    ];
+
+    expect(
+      collectServerUpdateTargets(machines, "0.0.50").skipped.map((entry) => [
+        entry.label,
+        entry.reason,
+      ]),
+    ).toEqual([["off", "Example Corp manages T3 Code updates."]]);
+    expect(
+      collectServerUpdateTargets(
+        machines.map((entry) => ({
+          ...entry,
+          serverConfig: {
+            ...entry.serverConfig,
+            environment: { ...obj(entry.serverConfig.environment), serverVersion: "0.0.49-nightly.1" },
+          },
+        })),
+        "0.0.50-nightly.20261028.1",
+      ).skipped.map((entry) => entry.label),
+    ).toEqual(["off", "no-nightly"]);
   });
 });
 
