@@ -621,6 +621,22 @@ simulator on one busy Mac did so at the first `outputNode`, about 12 s after
 it was asked, as hand-built SwiftUI and UIKit apps did on that Mac's others. Opening at
 the first voice keeps it off launch and away from an app that plays nothing.
 
+**A game canvas on a physical iPhone** (amended 2026-11-03). A game canvas's
+own output (`game/audio`'s `AppleOutput`, RemoteIO opened in Rust) follows
+the same rules:
+- `CanvasLifecycle` hears interruptions only through the session owner
+  (`AudioSession.listen`, `CanvasSeams.swift` `heard`), never
+  `interruptionNotification` itself. On iOS 27.2 an iPhone posted a began
+  with no end, and a canvas listening on its own stayed interrupted for
+  good. An interruption whose end never came is over at `didBecomeActive`
+  when no other app's primary audio plays, as above; a touch does not end
+  one under way.
+- RemoteIO's output format reported a sample rate of 0 before
+  `AudioUnitInitialize` on that iPhone. A rate that is not finite and above
+  0 is taken as unknown: the client format is 48 kHz (`native.rs`
+  `client_rate`), and RemoteIO converts it to the hardware rate. Before
+  this, the output refused to open and the canvas was silent.
+
 **The production gate.**
 - `bake/src/receipt.rs:536–548` adds `"sound"` to `loads` when the plan's
   `sounds` table is not empty.
