@@ -100,6 +100,12 @@ its time counts too.
   cannot rely on an earlier class. Install what it uses in `class func setUp`
   (`ExactSurfaces.install()` for a canvas) and create what it reads
   (`NSApplication.shared` before `NSApp`).
+- **Run the classes a change touches.** `bun host/apple/build.mjs --test --only
+  FrameHealthMetricsTests,FrameHealthMacTests` builds as a full run does and runs
+  only the classes named, on macOS; `--test --ios --only
+  FrameHealthMetricsTests,FrameHealthIOSTests` runs iOS classes on a simulator
+  (`--sim` picks one). After the push, the async lane runs every iOS class, and no
+  macOS one.
 - **A Bun file that mocks a module runs in a global of its own.** Bun's
   `mock.module` replaces a module for the whole process and does not relink a
   module already loaded, so files that mock or import the same module
