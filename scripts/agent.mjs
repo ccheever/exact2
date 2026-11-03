@@ -962,12 +962,11 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (gap) return s.tagged({ tapped: node.id, target, delivery: 'unsupported', reason: gap, carrier: host, mode: timing });
       // A plain press at a point (`tap <target> at <x> <y>`): whatever a finger there reaches, as for a click (LLP 1012 §1).
       const pressAt = !button.length && !opts.wheel && opts.down !== true && opts.pinch === undefined && !opts.drag && opts.at !== undefined;
-      if ((button.length || opts.wheel || pressAt) && opts.at !== undefined) {
-        const form = button[0] ?? (opts.wheel ? 'wheel' : 'a press');
+      const form = (button.length || opts.wheel || pressAt) && opts.at !== undefined ? button[0] ?? (opts.wheel ? 'wheel' : 'a press') : null;
+      if (form) {
         if (!['web', 'linux', 'android', 'windows', 'macos', 'mac', 'host', ...(pressAt || ['contextmenu', 'dblclick'].includes(form) ? ['ios', 'host-ios'] : [])].includes(host)) throw new Error(`${host} does not carry ${form} at an explicit point`); // iOS: a press, and the long press and double tap that select text there (LLP 1115.000 D11.6)
-        const layout = await s.layout(), b = layout.nodes.find(n => n.id === node.id), [x, y] = opts.at;
+        const b = (await s.layout()).nodes.find(n => n.id === node.id), [x, y] = opts.at;
         if (!b || x < 0 || y < 0 || x >= b.w || y >= b.h) throw new Error(`${form} at must be inside the target box`);
-        if (layout.viewport && (b.x + x < 0 || b.y + y < 0 || b.x + x >= layout.viewport.w || b.y + y >= layout.viewport.h)) throw new Error(`${form} at is outside the viewport`);
       }
       if (opts.pinch !== undefined && !['web', 'ios', 'macos', 'mac'].includes(host)) return s.tagged({ tapped: node.id, target, pinch: opts.pinch, delivery: 'unsupported', reason: `${host} has no pinch (LLP 1057.001 §4)`, carrier: host, mode: timing });
       // @ref LLP 1070.000 §5 — a list's row by key: the runner's request on every carrier, not an input.
@@ -978,13 +977,16 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       // A target out of view is scrolled into it first, as a person (and Playwright's actionability) would: ledger F7, shop F11.
       // An explicit contact point (`drag … from`, `down at`) is the author's: a visible one is not moved; one out of view
       // brings its view's middle in, as an unspecified point would (the host's reveal scrolls a view, not a point).
-      const explicit = opts.drag?.from ?? opts.at, pointOut = async () => {
+      // A point out of view after that (a view taller than the viewport, or a wheel, which reveals nothing) is refused, named.
+      const explicit = opts.drag?.from ?? opts.at, pointOut = async (point = explicit) => {
         const l = await s.layout(), b = l.nodes.find((n) => n.id === node.id), vp = l.viewport;
         if (!b || !vp) return false;
-        const x = b.x + explicit[0], y = b.y + explicit[1];
-        return x < 0 || y < 0 || x > vp.w || y > vp.h;
+        const x = b.x + point[0], y = b.y + point[1];
+        return (x < 0 || y < 0 || x >= vp.w || y >= vp.h) && { x, y, vp };
       };
       const scrolled = opts.wheel || opts.history !== undefined || (explicit && !await pointOut()) ? null : await s.reveal(node.id);
+      const out = form && await pointOut(opts.at);
+      if (out) throw new Error(`${form} at ${opts.at.join(' ')} lands at (${out.x}, ${out.y}), outside the ${out.vp.w}×${out.vp.h} viewport${scrolled ? ' after the view scrolled in' : ''}: scroll the point into view first, or name one nearer the view's middle`);
       // @ref LLP 1080.000 §11 — one whole gesture: press, one straight drag, hold, lift.
       if (opts.drag) return dragTap({ s, carrier, node, target, host, timing, tapRefusal, scrolled }, opts.drag); if (opts.holdState !== undefined) return holdTap({ s, node, target, host, timing, tapRefusal, scrolled }, opts.holdState); // a held state (LLP 1122 D8)
       const kind = opts.history !== undefined ? 'history' : opts.pinch !== undefined ? 'pinch' : opts.down ? 'down' : opts.drop ? 'drop' : opts.dragenter ? 'dragenter' : opts.dragleave ? 'dragleave' : opts.wheel ? 'wheel' : opts.hover ? 'hover' : button[0] ?? 'press';
