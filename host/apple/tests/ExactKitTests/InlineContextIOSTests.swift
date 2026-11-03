@@ -196,6 +196,8 @@ final class InlineContextIOSTests: XCTestCase {
         XCTAssertEqual(pixel(drawn, at: CGPoint(x: area.width / 2, y: 4)), [cr, cg, cb, 1].map { UInt8(($0 * 255).rounded()) }, "the canvas's color in the padding")
         let box = node.convert(rect, to: node.superview).offsetBy(dx: -area.minX, dy: -area.minY)
         XCTAssertEqual(ink(drawn, row: box.midY, from: box.maxX + 2, to: area.width - 2), 0, "none of the text beside the run")
+        XCTAssertGreaterThan(ink(drawn, row: box.midY, from: box.minX, to: box.maxX), 0, "the run's own words")
+        XCTAssertFalse(preview.view.subviews.contains { $0.isScreens }, "from the paragraph's own text raster, no snapshot of the screen")
         XCTAssertTrue(preview.target.container === node.superview && preview.target.center == CGPoint(x: area.midX, y: area.midY),
                       "from the run's place in the paragraph's superview")
         p.menus.context.contextMenuInteraction(interaction, willDisplayMenuFor: config, animator: nil)
@@ -266,11 +268,12 @@ final class InlineContextIOSTests: XCTestCase {
         let (outline, area) = textLines(rects, in: node)
         XCTAssertEqual(preview.parameters.visiblePath?.cgPath, outline.cgPath, "UIKit's outline of every line")
         XCTAssertEqual(preview.view.bounds.size, area.size, "one picture over all of them")
-        let drawn = try XCTUnwrap((preview.view.subviews.first as? UIImageView)?.image, "what lies under it, drawn from the layer tree")
+        XCTAssertFalse(try XCTUnwrap(preview.view.subviews.first).layer.sublayers?.isEmpty ?? true, "what lies under it, copied from the layer tree")
+        let drawn = onScreen(preview.view)
         let last = node.convert(try XCTUnwrap(rects.last), to: node.superview).offsetBy(dx: -area.minX, dy: -area.minY)
         XCTAssertEqual(ink(drawn, row: last.midY, from: last.maxX + 2, to: area.width - 2), 0, "none of the text after it on its last line")
         let yellow = pixel(drawn, at: CGPoint(x: panel.frame.minX + 20 - area.minX, y: 3))
-        XCTAssertTrue(yellow[0] > 200 && yellow[1] > 150 && yellow[2] < 80, "the panel under its first line, drawn: \(yellow)")
+        XCTAssertTrue(yellow[0] > 200 && yellow[1] > 150 && yellow[2] < 80, "the panel under its first line, copied: \(yellow)")
         // The run shortens to one line while the menu shows
         text("#tag")
         let now = textLines(node.inlineRects(try XCTUnwrap(p.inlineText(10))), in: node).area
@@ -297,7 +300,7 @@ final class InlineContextIOSTests: XCTestCase {
         let preview = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configuration: config, highlightPreviewForItemWithIdentifier: config.identifier))
         let area = textLines([rect], in: node).area
         let drawn = UIGraphicsImageRenderer(bounds: preview.view.bounds).image { preview.view.layer.render(in: $0.cgContext) }
-        XCTAssertFalse(preview.view.subviews.contains { $0 is UIImageView }, "one flat color, nothing drawn")
+        XCTAssertTrue(try XCTUnwrap(preview.view.subviews.first).layer.sublayers?.isEmpty ?? true, "one flat color, no copies of layers")
         XCTAssertEqual(pixel(drawn, at: CGPoint(x: area.width / 2, y: 4)), [0, 128, 255, 255], "the cover's color in the padding")
         // A badge listed before the cover but raised over it (`z-index`): composited above, so the color is not flat
         let badge = UIView(frame: CGRect(x: rect.maxX + 22, y: node.frame.minY + 2, width: 6, height: 6))
@@ -306,8 +309,10 @@ final class InlineContextIOSTests: XCTestCase {
         node.superview?.insertSubview(badge, belowSubview: cover)
         let raised = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: rect.midX, y: rect.midY)))
         let over = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configuration: raised, highlightPreviewForItemWithIdentifier: raised.identifier))
-        // `render(in:)` would draw the badge under the cover, as listed (measured): the screen's own picture
-        XCTAssertTrue(try XCTUnwrap(over.view.subviews.first).isScreens, "the screen, the badge over the cover")
+        XCTAssertFalse(try XCTUnwrap(over.view.subviews.first).layer.sublayers?.isEmpty ?? true, "copies of the layers there")
+        let spot = badge.convert(CGPoint(x: 3, y: 3), to: node.superview), raisedArea = textLines([rect], in: node).area
+        let red = pixel(onScreen(over.view), at: CGPoint(x: spot.x - raisedArea.minX, y: spot.y - raisedArea.minY))
+        XCTAssertTrue(red[0] > 200 && red[1] < 120 && red[2] < 120, "the badge's copy over the cover's, by its `zPosition`: \(red)")
     }
 
     func testARunNearItsCardsEdgeLiftsOnTheCardExtended() throws {
@@ -322,7 +327,7 @@ final class InlineContextIOSTests: XCTestCase {
         outline.apply(CGAffineTransform(translationX: -area.minX, y: -area.minY))
         XCTAssertEqual(preview.view.bounds.size, area.size, "UIKit's footprint, though its padding reaches past the card")
         XCTAssertEqual(preview.parameters.visiblePath?.cgPath, outline.cgPath, "outlined as UIKit outlines text lines")
-        XCTAssertFalse(preview.view.subviews.contains { $0 is UIImageView }, "one flat color, the card's, nothing drawn")
+        XCTAssertTrue(try XCTUnwrap(preview.view.subviews.first).layer.sublayers?.isEmpty ?? true, "one flat color, the card's, no copies of layers")
         let drawn = UIGraphicsImageRenderer(bounds: preview.view.bounds).image { preview.view.layer.render(in: $0.cgContext) }
         XCTAssertEqual(pixel(drawn, at: CGPoint(x: 2, y: area.height / 2)), [255, 214, 10, 255], "the card's color past its edge, none of the page")
     }
@@ -343,7 +348,7 @@ final class InlineContextIOSTests: XCTestCase {
         let preview = try lift(p, node, at: try XCTUnwrap(rects.first))
         let area = textLines(rects, in: node).area
         XCTAssertEqual(preview.view.bounds.size, area.size, "UIKit's footprint")
-        let drawn = UIGraphicsImageRenderer(bounds: preview.view.bounds).image { preview.view.layer.render(in: $0.cgContext) }
+        let drawn = onScreen(preview.view)
         XCTAssertEqual(pixel(drawn, at: CGPoint(x: 2, y: area.height / 2)), [255, 0, 0, 255], "the picture reflected past the card, none of the page")
         // A blur over the picture, which only the screen shows: the screen's pixels, its edge stretched past the card
         let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
@@ -351,7 +356,7 @@ final class InlineContextIOSTests: XCTestCase {
         card.insertSubview(blur, belowSubview: node)
         until("the blur is shown") { blur.layer.presentation() != nil }
         let screen = try lift(p, node, at: try XCTUnwrap(rects.first))
-        let shown = UIGraphicsImageRenderer(bounds: screen.view.bounds).image { screen.view.layer.render(in: $0.cgContext) }
+        let shown = onScreen(screen.view)
         let band = pixel(shown, at: CGPoint(x: 2, y: area.height / 2)), inside = pixel(shown, at: CGPoint(x: 12, y: area.height / 2))
         XCTAssertTrue(band.count == 4 && zip(band, inside).allSatisfy { abs(Int($0) - Int($1)) <= 3 }, "the blur's edge stretched past the card (\(band) beside \(inside)), none of the page")
     }
@@ -454,6 +459,16 @@ final class InlineContextIOSTests: XCTestCase {
                                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.draw(picture, in: CGRect(x: 0, y: 0, width: width, height: height))
         return (bytes, width, height)
+    }
+
+    /// `view` as the screen shows it: drawn by the render server in the window, which composites what `render(in:)`
+    /// leaves out (replicated copies, a snapshot's contents, `zPosition`)
+    private func onScreen(_ view: UIView) -> UIImage {
+        let frame = view.frame
+        window.addSubview(view)
+        view.frame.origin = .zero
+        defer { view.removeFromSuperview(); view.frame = frame }
+        return UIGraphicsImageRenderer(bounds: view.bounds).image { _ in _ = view.drawHierarchy(in: view.bounds, afterScreenUpdates: true) }
     }
 
     private func until(_ what: String, _ seconds: Double = 5, _ done: () -> Bool) {
