@@ -7,6 +7,11 @@ keyframes workingStatusEnter
   to opacity=1 translate="0px 0px"
 keyframes workingStatusExit
   to opacity=0 translate="0px -2px" animation-timing-function="ease-in"
+keyframes workingControlEnter
+  from opacity=0
+  to opacity=1
+keyframes workingControlExit
+  to opacity=0
 
 shape WorkingControlData
   owner: string
@@ -34,6 +39,7 @@ component MobileWorkingControl
     colors: ThreadColors
     dark: bool
     glassTint: string
+    lift: number
     maxWidth: number
     reducedMotion: bool
     showScrollToEnd: bool
@@ -50,6 +56,7 @@ component MobileWorkingControl
   derive labelWidth = max(0, maxWidth - 38.5 - 32 - (hasPreview ? previewWidth : 0) - (data.agentsLabel != "" ? agentsWidth : 0) - (data.queueCount > 0 ? queueWidth : 0))
   derive capsuleTranslate = (showScrollToEnd ? "0px 0px" : "20px 0px")
   derive arrowTranslate = (showScrollToEnd ? "0px 0px" : "-20px 0px")
+  derive liftTranslate = `0px ${0 - lift}px`
   derive controlTransition = (reducedMotion ? "none" : "translate 240ms ease-out, opacity 160ms ease-out")
   // Unpadded wrappers report their buttons' full widths through ResizeObserver.
   action previewSized(width: number, height: number)
@@ -61,7 +68,7 @@ component MobileWorkingControl
   view
     view height=0 position="relative" overflow="visible"
       if data.visible or showScrollToEnd
-        row position="absolute" z-index=20 top=-40.5 left=0 right=0 height=38.5 justify-content="center" gap=12 pointer-events="none"
+        row position="absolute" z-index=20 top=-40.5 left=0 right=0 height=38.5 justify-content="center" gap=12 pointer-events="none" translate=liftTranslate transition=controlTransition animation=(reducedMotion ? "none" : "workingControlEnter 180ms ease-out both") -exact-exit-animation="workingControlExit 120ms ease-in both"
           if data.visible
             row pointer-events="none" height=38.5 min-width=0 align-items="center" overflow="hidden" border-radius=999 background-color=colors.glassFallback border-width=1 border-style="solid" border-color=colors.border box-sizing="border-box" font-family="DM Sans" translate=capsuleTranslate transition=controlTransition -exact-layout-transition=(reducedMotion ? "none" : "240ms cubic-bezier(.22, 1, .36, 1)")
               box-shadow="0px 4px 6px -1px rgba(0, 0, 0, 0.1), 0px 2px 4px -2px rgba(0, 0, 0, 0.1)"
