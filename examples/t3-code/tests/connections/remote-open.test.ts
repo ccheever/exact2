@@ -11,6 +11,7 @@ import type { Native } from '../../src/client/protocol';
 import { T3Client } from '../../src/client/client';
 import { fleet } from '../../src/connections/settings-b-fleet';
 import { filesView, filesLocal, filesState, markdownFilePick } from '../../src/panel/files-surface';
+import { preferredEditor } from '../../src/details/shell-details';
 import { markdownFileMenuRows } from '../../src/timeline/file-link-menu';
 
 const TAILSCALE_TARGETS = [{ kind: 'tailscale', host: 'sol.tail1234.ts.net' }, { kind: 'mdns', host: 'sol.local' }];
@@ -210,6 +211,12 @@ describe('picker visibility and editors', () => {
     expect(rest).toEqual([]);
     expect((await openInView(ssh, native, [], 'app')).hint).toBe('');
     expect(openFavoriteEnabled(ssh, 'app')).toBe(true);
+  });
+  test('a remote environment with no route still names this Mac\'s first remote-capable editor (useRemoteCapableEditors)', async () => {
+    const { native } = fakeNative(request => request.op === 'sshHosts' ? { targets: {} } : request.op === 'remoteEditorsProbe' ? { editors: ['cursor', 'vscode', 'zed'] } : {});
+    const far = client('https://far.example.com');
+    expect(await openInView(far, native, [], 'app')).toMatchObject({ mode: 'remote-unavailable', editors: ['cursor', 'vscode', 'zed'] });
+    expect(preferredEditor((await openInView(far, native, [], 'app')).editors, '')).toBe('cursor');
   });
   test('a loopback primary runs the server editor; a remote one with no route opens nothing', async () => {
     const { native, calls } = fakeNative(request => request.op === 'sshHosts' ? { targets: {} } : {});

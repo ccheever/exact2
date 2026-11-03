@@ -28,6 +28,8 @@ const kinds = (value: Message[]) => value.map(row => row.kind);
 const native = { available: true } as unknown as Native;
 const work = (value: Obj) => projectedWorkEntry({ visibility: 'local', item: value });
 const key = (id: string) => JSON.stringify(['t1', id]);
+/** The 24-hour local time the rows show, in whatever zone the run has. */
+const clock = (iso: string) => { const date = new Date(iso); return [date.getHours(), date.getMinutes()].map(n => String(n).padStart(2, '0')).join(':'); };
 /** Opens every fold and work group, then returns the rows. */
 async function opened(value: T3Client): Promise<Message[]> {
   for (const row of rows(value)) if (row.kind === 'work' && !row.expanded) await chatLocal(value, native, 'fold', row.groupId!, '');
@@ -125,7 +127,7 @@ describe('subagent notifications (dab26f5)', () => {
     const note = item('n', 'notification', 4, { summary: 'Subagent finished', outcome: 'completed', source: { kind: 'subagent', childThreadId: 'child' } });
     const result = rows(client([user('u', 0, 'go'), note], { subagents: [{ ...child, status: 'completed', completedAt: at(3), result: 'All docs reviewed' }] }));
     const card = result.find(row => row.kind === 'subagent')!;
-    expect(card.activities![0]).toMatchObject({ label: 'Review Docs', result: 'Finished', body: 'All docs reviewed', tone: 'success', status: 'event', targetId: 'child', output: '00:00' });
+    expect(card.activities![0]).toMatchObject({ label: 'Review Docs', result: 'Finished', body: 'All docs reviewed', tone: 'success', status: 'event', targetId: 'child', output: clock(at(3)) });
   });
   test('a subagent resumed since its notification shows its live status, not the outcome reported then (#18099)', () => {
     const note = item('n', 'notification', 4, { summary: 'Subagent failed', outcome: 'failed', source: { kind: 'subagent', childThreadId: 'child' } });

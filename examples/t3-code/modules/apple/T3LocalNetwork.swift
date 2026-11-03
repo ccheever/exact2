@@ -107,16 +107,81 @@ struct T3LocalExposure: Equatable {
     /// At launch (configureFromSettings): the desktop settings' `serverExposureMode`, `tailscaleServeEnabled`
     /// and `tailscaleServePort` (T3DesktopSettings.swift); a network request binds 0.0.0.0 only when a LAN or
     /// Tailscale IPv4 (or an explicit T3CODE_DESKTOP_LAN_HOST) exists, else it falls back to loopback, keeping
-    /// the preference.
-    static func atLaunch(settings: T3DesktopSettings, interfaces: [String: [T3NetworkAddress]], lanHostOverride: String?) -> T3LocalExposure {
+    /// the preference. Where the managed policy keeps clients local (`remoteAllowed` false) the server
+    /// starts local-only without Serve, since it refuses to bind wider; the saved choice stays.
+    static func atLaunch(settings: T3DesktopSettings, interfaces: [String: [T3NetworkAddress]], lanHostOverride: String?,
+                         remoteAllowed: Bool = T3ManagedPolicy.remoteClientsAllowed()) -> T3LocalExposure {
         var exposure = T3LocalExposure()
-        exposure.tailscaleServeEnabled = settings.tailscaleServeEnabled
+        exposure.tailscaleServeEnabled = settings.tailscaleServeEnabled && remoteAllowed
         exposure.tailscaleServePort = settings.tailscaleServePort
-        if settings.serverExposureMode == "network-accessible",
+        if remoteAllowed, settings.serverExposureMode == "network-accessible",
            lanHostOverride != nil || T3NetworkInterfaces.hasLanIpv4(interfaces) || T3NetworkInterfaces.hasTailscaleIpv4(interfaces) {
             exposure.host = "0.0.0.0"
         }
         return exposure
+    }
+
+    /// The same ceiling for an exposure chosen while the app runs.
+    func withinPolicy(remoteAllowed: Bool = T3ManagedPolicy.remoteClientsAllowed()) -> T3LocalExposure {
+        remoteAllowed ? self : T3LocalExposure(host: "127.0.0.1", tailscaleServeEnabled: false, tailscaleServePort: tailscaleServePort)
+    }
+}
+
+/// The administrator's managed policy as the desktop reads it before the server starts, after T3 Code
+/// (MIT, see LICENSE-T3; reference 5d3d78ab93) packages/shared/src/managedPolicyFile.ts `readManagedPolicy`
+/// and apps/desktop/src/backend/DesktopServerExposure.ts `remoteAllowed`. Only `limits.clients` matters here;
+/// the server validates the whole document and will not start with one it cannot use, so an unreadable or
+/// conflicting policy keeps clients local, as upstream's failed read does.
+enum T3ManagedPolicy {
+    static let filePath = "/Library/Application Support/T3Code/policy.json"
+    static let profilePath = "/Library/Managed Preferences/com.t3tools.t3code.plist"
+
+    enum Read { case none, document([String: Any]), unusable }
+
+    /// Whether clients on other devices may connect: a policy's `limits.clients` must include `remote`.
+    static func remoteClientsAllowed(file: String = filePath, profile: String = profilePath) -> Bool {
+        switch read(file: file, profile: profile) {
+        case .none: return true
+        case .unusable: return false
+        case let .document(document):
+            guard let limits = document["limits"] else { return true }
+            guard let limits = limits as? [String: Any] else { return false }
+            guard let clients = limits["clients"] else { return true }
+            guard let names = clients as? [String] else { return false }
+            return names.contains("remote")
+        }
+    }
+
+    /// A configuration profile or the policy file; both at once is refused rather than merged.
+    static func read(file: String = filePath, profile: String = profilePath) -> Read {
+        let manager = FileManager.default
+        var found: [Read] = []
+        if manager.fileExists(atPath: profile) {
+            guard let data = manager.contents(atPath: profile),
+                  let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) else { return .unusable }
+            found.append(unwrapForced(plist).map(Read.document) ?? .unusable)
+        }
+        if manager.fileExists(atPath: file) {
+            guard let data = manager.contents(atPath: file),
+                  let document = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return .unusable }
+            found.append(.document(document))
+        }
+        if found.count > 1 { return .unusable }
+        return found.first ?? .none
+    }
+
+    /// Installed preferences hold the keys directly; MCX-style profiles keep them under
+    /// `Forced[0].mcx_preference_settings`, alone. Profile bookkeeping (`Payload…`, `_…`) is not the policy's.
+    static func unwrapForced(_ value: Any) -> [String: Any]? {
+        func strip(_ value: Any) -> [String: Any]? {
+            (value as? [String: Any])?.filter { !$0.key.hasPrefix("Payload") && !$0.key.hasPrefix("_") }
+        }
+        guard let preferences = strip(value) else { return nil }
+        if preferences.count == 1, let forced = preferences["Forced"] as? [Any], forced.count == 1,
+           let entry = forced[0] as? [String: Any], entry.count == 1, let settings = entry["mcx_preference_settings"] {
+            return strip(settings)
+        }
+        return preferences
     }
 }
 

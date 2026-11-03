@@ -212,6 +212,20 @@ describe("the agent", () => {
     expect(notes.find(note => note.params?.update?.sessionUpdate === "tool_call")!.params.update.rawInput).toEqual({ threadId: "thread-9" });
   });
 
+  test("'Answer, then check' replies, then runs a read after the reply and ends the turn", async () => {
+    const home = join(root, "home-answer-check");
+    const { executable } = install(home, { methods: "none" });
+    const notes: { method: string; params: any }[] = [];
+    const replies = await talk(executable, [{ method: "session/new", params: { cwd: root, mcpServers: [] } }], notes);
+    const sessionId = replies.get(1)!.result.sessionId;
+    const turn = await talk(executable, [{ method: "session/load", params: { sessionId, cwd: root, mcpServers: [] } },
+      { method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: "<user_request>\nAnswer, then check\n</user_request>" }] } }], notes);
+    expect(turn.get(2)!.result).toEqual({ stopReason: "end_turn" });
+    const kinds = notes.map(note => note.params?.update).filter(Boolean).filter(update => update.sessionUpdate !== "available_commands_update")
+      .map(update => [update.sessionUpdate, update.title ?? update.status ?? update.content?.text ?? ""]);
+    expect(kinds).toEqual([["agent_message_chunk", "Stand-in reply: the answer comes before its check."], ["tool_call", "Check the notes"],
+      ["tool_call_update", "completed"], ["usage_update", ""]]);
+  });
   test("'Wait on the thread <id>' holds a t3_thread_wait call; 'Link the thread <id>' links it; 'Show the Markdown sample' replies in two chunks; 'Fail the turn' fails with a JSON error", async () => {
     const home = join(root, "home-wait");
     const { executable } = install(home, { methods: "none" });

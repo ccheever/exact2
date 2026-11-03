@@ -200,6 +200,13 @@ if (process.argv.includes("--fixture-login")) {
         update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: MARKDOWN_SAMPLE[0] } });
         await Bun.sleep(Number(seconds ?? 0) * 1000);
         text = MARKDOWN_SAMPLE[1];
+      } else if (/^answer, then check/i.test(first)) {
+        update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Stand-in reply: the answer comes before its check." } });
+        const toolCall = { toolCallId: `check-${Date.now()}`, title: "Check the notes", kind: "read", rawInput: { path: "README.md" } };
+        update(sessionId, { sessionUpdate: "tool_call", ...toolCall, status: "in_progress" });
+        update(sessionId, { sessionUpdate: "tool_call_update", toolCallId: toolCall.toolCallId, status: "completed" });
+        update(sessionId, { sessionUpdate: "usage_update", used: 12480, size: 200000 });
+        return { stopReason: "end_turn" };
       } else if (/^show the italic sample/i.test(first)) {
         text = ITALIC_SAMPLE;
       } else if (/^show the prose sample/i.test(first)) {
