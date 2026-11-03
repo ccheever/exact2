@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { classify, mainNotes, noteOf, publish, report } from './known.mjs';
+import { classify, mainNotes, noteOf, publish, report, stoppedEarly } from './known.mjs';
 
 const result = (sha, failures, checks = { ios: { command: 'bun host/apple/build.mjs --test --ios', status: 1 } }) => ({ sha, checks, failures });
 
@@ -50,4 +50,13 @@ test('the lane publishes a note to origin and another checkout reads it', () => 
     expect(history.map((h) => h.sha)).toEqual([sha]);
     expect(classify(['local: ExactKitTests.Iframe pinch failed'], 'xctest', history).rows[0].verdict).toBe('known');
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('each stop the lane names marks its check stopped early, and a note reads what the lane recorded', () => {
+  for (const f of ['test: x (lib test) does not compile', 'test: x build script failed', 'test: -p x --lib did not finish', 'glue: a.test.mjs: an error between tests', 'glue: exit 1 (see log)', 'test: t hung'])
+    expect(stoppedEarly(f.split(': ', 1)[0], [f]), f).toBe(true);
+  expect(stoppedEarly('test', ['test: -p x --lib a::b'])).toBe(false);
+  // Put a stop kept from an earlier run in the list the note reads, while the check's own record says it ran to the end
+  const result = { sha: 'x', checks: { test: { command: 'bun scripts/affected.mjs --cargo-tests a', status: 0, complete: true } }, failures: ['test: y (lib test) does not compile'] };
+  expect(noteOf(result, 1).checks.test.complete).toBe(true);
 });
