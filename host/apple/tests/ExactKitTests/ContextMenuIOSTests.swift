@@ -54,6 +54,48 @@ final class ContextMenuIOSTests: XCTestCase {
         try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == testId }, testId)
     }
     private func text(_ node: NodeView) -> String { node.paragraphSpec().runs.map(\.text).joined() }
+    /// The view of the controller that holds `node`: the host's preview target
+    private func holder(of node: NodeView) throws -> UIView {
+        try XCTUnwrap(sequence(first: try XCTUnwrap(node.superview) as UIResponder, next: { $0.next }).lazy.compactMap { ($0 as? UIViewController)?.viewIfLoaded }.first)
+    }
+
+    func testTheTargetCarriesTheAncestorsScale() throws {
+        let session = try boot()
+        let host = session.presenter.menus.context
+        let peek = try node(session, "peek")
+        let interaction = try XCTUnwrap(peek.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
+        let configuration = try XCTUnwrap(host.contextMenuInteraction(interaction, configurationForMenuAtLocation: .zero))
+        defer { host.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil) }
+        let parent = try XCTUnwrap(peek.superview)
+        parent.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
+        peek.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
+        defer { parent.transform = .identity; peek.transform = .identity }
+        let lifted = try XCTUnwrap(host.contextMenuInteraction(interaction, configuration: configuration, highlightPreviewForItemWithIdentifier: configuration.identifier))
+        let over = try holder(of: peek)
+        XCTAssertEqual(lifted.target.transform, CGAffineTransform(scaleX: 0.48, y: 0.48), "its own scale and its parent's")
+        XCTAssertEqual(lifted.target.center, peek.convert(CGPoint(x: peek.bounds.midX, y: peek.bounds.midY), to: over), "from where it shows")
+    }
+
+    func testTheLiftsOutlineIsTheNodesOwn() throws {
+        let session = try boot()
+        let host = session.presenter.menus.context
+        let peek = try node(session, "peek")
+        let interaction = try XCTUnwrap(peek.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
+        func outline() throws -> CGPath? {
+            let configuration = try XCTUnwrap(host.contextMenuInteraction(interaction, configurationForMenuAtLocation: .zero))
+            defer { host.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil) }
+            return try XCTUnwrap(host.contextMenuInteraction(interaction, configuration: configuration, highlightPreviewForItemWithIdentifier: configuration.identifier)).parameters.visiblePath?.cgPath
+        }
+        func corners(_ radii: [Double]) {
+            session.presenter.apply(wireBatch([["op": "style", "id": Int(peek.id), "style": [
+                "border_radius_top_left": radii[0], "border_radius_top_right": radii[1],
+                "border_radius_bottom_right": radii[2], "border_radius_bottom_left": radii[3]]]]))
+        }
+        corners([12, 12, 4, 4])
+        XCTAssertEqual(try outline(), peek.roundedPath(in: peek.bounds).cgPath, "unequal radii: its own outline")
+        corners([0, 0, 0, 0])
+        XCTAssertNil(try outline(), "no radius: the whole view, as UIKit shows it by default")
+    }
 
     func testTheRowLiftsIntoUIKitsMenuWithItsPreviewAndThePreviewPopsIntoItsScreen() throws {
         let session = try boot()
@@ -65,20 +107,18 @@ final class ContextMenuIOSTests: XCTestCase {
 
         let configuration = try XCTUnwrap(host.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: 10, y: 10)))
         XCTAssertEqual(text(try node(session, "peeks")), "peeks 0", "nothing fires before the menu is shown")
-        peek.transform = CGAffineTransform(scaleX: 0.96, y: 0.96) // a press's scale, say
-        let parent = try XCTUnwrap(peek.superview)
-        parent.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
-        let lifted = try XCTUnwrap(host.contextMenuInteraction(interaction, previewForHighlightingMenuWithConfiguration: configuration))
-        let center = parent.convert(peek.center, to: peek.window)
-        peek.transform = .identity
-        parent.transform = .identity
-        XCTAssertTrue(lifted.view !== peek, "UIKit lifts a picture of the node")
-        XCTAssertTrue(lifted.target.container === peek.window && lifted.target.center == center,
-                      "from the node's place, over the window, so a strip that scrolls sideways does not clip it")
-        XCTAssertEqual(lifted.target.transform, CGAffineTransform(scaleX: 0.48, y: 0.48), "with the view's transform and its parent's scale")
+        let lifted = try XCTUnwrap(host.contextMenuInteraction(interaction, configuration: configuration, highlightPreviewForItemWithIdentifier: configuration.identifier))
+        XCTAssertTrue(lifted.view === peek, "the node itself, which UIKit hides and returns")
+        XCTAssertEqual(lifted.parameters.visiblePath?.cgPath, UIBezierPath(roundedRect: peek.bounds, cornerRadius: 12).cgPath,
+                       "its one radius as UIKit's rounded rectangle, which UIKit keeps through the lift")
+        let over = try holder(of: peek)
+        XCTAssertTrue(lifted.target.container === over && over !== peek.superview && lifted.target.center == peek.convert(CGPoint(x: peek.bounds.midX, y: peek.bounds.midY), to: over),
+                      "from the node's place, over its controller's view, so no ancestor that clips cuts it")
         let owner = try XCTUnwrap(host.open)
         let controller = try XCTUnwrap(host.lift(owner))
         let menu = try XCTUnwrap(host.menu(owner))
+        host.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: nil)
+        XCTAssertEqual(peek.alpha, 1, "the host leaves the node's opacity alone while the menu shows")
         XCTAssertEqual(text(try node(session, "peeks")), "peeks 1", "its own contextmenu, once, before the rows or preview are read")
 
         let preview = try node(session, "peek-preview")
@@ -101,9 +141,10 @@ final class ContextMenuIOSTests: XCTestCase {
         XCTAssertEqual(commit.animated, 1, "with an animation, without which UIKit shrinks the preview away")
         XCTAssertNotEqual(session.presenter.navigation.activeKey, before, "the press pushed")
         XCTAssertNotNil(try node(session, "route-detail"))
-        XCTAssertNil(host.contextMenuInteraction(interaction, previewForDismissingMenuWithConfiguration: configuration),
+        XCTAssertNil(host.contextMenuInteraction(interaction, configuration: configuration, dismissalPreviewForItemWithIdentifier: configuration.identifier),
                      "after it navigated, the source is under the new screen: no return to it")
         host.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil)
+        XCTAssertEqual(peek.alpha, 1, "and after it ends")
         XCTAssertNil(host.open)
         let popover = try XCTUnwrap(session.presenter.views.values.first { $0.props["id"] == "peek" })
         XCTAssertTrue(popover.container.subviews.contains(preview), "the row is back in its popover")
@@ -180,9 +221,10 @@ final class ContextMenuIOSTests: XCTestCase {
         let owner = try XCTUnwrap(host.open)
         _ = try XCTUnwrap(host.lift(owner))
         let preview = try node(session, "peek-preview")
-        let returned = try XCTUnwrap(host.contextMenuInteraction(interaction, previewForDismissingMenuWithConfiguration: configuration))
-        XCTAssertTrue(returned.target.container === peek.window && returned.target.center == peek.superview?.convert(peek.center, to: peek.window),
-                      "dismissed, the preview returns to the node's place, over the window as it was lifted")
+        let returned = try XCTUnwrap(host.contextMenuInteraction(interaction, configuration: configuration, dismissalPreviewForItemWithIdentifier: configuration.identifier))
+        let over = try holder(of: peek)
+        XCTAssertTrue(returned.view === peek && returned.target.container === over && returned.target.center == peek.convert(CGPoint(x: peek.bounds.midX, y: peek.bounds.midY), to: over),
+                      "dismissed, UIKit returns the node to its place")
         host.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil)
         XCTAssertNil(host.open)
         let popover = try XCTUnwrap(session.presenter.views.values.first { $0.props["id"] == "peek" })

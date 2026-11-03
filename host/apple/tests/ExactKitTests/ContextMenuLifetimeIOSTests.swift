@@ -325,7 +325,7 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
         p.menus.context.contextMenuInteraction(interaction, willPerformPreviewActionForMenuWith: configuration, animator: commit)
         XCTAssertEqual(pressed, [3])
         XCTAssertEqual(commit.preferredCommitStyle, .dismiss, "a press that stays")
-        XCTAssertTrue(p.menus.context.contextMenuInteraction(interaction, previewForDismissingMenuWithConfiguration: configuration)?.view === p.views[1],
+        XCTAssertTrue(p.menus.context.contextMenuInteraction(interaction, configuration: configuration, dismissalPreviewForItemWithIdentifier: configuration.identifier)?.view === p.views[1],
                       "and returns to its source")
     }
 }
