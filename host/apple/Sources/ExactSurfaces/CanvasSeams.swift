@@ -5,7 +5,6 @@ import Foundation
 import AppKit
 #else
 import UIKit
-import AVFAudio
 #endif
 import ExactKit
 
@@ -564,7 +563,9 @@ final class CanvasLifecycle: NSObject {
                      UIApplication.willEnterForegroundNotification, UIApplication.didBecomeActiveNotification] {
             center.addObserver(self, selector: #selector(visibilityChanged), name: name, object: nil)
         }
+        #if os(iOS) || os(tvOS)
         AudioSession.listen(ObjectIdentifier(CanvasLifecycle.self)) { Self.heard($0) }
+        #endif
         #endif
     }
     deinit { NotificationCenter.default.removeObserver(self) }
