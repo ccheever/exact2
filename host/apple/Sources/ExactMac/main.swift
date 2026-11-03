@@ -31,15 +31,13 @@ let agentMode = ExactEnv.agentMode
 let agentReadable = agentMode || ExactEnv.environment["EXACT_AGENT"] == "live"
 setvbuf(stdout, nil, _IOLBF, 0)
 // Nothing restores this app: a session boots its plan, and the window below is
-// not restorable. AppKit would still save the application's own state some
-// fifteen seconds after launch, and to do that it asks the window server for
-// the order of its windows and waits for the reply on the main thread: 20 ms
-// while a scroll kept the server busy, a dropped frame, and the longest wait
-// left in a scroll. Encoding nothing in an `NSApplication` subclass only moves
-// the wait to the next private caller of the same question. `ApplePersistence`
-// is AppKit's own switch for all of it, read when the application is made; a
-// registered default, so a user's `defaults write` still wins.
-UserDefaults.standard.register(defaults: ["ApplePersistence": false])
+// not restorable. AppKit still saves the application's own state some fifteen
+// seconds after launch, and to do that it asks the window server for the order
+// of its windows and waits for the reply on the main thread: 20 to 34 ms while
+// a scroll keeps the server busy, a dropped frame. Encoding nothing in an
+// `NSApplication` subclass only moves the wait to the next private caller of
+// the same question, and the switch that ends it, the `ApplePersistence`
+// default, is undocumented, which shipped code does not read (LLP 1035.003 §3).
 let app = NSApplication.shared
 ExactEnv.stamp("NSApplication.shared")
 // Under a script (LLP 1012) the app is an accessory — no Dock tile, no
@@ -610,6 +608,9 @@ Agent.hostState = {
 }
 
 final class Delegate: NSObject, NSApplicationDelegate {
+    /// What AppKit saves of the application is decoded securely; nothing of
+    /// it restores a window (`isRestorable` is off on every window here).
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
     func applicationWillFinishLaunching(_ notification: Notification) {
         LaunchKind.install()
         exact.installNotificationClicks { session in windows.first { $0.session === session }?.front() }

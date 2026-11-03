@@ -30,6 +30,13 @@ extension Agent {
         return flags
     }
 
+    /// Whether this build makes the events below. Each takes private API (an
+    /// undocumented event field, a CoreGraphics setter outside its headers, a
+    /// gesture event's raw fields), which only a development build compiles
+    /// (`EXACT_INSPECT`, Package.swift; LLP 1035.003 §3). A production build
+    /// makes none, and an op that needs one answers `developmentOnly`.
+    #if EXACT_INSPECT
+    static let privateEvents = true
     /// The event's window number: an undocumented field, as the magnify
     /// fields `tap … pinch` sets are.
     private static let windowField = CGEventField(rawValue: 51)!
@@ -40,10 +47,14 @@ extension Agent {
     private static let placeInWindow: (@convention(c) (CGEvent, CGPoint) -> Void)? =
         dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGEventSetWindowLocation")
             .map { unsafeBitCast($0, to: (@convention(c) (CGEvent, CGPoint) -> Void).self) }
+    #else
+    static let privateEvents = false
+    #endif
 
     /// `cg` at window point `p` of `win` (bottom-left origin, as
     /// `locationInWindow`), holding `flags`, as an `NSEvent` of that window.
     static func windowEvent(_ cg: CGEvent, at p: NSPoint, in win: NSWindow, flags: NSEvent.ModifierFlags) -> NSEvent? {
+        #if EXACT_INSPECT
         guard let placeInWindow else { return nil }
         let screen = win.convertPoint(toScreen: p)
         cg.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - screen.y)
@@ -51,6 +62,28 @@ extension Agent {
         placeInWindow(cg, CGPoint(x: p.x, y: win.frame.height - p.y))
         cg.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
         return NSEvent(cgEvent: cg)
+        #else
+        return nil
+        #endif
+    }
+
+    /// One step of a trackpad pinch at screen point `screen` (top-left
+    /// origin): a magnify event of `delta` in `phase` (CGScrollPhase's
+    /// values: began 1, changed 2, ended 4). AppKit has no public constructor
+    /// for one; a gesture `CGEvent` carries the zoom in undocumented fields.
+    static func magnifyEvent(at screen: CGPoint, delta: Double, phase: Int64) -> NSEvent? {
+        #if EXACT_INSPECT
+        guard let cg = CGEvent(source: nil), let type = CGEventType(rawValue: 29) else { return nil }
+        cg.type = type
+        cg.location = screen
+        cg.setIntegerValueField(CGEventField(rawValue: 110)!, value: 8)   // gesture HID type: zoom
+        cg.setDoubleValueField(CGEventField(rawValue: 113)!, value: delta)
+        cg.setIntegerValueField(CGEventField(rawValue: 132)!, value: phase)
+        guard let e = NSEvent(cgEvent: cg), e.type == .magnify else { return nil }
+        return e
+        #else
+        return nil
+        #endif
     }
 
     /// One press and release of the right or middle button at `p`, the

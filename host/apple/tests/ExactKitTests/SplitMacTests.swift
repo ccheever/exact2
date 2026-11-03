@@ -157,6 +157,21 @@ final class SplitMacTests: XCTestCase {
     }
     private func items(_ window: NSWindow) -> [String] { window.toolbar?.items.map(\.itemIdentifier.rawValue) ?? [] }
 
+    /// The empty detail's words are AppKit's in each of its localizations
+    /// (read here from its table, which shipped code does not read), in the
+    /// app's language rather than the person's.
+    func testNoSelectionIsAppKitsWordsInTheAppsLanguage() throws {
+        XCTAssertEqual(SplitDetail.noSelection(in: ["en"]), "No Selection")
+        XCTAssertEqual(SplitDetail.noSelection(in: ["ko"]), "선택된 항목 없음")
+        XCTAssertEqual(SplitDetail.noSelection(in: ["zh-Hant-HK"]), "沒有選取項目")
+        XCTAssertEqual(SplitDetail.noSelection(in: ["xx"]), "No Selection")
+        let table = try XCTUnwrap(Bundle(for: NSApplication.self).url(forResource: "Placeholders", withExtension: "loctable"))
+        let appKit = try XCTUnwrap(PropertyListSerialization.propertyList(from: Data(contentsOf: table), format: nil) as? [String: Any])
+        for (language, words) in SplitDetail.noSelectionWords {
+            XCTAssertEqual((appKit[language] as? [String: String])?["No Selection"], words, language)
+        }
+    }
+
     func testTheRunnerReadsFramesAndHitsInTheDetailPanesSpace() throws {
         let source = app(tabs: false)
             .replacingOccurrences(of: "  state query = \"\"", with: "  state observed = \"unread\"\n  state hit = \"unread\"\n  state query = \"\"")

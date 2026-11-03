@@ -171,6 +171,12 @@ final class IframeAutomationTests: XCTestCase {
         XCTAssert(value(arm, "undefined") is NSNull)
         let thrown = run(arm, "evaluate", ["expression": "nope()"])
         XCTAssertEqual(thrown["error"] as? String, "ReferenceError", "\(thrown)")
+        XCTAssertEqual(thrown["message"] as? String, "Can't find variable: nope")
+        let late = run(arm, "callFunction", ["functionDeclaration": "() => { throw new TypeError('late') }"])
+        XCTAssertEqual([late["error"] as? String, late["message"] as? String], ["TypeError", "late"])
+        let plain = run(arm, "evaluate", ["expression": "Promise.reject('plain')"])
+        XCTAssertEqual([plain["error"] as? String, plain["message"] as? String], ["Error", "plain"])
+        XCTAssertEqual(run(arm, "evaluate", ["expression": "1 +"])["error"] as? String, "SyntaxError", "a script that does not parse")
         XCTAssertEqual(run(arm, "evaluate", ["expression": "'x'.repeat(70000)"])["error"] as? String, "QuotaExceededError")
         XCTAssertEqual(run(arm, "evaluate", ["expression": "1", "sandbox": "exact.browser"])["error"] as? String, "SyntaxError", "the arm's own worlds are refused")
         let activation = value(arm, "String(navigator.userActivation?.isActive)") as? String

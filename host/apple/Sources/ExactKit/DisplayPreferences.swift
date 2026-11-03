@@ -124,11 +124,23 @@ enum DisplayPreferences {
     }
     /// `prefers-color-scheme: dark` — the *system's* appearance, beneath any
     /// `setScheme` the app chose (LLP 1034 D3 as amended by LLP 1069.000 D1).
+    /// AppKit says it publicly only as the application's effective
+    /// appearance, which an appearance the app sets (`setScheme`'s
+    /// `NSApp.appearance`) replaces. So it is read while the app sets none,
+    /// and while it sets one it is the system's as last read: a change the
+    /// person makes in System Settings then is seen once the app follows
+    /// the system again.
     #if os(macOS)
     static var systemDark: Bool {
         if let agent = Agent.systemAppearance { return agent.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
-        return UserDefaults.standard.string(forKey: "AppleInterfaceStyle")?.lowercased().contains("dark") == true
+        guard let app = NSApp else { return false }
+        let dark = app.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        guard app.appearance == nil else { return followedDark ?? dark }
+        followedDark = dark
+        return dark
     }
+    /// The system's appearance as last read while the app set none.
+    nonisolated(unsafe) private static var followedDark: Bool?
     #endif
     /// Encode this window's readings with the core's shared wire layout.
     static func bits(systemDark: Bool, view: PlatformView? = nil) -> UInt32 {
@@ -159,16 +171,10 @@ enum DisplayPreferences {
     static func observe(_ changed: @escaping () -> Void) -> [NSObjectProtocol] {
         #if os(macOS)
         let names = [NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, agentChanged]
-        var tokens = names.map { center.addObserver(forName: $0, object: nil, queue: .main) { _ in changed() } }
-        // The system appearance arrives on the distributed centre; the
-        // preference is written just before, so the reading drops the cached
-        // argument domain first.
-        tokens.append(DistributedNotificationCenter.default().addObserver(
-            forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main
-        ) { _ in
-            UserDefaults.standard.removeVolatileDomain(forName: UserDefaults.argumentDomain)
-            changed()
-        })
+        var tokens: [NSObjectProtocol] = names.map { center.addObserver(forName: $0, object: nil, queue: .main) { _ in changed() } }
+        // The system appearance, as the application's effective appearance
+        // (`systemDark`), which AppKit changes on the main thread.
+        if let app = NSApp { tokens.append(app.observe(\.effectiveAppearance) { _, _ in changed() }) }
         return tokens
         #else
         // A system appearance change reaches an app as a trait change (the
@@ -210,8 +216,7 @@ enum DisplayPreferences {
     static func forget(_ tokens: [NSObjectProtocol]) {
         #if os(macOS)
         tokens.forEach { token in
-            center.removeObserver(token)
-            DistributedNotificationCenter.default().removeObserver(token)
+            if let observation = token as? NSKeyValueObservation { observation.invalidate() } else { center.removeObserver(token) }
         }
         #else
         tokens.forEach(center.removeObserver)
