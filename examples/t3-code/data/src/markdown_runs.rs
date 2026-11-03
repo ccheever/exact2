@@ -253,6 +253,13 @@ fn chat_runs(value: &Value) -> Value {
                 Value::Record(fields) => {
                     let mut fields = fields.to_vec();
                     fields.push(Value::Bool(strike));
+                    // A raw HTML image's size and dark source ride in its href (inline_html_image).
+                    let href = fields[5].as_str().unwrap_or("").to_string();
+                    let (image, width, height, dark) = image_form(&href);
+                    if image.len() != href.len() {
+                        fields[5] = Value::str(image);
+                    }
+                    fields.extend([Value::Number(width), Value::Number(height), Value::str(dark)]);
                     Value::record(fields)
                 }
                 other => other,

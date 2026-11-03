@@ -5,8 +5,11 @@
 // trigger in paint order and never takes hits. `side` is where the reference
 // lands after collision flipping; `align` where it lands after shifting. Focus that
 // enters the trigger from the keyboard shows it too (Base UI opens a tooltip on its
-// trigger's focus), so a control that cannot act still says why; focus a press gave does not.
+// trigger's visible focus), so a control that cannot act still says why; focus a press gave does not, nor
+// focus a script moves while the last input was the pointer (`keyboardLast`, as Chromium's :focus-visible reads it).
 component Tip
+  inject
+    keyboardLast: bool
   props
     label: string
     side: string
@@ -29,7 +32,7 @@ component Tip
     box position="relative" hover=setOver focusin=focusEntered focusout=focusLeft pointerdown=pressDown flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0
       children
       if label != ""
-        TipBubble(label=label, side=side, align=align, offset=offset, inset=0, shown=(over or (focused and not pressed)))
+        TipBubble(label=label, side=side, align=align, offset=offset, inset=0, shown=(over or (focused and not pressed and keyboardLast)))
 
 // TooltipScrollDismissArea (ui/tooltip.tsx; T3 Code 1e2ecbd975, MIT, see LICENSE-T3): a tooltip in the transcript
 // closes when the transcript scrolls, unless its trigger holds the focus, and stays closed until the pointer moves.

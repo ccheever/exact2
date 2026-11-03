@@ -356,7 +356,7 @@ mod table_tests {
                 let Value::Record(fields) = block else {
                     panic!("block")
                 };
-                assert_eq!(fields.len(), 23);
+                assert_eq!(fields.len(), 24);
                 fields[1].as_str().unwrap_or("").to_string()
             })
             .collect();

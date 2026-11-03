@@ -310,11 +310,13 @@ export function markdownInlineImages(text: string): InlineImage[] {
   }
   return out;
 }
-/** A message's image lines and inline images, each with the href its block or run keeps: an HTML image block has one
- *  per theme source, and an HTML image inside a line of text its media run's. */
+/** A message's image lines and inline images, each with the href its block or run keeps: an HTML image has one per
+ *  theme source, a block's or its media run's (markdown_media.rs inline_html_image: the light one's, then the dark
+ *  one's when it has a theme). */
 const allImages = (text: string, rawHtml = true) => [...markdownImages(text), ...markdownInlineImages(text),
   ...(rawHtml ? markdownHtmlImages(text) : []).flatMap(image => image.inline
-    ? [{ alt: image.alt, src: image.src, href: `${INLINE_IMAGE}${markdownImageHref(image.src)}` }]
+    ? [...new Set([image.light || image.src, ...(image.dark || image.light ? [image.dark || image.src] : [])])]
+      .map(src => ({ alt: image.alt, src, href: `${INLINE_IMAGE}${markdownImageHref(src)}` }))
     : [...new Set([image.src, image.dark || image.src, image.light || image.src])].map(src => ({ alt: image.alt, src, href: markdownImageHref(src) })))];
 
 /**
@@ -397,8 +399,8 @@ export function markdownGallery(document: MarkdownDocument, scheme = 'light'): G
   let offset = 0;
   for (const image of document.scope.rawHtml === false ? [] : markdownHtmlImages(document.text)) {
     images.push(...markdownInlineImages(document.text.slice(offset, image.offset)));
-    const src = (image.inline ? '' : scheme === 'dark' ? image.dark : image.light) || image.src;
-    images.push({ alt: image.alt, src, href: image.inline ? `${INLINE_IMAGE}${markdownImageHref(src)}` : markdownImageHref(src) });
+    const src = (scheme === 'dark' ? image.dark : image.light) || image.src;
+    images.push({ alt: image.alt, src, href: image.inline ? `${INLINE_IMAGE}${markdownImageHref(src)}` : markdownImageHref(src), linked: image.link !== '' });
     offset = image.offset;
   }
   images.push(...markdownInlineImages(document.text.slice(offset)));

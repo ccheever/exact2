@@ -25,6 +25,9 @@ const LINKED_SOURCE: char = '\u{e003}';
 const LINKED_END: char = '\u{e004}';
 /// Between a linked image's IMAGE_MARK href and the destination of the link around it.
 const IMAGE_LINK: char = '\u{e005}';
+/// Before a raw HTML image's authored size (`<width>x<height>`) and again before its dark source's href, after its
+/// IMAGE_MARK href (inline_html_image); `image_form` takes them out into the run's own fields.
+const IMAGE_FORM: char = '\u{e006}';
 
 /// `![alt](src)` alone on a line: the parser's image block (`markdown_parse` `image_of`, the line trimmed at its start),
 /// when that one image spans the line. `image_of` takes any line that starts with `![` and ends with `)` for one image,
@@ -371,29 +374,56 @@ fn image_link(link: &dyn Fn(&str) -> String, href: &str) -> String {
     }
 }
 
-/// ChatMarkdown's image protocols (markdownPipeline.ts, T3 Code 5d3d78ab93), and an `<img>` inside a line of text as a
-/// media run, as `inline_image_links` writes a Markdown one. UserMessageBody uses `parseRawHtml={false}` and keeps HTML
-/// literal.
+/// ChatMarkdown's image and link protocols (markdownPipeline.ts, T3 Code 5d3d78ab93), and an `<img>` drawn in a line
+/// (inside text, beside other images, or in an `<a href>`) as a media run, as `inline_image_links` writes a Markdown
+/// one. UserMessageBody uses `parseRawHtml={false}` and keeps HTML literal.
 fn chat_html(raw_html: bool) -> markdown_parse::Html<'static> {
     if raw_html {
         markdown_parse::Html {
             images: true,
             schemes: &["http", "https", "file", "t3-context"],
             inline: Some(&inline_html_image),
+            links: &["http", "https", "irc", "ircs", "mailto", "xmpp", "file", "t3-citation", "t3-context", "t3-thread"],
         }
     } else {
         markdown_parse::Html::LITERAL
     }
 }
 
-/// The media run of an `<img>` inside a line of text: its source only, as the run carries one href and FlowRuns gives a
-/// run's media no authored size.
+/// The media run of an `<img>` drawn in a line: its light source's href (its own `src` unless a theme's source stands
+/// in), then IMAGE_FORM and its authored size and IMAGE_FORM and its dark source's href when it has a size or a theme
+/// (ChatMarkdown's img renderer, `authoredImageSizeStyle` and `dataDarkSrc`), then IMAGE_LINK and the `<a href>`
+/// around it, which `link_labels` moves to the run's `link` (MarkdownAnchor's `<a>` around the `<img>`).
 fn inline_html_image(image: markdown_parse::html::Image) -> markdown_parse::Run {
-    markdown_parse::Run {
-        text: format!("{IMAGE_START}{}", image.alt),
-        href: image_link(&link_href, &format!("{IMAGE_MARK}{}", image.src)),
-        ..markdown_parse::Run::default()
+    let source = |url: &str| image_link(&link_href, &format!("{IMAGE_MARK}{url}"));
+    let themed = !image.dark.is_empty() || !image.light.is_empty();
+    let light = if image.light.is_empty() { &image.src } else { &image.light };
+    let mut href = source(light);
+    if themed || image.width > 0 || image.height > 0 {
+        let dark = if !themed { String::new() } else { source(if image.dark.is_empty() { &image.src } else { &image.dark }) };
+        href = format!("{href}{IMAGE_FORM}{}x{}{IMAGE_FORM}{dark}", image.width, image.height);
     }
+    let link = if image.link.is_empty() { String::new() } else { link_href(&image.link) };
+    if !link.is_empty() && link != NO_HREF {
+        href = format!("{href}{IMAGE_LINK}{link}");
+    }
+    markdown_parse::Run { text: format!("{IMAGE_START}{}", image.alt), href, ..markdown_parse::Run::default() }
+}
+
+/// A media run's href without its IMAGE_FORM parts, and its authored width and height and dark href from them (0, 0 and
+/// "" without them).
+fn image_form(href: &str) -> (&str, f64, f64, &str) {
+    if !href.starts_with(IMAGE_MARK) {
+        return (href, 0.0, 0.0, "");
+    }
+    let image = media_link(href).0;
+    let Some((source, form)) = image.split_once(IMAGE_FORM) else {
+        return (href, 0.0, 0.0, "");
+    };
+    let (size, dark) = form.split_once(IMAGE_FORM).unwrap_or((form, ""));
+    let (width, height) = size.split_once('x').unwrap_or((size, ""));
+    let number = |text: &str| text.parse::<f64>().unwrap_or(0.0);
+    (source, number(width), number(height), dark)
 }
 
 /// Resolve both picture variants through the media path (media-views.ts markdownImageHref).
@@ -578,6 +608,10 @@ fn standalone_media(
 mod media_tests {
     use super::*;
 
+    fn text(value: &Value) -> String {
+        value.as_str().unwrap_or("").to_string()
+    }
+
     /// Each run of a document: its block's kind, its text, `href|kind`, and its `icon`.
     fn runs_of(document: &Value) -> Vec<(String, String, String, String)> {
         let Value::Record(fields) = document else {
@@ -620,13 +654,56 @@ mod media_tests {
         (kind.into(), alt.into(), href.into(), icon.into())
     }
 
+    /// Each media run of `document`: its href, authored width and height, and dark href.
+    fn media_forms(document: &Value) -> Vec<(String, f64, f64, String)> {
+        let Value::Record(doc) = document else { panic!() };
+        let Value::List(blocks) = &doc[1] else { panic!() };
+        blocks
+            .iter()
+            .flat_map(|block| match block {
+                Value::Record(block) => match &block[7] {
+                    Value::List(runs) => runs.to_vec(),
+                    _ => Vec::new(),
+                },
+                _ => Vec::new(),
+            })
+            .filter_map(|run| match run {
+                Value::Record(run) if run[6].as_str() == Some("media") => Some((
+                    text(&run[5]),
+                    run[11].as_number().unwrap(),
+                    run[12].as_number().unwrap(),
+                    text(&run[13]),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
     #[test]
     fn an_html_image_inside_a_line_is_a_media_run_and_others_are_blocks() {
-        // The hrefs media-views.ts gives these images' chips (raw-html-images.test.ts).
+        // The hrefs media-views.ts gives these images' chips (raw-html-images.test.ts). The three top-level images
+        // after the `<div>` share one line box, as ChatMarkdown's HTML lays them out: one paragraph of media runs.
         let text = "Before <img src=\"shots/inline.png\" alt=\"inline\"> after.\n\n<div><img src=\"shots/div.png\"></div>\n\n<img src=\"javascript&colon;x\">\n\n<img src=\"shots/light.png\" data-dark-src=\"shots/dark.png\">\n\n<picture>\n<source media=\"(prefers-color-scheme: dark)\" srcset=\"shots/dark.png\">\n<img src=\"shots/light.png\">";
         let document = document(Value::str("m"), text);
         let media: Vec<_> = runs_of(&document).into_iter().filter(|run| run.2.ends_with("|media")).collect();
-        assert_eq!(media, [run("paragraph", "inline", "t3-image:t3-file:shots/inline.png|media", "")]);
+        assert_eq!(
+            media,
+            [
+                run("paragraph", "inline", "t3-image:t3-file:shots/inline.png|media", ""),
+                run("paragraph", "", "t3-image:|media", ""),
+                run("paragraph", "", "t3-image:t3-file:shots/light.png|media", ""),
+                run("paragraph", "", "t3-image:t3-file:shots/light.png|media", ""),
+            ]
+        );
+        let dark = "t3-image:t3-file:shots/dark.png".to_string();
+        assert_eq!(
+            media_forms(&document)[1..],
+            [
+                ("t3-image:".to_string(), 0.0, 0.0, String::new()),
+                ("t3-image:t3-file:shots/light.png".to_string(), 0.0, 0.0, dark.clone()),
+                ("t3-image:t3-file:shots/light.png".to_string(), 0.0, 0.0, dark),
+            ]
+        );
         let Value::Record(doc) = document else { panic!() };
         let Value::List(blocks) = &doc[1] else { panic!() };
         let images: Vec<_> = blocks
@@ -636,15 +713,44 @@ mod media_tests {
                 _ => None,
             })
             .collect();
+        assert_eq!(images, [(Value::str("t3-file:shots/div.png"), Value::str(""))]);
+    }
+
+    #[test]
+    fn an_html_image_line_keeps_its_size_link_and_align() {
+        // The layout sample (acp-standin HTML_LAYOUT_SAMPLE): images side by side, a centred paragraph of them, a linked
+        // image, and a sized image and a picture inside a line.
+        let source = "<img src=\"shots/a.png\" width=\"120\" height=\"48\" alt=\"first\">\n<img src=\"shots/b.png\" width=\"120\" height=\"48\" alt=\"second\">\n\n<img src=\"shots/c.png\" alt=\"third\">\n\nBetween the rows.\n\n<p align=\"center\">\n<img src=\"shots/a.png\" width=\"60\" height=\"24\" alt=\"centred a\">\n<img src=\"shots/b.png\" width=\"60\" height=\"24\" alt=\"centred b\">\n</p>\n\n<a href=\"https://example.com/docs\"><img src=\"shots/c.png\" width=\"80\" height=\"32\" alt=\"linked\"></a>\n\nSized: <img src=\"shots/inline.png\" width=\"16\" height=\"16\" alt=\"sized\"> and themed: <picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"shots/dark.png\"><img src=\"shots/light.png\" width=\"40\" height=\"16\" alt=\"themed\"></picture> in a line.";
+        let document = document(Value::str("m"), source);
+        let Value::Record(doc) = &document else { panic!() };
+        let Value::List(blocks) = &doc[1] else { panic!() };
+        let aligns: Vec<String> = blocks
+            .iter()
+            .map(|block| match block {
+                Value::Record(fields) => format!("{}:{}", text(&fields[1]), text(&fields[23])),
+                _ => String::new(),
+            })
+            .collect();
+        assert_eq!(aligns, ["paragraph:", "paragraph:", "paragraph:center", "paragraph:", "paragraph:"]);
+        let image = |name: &str| format!("t3-image:t3-file:shots/{name}.png");
         assert_eq!(
-            images,
+            media_forms(&document),
             [
-                (Value::str("t3-file:shots/div.png"), Value::str("")),
-                (Value::str(""), Value::str("")),
-                (Value::str("t3-file:shots/light.png"), Value::str("t3-file:shots/dark.png")),
-                (Value::str("t3-file:shots/light.png"), Value::str("t3-file:shots/dark.png")),
+                (image("a"), 120.0, 48.0, String::new()),
+                (image("b"), 120.0, 48.0, String::new()),
+                (image("c"), 0.0, 0.0, String::new()),
+                (image("a"), 60.0, 24.0, String::new()),
+                (image("b"), 60.0, 24.0, String::new()),
+                (image("c"), 80.0, 32.0, String::new()),
+                (image("inline"), 16.0, 16.0, String::new()),
+                (image("light"), 40.0, 16.0, image("dark")),
             ]
         );
+        // The linked image is the only content of its line: standalone, in its link.
+        let Value::Record(linked) = &blocks[3] else { panic!() };
+        let Value::List(runs) = &linked[7] else { panic!() };
+        let Value::Record(only) = &runs[0] else { panic!() };
+        assert_eq!((text(&only[7]), text(&only[9])), ("standalone".to_string(), "https://example.com/docs".to_string()));
     }
 
     #[test]
@@ -655,6 +761,8 @@ mod media_tests {
 <img src="fallback.png" alt="A &amp; B" width="120" height="60" onerror="alert(1)">
 </picture>
 
+Between.
+
 <img src="javascript:alert(1)" alt="blocked">"#;
         let Value::Record(doc) = document(Value::str("m"), markup) else { panic!() };
         let Value::List(blocks) = &doc[1] else { panic!() };
@@ -664,7 +772,7 @@ mod media_tests {
         assert_eq!(image[5], Value::str("t3-file:light.png"));
         assert_eq!(image[20], Value::str("t3-file:dark.png"));
         assert_eq!(&image[21..23], &[Value::Number(120.0), Value::Number(60.0)]);
-        let Value::Record(blocked) = &blocks[1] else { panic!() };
+        let Value::Record(blocked) = &blocks[2] else { panic!() };
         assert_eq!(blocked[5], Value::str(""));
         let Value::Record(user) = user_document(Value::str("u"), markup, None) else { panic!() };
         let Value::List(blocks) = &user[1] else { panic!() };

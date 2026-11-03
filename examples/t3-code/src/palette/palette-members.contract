@@ -3,6 +3,10 @@ use PaletteView, PaletteResult from "./palette.contract"
 use resolvePastedPath from "../shared/pasted-path.contract"
 members T3Code
   state paletteOpen = false
+  // Settings opened while the palette is open (the app menu's Settings…) covers it, as the reference's settings route
+  // does, until Settings closes; a palette opened over Settings is above it.
+  state paletteCovered = false
+  derive paletteShown = paletteOpen and not (settingsOpen and paletteCovered)
   state paletteMode = "command"
   state palettePage = ""
   state paletteQuery = ""
@@ -40,6 +44,7 @@ members T3Code
     let show = page != "" or not (paletteOpen and paletteMode == mode)
     let shownPage = palettePage
     paletteOpen = show
+    paletteCovered = false
     paletteMode = mode
     palettePage = page
     paletteQuery = ""

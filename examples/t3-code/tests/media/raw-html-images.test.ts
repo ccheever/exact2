@@ -11,7 +11,7 @@ const picture = `<picture>
 </picture>`;
 
 test('raw image sources use the same media loader and theme-specific preview as Markdown images', () => {
-  expect(markdownHtmlImages(picture)).toEqual([{ src: 'fallback.png', dark: 'dark.png', light: 'https://example.com/light.png', alt: 'A & B', offset: 0, inline: false }]);
+  expect(markdownHtmlImages(picture)).toEqual([{ src: 'fallback.png', dark: 'dark.png', light: 'https://example.com/light.png', alt: 'A & B', width: 120, height: 0, link: '', offset: 0, inline: false }]);
   const chips = markdownMediaChips(picture, '/repo');
   expect(chips.map(chip => [chip.href, chip.icon, chip.target])).toEqual([
     ['t3-file:fallback.png', 'environment', 'media:/repo/fallback.png'],
@@ -54,21 +54,22 @@ test('an image inside a line or an element, an open picture, references and data
     '<source media="(prefers-color-scheme: dark)" srcset="shots/dark.png">',
     '<img src="shots/light.png" alt="open picture">',
   ].join('\n');
+  // The three top-level images after the `<div>` share one line box: media runs, as markdown_media.rs's test has them.
   expect(markdownHtmlImages(text).map(image => [image.alt, image.src, image.dark, image.inline])).toEqual([
     ['inline', 'shots/inline.png', '', true],
     ['div', 'shots/div.png', '', false],
-    ['\u00a9 colon', '', '', false],
-    ['themed', 'shots/light.png', 'shots/dark.png', false],
-    ['open picture', 'shots/light.png', 'shots/dark.png', false],
+    ['\u00a9 colon', '', '', true],
+    ['themed', 'shots/light.png', 'shots/dark.png', true],
+    ['open picture', 'shots/light.png', 'shots/dark.png', true],
   ]);
   const chips = markdownMediaChips(text, '/repo');
   expect(chips.map(chip => [chip.href, chip.icon])).toEqual([
-    // The inline image's media run (markdown_media.rs inline_html_image).
+    // The media runs' hrefs (markdown_media.rs inline_html_image): a themed one's light, then dark, source.
     ['t3-image:t3-file:shots/inline.png', 'environment'],
     ['t3-file:shots/div.png', 'environment'],
-    ['', 'blocked'],
-    ['t3-file:shots/light.png', 'environment'],
-    ['t3-file:shots/dark.png', 'environment'],
+    ['t3-image:', 'blocked'],
+    ['t3-image:t3-file:shots/light.png', 'environment'],
+    ['t3-image:t3-file:shots/dark.png', 'environment'],
   ]);
   const gallery = (scheme: string) => markdownGallery({ text, root: '/repo', scope: {} }, scheme).map(image => image.key);
   expect(gallery('dark')).toEqual(['media:/repo/shots/inline.png', 'media:/repo/shots/div.png', 'media:/repo/shots/dark.png', 'media:/repo/shots/dark.png']);
@@ -76,4 +77,30 @@ test('an image inside a line or an element, an open picture, references and data
   // The end tag after a blank line closes the open picture and draws nothing; a user message keeps HTML literal.
   expect(markdownHtmlImages('<picture><img src="a.png">\n\n</picture>\n\nText <img src="b.png">').map(image => image.src)).toEqual(['a.png', 'b.png']);
   expect(markdownMediaChips(text, '/repo', { rawHtml: false })).toEqual([]);
+});
+
+// The layout sample (acp-standin HTML_LAYOUT_SAMPLE), indexed as markdown_media.rs's an_html_image_line_keeps_its_size_link_and_align draws it.
+test('images on one line box, a centred row, a linked image and sized and themed images in a line are media runs', () => {
+  const text = [
+    '<img src="shots/a.png" width="120" height="48" alt="first">\n<img src="shots/b.png" width="120" height="48" alt="second">',
+    '<img src="shots/c.png" alt="third">',
+    'Between the rows.',
+    '<p align="center">\n<img src="shots/a.png" width="60" height="24" alt="centred a">\n<img src="shots/b.png" width="60" height="24" alt="centred b">\n</p>',
+    '<a href="https://example.com/docs"><img src="shots/c.png" width="80" height="32" alt="linked"></a>',
+    '<a href="javascript:alert(1)"><img src="shots/a.png" alt="refused link"></a>',
+    'Sized: <img src="shots/inline.png" width="16" height="16" alt="sized"> and themed: <picture><source media="(prefers-color-scheme: dark)" srcset="shots/dark.png"><img src="shots/light.png" width="40" height="16" alt="themed"></picture> in a line.',
+  ].join('\n\n');
+  expect(markdownHtmlImages(text).map(image => [image.alt, image.inline, image.width, image.height, image.link])).toEqual([
+    ['first', true, 120, 48, ''], ['second', true, 120, 48, ''], ['third', true, 0, 0, ''],
+    ['centred a', true, 60, 24, ''], ['centred b', true, 60, 24, ''],
+    ['linked', true, 80, 32, 'https://example.com/docs'],
+    // A refused `href` is dropped: one image alone, unlinked, is an image block.
+    ['refused link', false, 0, 0, ''],
+    ['sized', true, 16, 16, ''], ['themed', true, 40, 16, ''],
+  ]);
+  const hrefs = markdownMediaChips(text, '/repo').map(chip => chip.href);
+  expect(hrefs).toContain('t3-image:t3-file:shots/dark.png');
+  expect(hrefs).toContain('t3-file:shots/a.png');
+  // A linked image's press is its link's: it is not one of the gallery's.
+  expect(markdownGallery({ text, root: '/repo', scope: {} }, 'light').map(image => image.name)).not.toContain('linked');
 });

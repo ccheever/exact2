@@ -9,7 +9,7 @@ import { appPath } from '../support/app-files';
 const tip = contractComponent('shell-tip.contract', 'Tip');
 /** The bubble's `shown` as the Tip's view computes it, over the Tip's state. */
 const shownExpr = /component Tip\n[\s\S]*?TipBubble\([^\n]*shown=(\(.*\))\)\n/.exec(readFileSync(appPath('shell-tip.contract'), 'utf8'))![1]!;
-const shown = (state: Record<string, unknown>) => value(shownExpr, state) as boolean;
+const shown = (state: Record<string, unknown>, keyboardLast = true) => value(shownExpr, { ...state, keyboardLast }) as boolean;
 
 describe('a tooltip and its trigger\'s focus', () => {
   test('keyboard focus shows it and leaving hides it; a press\'s focus does not, until focus leaves', () => {
@@ -28,6 +28,13 @@ describe('a tooltip and its trigger\'s focus', () => {
     tip.call('setOver', state, {}, [true]);
     tip.call('focusLeft', state, {}, [{}]);
     expect(shown(state)).toBe(true);
+  });
+  test('a focus a script moves while the last input was the pointer, or a ⌘ chord after it, does not show it', () => {
+    const state = tip.state();
+    tip.call('focusEntered', state, {}, [{}]);
+    expect(shown(state, false)).toBe(false);
+    tip.call('setOver', state, {}, [true]);
+    expect(shown(state, false)).toBe(true);
   });
   test('an unavailable picker keeps its keyboard stop (aria-disabled), so its focus can show the reason', () => {
     const picker = contractComponent('pages-pr-meta.contract', 'PrdCandidatePicker');

@@ -39,6 +39,9 @@
 //   "Show the HTML image sample"    writes four PNGs under shots/ in the session's directory and replies with raw HTML
 //                                   images (HTML_IMAGE_SAMPLE): one inside a line, one in a <div>, a refused source,
 //                                   data-dark-src and a <picture> left open
+//   "Show the HTML layout sample"   the same PNGs and more, laid out as READMEs write raw HTML (HTML_LAYOUT_SAMPLE):
+//                                   top-level images side by side, a centred paragraph of images, a linked image, and
+//                                   a sized image and a <picture> inside a line
 //   "Show the prose sample"         replies with headings, lists, inline and fenced code, a quote, a link and a rule
 //                                   (PROSE_SAMPLE), the blocks a transcript draws besides diagrams, tables and math
 //   "Hold the turn"                 streams "Holding the turn." and keeps the turn running until `install.mjs
@@ -103,8 +106,20 @@ export const HTML_IMAGE_SAMPLE = [
   "<img src=\"shots/light.png\" data-dark-src=\"shots/dark.png\" alt=\"data-dark-src\">",
   "<picture>\n<source media=\"(prefers-color-scheme: dark)\" srcset=\"shots/dark.png\">\n<img src=\"shots/light.png\" alt=\"unclosed picture\">",
 ].join("\n\n");
+/** "Show the HTML layout sample": raw HTML images as READMEs lay them out, which T3 Code's sanitizer keeps: images that
+ *  follow each other at the top level (on one line box, a blank line or not), a `<p align="center">` of images, an
+ *  `<a href>` around an image, and an authored size and a theme's source on images inside a line. */
+export const HTML_LAYOUT_SAMPLE = [
+  "<img src=\"shots/a.png\" width=\"120\" height=\"48\" alt=\"first\">\n<img src=\"shots/b.png\" width=\"120\" height=\"48\" alt=\"second\">",
+  "<img src=\"shots/c.png\" alt=\"third\">",
+  "Between the rows.",
+  "<p align=\"center\">\n<img src=\"shots/a.png\" width=\"60\" height=\"24\" alt=\"centred a\">\n<img src=\"shots/b.png\" width=\"60\" height=\"24\" alt=\"centred b\">\n</p>",
+  "<a href=\"https://example.com/docs\"><img src=\"shots/c.png\" width=\"80\" height=\"32\" alt=\"linked\"></a>",
+  "Sized: <img src=\"shots/inline.png\" width=\"16\" height=\"16\" alt=\"sized\"> and themed: <picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"shots/dark.png\"><img src=\"shots/light.png\" width=\"40\" height=\"16\" alt=\"themed\"></picture> in a line.",
+].join("\n\n");
 /** Each sample PNG: its size and its one colour. */
-export const SHOTS = { "inline.png": [32, 32, [13, 148, 136]], "div.png": [240, 96, [234, 88, 12]], "light.png": [240, 96, [253, 230, 138]], "dark.png": [240, 96, [49, 46, 129]] };
+export const SHOTS = { "inline.png": [32, 32, [13, 148, 136]], "div.png": [240, 96, [234, 88, 12]], "light.png": [240, 96, [253, 230, 138]], "dark.png": [240, 96, [49, 46, 129]],
+  "a.png": [240, 96, [37, 99, 235]], "b.png": [240, 96, [220, 38, 38]], "c.png": [320, 128, [22, 163, 74]] };
 /** A PNG of one colour (8-bit RGB, https://www.w3.org/TR/png-3/). */
 function png(width, height, rgb) {
   const chunk = (type, data) => {
@@ -251,10 +266,10 @@ if (process.argv.includes("--fixture-login")) {
         text = "Stand-in reply: the plan is above.";
       } else if (/^show the italic sample/i.test(first)) {
         text = ITALIC_SAMPLE;
-      } else if (cwd && /^show the html image sample/i.test(first)) {
+      } else if (cwd && /^show the html (image|layout) sample/i.test(first)) {
         mkdirSync(join(cwd, "shots"), { recursive: true });
         for (const [name, [width, height, rgb]] of Object.entries(SHOTS)) writeFileSync(join(cwd, "shots", name), png(width, height, rgb));
-        text = HTML_IMAGE_SAMPLE;
+        text = /^show the html image/i.test(first) ? HTML_IMAGE_SAMPLE : HTML_LAYOUT_SAMPLE;
       } else if (/^show the prose sample/i.test(first)) {
         text = PROSE_SAMPLE;
       } else if (/^which effort\?/i.test(first)) {

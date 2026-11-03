@@ -2,7 +2,7 @@
 // the pinned providers, the label shim, the offline proxy's refusal and the drive's ops. No T3
 // server starts here.
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +12,7 @@ import { makeHub, HUB_ACCOUNTS } from "./usage-hub.mjs";
 import { answer, PULL_REQUEST } from "./gh-standin.mjs";
 import { respond } from "./github-api-standin.mjs";
 import { resetDetail } from "./github-api-detail.mjs";
-import { githubCertificates, ENVIRONMENTS, HUB, LOCAL_PORT, SEEDS, STANDIN_INSTANCE, assertOfflinePortClosed, checkPort, envDir, fixturePaths, offlineEnv, run, seedRepository, seedSettings, serverEnv, setupEnvironment, standinInstance, turnCompleted, turnSeeded, welcomeWait, serverExecutable, example, withoutScratch, writeSamples } from "./lib.mjs";
+import { githubCertificates, ENVIRONMENTS, HUB, LOCAL_PORT, SEEDS, STANDIN_INSTANCE, assertOfflinePortClosed, checkPort, envDir, fixturePaths, offlineEnv, run, seedRepository, seedSettings, serverEnv, setupEnvironment, standinInstance, turnCompleted, turnSeeded, welcomeWait, serverExecutable, example, withoutScratch, writePairingUrl, writeSamples } from "./lib.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "t3-fixture-env-test-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -127,11 +127,12 @@ describe("threads with a turn (seed --turns)", () => {
     expect([turnSeeded({ hold: true }, { latestRunId: "r1", latestRunCompletedAt: null, activeRunId: "r1" }), turnSeeded({ hold: true }, { latestRunId: null, activeRunId: null })]).toEqual([true, false]);
   });
 
-  test("seed --more-turns adds a second approval, an italic answer, an HTML image answer, an answer a check follows, a skill chip and a held turn to agent-edits", () => {
+  test("seed --more-turns adds a second approval, an italic answer, two HTML image answers, an answer a check follows, a skill chip and a held turn to agent-edits", () => {
     expect(SEEDS.second.flatMap((entry) => (entry.moreTurns ?? []).map((turn) => [entry.repo, turn.title, turn.prompt, !!turn.approval, !!turn.hold]))).toEqual([
       ["agent-edits", "Second edit awaiting approval", "Ask before editing the notes", true, false],
       ["agent-edits", "Italic answer", "Show the italic sample", false, false],
       ["agent-edits", "HTML images", "Show the HTML image sample", false, false],
+      ["agent-edits", "HTML image layout", "Show the HTML layout sample", false, false],
       ["agent-edits", "Answer before a check", "Answer, then check", false, false],
       ["agent-edits", "Skill in a message", "Use $frontend-design for the page", false, false],
       ["agent-edits", "Turn held open", "Hold the turn", false, true]]);
@@ -305,6 +306,19 @@ describe("the GitHub API stand-in (seed --pull-request)", () => {
   test("a --pull-request server trusts the stand-in's CA and sends its HTTPS to the stand-in's proxy", () => {
     const built = serverEnv(paths, "second", { T3_FIXTURE_GITHUB_PORT: "16592" }, { githubApi: true });
     expect(built).toMatchObject({ HTTPS_PROXY: "http://127.0.0.1:16592", NO_PROXY: "127.0.0.1,localhost", NODE_EXTRA_CA_CERTS: join(root, "github-api", "ca.crt") });
+  });
+});
+
+describe("pair-url", () => {
+  test("writes the link for its owner only, to an absolute path; a relative or `undefined` one asks for no token", () => {
+    const file = join(root, "pair-url");
+    let asked = 0;
+    const url = () => { asked += 1; return "http://127.0.0.1:16510/pair#token=T"; };
+    expect(writePairingUrl(paths, "second", file, url)).toBe(file);
+    expect(readFileSync(file, "utf8")).toBe("http://127.0.0.1:16510/pair#token=T\n");
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    for (const bad of [undefined, "undefined/pair-url", "pair-url", `${root}/undefined/pair-url`]) expect(() => writePairingUrl(paths, "second", bad, url)).toThrow("absolute file");
+    expect(asked).toBe(1);
   });
 });
 

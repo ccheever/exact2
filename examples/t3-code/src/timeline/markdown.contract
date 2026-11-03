@@ -21,6 +21,7 @@ use heldModifiers from "../shared/press-modifiers.contract"
 use LinkMenuRow, FileLinkButton from "./link-menus.contract"
 use EditorMenuIcon from "../composer/composer-editor.contract" // a pull request chip's state glyph
 use SkillChip from "./skill-chip.contract"
+use TaskCheckbox, DiagramToggle, lineJustify from "./markdown-controls.contract"
 use ChipInk, noChipInks, inkOf, inkIn, contextRun, runAccent, chipAccent, chipIcon, chipFamily, docKind from "./markdown-chip-inks.contract"
 shape ChatRun
   id: string
@@ -38,6 +39,11 @@ shape ChatRun
   link: string
   // Inside a GFM strikethrough (`<del>`): drawn with a line through.
   strike: bool
+  // A raw HTML image's media run (markdown_media.rs inline_html_image): its authored size in px (0 when unsaid) and
+  // its dark appearance's href ("" when it has none); `href` is the light one's.
+  width: number
+  height: number
+  dark: string
   findParts: FindPart[]
 shape ChatCell
   id: string
@@ -85,6 +91,8 @@ shape ChatBlock
   dark: string // an image's `prefers-color-scheme: dark` source; `href` holds the light one (markdown-parse Html)
   width: number // an HTML image's authored size in px, 0 when unsaid
   height: number
+  // The `text-align` of a `<p align>` or `<div align>` around the block (markdown-parse Block), "" for the reader's.
+  align: string
   findParts: FindPart[]
   // A code block's find part each line starts in, then its last part (markdown_find.rs find_lines); none for one part.
   findLines: number[]
@@ -478,7 +486,7 @@ component BlockBody
       row id=(block.kind == "heading" ? headingNode(scope, block) : "") role=(block.kind == "heading" ? "heading" : "") aria-level=(block.kind == "heading" ? block.depth : 0) width=(plain and fit ? "auto" : "100%") max-width="100%" min-width=0 flex-grow=(plain and not fit ? 1 : 0) gap=(block.kind == "quote" ? "0.8rem" : "0px") padding-left=(block.kind == "item" and block.dir != "rtl" ? block.depth * 1.25 * rem : 0) padding-right=(block.kind == "item" and block.dir == "rtl" ? block.depth * 1.25 * rem : 0) box-sizing="border-box"
         if block.kind == "item"
           if block.task != ""
-            TaskCheckbox(block=block, local=local)
+            TaskCheckbox(id=block.id, task=block.task, taskOffset=block.taskOffset, local=local)
           if block.task == "" and ["•", "◦", "▪"].includes(block.marker)
             box width="1.25rem" height="1.421875rem" flex-shrink=0 position="relative"
               box position="absolute" left="0.46875rem" top="0.59375rem" width="0.3125rem" height="0.3125rem" box-sizing="border-box" border-radius=(block.marker == "▪" ? "0px" : "0.15625rem") border-width=(block.marker == "◦" ? 1 : 0) border-style="solid" border-color=prose background-color=(block.marker == "◦" ? "#00000000" : prose)
@@ -488,7 +496,7 @@ component BlockBody
         if block.kind == "quote"
           box width=2 flex-shrink=0 background-color=prose opacity=0.35
         if block.flow
-          FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=(block.kind == "heading" ? (block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14) : 14), weight=(block.kind == "heading" ? 600 : 400), source=source, scope=scope, blockId=block.id, cite=cite, ms=ms, me=me)
+          FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=(block.kind == "heading" ? (block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14) : 14), weight=(block.kind == "heading" ? 600 : 400), source=source, scope=scope, blockId=block.id, cite=cite, ms=ms, me=me, align=block.align)
         else
           text flex=1 min-width=0 id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" line-height="1.421875rem" overflow-wrap="anywhere" color=prose
             ChatRuns(runs=block.runs, size=14, weight=400, ms=ms, me=me)
@@ -506,49 +514,38 @@ component BlockBody
             ChatRuns(runs=cell.runs, size=14, weight=(block.header ? 600 : 400), ms=-1, me=-1)
     if block.kind == "table"
       MarkdownTable(block=block, scope=scope, source=source, prose=prose, fit=fit, chips=chips, urls=urls, local=local, copied=(copiedText == block.markdown or copiedText == block.csv ? copiedNonce : 0))
-    if block.kind == "image"
-      // An image line draws through its media chip (media-views.ts markdownMediaChips).
-      if chips.filter((c) => c.kind == "media" and c.href == imageHref).length > 0
-        for chip in chips.filter((c) => c.kind == "media" and c.href == imageHref) key=chip.id
-          MarkdownMedia(alt=block.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, link="", linkLabel="", favicon=false, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`, label=chip.label, menu=chip.menu, imageWidth=block.width, imageHeight=block.height)
-      else
-        image imageHref aria-label=block.text width=(block.width > 0 ? `${block.width}px` : "auto") height=(block.height > 0 ? `${block.height}px` : "auto") max-width="100%" max-height="30rem" object-fit="contain"
+    // An image line draws through its media chip (media-views.ts markdownMediaChips), placed by a `<p align>` or
+    // `<div align>` around it as `text-align` places the reference's inline-block image.
+    if block.kind == "image" and block.align == ""
+      ImageBlock(block=block, imageHref=imageHref, chips=chips, urls=urls, local=local)
+    if block.kind == "image" and block.align != ""
+      row width="100%" justify-content=lineJustify(block.align)
+        ImageBlock(block=block, imageHref=imageHref, chips=chips, urls=urls, local=local)
     if plain and not block.flow
       text width=(fit ? "auto" : "100%") max-width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" line-height="1.421875rem" overflow-wrap="anywhere" color=prose
         ChatRuns(runs=block.runs, size=14, weight=400, ms=ms, me=me)
 
-// GFM's task checkbox in place of the list marker (`li.task-list-item`:
-// list-style none, the checkbox in the 1.25rem gutter with 0.35em after it), as Electron draws an `input` checkbox on
-// macOS (13pt, 12pt tall with a 1pt shade, white or the accent blue with a white tick). In a file preview
-// (taskOffset >= 0) a press toggles the task and saves the file (RenderedMarkdownSurface onTaskListChange,
-// files-surface.ts toggleTask); elsewhere it is GFM's disabled checkbox (MarkdownInput without onTaskListChange).
-component TaskCheckbox
+// An image block's picture, through its media chip, else the image itself.
+component ImageBlock
   props
     block: ChatBlock
+    imageHref: string
+    chips: ChipView[]
+    urls: AttachmentUrl[]
     local: action
-  state hovered = false
-  action hover(over: bool)
-    hovered = over
   view
-    box width="1.11875rem" height="1.421875rem" flex-shrink=0 padding-top="0.33125rem" box-sizing="border-box"
-      if block.taskOffset >= 0
-        button press=local("surface-files-task", block.id, `${block.taskOffset}\t${block.task == "done" ? "false" : "true"}`) hover=hover role="checkbox" aria-checked=(block.task == "done") aria-label="Toggle task" testId=`task-${block.id}` width=13 height=13 padding=0 border-width=0 background-color="#00000000" cursor="default" title=""
-          TaskBox(done=(block.task == "done"), disabled=false, hovered=hovered)
-      else
-        box role="checkbox" aria-checked=(block.task == "done") aria-label="Task" testId=`task-${block.id}` width=13 height=13
-          TaskBox(done=(block.task == "done"), disabled=true, hovered=false)
+    if chips.filter((c) => c.kind == "media" and c.href == imageHref).length > 0
+      for chip in chips.filter((c) => c.kind == "media" and c.href == imageHref) key=chip.id
+        MarkdownMedia(alt=block.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, link="", linkLabel="", favicon=false, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`, label=chip.label, menu=chip.menu, imageWidth=block.width, imageHeight=block.height)
+    else
+      image imageHref aria-label=block.text width=(block.width > 0 ? `${block.width}px` : "auto") height=(block.height > 0 ? `${block.height}px` : "auto") max-width="100%" max-height="30rem" object-fit="contain"
 
-component TaskBox
-  props
-    done: bool
-    disabled: bool
-    hovered: bool
-  view
-    box width=13 height=13 position="relative" opacity=(disabled ? 0.5 : 1)
-      box position="absolute" left=0 top=0 width=13 height=12 box-sizing="border-box" border-radius=3 border-width=(done ? 0 : 1) border-style="solid" border-color=(hovered ? "light-dark(#5c5c5c, #a3a3a3)" : "light-dark(#767676, #8a8a8a)") background-color=(done ? (hovered ? "light-dark(#255fd6, #3b82f6)" : "light-dark(#3273f6, #3b82f6)") : "light-dark(#ffffff, #ffffff1f)") box-shadow="0 1px 0 light-dark(#00000026, #00000066)"
-        if done
-          box position="absolute" left=2 top=1.5 width=9 height=9
-            TimelineIcon(name="check-mark", size=9, color="#ffffff")
+// A raw HTML image's media run's href in the document's appearance: its dark source's in dark mode when it has one.
+fn mediaHref(run: ChatRun, scheme: string): string = scheme == "dark" and run.dark != "" ? run.dark : run.href
+// Whether a link holds words besides its images: only then does its favicon lead it (MarkdownAnchor's `hasText`).
+fn linkWords(runs: ChatRun[], link: string): bool = runs.filter((run) => run.kind != "media" and run.href == link and run.text.trim() != "").length > 0
+// Whether a line holds only images and the spaces between them: HTML centres each on the line (`vertical-align: middle`).
+fn imageLine(runs: ChatRun[]): bool = runs.filter((run) => run.kind == "media").length > 0 and runs.filter((run) => run.kind != "media" and run.text.trim() != "").length == 0
 
 // Inline runs in one text node (a chip's href is how its ChipView finds it, not a destination). Every link with a
 // destination is the anchor's: its press is the link's (`linkOpen`: a web link follows "Open links in", a mailto, irc or
@@ -637,6 +634,7 @@ component FlowRuns
     linkMenu: action
     fragmentJump: action
     citeHold: action
+    markdownScheme: string
   props
     runs: ChatRun[]
     size: number
@@ -656,6 +654,8 @@ component FlowRuns
     // The cited text in this block's offsets while its comment is open (-1: none).
     ms: number
     me: number
+    // The block's `text-align` (ChatBlock `align`), "" for the start.
+    align: string
   // A fragment's press is its heading's (fragmentJump); any other link's follows linkOpen.
   action open(href: string, e: MouseEvent)
     if href.startsWith("#")
@@ -669,7 +669,7 @@ component FlowRuns
     if source != ""
       citeHold()
   view
-    row flex-grow=(fit ? 0 : 1) min-width=0 width=(fit ? "auto" : "100%") max-width="100%" flex-wrap="wrap" align-items="flex-start"
+    row flex-grow=(fit ? 0 : 1) min-width=0 width=(fit ? "auto" : "100%") max-width="100%" flex-wrap="wrap" align-items=(imageLine(runs) ? "center" : "flex-start") justify-content=lineJustify(align)
       for run, index in runs key=run.id
         // A link's first run (ChatMarkdown's `<a>`): one link node per link, named with the whole link (`run.label`), on its
         // first word or code span; the link's other words and code spans follow as nodes hidden from assistive tech (their
@@ -717,9 +717,15 @@ component FlowRuns
         // media chip (media-views.ts markdownInlineImages); a surface with no media chips (a pull request's text) keeps
         // its alt text. One inside a link's text (`run.link`) sits in the link, whose press and menu are the link's; the
         // link's favicon leads it when the image starts the link.
-        if run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0
-          for chip in chips.filter((chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
-            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`, label=chip.label, menu=chip.menu, imageWidth=0, imageHeight=0)
+        if run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == mediaHref(run, markdownScheme)).length > 0
+          for chip in chips.filter((chip) => chip.kind == "media" and chip.href == mediaHref(run, markdownScheme)) key=chip.id
+            // An image of authored height in a line of prose sits on its middle (`vertical-align: middle`): its
+            // midpoint 12.84px below the 14px line's top, as the reference draws a 16px one 4.84px down.
+            if run.height > 0 and run.height < 25.68 and size == 14 and run.icon != "standalone" and not imageLine(runs)
+              box margin-top=`${12.84 - run.height / 2}px` flex-shrink=0
+                MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link) and linkWords(runs, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`, label=chip.label, menu=chip.menu, imageWidth=run.width, imageHeight=run.height)
+            else
+              MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link) and linkWords(runs, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`, label=chip.label, menu=chip.menu, imageWidth=run.width, imageHeight=run.height)
         // With no media chip (a pull request's text) an image inside a link's text is the link's word, its alt text.
         if run.kind == "media" and run.link != "" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length == 0 and webLink(run.link)
           link href=run.link press=open(run.link) contextmenu=linkMenu(run.link) contextPopover="chat-link-menu" aria-label=(run.label != "" ? run.label : run.text) cursor="pointer" text-decoration-line="none" flex-shrink=0 title=""
@@ -1299,18 +1305,6 @@ component MermaidBlock
               button press=expand(block.id, block.text) aria-label="Expand diagram" testId=`mermaid-expand-${block.id}` position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" title="" id=`mermaid-expand-${block.id}`
 
 // An icon-xs ghost-muted button: muted until hovered, then an accent fill.
-component DiagramToggle
-  props
-    label: string
-    icon: string
-    press: action
-  state hovered = false
-  action hover(over: bool)
-    hovered = over
-  view
-    button press=press hover=hover aria-label=label width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-      TimelineIcon(name=icon, size=12, color=(hovered ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"))
-
 // MarkdownCodeBlock's copy button: MorphIcon Copy ↔ Check (#123): the check from a copy until
 // the root clears it 1.2 s later (codeCopyDone, app.contract), both ways on morphicons' spring (shell-morph.contract).
 component CopyCodeButton
@@ -1440,7 +1434,7 @@ component CellRuns
           ContextChipBox(run=run, color=color)
         if not run.mono and run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0
           for chip in chips.filter((chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
-            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=false, link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${nodePrefix}-${run.id}`, label=chip.label, menu=chip.menu, imageWidth=0, imageHeight=0)
+            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=false, link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link) and linkWords(runs, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${nodePrefix}-${run.id}`, label=chip.label, menu=chip.menu, imageWidth=0, imageHeight=0)
         if not run.mono and run.kind != "file" and not contextRun(run.kind) and not (run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0)
           text min-width=0 font-size="0.875rem" line-height=1.625 white-space=(nowrap ? "pre" : "pre-wrap") font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color=color
             FindParts(parts=run.findParts)
