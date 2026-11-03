@@ -864,6 +864,23 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertEqual(T.window(t, nominal: 0.5, source: source), "Last 1.0s")
         let exact = T.figures(t, rates: none, adaptiveSync: false)
         XCTAssertEqual([exact.fps, exact.frames, exact.mainLongest, exact.mainLong], ["—", "—", "—", "—"])
+        // The screen's work chart has a gridline at each whole refresh at the display's highest rate, the first dotted,
+        // and draws no deadline
+        let area = CGRect(x: 12, y: 206, width: 296, height: 200)
+        let work = FrameHealthCardDrawing.plots(area, .init(reader: FrameHealthCardReader(), rates: none, displayMaximumHz: 120, screen: true),
+            expanded: nil)[1].plot
+        XCTAssertEqual(work.labels.map(\.0), ["", "8.3", "16.7", "25", "33.3ms"])
+        for (label, refreshes) in zip(work.labels, 0...4) {
+            XCTAssertEqual(label.1, Double(refreshes) * 1000 / 120, accuracy: 1e-9, "whole refreshes at 120 Hz")
+        }
+        XCTAssertEqual(work.labels.map(\.2), [.axis, .dotted, .grid, .grid, .grid])
+        XCTAssertFalse(work.deadlines)
+        // Exact's frame-time chart has its gridlines at whole refreshes too, plain, as it draws each frame's deadline
+        let frames = FrameHealthCardDrawing.plots(area, .init(reader: FrameHealthCardReader(), rates: none, displayMaximumHz: 120),
+            expanded: nil)[1].plot
+        XCTAssertEqual(frames.labels.map(\.0), ["", "8.3", "16.7", "25", "33.3ms"])
+        XCTAssertEqual(frames.labels.map(\.2), [.axis, .grid, .grid, .grid, .grid])
+        XCTAssertTrue(frames.deadlines, "Exact's frame-time chart draws each frame's deadline")
     }
 
     func testTheScreensFrameRateIsItsFramesOfTheLastHalfSecondAndFallsAsTheyLeave() {

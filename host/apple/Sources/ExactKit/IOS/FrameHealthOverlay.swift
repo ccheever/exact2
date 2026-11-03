@@ -19,6 +19,11 @@ final class FrameHealthOverlay: UIView {
     /// The corner the card rests in, and its spring there after a drag
     private var corner = FrameHealthCardFace.Corner()
     private var snap: UIViewPropertyAnimator?
+    /// While the card follows a finger or springs to its corner, the `UIUpdateLink` that states the display's highest
+    /// rates as its preferred range
+    private var motion: AnyObject?
+    /// Whether it asks for the display's highest rates now
+    var movesFast: Bool { motion != nil }
     /// Paused, the card shows what it read at the pause, and goes on measuring
     private var paused = false
     /// While paused, what the card shows: copies of its readers, and the request, display and source they were read under
@@ -44,12 +49,13 @@ final class FrameHealthOverlay: UIView {
         backgroundColor = .clear
         isHidden = true
         addSubview(card)
-        card.grabbed = { [weak self] in self?.stopSnap() }
+        card.grabbed = { [weak self] in self?.stopSnap(); self?.fast(true) }
         card.moved = { [weak self] origin in self?.asCard { self?.move(to: origin) } }
         card.released = { [weak self] velocity in
             guard let self else { return }
             self.health?.hudDragging = false
             if let velocity { settle(velocity: velocity); render() } else { rest() }
+            if snap == nil { fast(false) }
         }
         card.activate = { [weak self] control in self?.asCard { self?.activate(control) } }
         card.chart.moved = { [weak self] took in self?.moved(took: took) }
@@ -192,6 +198,7 @@ final class FrameHealthOverlay: UIView {
 
     /// Stop reading and release the history, as the card hides; it shows again unpaused, from a fresh baseline.
     private func stopReading() {
+        fast(false)
         screen?.stop()
         screen?.health.changed = nil
         screen?.health.setHUDVisible(false)
@@ -436,10 +443,25 @@ final class FrameHealthOverlay: UIView {
         let animator = UIViewPropertyAnimator(duration: 0.5, timingParameters: UISpringTimingParameters(mass: 1,
             stiffness: spring.stiffness, damping: spring.damping, initialVelocity: initial))
         animator.addAnimations { self.card.frame.origin = target }
-        animator.addCompletion { [weak self] _ in self?.snap = nil; self?.setNeedsLayout() }
+        animator.addCompletion { [weak self] _ in self?.snap = nil; self?.fast(false); self?.setNeedsLayout() }
         snap = animator
         animator.startAnimation()
         health?.hudBounds = window.map { convert(CGRect(origin: target, size: card.frame.size), to: $0) }
+    }
+
+    /// Ask for the display's highest rates while the card moves, as Apple asks of an object moving fast across the screen:
+    /// without, iOS moves a view a finger drags at its default rate, 60 Hz on a ProMotion iPhone. The link only states the
+    /// range, which `UIUpdateLink.h` says expresses the intention without forcing updates, so the touches still make the
+    /// drag's updates, and a finger held still makes none.
+    private func fast(_ on: Bool) {
+        guard #available(iOS 18.0, *) else { return }
+        (motion as? UIUpdateLink)?.isEnabled = false
+        motion = nil
+        guard on, let screen = window?.windowScene?.screen else { return }
+        let link = UIUpdateLink(view: self), highest = Float(screen.maximumFramesPerSecond)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: min(80, highest), maximum: highest, preferred: highest)
+        link.isEnabled = true
+        motion = link
     }
 
     /// A press stops the spring where the card is drawn.

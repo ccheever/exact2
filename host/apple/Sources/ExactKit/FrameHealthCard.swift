@@ -454,7 +454,7 @@ enum FrameHealthCardText {
         ("Exact's clock", "What Exact's own frame clock does beside these frames: idle, at the default rate, or at the rate it asks for, with any system limit. Details gives its frames."),
         ("Displays", "Fixed refresh redraws the screen at one rate. Adaptive refresh, which ProMotion uses, has the system choose the rate from a set to suit the content; frames still land on the display's refreshes."),
         ("Late frames", "Frames whose changes reached the render server after UIKit's completion deadline, so they appear at least one refresh later than UIKit expected: commit hitches, in Apple's words. Hitches the render server causes are not seen from the app."),
-        ("Work time", "From the start of a frame's update until its changes reached the render server, against its own deadline, dotted in the work chart. The card records work time in 0.5ms steps below 24ms, and the table rounds the median up to its step."),
+        ("Work time", "From the start of a frame's update until its changes reached the render server. The work chart has a gridline at each whole refresh at the display's highest rate, 8.3ms, 16.7ms, 25ms and 33.3ms at 120 Hz, the first dotted: to keep that rate, a frame's work must stay under one refresh, though UIKit's deadline for each frame comes later, as the render server draws it after. The card records work time in 0.5ms steps below 24ms, and the table rounds the median up to its step."),
         ("Late by", "How far past UIKit's deadline the median late frame's changes reached the render server."),
         ("Main thread", "The main thread's longest spell of work without waiting, and the spells longer than one refresh at the display's highest rate, which would hold up a frame due then, whether or not anything moves. The work chart plots each long spell against that refresh. The card's own work is not counted."),
         ("No frame times", "The card does not give the time between frames: it observes updates without asking for any, and cannot tell a refresh the app had nothing to draw for, such as between two taps, from one it missed. Frames held up by work show as the main thread's long spells."),
@@ -552,7 +552,7 @@ struct FrameHealthCardPresentation {
             : rates.requestedHz > 0 ? "\(Int(rates.requestedHz.rounded())) requested" : "none requested"
         rateSummary = "Frame rate over the last 30 seconds: \(self.rows[0].1) FPS in the newest sample, \(self.rows[1].1) over the \(pacingWindow), \(request)."
         timeSummary = source.screen
-            ? "Work over the last 30 seconds: each frame's against its deadline, and the main thread's long spells against one refresh. "
+            ? "Work over the last 30 seconds, each frame's and the main thread's long spells, against whole refreshes at the display's highest rate. "
                 + "Over the \(pacingWindow), the slowest frame's work was \(figures[0].maxWork), the main thread's longest spell "
                 + "\(figures[0].mainLongest), with \(figures[0].mainLong) over one refresh, and \(figures[0].late) frames were late."
             : "Frame time over the last 30 seconds. \([pacing.0, pacing.1].filter { !$0.isEmpty }.joined(separator: ", ")). "

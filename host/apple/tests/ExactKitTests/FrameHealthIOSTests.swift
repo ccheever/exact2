@@ -465,11 +465,18 @@ final class FrameHealthIOSTests: XCTestCase {
         overlay.setVisible(true)
         overlay.layoutIfNeeded()
         XCTAssertEqual(overlay.card.frame.origin, CGPoint(x: 8, y: 8), "a new card rests in the top-left corner, past the safe area")
+        // Held and dragged, the card asks for the display's highest rates
+        overlay.card.grabbed?()
+        if #available(iOS 18.0, *) { XCTAssertTrue(overlay.movesFast) }
         overlay.card.moved?(CGPoint(x: -92, y: 8))
         XCTAssertLessThan(overlay.card.frame.minX, 8, "a drag carries the card past the edge")
         XCTAssertGreaterThan(overlay.card.frame.minX, -92, "but not as far as the press")
         overlay.card.released?(.zero)
         XCTAssertEqual(overlay.card.frame.origin, CGPoint(x: 8, y: 8), "on release it springs back to its corner")
+        if #available(iOS 18.0, *) { XCTAssertTrue(overlay.movesFast, "and asks for them as it springs") }
+        let limit = Date(timeIntervalSinceNow: 10)
+        while overlay.movesFast, Date() < limit { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
+        XCTAssertFalse(overlay.movesFast, "and no longer once the spring settles")
         if #available(iOS 26.0, *) {
             // In a corner of a rounded screen the card's corner follows the screen's (54 points on an iPhone 18
             // Pro); a square screen corner, as the folded iPhone Duo's top-left, leaves the minimum

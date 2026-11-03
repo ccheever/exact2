@@ -64,7 +64,7 @@ enum FrameHealthCardDrawing {
         var rates: FrameHealthCardText.Rates
         /// The frame-rate chart's top: the requested rate, or the display's maximum without one
         var rateTop: Double
-        /// The frame-time chart's top: twice the target frame time
+        /// The time chart's top, four whole refreshes or a multiple of four that reaches twice the target frame time
         var timeTop: Double
         /// The charts show the screen's frames, which have work against their deadlines and no frame times (LLP 1079.000
         /// §7.4)
@@ -74,15 +74,16 @@ enum FrameHealthCardDrawing {
             self.rates = rates
             self.screen = screen
             rateTop = rates.requestedHz > 0 ? rates.requestedHz : displayMaximumHz > 0 ? displayMaximumHz : 60
+            // The time chart's four gridlines fall a refresh apart at the chart's rate, or as many refreshes apart as
+            // let the top reach twice the target frame time: one refresh for the screen, and for Exact's frames what
+            // the app requests or, when it runs slower, its 30-second mean frame time in whole refreshes
+            let refresh = 1000 / rateTop
+            guard !screen else { timeTop = 4 * refresh; return }
             let thirty = reader.window(30)
-            // The screen's work chart reaches twice one refresh, or twice the longest budget it has seen
-            guard !screen else { timeTop = 2 * max(1000 / rateTop, thirty.budget); return }
-            // The target is what the app requests or, when it runs slower, its 30-second mean frame
-            // time in whole refreshes; a frame twice as long reaches the top
-            let period = rates.periodMs > 0 ? rates.periodMs : 1000 / rateTop
+            let period = rates.periodMs > 0 ? rates.periodMs : refresh
             let mean = thirty.frames == 0 ? 0 : Double(thirty.counts.activeNs) / Double(thirty.frames) / 1e6
             let average = mean == 0 ? 0 : max(1, (mean / period).rounded()) * period
-            timeTop = 2 * max(1000 / rateTop, average)
+            timeTop = 4 * refresh * max(1, (2 * max(refresh, average) / (4 * refresh)).rounded(.up))
         }
     }
 
@@ -109,8 +110,8 @@ enum FrameHealthCardDrawing {
                 text(ctx, "FPS (last 30s)", x: area.maxX, y: area.minY + 7, labelFont, palette.secondary, .right)
             } else {
                 var x = area.maxX
-                for (name, color, dotted) in [("deadline", palette.secondary, true), ("work", palette.orange, false),
-                                              ("frame", palette.blue, false)].prefix(input.screen ? 2 : 3) {
+                for (name, color, dotted) in input.screen ? [("one refresh", palette.secondary, true), ("work", palette.orange, false)]
+                    : [("deadline", palette.secondary, true), ("work", palette.orange, false), ("frame", palette.blue, false)] {
                     x -= width(name, labelFont)
                     text(ctx, name, x: x, y: area.minY + 7, labelFont, palette.secondary, .left)
                     stroke(ctx, from: CGPoint(x: x - 16, y: area.minY + 7.5), to: CGPoint(x: x - 4, y: area.minY + 7.5),
@@ -129,9 +130,9 @@ enum FrameHealthCardDrawing {
     }
 
     /// Each shown chart with the area it fills and its plot. The frame-rate chart runs from 0 to the
-    /// request, its top dotted as the target, so an app on target draws along the top; the frame-time
-    /// chart runs to twice the target frame time, its 0 ms rule unlabelled so it does not crowd the
-    /// time labels under it. Value labels sit in a gutter sized to them.
+    /// request, its top dotted as the target, so an app on target draws along the top; the time chart
+    /// has its gridlines at whole refreshes, its 0 ms rule unlabelled so it does not crowd the time
+    /// labels under it. Value labels sit in a gutter sized to them.
     static func plots(_ rect: CGRect, _ input: Input, expanded: Int?) -> [(chart: Int, area: CGRect, plot: Plot)] {
         let areas: [(Int, CGRect)] = expanded.map { [($0, rect)] } ?? [
             (0, CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: 80)),
@@ -139,9 +140,12 @@ enum FrameHealthCardDrawing {
         return areas.map { chart, area in
             let top = chart == 0 ? input.rateTop : input.timeTop, parts = chart == 1 || expanded != nil ? 4 : 2
             let labels = (0...parts).map { i -> (String, Double, Rule) in
+                // The time chart's gridlines are whole refreshes. The screen's first is dotted, as work longer than one
+                // cannot keep that rate; Exact's frames draw their own deadlines dotted instead.
                 if chart == 1 {
-                    let value = top * Double(i) / 4
-                    return (i == 0 ? "" : String(format: "%.1f", value) + (i == 4 ? "ms" : ""), value, i == 0 ? .axis : .grid)
+                    let value = top * Double(i) / 4, whole = abs(value - value.rounded()) < 0.05
+                    let text = i == 0 ? "" : (whole ? String(Int(value.rounded())) : String(format: "%.1f", value)) + (i == 4 ? "ms" : "")
+                    return (text, value, i == 0 ? .axis : i == 1 && input.screen ? .dotted : .grid)
                 }
                 let value = top * Double(parts - i) / Double(parts)
                 let text = value == value.rounded() ? String(Int(value)) : String(format: "%.1f", value)
@@ -149,7 +153,7 @@ enum FrameHealthCardDrawing {
             }
             let gutter = ceil(labels.map { width($0.0, labelFont) }.max() ?? 0) + 6
             let plot = Plot(left: area.minX + gutter, right: area.maxX - 2, top: area.minY + 22,
-                bottom: area.maxY - (chart == 0 ? 6 : 14), maximum: top > 0 ? top : 1, now: 0, labels: labels)
+                bottom: area.maxY - (chart == 0 ? 6 : 14), maximum: top > 0 ? top : 1, now: 0, labels: labels, deadlines: !input.screen)
             return (chart, area, plot)
         }
     }
@@ -193,7 +197,7 @@ enum FrameHealthCardDrawing {
         }
         guard chart == 0 else {
             // Work draws last, so where both reach one height the cause stays visible
-            steps(ctx, plot, shown, { $0.budget }, palette.secondary, dotted: true)
+            if plot.deadlines { steps(ctx, plot, shown, { $0.budget }, palette.secondary, dotted: true) }
             steps(ctx, plot, shown, { $0.frame }, palette.blue)
             steps(ctx, plot, shown, { $0.budget > 0 ? $0.work : 0 }, palette.orange)
             return
@@ -223,6 +227,9 @@ enum FrameHealthCardDrawing {
         var now: Double
         /// Each value label, its value and the rule drawn at it
         var labels: [(String, Double, Rule)]
+        /// The frame-time chart draws each frame's deadline, dotted; the screen's work chart has a gridline at each whole
+        /// refresh instead
+        var deadlines = true
         func y(_ value: Double) -> CGFloat { bottom - CGFloat(min(value, maximum) / maximum) * (bottom - top) }
         /// Thirty seconds across the plot, `now` at its right edge
         func x(_ at: Double) -> CGFloat { right - CGFloat((now - at) / 30) * (right - left) }
