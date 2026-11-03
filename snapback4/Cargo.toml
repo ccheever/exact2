@@ -9,12 +9,12 @@ edition = "2021"
 version = "0.1.0"
 license = "MIT"
 
-# Snapback4 0.4.33 release source: 3653cae823145170df3e720f5e321bd1b5b4d79d.
-# Match the published CLI and browser device, without a mutable sibling checkout.
+# Snapback4 0.4.52 progressive-acquisition source: 13f30b2fbc7875588cb541b7c2bbbe8c3c90d84f.
+# This revision includes progressive-acquisition-v1; the npm 0.4.52 release predates it.
 [workspace.dependencies]
-snapback4-core = { git = "https://github.com/expo/snapback.git", rev = "3653cae823145170df3e720f5e321bd1b5b4d79d", version = "=0.4.33", default-features = false }
-snapback4-device = { git = "https://github.com/expo/snapback.git", rev = "3653cae823145170df3e720f5e321bd1b5b4d79d", version = "=0.4.33", default-features = false }
-snapback4-lang = { git = "https://github.com/expo/snapback.git", rev = "3653cae823145170df3e720f5e321bd1b5b4d79d", version = "=0.4.33" }
+snapback4-core = { git = "https://github.com/expo/snapback.git", rev = "13f30b2fbc7875588cb541b7c2bbbe8c3c90d84f", version = "=0.4.52", default-features = false }
+snapback4-device = { git = "https://github.com/expo/snapback.git", rev = "13f30b2fbc7875588cb541b7c2bbbe8c3c90d84f", version = "=0.4.52", default-features = false }
+snapback4-lang = { git = "https://github.com/expo/snapback.git", rev = "13f30b2fbc7875588cb541b7c2bbbe8c3c90d84f", version = "=0.4.52" }
 
 [patch.crates-io]
 taffy = { path = "../vendor/taffy" }
