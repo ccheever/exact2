@@ -509,6 +509,37 @@ final class IframeCaptureTests: XCTestCase {
     }
 
     #if os(macOS)
+    /// A frame under the opaque titlebar of a full-size-content window with
+    /// a toolbar, as an app's top-right panel is, fills its box: WebKit's
+    /// automatic content insets would lay the page out below the titlebar
+    /// and draw a strip over it (LLP 1020 D1).
+    func testAFrameUnderTheTitlebarFillsItsBox() throws {
+        guard #available(macOS 26.0, *) else { throw XCTSkip("n/a: before macOS 26 no public API ends WebKit's automatic insets") }
+        let arm = try arm(), seen = Seen()
+        let handle = arm.create(9, Unmanaged.passUnretained(seen).toOpaque(), Self.event, Self.reply)!
+        defer { arm.destroy(handle) }
+        json(["partition": "memory-titlebar"], arm.configure, handle)
+        let web = try XCTUnwrap(Unmanaged<AnyObject>.fromOpaque(arm.view(handle)!).takeUnretainedValue() as? WKWebView)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.toolbar = NSToolbar(identifier: "frame-under-titlebar")
+        windows.append(window)
+        web.frame = window.contentView!.bounds
+        window.contentView!.addSubview(web)
+        window.orderFrontRegardless()
+        XCTAssertGreaterThan(window.frame.height - window.contentLayoutRect.height, 0, "the titlebar covers the frame's top")
+        send("\(baseURL)/target", arm.setSrc, handle)
+        spin { seen.loads > 0 }
+        pause(0.5)
+        var height: Int?
+        spin(until: {
+            web.evaluateJavaScript("innerHeight") { value, _ in height = value as? Int }
+            return height != nil
+        })
+        XCTAssertEqual(web.obscuredContentInsets.top, 0)
+        XCTAssertEqual(height, Int(web.bounds.height), "the page's viewport is the whole frame")
+    }
+
     /// What the arm owns that a hatch changed, said by name in a development build (RFC §9).
     func testAChangedDelegateIsSaidByName() throws {
         let arm = try arm(), seen = Seen()
@@ -604,6 +635,11 @@ final class IframeCaptureTests: XCTestCase {
         XCTAssertFalse(view(hatched).configuration.preferences.javaScriptCanOpenWindowsAutomatically, "the arm's unsaid preferences on its own copy")
         XCTAssertTrue(view(hatched).configuration.preferences.isElementFullscreenEnabled)
         XCTAssertEqual(view(scheduled).configuration.preferences.inactiveSchedulingPolicy, .none)
+        // Read through WebKit's private keys, which the arm no longer sets:
+        // `none` leaves a hidden page's timer clamp as WebKit has it.
+        for key in ["hiddenPageDOMTimerThrottlingEnabled", "hiddenPageDOMTimerThrottlingAutoIncreases", "pageVisibilityBasedProcessSuppressionEnabled"] {
+            XCTAssertEqual(view(scheduled).configuration.preferences.value(forKey: key) as? Bool, view(plain).configuration.preferences.value(forKey: key) as? Bool, key)
+        }
         XCTAssertEqual(view(plain).configuration.preferences.inactiveSchedulingPolicy, .suspend, "WebKit's default stays every other frame's")
         XCTAssertTrue(view(plain).configuration.preferences === view(other).configuration.preferences, "unhatched frames share the template's")
     }

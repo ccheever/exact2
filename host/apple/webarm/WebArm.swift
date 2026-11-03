@@ -8,12 +8,27 @@ import WebKit
 import AppKit
 typealias PlatformImage = NSImage
 typealias PlatformView = NSView
-/// WKWebView in a `fullSizeContentView` window otherwise inherits the
-/// titlebar as a safe area and insets the guest by it — a black strip the
-/// height of the titlebar over the deck. The kernel already framed this
-/// box; the page fills it. @ref LLP 1020 D1
+/// The kernel already framed this box; the page fills it (@ref LLP 1020 D1).
+/// Under the titlebar of a `fullSizeContentView` window whose titlebar is not
+/// transparent, WKWebView otherwise insets the guest by the part of the
+/// titlebar over it, a strip of `underPageBackgroundColor` over the frame:
+/// WebKit's automatic content insets (`computeAutomaticTopObscuredInset` in
+/// WebKit's `PageClientImplMac.mm`), and its safe area.
 final class ExactWebView: WKWebView {
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
+    override init(frame: NSRect, configuration: WKWebViewConfiguration) {
+        super.init(frame: frame, configuration: configuration)
+        // Setting `obscuredContentInsets` (macOS 26) turns WebKit's automatic
+        // insets off for good (`-[WKWebView setObscuredContentInsets:]`), but
+        // the setter ignores a value equal to the current one, so it is set
+        // away from zero first. Before macOS 26 nothing public turns them
+        // off, and a frame under such a titlebar keeps the strip.
+        if #available(macOS 26.0, *) {
+            obscuredContentInsets = NSEdgeInsets(top: 1, left: 0, bottom: 0, right: 0)
+            obscuredContentInsets = NSEdgeInsetsZero
+        }
+    }
+    required init?(coder: NSCoder) { super.init(coder: coder) }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         pinInsets()
@@ -62,7 +77,6 @@ final class ExactWebView: WKWebView {
         pinInsets()
     }
     func pinInsets() {
-        setValue(false, forKey: "automaticallyAdjustsContentInsets")
         func walk(_ v: NSView) {
             if let s = v as? NSScrollView {
                 if s.automaticallyAdjustsContentInsets { s.automaticallyAdjustsContentInsets = false }
@@ -358,21 +372,11 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     }()
     /// Unsaid, as Safari has them (@ref LLP 1020.002 D1, D5): a scripted
     /// window needs a person's gesture, and a page's `requestFullscreen()`
-    /// takes the screen. A frame that says `inactiveSchedulingPolicy` `none`
-    /// also has a hidden page's timers unclamped (@ref LLP 1020.002 §9):
-    /// WebKit holds them to about one a second whatever the public policy,
-    /// with no public switch, so this sets the private
-    /// `WKPreferencesPrivate.h` keys, under the ruling DevTools' `_inspector`
-    /// has (D11). The page reads them as it is made, so a policy said later
-    /// waits for the next web view; a WebKit without them is left as it is.
-    static func preferences(policy: String? = nil) -> WKPreferences {
+    /// takes the screen.
+    static func preferences() -> WKPreferences {
         let preferences = WKPreferences()
         preferences.javaScriptCanOpenWindowsAutomatically = false
         preferences.isElementFullscreenEnabled = true
-        for key in ["HiddenPageDOMTimerThrottlingEnabled", "HiddenPageDOMTimerThrottlingAutoIncreases", "PageVisibilityBasedProcessSuppressionEnabled"]
-        where policy == "none" && preferences.responds(to: NSSelectorFromString("_set\(key):")) {
-            preferences.setValue(false, forKey: key.prefix(1).lowercased() + key.dropFirst())
-        }
         return preferences
     }
     var wrapperURL: URL
@@ -427,7 +431,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         // hatch may write on them, or that says its own scheduling policy,
         // has its own, so no other frame's change.
         if hatched || options["inactiveSchedulingPolicy"] != nil {
-            configuration.preferences = WebArm.preferences(policy: options["inactiveSchedulingPolicy"] as? String)
+            configuration.preferences = WebArm.preferences()
             configuration.defaultWebpagePreferences = WKWebpagePreferences()
         }
         configuration.userContentController = controller
@@ -463,11 +467,11 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         #else
         let webView = WKWebView(frame: .zero, configuration: configuration)
         #endif
-        // The guest is a leaf the kernel already framed. WKWebView's default
-        // is to inset itself for the titlebar / safe area, which leaves a
-        // black strip of `underPageBackgroundColor` over the top of the
-        // deck and over siblings (the account mark). Off: the iframe fills
-        // the node's box (@ref LLP 1020 D1).
+        // A page that draws no background shows the node under it, as an
+        // iframe's does on the web (@ref LLP 1020 D1). On macOS only the
+        // private `drawsBackground` gives that: `underPageBackgroundColor`,
+        // an `isOpaque` override and the view's layer leave WebKit's white
+        // page background (measured on macOS 27.2).
         #if os(macOS)
         webView.setValue(false, forKey: "drawsBackground")
         if #available(macOS 12.0, *) { webView.underPageBackgroundColor = .clear }
@@ -489,7 +493,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = Partitions.store(partition!, agent: agent, app: app, session: session)
         configuration.userContentController = controller
-        let preferences = WebArm.preferences(policy: options["inactiveSchedulingPolicy"] as? String)
+        let preferences = WebArm.preferences()
         if #available(macOS 14.0, iOS 17.0, *) { preferences.inactiveSchedulingPolicy = .throttle }
         configuration.preferences = preferences
         #if os(iOS)
@@ -533,7 +537,9 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         if said("allowsMagnification") { web.allowsMagnification = options["allowsMagnification"] as? Bool ?? false }
         #endif
         // Never on the template's shared preferences: a policy said after the
-        // web view was made with them waits for its next one.
+        // web view was made with them waits for its next one. No policy lifts
+        // WebKit's clamp of a hidden page's timers to about one a second, and
+        // nothing public does (@ref LLP 1020.002 §9).
         if #available(macOS 14.0, iOS 17.0, *), said("inactiveSchedulingPolicy"), web.configuration.preferences !== WebArm.template.preferences {
             switch options["inactiveSchedulingPolicy"] as? String {
             case "suspend": web.configuration.preferences.inactiveSchedulingPolicy = .suspend

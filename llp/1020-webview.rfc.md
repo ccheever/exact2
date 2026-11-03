@@ -629,3 +629,25 @@ It excludes structured-clone expansion, a permission broker, a navigation contro
 and an app-owned native bridge. Linux refuses iframe-tagged posts explicitly and keeps
 its existing canvas protocol. The focused compiler/browser tests and native fixture are
 `post_message.rs`, `frame-messages.test.mjs` and `IframePostMessageTests.swift`.
+
+## 12. The guest's box on macOS with public API (2026-11-03)
+
+Under Daehyeon Mun's ruling of 2026-11-03 that no private API ships in app
+code. A frame fills its node's box (D1). Under the titlebar of a
+`fullSizeContentView` window whose titlebar is not transparent (a window
+with a toolbar or a sidebar), WebKit insets the page by the part of the
+titlebar over it and draws a strip of `underPageBackgroundColor` there
+(`computeAutomaticTopObscuredInset`, WebKit's `PageClientImplMac.mm`).
+Setting `WKWebView.obscuredContentInsets` (macOS 26) ends those automatic
+insets, so the arm sets it to zero as it makes the view
+(`IframeCaptureTests.testAFrameUnderTheTitlebarFillsItsBox`). Before
+macOS 26 nothing public ends them: there, a frame that reaches under such a
+titlebar keeps the strip, the height of the overlap, and its page's
+viewport is shorter by as much. Frames below the titlebar, and every frame
+in a window whose titlebar is transparent, are not affected.
+
+A page that draws no background shows the node under it, as an iframe's
+does on the web. On macOS only WKWebView's private `drawsBackground` gives
+that; `underPageBackgroundColor`, an `isOpaque` override and the view's
+layer leave WebKit's white page background (macOS 27.2). The arm still
+sets it, awaiting a ruling: without it every such frame turns opaque.
