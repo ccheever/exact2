@@ -24,7 +24,12 @@ test('the midi group names what a request finds and the ports by name (LLP 1125 
 test('an unknown fact or a value it does not take is refused naming what is expected', () => {
   for (const facts of [{ 'prefers-color-scheme': 'banana' }, { theme: 'dark' }, { 'has-focus': undefined }]) expect(() => preferGroups(facts)).toThrow(MalformedOperation);
   expect(() => preferGroups({ 'color-scheme': 'blue' })).toThrow(/^prefer: prefers-color-scheme blue: expected .*prefers-color-scheme dark\|light/);
-  expect(() => preferGroups({ theme: 'dark' })).toThrow(/^prefer: theme dark: expected /);
+  expect(() => preferGroups({ banana: 'split' })).toThrow(/^prefer: banana split: expected display-mode /);
+  // A value written as the fact names the fact that takes it (`prefer dark` listed every fact).
+  expect(() => preferGroups({ theme: 'dark' })).toThrow(/^prefer: theme dark: did you mean `prefer prefers-color-scheme dark`\? expected /);
+  expect(() => preferGroups({ dark: undefined })).toThrow(/^prefer: dark: did you mean `prefer prefers-color-scheme dark`\? expected /);
+  expect(() => preferGroups({ reduce: undefined })).toThrow(/^prefer: reduce: did you mean `prefer prefers-reduced-motion reduce` or `prefer prefers-reduced-transparency reduce`\? /);
+  expect(() => preferGroups({ true: undefined })).toThrow(/^prefer: true: expected /); // too many facts take it to name
   expect(() => preferGroups({ gap: '4' })).toThrow('prefer: gap needs segments');
 });
 

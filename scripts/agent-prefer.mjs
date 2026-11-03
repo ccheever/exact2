@@ -46,7 +46,11 @@ export function preferGroups(facts) {
     }
     else if (name === 'gap' && Number(value) >= 0 && Number.isFinite(Number(value))) fold.gap = Number(value);
     else if (name === 'mode' && /^[\w.-]+=[\w.-]+([ ,]+[\w.-]+=[\w.-]+)*$/.test(String(value))) for (const pin of String(value).split(/[ ,]+/)) { const [axis, v] = pin.split('='); mode[axis] = v; }
-    else throw new MalformedOperation(`prefer: ${name} ${value}: expected ${expected()}`);
+    else {
+      // A value written as the fact (`prefer dark`, `prefer theme dark`) names the facts that take it, when three or fewer do.
+      const near = Object.hasOwn(all, name) ? [] : [given, value].flatMap(w => Object.keys(all).filter(k => all[k].includes(String(w))).map(k => `\`prefer ${k} ${w}\``));
+      throw new MalformedOperation(`prefer: ${name}${value === undefined ? '' : ` ${value}`}: ${near.length && near.length <= 3 ? `did you mean ${near.join(' or ')}? ` : ''}expected ${expected()}`);
+    }
   }
   if (fold.gap != null && fold.cols == null) throw new MalformedOperation('prefer: gap needs segments <cols>x<rows>');
   return { media, page, fold, mode, midi, extension };
