@@ -443,7 +443,7 @@ component MobileRouteContent
         else if routeName == "threadBrowser" and focused
           MobileBrowser(data=browserData, colors=previewLook, active=true, action=browserAction, menuConfiguration=browserMenus.options, menuEvent=browserMenu, addressFontSize=settingsAppearance.roles.footnote.size, addressLineHeight=settingsAppearance.roles.footnote.line)
         else if routeName == "threadDevices" and focused
-          MobileDevices(data=devicesData, colors=previewLook, active=true, safeAreaTop=layout.safeTop, action=devicesAction, close=back, menuConfiguration=devicesMenus.options, menuEvent=devicesMenu)
+          MobileDevices(data=devicesData, colors=previewLook, dark=(appearance.scheme == "dark"), reducedMotion=viewport.prefersReducedMotion, active=true, safeAreaTop=layout.safeTop, action=devicesAction, close=back, menuConfiguration=devicesMenus.options, menuEvent=devicesMenu)
         else if routeName == "threadTerminal"
           if focused
             MobileTerminal(mountReady=terminalMountReady, data=terminalData, event=terminalEvent, action=terminalAction)
