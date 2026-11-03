@@ -104,10 +104,14 @@ const availableArea = (container: PreviewMiniPlayerSize, obstacles: PreviewMiniP
  * aspect ratio so the webview fills the box without letterboxing. The player
  * may upscale the source, and a tight container wins over the minimum.
  */
-function fitPreviewMiniPlayerWidth(desiredWidth: number, source: PreviewMiniPlayerSize, max: PreviewMiniPlayerSize): PreviewMiniPlayerSize {
+const minimumPreviewMiniPlayerWidth = (source: PreviewMiniPlayerSize) =>
+  Math.max(PREVIEW_MINI_PLAYER_MIN_SIZE.width, (PREVIEW_MINI_PLAYER_MIN_SIZE.height * source.width) / source.height);
+
+function fitPreviewMiniPlayerWidth(desiredWidth: number, source: PreviewMiniPlayerSize, max: PreviewMiniPlayerSize,
+  minimumWidth = minimumPreviewMiniPlayerWidth(source)): PreviewMiniPlayerSize {
   const aspectRatio = source.width / source.height;
   const width = Math.min(
-    Math.max(desiredWidth, PREVIEW_MINI_PLAYER_MIN_SIZE.width, PREVIEW_MINI_PLAYER_MIN_SIZE.height * aspectRatio),
+    Math.max(desiredWidth, minimumWidth),
     Math.max(1, max.width),
     Math.max(1, max.height * aspectRatio),
   );
@@ -200,6 +204,8 @@ export function resolvePreviewMiniPlayerFrame(input: {
       position && width ? { composer: obstacles.composer, detailsCard: null } : obstacles,
       position && width ? spanOf(position.x, width) : null,
     ),
+    // A stored width is its own minimum: a player sized under the minimum stays that size.
+    width ?? undefined,
   );
   const { detailsCard } = obstacles;
   const anchored = position ?? (detailsCard
@@ -250,7 +256,8 @@ export function resizePreviewMiniPlayer(input: {
   const desired = horizontal && vertical
     ? (desiredWidth + desiredHeight / aspectRatio) / (1 + 1 / aspectRatio ** 2)
     : horizontal ? desiredWidth : desiredHeight * aspectRatio;
-  const size = fitPreviewMiniPlayerWidth(desired, source, max);
+  // A player already under the minimum (a tight container placed it) does not grow as it is dragged inward.
+  const size = fitPreviewMiniPlayerWidth(desired, source, max, Math.min(start.width, minimumPreviewMiniPlayerWidth(source)));
   const position = clampPreviewMiniPlayerPosition({ x: west ? right - size.width : start.x, y: north ? bottom - size.height : start.y }, container, size, obstacles);
   return { ...position, ...size };
 }

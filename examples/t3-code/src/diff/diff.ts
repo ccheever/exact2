@@ -26,6 +26,7 @@ import type { Token } from '../highlight/timeline-highlight';
 import type { HighlightView } from '../highlight/highlights';
 import { utilityPlacement, type LineDrag } from './diff-line-drag';
 import { hideTestFiles, setHideTestFiles, shownDiffFiles, testFileCount } from './hide-test-files';
+import { diffTreeWidth, setDiffTreeWidth } from './diff-tree-width';
 import { resolveToolCallDiffTarget, toolCallDiff, toolCallTarget, type ToolCallDiffTarget, type ToolCallPreview } from './tool-call-diff';
 import { renderablePatch } from '../pull-requests/pages-pr-code-logic';
 import { branchCommitsView, commitScopeLabels, emptyBranchCommits, type BranchCommits } from './diff-commits';
@@ -250,6 +251,7 @@ export function diffView(client: T3Client, action: string, value: string, paths:
   else if (action === 'wrap') state.wrap = !state.wrap;
   else if (action === 'tree') state.tree = !state.tree;
   else if (action === 'hide-tests') setHideTestFiles(client, !hideTestFiles(client));
+  else if (action === 'tree-width') setDiffTreeWidth(client, value);
   else if (action === 'file') state.expanded[`${scope}::${value}`] = !(state.expanded[`${scope}::${value}`] ?? state.defaultExpanded);
   else if (action === 'reveal') state.expanded[`${scope}::${value}`] = true;
   else if (action === 'expand-all' || action === 'collapse-all') for (const path of paths) state.expanded[`${scope}::${path}`] = action === 'expand-all';
@@ -548,19 +550,24 @@ export function diffSnapshot(client: T3Client, now: number) {
   const entries = diffFileTreeEntries(shown.map(file => ({ path: file.path, status: file.status })));
   const closed = new Set(state.treeCollapsed[scope] ?? []);
   const additions = totals.reduce((sum, file) => sum + file.additions, 0), deletions = totals.reduce((sum, file) => sum + file.deletions, 0);
-  // The Changes header's "<head> → <base>" and its picker, for the branch source that answered (DiffPanel selectedGitSource).
+  // The Changes header's "<head> → <base>" and its picker (DiffPanel canSelectBranchBase): for the branch source that
+  // answered, and also while the branch diff failed or has no base yet, from the status's branch (else HEAD) and the
+  // chosen base (else Automatic), so the base can still be changed.
   const branchSource = selection.kind === 'branch' && !notGit && state.source?.kind === 'branch-range' ? state.source : null;
-  const picker = baseRefView(state.baseRefs, branchSource?.cwd ?? '', branchSource?.headRef ?? null, selection.kind === 'branch' ? selection.baseRef : null);
+  const canSelectBase = selection.kind === 'branch' && !notGit && !!client.threadId && !!workspace(client);
+  const compareHead = branchSource?.headRef || str(peekVcsStatus(client, workspace(client))?.refName) || 'HEAD';
+  const compareBase = branchSource?.baseRef ?? (selection.kind === 'branch' ? selection.baseRef : null) ?? 'Automatic';
+  const picker = baseRefView(state.baseRefs, branchSource?.cwd ?? (canSelectBase ? workspace(client) : ''), compareHead, selection.kind === 'branch' ? selection.baseRef : null);
   const marked = markDiffRows(items, state.find);
   const pending = client.diffLoading && !diffAnswered(client);
   return {
-    diffCompare: !!branchSource?.baseRef, diffHead: branchSource?.headRef || 'HEAD', diffBase: branchSource?.baseRef ?? '',
+    diffCompare: canSelectBase, diffHead: compareHead, diffBase: compareBase,
     diffBaseRefs: picker.rows, diffBaseAutomatic: picker.automatic, diffBaseEmpty: picker.empty,
     diffScopeLabel: scopeLabel, diffScope: selection.kind === 'turn' ? `turn:${selection.runId}` : selection.kind === 'tool-call' ? '' : selection.kind === 'commit' ? `commit:${selection.sha}` : selection.kind,
     diffCommits: branchCommitsView(client, now),
     diffTurns: turns.map(entry => ({ id: `turn:${entry.runId}`, label: `Turn ${entry.count}`, time: messageTime(entry.completedAt, now, client.local.deviceSettings.timestampFormat), selected: selection.kind === 'turn' && selection.runId === entry.runId })),
     diffLatestSelected: selection.kind === 'turn' && selection.runId === turns[0]?.runId,
-    diffCanRefresh: isGitSelection(selection) && !notGit, diffLayout: state.layout, diffWrap: state.wrap, diffIgnoreWhitespace: state.ignoreWhitespace, diffTree: state.tree,
+    diffCanRefresh: isGitSelection(selection) && !notGit, diffLayout: state.layout, diffWrap: state.wrap, diffIgnoreWhitespace: state.ignoreWhitespace, diffTree: state.tree, diffTreeWidth: diffTreeWidth(client),
     // The size banner shows only for a truncated preview the panel cannot read file by file (older servers).
     // A project outside git reads as the centred empty state, as DiffPanel's !isGitRepo branch, not as an error.
     diffTruncated: (state.truncated && !lazy) || rows > (state.find.open ? 100_000 : ROW_LIMIT), diffEmpty: notGit || (!pending && (!client.diffError || client.diffError === NOT_GIT_REPO) && files.length === 0),

@@ -1,0 +1,48 @@
+// The resizable file tree column (T3 Code 5d3d78ab93, MIT, see LICENSE-T3: components/files/FileExplorerPane.tsx,
+// components/preview/RightPanelResizeHandle.tsx): the Files explorer beside a file, the Changes panel's tree and a pull
+// request's Code tree.
+
+// FileExplorerPane with a responsive default (defaultWidthFraction 0.4), the Changes and PR Code file trees: until a
+// width is chosen the tree takes 40% of its row, between `least` and `base`; at most 560, leaving the content 256 but
+// never less than that default. Before the row is measured the default is `base` and the most 560.
+fn treePaneDefault(row: number, base: number, least: number): number = row > 0 ? max(least, min(base, row * 0.4)) : base
+fn treePaneMax(row: number, base: number, least: number): number = row > 0 ? max(least, min(560, max(row - 256, treePaneDefault(row, base, least)))) : 560
+fn treePaneWidth(row: number, saved: number, base: number, least: number): number = max(least, min(treePaneMax(row, base, least), saved >= 0 ? saved : treePaneDefault(row, base, least)))
+
+// RightPanelResizeHandle over a file tree's left edge (`absolute inset-y-0 -left-1 w-2`, z 20): its 1pt line shows in
+// the border colour on hover and in primary/60 while dragged or focused from the keyboard. ← widens and → narrows the
+// tree by 16, Home takes the least and End the most.
+component ExplorerResizeHandle
+  props
+    width: number
+    least: number
+    max: number
+    label: string
+    testId: string
+    resize: action
+    finish: action
+    set: action
+  state hovered = false
+  state dragging = false
+  state keyFocus = false
+  action hover(over: bool)
+    hovered = over
+  action down(e: PointerEvent)
+    dragging = true
+    keyFocus = false
+  action released(vx: number, vy: number)
+    dragging = false
+    finish(vx, vy)
+  action up(e: PointerEvent)
+    dragging = false
+  action blurred()
+    keyFocus = false
+  action keyed(k: string, e: KeyboardEvent)
+    if not e.altKey and not e.ctrlKey and not e.metaKey and (k == "ArrowLeft" or k == "ArrowRight" or k == "Home" or k == "End")
+      preventDefault()
+      stopPropagation()
+      keyFocus = true
+      set(k == "ArrowLeft" ? width + 16 : k == "ArrowRight" ? width - 16 : k == "Home" ? least : max)
+  view
+    box position="absolute" top=0 bottom=0 left="-0.25rem" width="0.5rem" z-index=20 cursor="col-resize" touch-action="none" tabindex=0 pan=resize panrelease=released pointerdown=down pointerup=up hover=hover key=keyed blur=blurred role="separator" aria-orientation="vertical" aria-label=label aria-valuenow=width aria-valuemin=least aria-valuemax=max testId=testId
+      box position="absolute" top=0 bottom=0 left="3.5px" width=1 pointer-events="none" background-color=(dragging or keyFocus ? "light-dark(#1b4ed899, #346bf199)" : hovered ? "light-dark(#e4e4e7, #ffffff1a)" : "#00000000")

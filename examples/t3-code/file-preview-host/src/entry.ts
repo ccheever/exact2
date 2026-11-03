@@ -1,6 +1,6 @@
 // The file preview page (LLP 1020.001: a bundled page under assets/file-preview/, framed by the attachment body,
 // src/panel/viewer-frame.contract). It runs T3 Code's document viewers (MIT reference, see LICENSE-T3:
-// apps/web/src/components/files/; T3 Code 2359643cff) without React: PdfViewer (PDF.js), LargeTextViewer for text
+// apps/web/src/components/files/; T3 Code 5d3d78ab93) without React: PdfViewer (PDF.js), LargeTextViewer for text
 // over 1 MB and for CSV and TSV tables, OfficeViewer (Word, Excel, PowerPoint, OpenDocument, RTF, EPUB; a notebook is
 // parsed here and drawn by the app), BinaryViewer (archives and SQLite; an opened entry is drawn by the app) and a
 // notebook's HTML output. The app's subheader keeps the name, Copy and Save; this page draws a viewer's own rows.
@@ -8,11 +8,11 @@
 // - app → page: config (what to show, the theme, word wrap), bytes (a draft's file, in chunks), pick (a menu's row),
 //   copy (Copy contents of a streamed text);
 // - page → app: boot, menu (a select's rows at its trigger), copy (the text) or copy-error, retry, link, entry,
-//   entry-closed, notebook, height, error.
+//   entry-closed, notebook, height, pdf-view (where the reader is in a PDF), error.
 import "./shared/packed";
 import "./shared/policy-workers";
 import { h, hideTooltip, menuPicked, post, surfaceFailure, surfaceLoading } from "./chrome";
-import type { PdfViewState } from "./pdf/pdf-viewer";
+import type { PdfPosition } from "./pdf/pdf-viewer";
 
 export type Config = {
   readonly type: "config";
@@ -23,6 +23,8 @@ export type Config = {
   readonly key: string;
   /** A PDF's identity without its revision: a new key of the same document opens where the reader was. */
   readonly documentId?: string;
+  /** Where the reader last was in that document, as the app kept it past this page (a thread switch unmounts it). */
+  readonly pdfPosition?: PdfPosition;
   readonly name: string;
   /** The file's signed URL; "" for a draft, whose bytes follow in `bytes` messages or which this page was given. */
   readonly src: string;
@@ -54,8 +56,26 @@ export type Viewer = {
 
 type Message = { readonly type: string; readonly [key: string]: unknown };
 
-/** The PDF last shown (its `documentId`) and where its reader was. */
-type PdfPlace = { id: string; view: PdfViewState | undefined };
+/** PdfViewer's saved positions by document, the 50 most recent; the app keeps them past this page too. */
+const PDF_MAX_POSITIONS = 50;
+const pdfPositions = new Map<string, PdfPosition>();
+let pdfPost: { timer: ReturnType<typeof setTimeout>; send: () => void } | null = null;
+function rememberPdfPosition(id: string, position: PdfPosition): void {
+  pdfPositions.delete(id);
+  pdfPositions.set(id, position);
+  const oldest = pdfPositions.keys().next();
+  if (pdfPositions.size > PDF_MAX_POSITIONS && !oldest.done) pdfPositions.delete(oldest.value);
+  // The app hears the place once scrolling settles, not at every frame.
+  if (pdfPost) clearTimeout(pdfPost.timer);
+  const send = () => { pdfPost = null; post({ type: "pdf-view", id, view: position }); };
+  pdfPost = { timer: setTimeout(send, 250), send };
+}
+/** A viewer that goes tells the app its last place now. */
+function flushPdfPosition(): void {
+  if (!pdfPost) return;
+  clearTimeout(pdfPost.timer);
+  pdfPost.send();
+}
 
 /** A message the page takes: from its app (on Apple the host, through the page's own window). */
 export function fromApp(event: Pick<MessageEvent, "source" | "origin" | "data">, view: { parent: unknown; location: { origin: string } }, self: unknown): boolean {
@@ -98,15 +118,13 @@ export function narrowConnections(src: string, at: Document = document): void {
   at.head.append(meta);
 }
 
-async function mount(config: Config, src: string, retry: () => void, pdfView: PdfPlace): Promise<Viewer> {
+async function mount(config: Config, src: string, retry: () => void): Promise<Viewer> {
   if (config.view === "pdf") {
     const { PdfViewer } = await import("./pdf/pdf-viewer");
-    // BrowserDocumentFrame's PdfDocument: the reading position outlives each revision's document.
+    // BrowserDocumentFrame's PdfDocument and PdfViewer's positions: the reading position outlives each revision's
+    // document and each visit.
     const id = config.documentId ?? config.key;
-    const initialView = pdfView.id === id ? pdfView.view : undefined;
-    pdfView.id = id;
-    pdfView.view = initialView;
-    return new PdfViewer(src, config.name, initialView, (view) => { if (pdfView.id === id) pdfView.view = view; });
+    return new PdfViewer(src, config.name, pdfPositions.get(id) ?? config.pdfPosition, (position) => rememberPdfPosition(id, position));
   }
   if (config.view === "browser-pdf") {
     const { BrowserPdfViewer } = await import("./pdf/browser-pdf-viewer");
@@ -144,7 +162,6 @@ export class Page {
   private mounting = false;
   /** A Copy asked of the viewer that is loading, or of a draft whose bytes are coming: answered once it is up. */
   private copyWaiting = false;
-  private readonly pdfView: PdfPlace = { id: "", view: undefined };
 
   constructor(private readonly root: HTMLElement) {}
 
@@ -204,7 +221,7 @@ export class Page {
     narrowConnections(src);
     this.show(surfaceLoading());
     this.mounting = true;
-    void mount(config, src, retry, this.pdfView)
+    void mount(config, src, retry)
       .then((viewer) => {
         if (serial !== this.serial) { viewer.dispose(); return; }
         this.mounting = false;
@@ -231,6 +248,7 @@ export class Page {
 
   private unmount() {
     this.serial++;
+    flushPdfPosition();
     this.viewer?.dispose();
     this.viewer = null;
     this.mounting = false;

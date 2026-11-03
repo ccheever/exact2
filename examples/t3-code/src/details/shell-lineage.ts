@@ -2,7 +2,7 @@
 // packages/client-runtime/src/state/threadRelationships.ts, threadWorkflows.ts
 // resolveLatestMergeBackRun, apps/web/src/components/chat/
 // ThreadRelationshipsControl.tsx, ThreadRelationshipIcon.tsx, AgentElapsed.tsx;
-// upstream 2359643cff): the open thread's immediate relationships (fork parent,
+// upstream 5d3d78ab93): the open thread's immediate relationships (fork parent,
 // forks, subagents, context transfers) from the thread shells and its own
 // projection. Its side chats are a group of their own (`side`, the Side chats
 // section), whose rows open their right-panel tab. A settled subagent whose
@@ -16,6 +16,9 @@ import { arr, obj, str, type Obj } from '../client/domain';
 import { subagentTitle } from '../timeline/timeline-events';
 import { canStopNativeSubagent, canStopWorkflow, projectedWorkflowAgents, workflowBody, workflowGroups } from './lineage-workflows';
 import { canDetachSession } from './lineage-actions';
+import { providerBadge } from '../client/presentation';
+import { acpInstanceIcon } from '../composer/acp-instance-icon';
+import { subagentCard } from '../sidebar/subagent-card';
 
 type Kind = 'fork' | 'subagent' | 'transfer';
 type Edge = { source: string; target: string; kind: Kind; status: string | null };
@@ -26,6 +29,7 @@ export type LineageRow = {
   mergeTarget: boolean; elapsed: string; agent: boolean; missing: boolean; hint: string; failed: boolean; canStop: boolean;
   kind: string; workflowId: string; expanded: boolean; phaseId: string; phaseOpen: boolean;
   stopOp: string; stopTarget: string; count: string; modelLine: string; preview: string;
+  badge: string; accent: string; markIcon: string; tipLines: string[];
 };
 
 const SETTLED_AGENT = new Set(['completed', 'failed', 'error', 'cancelled', 'interrupted', 'idle']);
@@ -48,7 +52,11 @@ export function relationshipGraph(threads: Obj[], projection: Obj | null): Graph
     for (const id of [edge.source, edge.target]) if (!nodes.has(id)) nodes.set(id, { id, thread: null, missing: true });
     edges.set(`${edge.source}\u001f${edge.target}\u001f${edge.kind}`, edge.kind === 'subagent' && edge.status === 'rolled_back' ? { ...edge, status: 'interrupted' } : edge);
   };
-  for (const thread of byId.values()) {
+  // Idle children can be left out of the shell; an opened one still shows its parent edge.
+  const selected = projection ? obj(projection.thread) : null;
+  const lineageThreads = selected && str(selected.id) && !byId.has(str(selected.id))
+    ? [...byId.values(), { ...selected, activityRunStatus: null, status: null }] : [...byId.values()];
+  for (const thread of lineageThreads) {
     const parent = parentOf(thread);
     if (!parent) continue;
     add({ source: parent, target: str(thread.id), kind: obj(thread.lineage).relationshipToParent === 'subagent' ? 'subagent' : 'fork', status: statusOf(thread) });
@@ -193,7 +201,7 @@ const createdAt = (node: Node | undefined) => { const at = Date.parse(str(node?.
  */
 export function lineageView(threads: Obj[], projection: Obj | null, threadId: string, providers: Obj[], now: number,
   expanded: string[] = [], phasesOpen: string[] = [], phasesClosed: string[] = [], writable = true,
-  nativeParent: { threadId: string; status: string } | null = null) {
+  nativeParent: { threadId: string; status: string } | null = null, config: Obj = {}) {
   const graph = relationshipGraph(threads, projection);
   const mergeTarget = mergeTargetOf(projection);
   const agents = new Map(arr(projection?.subagents).filter(agent => str(agent.childThreadId)).map(agent => [str(agent.childThreadId), agent]));
@@ -230,16 +238,26 @@ export function lineageView(threads: Obj[], projection: Obj | null, threadId: st
     const relationship = sideChat ? 'Side chat' : edge.kind === 'transfer' ? 'Context transfer' : subagent ? (edge.source === threadId ? 'Subagent' : 'Parent agent') : (edge.source === threadId ? 'Fork' : 'Parent thread');
     const rawTitle = workflow?.workflow.workflowName ?? (str(thread?.title) || str(agent?.title) || id);
     const group = groupOf(edge, id), failed = status === 'failed' || status === 'error';
+    const title = subagent ? subagentTitle(rawTitle) : rawTitle, hint = `Open ${relationship.toLowerCase()} in this chat`;
+    // ThreadRelationshipIcon: the provider instance's mark, with its account badge.
+    const mark = driver ? providerBadge(provider, providers) : { providerBadge: '', providerBadgeColor: '' };
+    // An agent's hover card (SubagentTooltipContent, drawn as the workflow members' card); any other row's tooltip
+    // repeats the title the row truncates above what a click does.
+    const card = agent ? subagentCard({ title, model: str(agent.model) || null, providerInstanceId: str(agent.providerInstanceId), origin: str(agent.origin),
+      modelSelection: agent.modelSelection ? obj(agent.modelSelection) : undefined, provider, providers, driver, elapsed: agentElapsed(agent, now),
+      status: str(agent.status), result: agent.result == null ? null : str(agent.result), progress: agent.progress == null ? null : str(agent.progress), childThread: thread ?? undefined }) : null;
     return {
-      id, title: subagent ? subagentTitle(rawTitle) : rawTitle, icon: parent ? 'corner-left-up' : subagent ? 'bot' : sideChat ? 'messages-square' : 'git-fork', driver,
+      id, title, icon: parent ? 'corner-left-up' : subagent ? 'bot' : sideChat ? 'messages-square' : 'git-fork', driver,
       status: statusLabel(status), dot: statusDot(status), group, index: counters[group]!++, mergeTarget: id === mergeTarget,
       // One trailing item keeps room for the title: the badge already carries status, so a timed agent shows its time.
       elapsed: agent && !failed ? agentElapsed(agent, now, true) : '', agent: !!agent, missing: node?.missing === true,
-      hint: node?.missing ? 'This related thread is unavailable' : `Open ${relationship.toLowerCase()} in this chat`,
+      hint,
       failed, canStop: writable && (workflow ? canStopWorkflow(workflow.workflow, writable, driver) : canStopSubagent(agent) || canStopNativeSubagent(agent, raw)),
       kind: workflow ? 'workflow' : 'thread', workflowId: workflow?.workflow.id ?? '', expanded: !!workflow && expanded.includes(workflow.workflow.id),
       phaseId: '', phaseOpen: false, stopOp: workflow ? 'shell:stop-workflow' : 'shell:stop-subagent',
       stopTarget: workflow?.workflow.id ?? id, count: '', modelLine: '', preview: '',
+      badge: mark.providerBadge, accent: mark.providerBadgeColor, markIcon: driver ? acpInstanceIcon(config, provider) : '',
+      tipLines: card ? [card.modelLine, statusLabel(str(agent?.status)), card.elapsed, card.preview, card.driver] : [hint],
     };
   });
   // Subagents without a child thread yet have no row, so they are counted on their own.
@@ -251,11 +269,13 @@ export function lineageView(threads: Obj[], projection: Obj | null, threadId: st
   const lineage = rows.flatMap(row => {
     const group = workflows.get(row.workflowId);
     if (!group || !row.expanded) return [row];
-    const body = workflowBody(group, threads, providers, now);
+    const body = workflowBody(group, providers, now);
     const memberRow = (member: ReturnType<typeof workflowBody>['unphased'][number]): LineageRow => ({
       ...row, id: member.id, title: member.title, kind: 'member', workflowId: row.workflowId, icon: 'bot', driver: member.driver,
       status: member.status, dot: member.dot, elapsed: member.elapsed, missing: member.disabled, failed: member.card.tone === 'error',
       canStop: false, mergeTarget: false, stopTarget: '', hint: member.childThreadId, modelLine: member.card.modelLine, preview: member.card.preview,
+      // The members run on the coordinator's provider instance, so they carry its mark.
+      tipLines: [member.card.modelLine, member.status, member.elapsed, member.card.preview, member.driver],
     });
     const entries: LineageRow[] = [row];
     for (const phase of body.phases) {

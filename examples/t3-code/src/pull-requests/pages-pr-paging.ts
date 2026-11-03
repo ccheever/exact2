@@ -7,6 +7,7 @@
 // components/pullRequest/pullRequestList.logic.ts.
 import type { T3Client } from '../client/client';
 import { arr, num, str, type Obj } from '../client/domain';
+import { comparePullRequestsByRecency } from './pages-pr-logic';
 import { prEnvironments, readsPullRequests } from './pages-pr-environments';
 import { restoreListAnswers } from './pages-pr-refresh';
 import { isScratchProject, scratchRoot } from '../pages/pages-home';
@@ -97,7 +98,7 @@ export function restoredPullRequestList(client: T3Client, targets: readonly List
 export function orderAnswer(previous: Obj[] | null, answer: Obj[], continued: boolean): Obj[] {
   if (!continued || previous === null) return answer;
   const held = new Set(previous.map(pullRequestEntryKey));
-  const arrived = answer.filter(entry => !held.has(pullRequestEntryKey(entry))).sort((left, right) => str(right.updatedAt).localeCompare(str(left.updatedAt)));
+  const arrived = answer.filter(entry => !held.has(pullRequestEntryKey(entry))).sort(comparePullRequestsByRecency);
   return [...previous, ...arrived];
 }
 

@@ -181,6 +181,18 @@ export function progressPresentation(state: { running: boolean; operation: strin
 }
 
 /** workingTree.rootPath: the absolute worktree root every changed file's path is relative to ('' when the server could not resolve it). */
+/**
+ * resolveChangesTotals: the Changes row's totals. The branch's where it has any, else a dirty working tree's, so a zero
+ * branch total does not read +0 while Diff shows the work.
+ */
+export function changesTotals(status: Obj | null | undefined): { insertions: number; deletions: number } {
+  if (!status) return { insertions: 0, deletions: 0 };
+  const read = (value: unknown) => ({ insertions: num(obj(value).insertions), deletions: num(obj(value).deletions) });
+  const branch = status.branchChanges ? read(status.branchChanges) : null, tree = read(status.workingTree);
+  if (branch && (branch.insertions > 0 || branch.deletions > 0)) return branch;
+  if (tree.insertions > 0 || tree.deletions > 0) return tree;
+  return branch ?? tree;
+}
 export function workingTreeRoot(status: Obj | null): string { return str(obj(status?.workingTree).rootPath); }
 /** The working tree's files for the commit dialog (StartTruncatedPath shows the whole path). */
 export function workingFiles(status: Obj | null): { path: string; insertions: number; deletions: number }[] {

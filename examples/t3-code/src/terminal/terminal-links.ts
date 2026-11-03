@@ -1,4 +1,4 @@
-// Copied from T3 Code 2359643cff (MIT reference, see LICENSE-T3: apps/web/src/terminal-links.ts).
+// Copied from T3 Code 5d3d78ab93 (MIT reference, see LICENSE-T3: apps/web/src/terminal-links.ts).
 // Changes from the reference:
 // - `splitFilePathPosition` / `formatFilePathPosition` come from `terminal-host/src/shims/markdown-links.ts` (client-runtime markdownLinks.ts).
 // - `isMacPlatform` comes from `terminal-host/src/shims/utils.ts` (lib/utils.ts).
@@ -53,6 +53,9 @@ const TRAILING_PATH_PUNCTUATION_PATTERN = /[.,;:!?]+$/;
 // A question mark is legal in filenames; only exclude query-bearing request targets (74541bab17).
 const REQUEST_ROUTE_PATTERN =
   /(?:^|[\s"'`])(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS|CONNECT|TRACE|proxying)\s+["'`]?(?:\/|[A-Za-z0-9_-]+\/)[^\s?]*\?\S*/g;
+// The tail of `redis://host/0` or `file:///a.mjs` is not a path. One-letter schemes stay drives,
+// a diff's `+` or `-` may lead, and the lookbehind keeps runs from being rescanned at every suffix.
+const SCHEME_URL_PATTERN = /(?<![A-Za-z\d+.-])[+-]?[A-Za-z][A-Za-z\d+.-]+:\/\/[^\s"'`<>]+/gu;
 
 function trimClosingDelimiters(value: string, kind: TerminalLinkKind): string {
   let output = value.replace(
@@ -161,10 +164,10 @@ export function extractTerminalLinks(line: string): TerminalLinkMatch[] {
   const promptMatches: TerminalLinkMatch[] = promptPath
     ? [{ kind: "path", text: promptPath, start: 3, end: 3 + promptPath.length }]
     : [];
-  const requestRoutes = Array.from(line.matchAll(REQUEST_ROUTE_PATTERN), (match) => ({
-    start: match.index,
-    end: match.index + match[0].length,
-  }));
+  const nonPathRanges = Array.from(
+    [...line.matchAll(REQUEST_ROUTE_PATTERN), ...line.matchAll(SCHEME_URL_PATTERN)],
+    (match) => ({ start: match.index, end: match.index + match[0].length }),
+  );
   const urlMatches = collectMatches(line, "url", URL_PATTERN, promptMatches);
   const quotedMatches = collectMatches(line, "path", QUOTED_FILE_PATH_PATTERN, [
     ...promptMatches,
@@ -177,7 +180,7 @@ export function extractTerminalLinks(line: string): TerminalLinkMatch[] {
   ]);
   return [...promptMatches, ...urlMatches, ...quotedMatches, ...pathMatches]
     .filter(
-      (match) => match.kind === "url" || !requestRoutes.some((route) => overlaps(match, route)),
+      (match) => match.kind === "url" || !nonPathRanges.some((range) => overlaps(match, range)),
     )
     .toSorted((a, b) => a.start - b.start);
 }

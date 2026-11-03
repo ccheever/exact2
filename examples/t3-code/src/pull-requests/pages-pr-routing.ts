@@ -24,6 +24,7 @@
 // `dispatch` is the same routing for a write sent detached (the Viewed ticks, whose reply comes back
 // in a later answer): its invalidations are `afterWrite`, run by the answer that sees the reply.
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { comparePullRequestsByRecency } from './pages-pr-logic';
 import { ClientError } from '../client/protocol';
 import { letGo } from '../client/let-go';
 
@@ -150,7 +151,7 @@ export function mergePullRequestLists(answers: ReadonlyArray<readonly [string, O
     const cursors = stringRecord(answer.nextCursors);
     if (Object.keys(cursors).length > 0) nextCursors[environmentId] = cursors;
   }
-  return { viewers, providers: [...providers.values()], entries: entries.sort((left, right) => str(right.updatedAt).localeCompare(str(left.updatedAt))), errors, truncated, nextCursors, truncatedEnvironments };
+  return { viewers, providers: [...providers.values()], entries: entries.sort(comparePullRequestsByRecency), errors, truncated, nextCursors, truncatedEnvironments };
 }
 
 /** A row's key: two environments' copies of one pull request are two rows (pullRequestEntryKey). */

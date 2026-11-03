@@ -12,6 +12,7 @@ import { keyboardDispatch, keyboardDispatchSource, favoriteEditor } from '../../
 import { closeThreadTerminals, setCloseThreadTerminals } from '../../src/sidebar/worktree-cleanup';
 import { adoptShellPrefs, shellPrefs } from '../../src/shell/shell-prefs';
 import { hostKeyRows } from '../../src/shell/thread-keys';
+import { DiffState } from '../../src/diff/diff';
 import { EnvironmentFleet } from '../../src/connections/settings-b-fleet';
 import { rememberEditor, lastEditor } from '../../src/details/shell-details';
 
@@ -29,6 +30,7 @@ function fake(threads: Obj[], options: { settings?: Obj; serverSettings?: Obj; t
     shell: { projects: [{ id: 'p1', title: 'Fixture', workspaceRoot: '/repo' }, { id: 'p2', title: 'Scratch', workspaceRoot: '/scratch' }], threads, sequence: 1 },
     config: { environment: { capabilities: {} }, providers: [], keybindings: [], ...(options.serverSettings ? { settings: options.serverSettings } : {}), ...(options.scratch ? { scratchWorkspaceRoot: options.scratch } : {}) },
     environmentId: 'env', threadId: options.threadId ?? '', projectId: 'p1', query: '', connection: 'connected', writable: true, ready: true, projection: {},
+    diffState: new DiffState(),
     presentation: {}, local: { drafts: {}, deviceSettings: { timestampFormat: '24-hour' }, clientSettings: { confirmThreadDelete: false, sidebarThreadSortOrder: 'created_at', ...(options.settings ?? {}) } },
     projectGroups() { return [{ key: 'g1', name: 'Fixture', members: [{ id: 'p1' }] }]; },
     restAccess: () => ({

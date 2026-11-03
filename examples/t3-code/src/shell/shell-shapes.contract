@@ -100,6 +100,10 @@ shape ShellLineage
   count: string
   modelLine: string
   preview: string
+  badge: string
+  accent: string
+  markIcon: string
+  tipLines: string[]
 shape ShellEditor
   id: string
   label: string

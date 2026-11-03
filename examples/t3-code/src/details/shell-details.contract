@@ -33,7 +33,7 @@ use TipBubble from "../shell/shell-tip.contract"
 use TipCard from "../shell/shell-tip.contract"
 use Tip from "../shell/shell-tip.contract"
 use CnMachineIcon from "../settings/settings-b-kit.contract"
-use ProviderMark from "../shared/icons.contract"
+use ComposerInstanceMark from "../composer/instance-mark.contract"
 use GitRows from "./git.contract"
 use AddMachineOption from "./git.contract"
 use ScriptRow from "./project-scripts.contract"
@@ -220,7 +220,9 @@ component DetailsBody
             if showServers
               ThreadServersSection(servers=details.servers, separated=(showWorkspace or showVcs), local=local)
             if showAutomations
-              ThreadAutomationsSection(automations=details.automations, separated=(showWorkspace or showVcs or showServers), still=still, act=act)
+              // Automations scroll past 13.5rem, so the density leaves them out as it does Lineage.
+              column width="100%" id="frame-details-automations" resize=frameMoved
+                ThreadAutomationsSection(automations=details.automations, separated=(showWorkspace or showVcs or showServers), still=still, act=act)
             if showLineage
               // Lineage scrolls as it expands, so the density leaves it out (ThreadDetailsCard's fitting height): more
               // rows do not fold away the workspace and Version Control rows.
@@ -547,13 +549,20 @@ component ShowMore
       ShellIcon(name="plus", size=16, color=(hovered ? "light-dark(#18181bcc, #f5f5f5cc)" : "light-dark(#71717b, #a1a1a1)"))
       text `Show ${count} more` font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(hovered ? "light-dark(#18181bcc, #f5f5f5cc)" : "light-dark(#71717b, #a1a1a1)")
 
-// One related thread: the relationship glyph (a subagent's provider mark) with
-// its status badge, the title, then one trailing item: an agent's compact
-// elapsed time, else the status (the hover arrow marks a thread that is not an
-// agent). A running T3-owned subagent trades that item for Stop while the row is
-// hovered or focused. The merge-back target is a split row whose second half
-// merges this fork's latest finished run back into it.
+// One related thread: the relationship glyph (a subagent's provider instance
+// mark, its account badge at the bottom right moving the status badge to the
+// top left) with its status badge, the title, then one trailing item: an
+// agent's compact elapsed time, else the status (the hover arrow marks a thread
+// that is not an agent). A running T3-owned subagent trades that item for Stop
+// while the row is hovered or focused. The merge-back target is a split row
+// whose second half merges this fork's latest finished run back into it.
+// Hovering an agent shows its card (SubagentTooltipContent); any other row's
+// tooltip shows the full title over what a click does (LineageTooltipContent),
+// both after Tooltip's 200 ms delay.
 component LineageRow
+  inject
+    rem: number
+    hoverTipAt: action
   props
     row: ShellLineage
     details: ShellDetails
@@ -568,19 +577,29 @@ component LineageRow
     still: bool
   derive stopHovered = hovered == `stop-${row.id}`
   derive stopShown = row.canStop and (hovered == row.id or stopHovered or focused == row.id)
+  derive tipKey = `details-lineage-${row.id}`
+  action tip(on: bool)
+    hover(row.id, on)
+    hoverTipAt(hoverTipAtFrame(tipKey, row.agent ? "workflow-member" : "policy", row.title, row.tipLines, "left", row.agent ? "start" : "center", frame(tipKey), row.agent ? 20.25 * rem : (row.tipLines.length + 1) * rem + 0.625 * rem, `${tipKey}-tip`), "trigger", on)
+  action open
+    tip(false)
+    act(row.group == "side" ? "shelllocal:surface-side-chat-open" : "select-thread", row.id, "")
   view
     if row.kind != "thread" and row.kind != "workflow"
       LineageBodyRow(row=row, act=act)
     else
       row position="relative" height="2rem" align-items="center" border-radius="0.5rem" role="listitem" background-color=(hovered == row.id or hovered == `merge-${row.id}` ? "light-dark(#0000000e, #ffffff13)" : "#00000000")
         // openSideChatTab: a side chat's row opens its tab beside this thread instead of the thread.
-        button press=act(row.group == "side" ? "shelllocal:surface-side-chat-open" : "select-thread", row.id, "") hover=hover(row.id) focus=focusRow(row.id, true) blur=focusRow(row.id, false) disabled=row.missing aria-label=`${row.title} ${row.status}` testId=`details-lineage-${row.id}` flex=1 min-width=0 height="2rem" padding-left="0.6875rem" padding-right=(row.kind == "workflow" ? "0.625rem" : row.mergeTarget ? "0.625rem" : "0.6875rem") box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" border-top-right-radius=(row.mergeTarget ? "0px" : "0.5rem") border-bottom-right-radius=(row.mergeTarget ? "0px" : "0.5rem") background-color=(row.mergeTarget and hovered == row.id ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+        button id=tipKey press=open hover=tip focus=focusRow(row.id, true) blur=focusRow(row.id, false) aria-label=`${row.title} ${row.status}` testId=tipKey flex=1 min-width=0 height="2rem" padding-left="0.6875rem" padding-right=(row.kind == "workflow" ? "0.625rem" : row.mergeTarget ? "0.625rem" : "0.6875rem") box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" border-top-right-radius=(row.mergeTarget ? "0px" : "0.5rem") border-bottom-right-radius=(row.mergeTarget ? "0px" : "0.5rem") background-color=(row.mergeTarget and hovered == row.id ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
           box width="1rem" height="1rem" position="relative" flex-shrink=0 display="flex" align-items="center" justify-content="center"
             if row.driver != ""
-              ProviderMark(driver=row.driver, size=16, color="light-dark(#71717b, #a1a1a1)")
+              ComposerInstanceMark(driver=row.driver, icon=row.markIcon, size=16, color="light-dark(#71717b, #a1a1a1)", badge=row.badge, accent=row.accent)
             else
               ShellIcon(name=row.icon, size=16, color="light-dark(#71717b, #a1a1a1)")
-            box position="absolute" right="-0.25rem" bottom="-0.25rem" width="0.5rem" height="0.5rem" box-sizing="border-box" border-radius="0.25rem" border-style="solid" border-width=2 border-color="light-dark(#ffffff, #111111)" background-color=row.dot
+            if row.badge != ""
+              box position="absolute" left="-0.25rem" top="-0.25rem" width="0.5rem" height="0.5rem" box-sizing="border-box" border-radius="0.25rem" border-style="solid" border-width=2 border-color="light-dark(#ffffff, #111111)" background-color=row.dot
+            else
+              box position="absolute" right="-0.25rem" bottom="-0.25rem" width="0.5rem" height="0.5rem" box-sizing="border-box" border-radius="0.25rem" border-style="solid" border-width=2 border-color="light-dark(#ffffff, #111111)" background-color=row.dot
           text row.title flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" font-weight=500 line-height="1rem" color="light-dark(#18181bd9, #f5f5f5d9)"
           if not row.agent
             box opacity=(hovered == row.id ? 1 : 0) display="flex" flex-shrink=0

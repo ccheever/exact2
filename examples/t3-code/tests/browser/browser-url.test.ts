@@ -45,6 +45,8 @@ describe('resolveAddressBarInput', () => {
     expect(() => resolveAddressBarInput('ftp://example.com')).toThrow(PreviewUrlNormalizationError);
     expect(() => resolveAddressBarInput('mailto:alice@example.com')).toThrow(PreviewUrlNormalizationError);
     expect(() => resolveAddressBarInput('data:text/plain,hello')).toThrow(PreviewUrlNormalizationError);
+    // The agent that asked for it reads what to send instead (T3 Code 5d3d78ab93, #23396).
+    expect(() => resolveAddressBarInput('ftp://example.com')).toThrow('Invalid preview URL (unsupported-protocol: ftp:; input length 17). Use an http(s) URL or a schemeless host such as localhost:5173. With preview_open, omit url when creating a new tab to open a blank tab.');
     // A known scheme with a numeric payload is not a host and port.
     for (const input of ['ftp:21', 'tel:5551234']) expect(() => resolveAddressBarInput(input)).toThrow(PreviewUrlNormalizationError);
     expect(resolveAddressBarInput('devbox:8080')).toBe('https://devbox:8080/');

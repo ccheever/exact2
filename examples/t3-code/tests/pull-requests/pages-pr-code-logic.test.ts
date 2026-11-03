@@ -182,6 +182,10 @@ describe('orderDiffFiles', () => {
     expect(order([...generated, ...tests, ...source].reverse().map(path => file(path)))).toEqual([...source, ...tests, ...generated]);
   });
   test('answers an empty diff with an empty order', () => { expect(order([])).toEqual([]); });
+  test('pairs a test with the source whose name carries its own dotted suffix', () => {
+    expect(order([file('src/c.browser.test.tsx'), file('src/b.test.ts'), file('src/a.logic.test.ts'), file('src/c.tsx'), file('src/b.ts'), file('src/a.logic.ts')]))
+      .toEqual(['src/a.logic.ts', 'src/b.ts', 'src/c.tsx', 'src/a.logic.test.ts', 'src/b.test.ts', 'src/c.browser.test.tsx']);
+  });
   test('puts a dependency before what imports it', () => { expect(order([file('src/a.ts', ['import { b } from "./b";']), file('src/b.ts')])).toEqual(['src/b.ts', 'src/a.ts']); });
   test('follows a chain the whole way down', () => {
     expect(order([file('src/a.ts', ['import { b } from "./b";']), file('src/b.ts', ['import { c } from "./c";']), file('src/c.ts')])).toEqual(['src/c.ts', 'src/b.ts', 'src/a.ts']);

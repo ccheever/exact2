@@ -133,18 +133,30 @@ describe('PdfViewer', () => {
     const top = 16 + 7 * (width * 792 / 612 + 16) + 40;
     first.region.scrollTo({ top: top - 16, left: 25 });
     await until(() => first.label() === '8 / 30 pages', 'page 8');
-    expect({ ...saved, offset: Math.round(saved!.offset) }).toEqual({ page: 7, offset: 40, zoom, left: 25 });
+    expect({ ...saved, offset: Math.round(saved!.offset) }).toMatchObject({ page: 7, offset: 40, zoom, left: 25, width: 621 });
     first.viewer.dispose();
 
     // The new revision's page 3 is short: the pages above the one it returns to are measured before it scrolls there.
     documents.pages[2] = { width: 612, height: 300, items: [{ str: '[p3]', hasEOL: false }] };
     const restored = top - 16 - (width * 792 / 612 - width * 300 / 612);
     let reported: View | undefined;
-    const second = mount('Report', saved, view => { reported = view; });
+    // The view alone (a revision's place without its page shapes) measures the pages above it.
+    const second = mount('Report', { page: saved!.page, offset: saved!.offset, zoom: saved!.zoom, left: saved!.left }, view => { reported = view; });
     await until(() => second.label() === '8 / 30 pages', 'the same page');
     expect([Math.round(second.region.scrollTop), second.region.scrollLeft, second.viewer.element.querySelector('.pdf-zoom')?.textContent]).toEqual([Math.round(restored), 25, `${Math.round(zoom * 100)}%`]);
-    expect({ ...reported, offset: Math.round(reported!.offset) }).toEqual({ page: 7, offset: 40, zoom, left: 25 });
+    expect({ ...reported, offset: Math.round(reported!.offset) }).toMatchObject({ page: 7, offset: 40, zoom, left: 25 });
     second.viewer.dispose();
+  });
+
+  test('a saved position brings its page shapes, and an offset read at another width scales with the page', async () => {
+    documents.pages = Array.from({ length: 30 }, (_, index) => ({ width: 612, height: 792, items: [{ str: `[p${index + 1}]`, hasEOL: false }] }));
+    const ratios = Array.from({ length: 30 }, () => 792 / 612);
+    let reported: View | undefined;
+    // Read at half this width: 40 then is 80 now.
+    const viewer = mount('Report', { page: 7, offset: 40, zoom: null, left: 0, width: 310, ratios } as View, view => { reported = view; });
+    await until(() => viewer.label() === '8 / 30 pages', 'the saved page');
+    expect(Math.round(reported!.offset)).toBe(Math.round(40 * ((reported as View & { width: number }).width / 310)));
+    viewer.viewer.dispose();
   });
 
   test('the page opens a new key of the same document where the reader was, and another document at its start', async () => {
@@ -168,12 +180,21 @@ describe('PdfViewer', () => {
       await until(() => label() === expected, `${key} at ${expected}`);
       return region;
     };
+    // The page tells its app where the reader is (`pdf-view`); this test's window has no app to take it.
+    const original = parent.postMessage;
+    parent.postMessage = (() => {}) as typeof parent.postMessage;
     const first = await show('r1', 'doc:a', '1 / 30 pages');
     first.scrollTo({ top: 7 * ((500 - 32) * (792 / 612) + 16) + 30 });
     await until(() => label() === '8 / 30 pages', 'page 8');
     const second = await show('r2', 'doc:a', '8 / 30 pages');
     expect(Math.round(second.scrollTop)).toBe(Math.round(first.scrollTop));
     await show('r3', 'doc:b', '1 / 30 pages');
+    // PdfViewer's positions outlive the last document shown: going back to the first opens where it was.
+    await show('r4', 'doc:a', '8 / 30 pages');
+    // An empty config unmounts the viewer, which posts its place at once, so no timer outlives the test.
+    shown.receive({ type: 'config', view: '', key: '', name: '', src: '', text: null, sizeBytes: -1, kind: '', delimiter: null, wrap: true, scheme: 'light',
+      sheet: false, smoothing: true, revealLine: null, revealRequestId: 0 });
+    parent.postMessage = original;
   });
 
   test('a loaded PDF lets its document go through its loading task, so the page can show the next file', async () => {

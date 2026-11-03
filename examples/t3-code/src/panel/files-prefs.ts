@@ -9,6 +9,7 @@
 import { obj, type Obj } from '../client/domain';
 import { adoptRightPanels } from './saved-panel';
 import { adoptHideTestFiles } from '../diff/hide-test-files';
+import { adoptDiffTreeWidth } from '../diff/diff-tree-width';
 import { adoptThreadDetailsItems } from '../details/thread-details-items';
 
 // RENDER_BROWSER_FILE_STORAGE_KEY "t3code.renderBrowserFile" (default true), HTML pages; renderMermaid, `.mmd` diagrams.
@@ -36,5 +37,6 @@ export function adoptFilesPrefs(next: object, saved: Obj): void {
   (next as { files?: FilesPrefs }).files = prefs;
   adoptRightPanels(next, saved); // the right panels, read with the Files preferences
   adoptHideTestFiles(next, saved); // Hide test files in the Changes panel and a pull request's Code tab (hide-test-files.ts)
+  adoptDiffTreeWidth(next, saved); // their file tree's width (diff-tree-width.ts)
   adoptThreadDetailsItems(next, saved); // the sections the thread details card shows (thread-details-items.ts)
 }

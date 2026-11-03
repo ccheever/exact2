@@ -5,7 +5,7 @@
 import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
 import { message } from './client-shared';
-import { adoptDiff, currentSelection, diffPaths, diffRequest, diffView, selectBaseRef, selectCheckpoint, selectScope, selectToolCall, selectTurn, turnSummaries } from '../diff/diff';
+import { adoptDiff, currentSelection, diffPaths, diffRequest, diffView, selectBaseRef, selectCheckpoint, selectScope, selectToolCall, selectTurn, turnSummaries, workspace } from '../diff/diff';
 import { loadBaseRefs } from '../diff/diff-base-ref';
 import { rememberDiffLayout } from '../appearance/settings-appearance-look';
 import { diffReview, loadDiffFiles } from '../diff/diff-review';
@@ -83,6 +83,8 @@ async function diff(this: T3Client, native: Native, op: string, id: string, valu
 async function baseRefs(client: T3Client, native: Native, id: string, value: string): Promise<void> {
   const source = client.diffState.source, picker = client.diffState.baseRefs;
   picker.query = id === 'query' ? value : '';
-  if (!source || source.kind !== 'branch-range' || currentSelection(client).kind !== 'branch') return;
-  await loadBaseRefs(picker, source.cwd, (method, payload) => client.rpc(native, method, payload));
+  // DiffPanel branchRefsCwd: the preview's cwd, else the workspace's, so a failed branch diff can still change its base.
+  const cwd = source?.kind === 'branch-range' ? source.cwd : workspace(client);
+  if (currentSelection(client).kind !== 'branch' || !cwd) return;
+  await loadBaseRefs(picker, cwd, (method, payload) => client.rpc(native, method, payload));
 }

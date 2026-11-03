@@ -523,6 +523,8 @@ shape Snapshot
   diffWrap: bool
   diffIgnoreWhitespace: bool
   diffTree: bool
+  // The file tree's saved width, -1 until one is chosen (diff-tree-width.ts).
+  diffTreeWidth: number
   diffTestFiles: number
   diffHideTests: bool
   // A tool call's diff: the files its record names that the patch omits, and the content recorded without a diff.

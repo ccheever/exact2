@@ -138,7 +138,7 @@ const layerState = (layer: StackLayer) => (layer.state === 'open' && layer.isDra
 export type StackLayerView = { key: string; number: number; ref: string; title: string; detail: string; compact: string; state: string; current: boolean };
 export function emptyStack() {
   return { shown: false, retryLookup: false, number: 0, label: '', ariaLabel: '', tooltip: '', warn: false, noticeText: '', notice: '', retry: false, layers: [] as StackLayerView[],
-    base: '', selectable: false, canMerge: false, mergeDisabled: true, mergeItemLabel: '', canRebase: false, rebaseDisabled: true, note: '', mergeButton: false, mergeTooltip: '',
+    base: '', selectable: false, canMerge: false, mergeDisabled: true, mergeHeld: false, mergeItemLabel: '', canRebase: false, rebaseDisabled: true, note: '', mergeButton: false, mergeTooltip: '',
     dialogOpen: false, dialogTitle: '', dialogDescription: '', dialogLayers: [] as StackLayerView[], dialogConfirm: '', dialogAction: '', pending: false };
 }
 export type PrStackView = ReturnType<typeof emptyStack>;
@@ -147,7 +147,8 @@ const uis = new WeakMap<object, StackUi>();
 export const stackUi = (client: object): StackUi => { let ui = uis.get(client); if (!ui) { ui = { confirm: null, pending: '' }; uis.set(client, ui); } return ui; };
 
 /** The stack's arithmetic, shared by the menu and the run: which layers a merge or a rebase touches and whether it may. */
-export function stackPlan(stack: PullRequestStack, number: number, pending: boolean) {
+/** `stale`: the stack shown is saved or failed to refresh; its actions wait for a fresh lookup. */
+export function stackPlan(stack: PullRequestStack, number: number, pending: boolean, stale = false) {
   const top = stack.layers.at(-1);
   const unmerged = stack.layers.filter(layer => layer.state !== 'merged');
   const hasClosed = unmerged.some(layer => layer.state !== 'open');
@@ -157,8 +158,8 @@ export function stackPlan(stack: PullRequestStack, number: number, pending: bool
   const mergeHasClosed = mergeLayers.some(layer => layer.state !== 'open');
   const heads = (layers: StackLayer[]) => layers.flatMap(layer => (layer.headSha ? [{ number: layer.number, headSha: layer.headSha }] : []));
   const hasUnknownHead = heads(unmerged).length !== unmerged.length;
-  const mergeDisabled = pending || selectedLayer?.state !== 'open' || mergeLayers.some(layer => !layer.headSha) || mergeHasClosed || mergeLayers.length === 0 || mergeLayers.some(layer => layer.isDraft === true);
-  const rebaseDisabled = pending || hasUnknownHead || hasClosed || unmerged.length === 0;
+  const mergeDisabled = pending || stale || selectedLayer?.state !== 'open' || mergeLayers.some(layer => !layer.headSha) || mergeHasClosed || mergeLayers.length === 0 || mergeLayers.some(layer => layer.isDraft === true);
+  const rebaseDisabled = pending || stale || hasUnknownHead || hasClosed || unmerged.length === 0;
   return { top, unmerged, position, mergeLayers, selectedLayer, mergeHasClosed, mergeDisabled, rebaseDisabled, heads };
 }
 export function layerView(layer: StackLayer, reference: Obj, current: number): StackLayerView {
@@ -175,7 +176,7 @@ export function presentStack(client: object, input: StackInput): PrStackView {
   view.retryLookup = !stack && input.supportsStackActions && !!input.query.error;
   if (!stack) return view;
   const pending = ui.pending === input.key;
-  const plan = stackPlan(stack, number, pending);
+  const stale = !stackView.isFresh, plan = stackPlan(stack, number, pending, stale);
   const permissions = obj(input.detail.viewerPermissions);
   const onRetry = !!input.query.error;
   Object.assign(view, {
@@ -183,14 +184,15 @@ export function presentStack(client: object, input: StackInput): PrStackView {
     tooltip: `View stack #${stack.number}, layer ${plan.position} of ${stack.layers.length}${stackView.notice ? ` · ${stackView.notice}` : ''}`,
     warn: onRetry, notice: stackView.notice ?? '', noticeText: stackView.notice ? (onRetry ? 'May be stale' : 'Refreshing…') : '', retry: onRetry,
     layers: [...stack.layers].reverse().map(layer => layerView(layer, input.reference, number)), base: `↳ ${stack.base}`, selectable: !pending,
-    canMerge: stackView.isFresh && input.supportsStackActions && input.canMergeMethod, canRebase: stackView.isFresh && input.supportsStackActions && permissions.stackRebase === true,
-    mergeDisabled: plan.mergeDisabled, rebaseDisabled: plan.rebaseDisabled, mergeItemLabel: `Merge stack (${plan.mergeLayers.length})`, pending,
+    canMerge: input.supportsStackActions && input.canMergeMethod, canRebase: input.supportsStackActions && permissions.stackRebase === true,
+    // A stale lookup keeps Merge stack in place, held (aria-disabled) with the notice as its tooltip, so it does not jump.
+    mergeDisabled: plan.mergeDisabled, mergeHeld: plan.mergeDisabled && stale, rebaseDisabled: plan.rebaseDisabled, mergeItemLabel: `Merge stack (${plan.mergeLayers.length})`, pending,
     note: plan.mergeHasClosed || plan.mergeLayers.some(layer => layer.isDraft === true) ? 'Every layer being merged must be open and ready for review.' : '',
   });
   view.mergeButton = view.canMerge && plan.selectedLayer?.state === 'open';
   // The panel's host words (PullRequestStackMenu terminology).
   const term = terminologyOf(str(input.detail.provider) || undefined), counted = (count: number) => `${count} ${count === 1 ? term.singular : term.plural}`;
-  view.mergeTooltip = `Merge stack through #${number} into ${stack.base} (${counted(plan.mergeLayers.length)})`;
+  view.mergeTooltip = stale ? stackView.notice ?? '' : `Merge stack through #${number} into ${stack.base} (${counted(plan.mergeLayers.length)})`;
   const confirm = ui.confirm?.key === input.key ? ui.confirm.action : null;
   if (confirm) {
     const layers = confirm === 'merge' ? plan.mergeLayers : plan.unmerged;

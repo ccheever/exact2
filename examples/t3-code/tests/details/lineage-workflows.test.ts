@@ -82,22 +82,22 @@ test('phase timing spans its members and status prioritizes live work, failure, 
 });
 
 
-test('workflow bodies hide empty phases and enable only available child chats', () => {
+test('workflow bodies hide empty phases and enable every member with a child chat', () => {
   const agents = projectedWorkflowAgents([coordinator({ modelSelection: { instanceId: 'claude', model: 'opus', options: [{ id: 'effort', value: 'high' }] },
     workflow: { name: 'Review', phases: [{ index: 0, title: 'Read' }, { index: 1, title: 'Later' }], agents: [
       { index: 0, label: 'Readable', state: 'completed', phaseIndex: 0, startedAt: at, durationMs: 70000, model: 'sonnet', childThreadId: 'available', result: 'All good' },
       { index: 1, label: 'Unavailable', state: 'failed', phaseIndex: 0, startedAt: at, durationMs: 30000, model: 'opus', childThreadId: 'missing', result: 'Could not read' },
       { index: 2, label: 'No child yet', state: 'queued' },
     ] } })]);
-  const body = workflowBody(workflowGroups(agents)[0]!, [{ id: 'available' }], [{ instanceId: 'claude', driver: 'claudeAgent', models: [{ slug: 'sonnet', name: 'Sonnet' }, { slug: 'opus', name: 'Opus' }] }], at + 90000);
+  const body = workflowBody(workflowGroups(agents)[0]!, [{ instanceId: 'claude', driver: 'claudeAgent', models: [{ slug: 'sonnet', name: 'Sonnet' }, { slug: 'opus', name: 'Opus' }] }], at + 90000);
   expect(body).toMatchObject({ title: 'Review', empty: false });
   expect(body.phases).toHaveLength(1);
   expect(body.phases[0]).toMatchObject({ title: 'Read', status: 'failed', running: false, failed: true, count: '2/2 agents', elapsed: '1m 10s' });
-  expect(body.phases[0]!.members.map(member => [member.title, member.disabled, member.elapsed])).toEqual([['Readable', false, '1m 10s'], ['Unavailable', true, '30s']]);
+  expect(body.phases[0]!.members.map(member => [member.title, member.disabled, member.elapsed])).toEqual([['Readable', false, '1m 10s'], ['Unavailable', false, '30s']]);
   expect(body.phases[0]!.members[0]!.card).toMatchObject({ modelLine: 'Sonnet', effort: '', speed: '', preview: 'All good' });
   expect(body.phases[0]!.members[1]!.card).toMatchObject({ modelLine: 'Opus', effort: '', preview: 'Could not read' });
   expect(body.unphased[0]).toMatchObject({ title: 'No child yet', disabled: true, elapsed: '' });
-  expect(workflowBody(workflowGroups(projectedWorkflowAgents([coordinator()]))[0]!, [], [], at)).toMatchObject({ phases: [], unphased: [], empty: true });
+  expect(workflowBody(workflowGroups(projectedWorkflowAgents([coordinator()]))[0]!, [], at)).toMatchObject({ phases: [], unphased: [], empty: true });
 });
 
 

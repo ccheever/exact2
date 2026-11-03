@@ -19,7 +19,7 @@ import {
   resolveBaseFreshness, resolvePullRequestMergeMethod, resolvePullRequestPrimaryControl,
 } from '../../src/details/pr-row-logic';
 import { actionState, applyPullRequestOverrides, prActionUi, pullRequestOverrideAfterAction, settlePullRequestOverrides, type ListOverride } from '../../src/pull-requests/pages-pr-actions';
-import { pullRequestStackView, savedPullRequestStack } from '../../src/pull-requests/pages-pr-stack';
+import { presentStack, pullRequestStackView, savedPullRequestStack } from '../../src/pull-requests/pages-pr-stack';
 import { noteNow } from '../../src/composer/composer-controls';
 
 // ── Ported (original names) ─────────────────────────────────────────────────
@@ -160,6 +160,15 @@ describe('saved stack navigation', () => {
     const query = { data: null, isSuccess: false, isPending: true, error: null };
     expect(pullRequestStackView(query, saved)).toMatchObject({ data: saved, isFresh: false, notice: expect.stringContaining('Refreshing') });
     expect(pullRequestStackView({ ...query, isPending: false, error: 'Rate limited' }, saved)).toMatchObject({ data: saved, isFresh: false, notice: expect.stringContaining('stale') });
+  });
+  test('a saved stack under a lookup in flight keeps Merge stack in place, held with the notice', () => {
+    const saved = { ...savedPullRequestStack([link], savedReference)!, layers: [{ number: 1, headBranch: 'bottom', state: 'open', headSha: 'a' }, { number: 2, headBranch: 'top', state: 'open', headSha: 'b' }] };
+    const input = { key: 'k', reference: { ...savedReference, projectId: 'p' }, detail: { viewerPermissions: { stackRebase: true } }, supportsStackActions: true, canMergeMethod: true, mergeMethod: 'squash', saved };
+    const loading = presentStack({}, { ...input, query: { data: null, isSuccess: false, isPending: true, error: null } });
+    expect(loading).toMatchObject({ shown: true, canMerge: true, canRebase: true, mergeButton: true, mergeDisabled: true, mergeHeld: true, rebaseDisabled: true,
+      mergeTooltip: 'Refreshing stack… Showing saved data.' });
+    const fresh = presentStack({}, { ...input, query: { data: saved, isSuccess: true, isPending: false, error: null } });
+    expect(fresh).toMatchObject({ mergeButton: true, mergeDisabled: false, mergeHeld: false, rebaseDisabled: false, mergeTooltip: 'Merge stack through #2 into main (2 pull requests)' });
   });
   test('prefers refreshed data and honors a successful absence', () => {
     const saved = savedPullRequestStack([link], savedReference);
@@ -365,6 +374,19 @@ describe('the actions, their confirmations and their toasts', () => {
     await running;
     expect((await panel(client, { refresh: ++refresh })).actions.pending).toBe(false);
   });
+  test('one pull request\'s merge in flight does not hold another\'s controls (pending per request)', async () => {
+    let release: () => void = () => {};
+    const { client } = fakeClient(defaults(base(), { 'pullRequests.runAction': () => new Promise(resolve => { release = () => resolve({}); }) }));
+    await panel(client);
+    const running = prCommand(client, native, 'action', selected, 'merge:merge');
+    await Bun.sleep(5);
+    const other = JSON.stringify({ projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 8 });
+    const elsewhere = (await panel(client, { selected: other })).actions;
+    expect([elsewhere.pending, elsewhere.primaryDisabled]).toEqual([false, false]);
+    expect((await panel(client)).actions.pending).toBe(true);
+    release();
+    await running;
+  });
   test('each control asks "Confirm …?" in place, and an armed action reads so wherever it shows', async () => {
     const say = async (detail: Obj, control: string, action: string) => {
       const { client } = fakeClient(defaults(detail));
@@ -545,7 +567,20 @@ describe('the host stack (PullRequestStackMenu)', () => {
     expect(await prCommand(client, native, 'stack-run', selected, '')).toBe('The stack changed. Refresh it before trying again.');
     expect(writes()[0]).toMatchObject({ number: 8, action: 'update-branch', updateMethod: 'rebase', stackNumber: 120, expectedStackHeads: [{ number: 6, headSha: 'aaa111' }, { number: 7, headSha: 'bbb222' }, { number: 8, headSha: 'ccc333' }] });
     expect(toasts(client)).toHaveLength(1);
-    expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not rebase the stack', description: 'PullRequestOperationError: The stack changed. Refresh it before trying again.' });
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not rebase the stack', description: 'The stack changed. Refresh it before trying again.' });
+  });
+  test('a stack run the host refuses without words says what to check (readableFailure)', async () => {
+    for (const [action, title, hint] of [
+      ['merge', 'Could not merge the stack', 'The host refused the merge. Check that you have write access, that the checks it requires have passed, and that the branch is not conflicting.'],
+      ['update-branch', 'Could not rebase the stack', 'The host refused the rebase. A rebase stops at the first commit that does not apply cleanly.'],
+    ] as const) {
+      const { client } = fakeClient(defaults(base(), { 'pullRequests.stack': () => stack,
+        'pullRequests.runAction': () => { throw new ClientError('Pull request operation runAction failed: GitHub CLI failed', 'PullRequestOperationError'); } }));
+      await panel(client);
+      prUiLocal(client, 'stack-ask', selected, action);
+      await prCommand(client, native, 'stack-run', selected, '');
+      expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title, description: hint });
+    }
   });
   test('a draft layer below holds the merge and says why; a failed lookup offers Retry stack lookup', async () => {
     const { client } = fakeClient(defaults(base(), { 'pullRequests.stack': () => ({ ...stack, layers: [{ ...layers[0]!, isDraft: true }, layers[1]!, layers[2]!] }) }));
@@ -554,7 +589,8 @@ describe('the host stack (PullRequestStackMenu)', () => {
     let fail = true;
     const lookup = fakeClient(defaults(base(), { 'pullRequests.stack': () => { if (fail) throw new Error('GitHub API rate limit exceeded'); return stack; } }));
     const failed = (await panel(lookup.client)).actions;
-    expect([failed.stack.retryLookup, failed.stack.shown, failed.primary]).toEqual([true, false, '']);
+    // The single Merge stays in place, held with the reason, rather than leaving while the lookup has failed.
+    expect([failed.stack.retryLookup, failed.stack.shown, failed.primary, failed.primaryBlocked]).toEqual([true, false, 'merge', "Couldn't check stack membership"]);
     fail = false;
     prUiLocal(lookup.client, 'stack-retry', selected, '');
     expect((await panel(lookup.client)).actions.stack).toMatchObject({ retryLookup: false, shown: true, label: '2/3' });
@@ -566,8 +602,12 @@ describe('inline confirmation input', () => {
   test('the same primary control confirms its second press; blur disarms', () => {
     const header = contractComponent('pages-pr-actions.contract', 'PrdHeaderActions');
     const sent: unknown[][] = [], local: unknown[][] = [];
-    const actions = { primary: 'merge', armedControl: '', armedAction: '' };
+    const actions = { primary: 'merge', armedControl: '', armedAction: '', primaryBlocked: 'Checking stack membership…' };
     const scope = { actions, ref: 'pr7', act: (...args: unknown[]) => sent.push(args), local: (...args: unknown[]) => local.push(args) };
+    // A merge held by the stack lookup neither arms nor runs.
+    header.call('confirmPrimary', {}, scope, []);
+    expect(local).toEqual([]);
+    actions.primaryBlocked = '';
     header.call('confirmPrimary', {}, scope, []);
     expect(local).toEqual([['pr-ui-arm', 'pr7', 'primary|merge']]);
     expect(sent).toEqual([]);

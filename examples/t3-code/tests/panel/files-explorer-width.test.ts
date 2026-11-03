@@ -9,7 +9,7 @@ import { adoptFilesPrefs, filesPrefs } from '../../src/panel/files-prefs';
 import { contractComponent } from '../support/contract-action-fixture';
 
 const surface = contractComponent('files-surface.contract', 'FilesSurface');
-const handle = contractComponent('files-surface.contract', 'ExplorerResizeHandle');
+const handle = contractComponent('tree-resize.contract', 'ExplorerResizeHandle');
 const native: Native = { available: true, watch() {}, later: async () => ({ ok: true, generation: 0, value: {} }) };
 
 /** FilesSurface over a 800-wide row beside a file, with the saved `width`, and the `local` ops it sent. */
@@ -53,7 +53,7 @@ describe('Files explorer width', () => {
 
   test('← widens and → narrows by 16, Home takes the least and End the most; a modified key is left alone', () => {
     const set: number[] = [], prevented: string[] = [];
-    const scope = { width: 256, max: 544, set: (width: number) => set.push(width), resize() {}, finish() {},
+    const scope = { width: 256, least: 160, max: 544, set: (width: number) => set.push(width), resize() {}, finish() {},
       preventDefault: () => prevented.push('default'), stopPropagation: () => prevented.push('propagation') };
     const state = handle.state(scope);
     const key = { altKey: false, ctrlKey: false, metaKey: false };

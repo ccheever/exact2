@@ -44,7 +44,7 @@ export class PreviewUrlNormalizationError extends Error {
   readonly protocol?: string;
   constructor(input: { inputLength: number; reason: PreviewUrlNormalizationReason; protocol?: string; cause?: unknown }) {
     const protocol = input.protocol === undefined ? '' : `: ${input.protocol}`;
-    super(`Invalid preview URL (${input.reason}${protocol}; input length ${input.inputLength}).`);
+    super(`Invalid preview URL (${input.reason}${protocol}; input length ${input.inputLength}). Use an http(s) URL or a schemeless host such as localhost:5173. With preview_open, omit url when creating a new tab to open a blank tab.`);
     // Defined, not assigned: the app's runtime freezes Error.prototype, whose `name` is then read-only.
     Object.defineProperty(this, 'name', { value: 'PreviewUrlNormalizationError', configurable: true, writable: true });
     this.inputLength = input.inputLength;

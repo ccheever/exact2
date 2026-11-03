@@ -3,6 +3,7 @@
 use ShellLineage from "../shell/shell-shapes.contract"
 use ShellIcon from "../shell/shell-icons.contract"
 use ProviderMark from "../shared/icons.contract"
+use ComposerInstanceMark from "../composer/instance-mark.contract"
 use HoverTip from "../shell/hover-layer.contract"
 use hoverTipAtFrame from "../shell/hover-layer.contract"
 
@@ -18,7 +19,7 @@ component LineageBodyRow
   action hover(on: bool)
     over = on
     if row.kind == "member"
-      hoverTipAt(hoverTipAtFrame(testKey, "workflow-member", row.title, [row.modelLine, row.status, row.elapsed, row.preview, row.driver], "left", "start", frame(testKey), 20.25 * rem, `${testKey}-hover`), "trigger", on)
+      hoverTipAt(hoverTipAtFrame(testKey, "workflow-member", row.title, row.tipLines, "left", "start", frame(testKey), 20.25 * rem, `${testKey}-hover`), "trigger", on)
   action open
     hover(false)
     act("select-thread", row.hint, "")
@@ -38,10 +39,13 @@ component LineageBodyRow
       button id=testKey testId=testKey hover=hover focus=hover(true) blur=hover(false) press=open disabled=row.missing aria-label=`Open ${row.title} chat, ${row.status}` width="100%" height="2rem" padding-left="1.5rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" background-color=(over ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
         box width="1rem" height="1rem" position="relative" flex-shrink=0 display="flex" align-items="center" justify-content="center"
           if row.driver != ""
-            ProviderMark(driver=row.driver, size=16, color="light-dark(#71717b, #a1a1a1)")
+            ComposerInstanceMark(driver=row.driver, icon=row.markIcon, size=16, color="light-dark(#71717b, #a1a1a1)", badge=row.badge, accent=row.accent)
           else
             ShellIcon(name="bot", size=16, color="light-dark(#71717b, #a1a1a1)")
-          box position="absolute" right="-0.25rem" bottom="-0.25rem" width="0.5rem" height="0.5rem" box-sizing="border-box" border-radius="0.25rem" border-style="solid" border-width=2 border-color="light-dark(#ffffff, #111111)" background-color=row.dot
+          if row.badge != ""
+            box position="absolute" left="-0.25rem" top="-0.25rem" width="0.5rem" height="0.5rem" box-sizing="border-box" border-radius="0.25rem" border-style="solid" border-width=2 border-color="light-dark(#ffffff, #111111)" background-color=row.dot
+          else
+            box position="absolute" right="-0.25rem" bottom="-0.25rem" width="0.5rem" height="0.5rem" box-sizing="border-box" border-radius="0.25rem" border-style="solid" border-width=2 border-color="light-dark(#ffffff, #111111)" background-color=row.dot
         text row.title flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" font-weight=500 line-height="1rem" color="light-dark(#18181bd9, #f5f5f5d9)"
         if row.elapsed != ""
           text row.elapsed flex-shrink=0 font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)"

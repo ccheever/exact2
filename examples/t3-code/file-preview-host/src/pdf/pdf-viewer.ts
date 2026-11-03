@@ -1,8 +1,9 @@
-// The PDF viewer (MIT reference, see LICENSE-T3: apps/web/src/components/files/PdfViewer.tsx; T3 Code 2359643cff),
+// The PDF viewer (MIT reference, see LICENSE-T3: apps/web/src/components/files/PdfViewer.tsx; T3 Code 5d3d78ab93),
 // which the Electron app always takes (BrowserDocumentFrame.tsx PdfDocument). PDF.js renders each page near the
 // viewport to a canvas with its text layer; the toolbar pages, zooms 25–300 % from fit width, and finds a phrase
 // across line ends (pdf-layout.ts). It opens at the page, offset, zoom and horizontal scroll it is given, and reports
-// them as they change, so a new revision of the same document opens where the reader was. Its React state is this
+// them as they change, with the page width and page shapes they were read at (PdfViewer's saved position), so a new
+// revision, a later visit or another width of the same document opens where the reader was. Its React state is this
 // class's fields; `update` is its render.
 import { TextLayer, type PDFDocumentProxy } from "pdfjs-dist";
 import { ChevronDown, ChevronUp, Minus, Plus, Scan } from "../icons";
@@ -16,6 +17,9 @@ import {
 
 const MAX_PAGES = 2000;
 const MAX_FIND_TEXT = 4 * 1024 * 1024;
+
+/** A saved place: the view, the page width its offset was read at, and every page's height to width. */
+export type PdfPosition = PdfViewState & { width: number; ratios: readonly number[] };
 
 /** Where the reader is: the current page, how far into it, the zoom (null: fit width) and the horizontal scroll. */
 export type PdfViewState = { page: number; offset: number; zoom: number | null; left: number };
@@ -102,7 +106,7 @@ export class PdfViewer {
   private pdf: PDFDocumentProxy | null = null;
   private error: string | null = null;
   private revision = 0;
-  private ratios: number[] = [];
+  private ratios: readonly number[] = [];
   private zoom: number | null = null;
   private pageWidth = 612;
   private viewport = { width: 600, height: 800 };
@@ -126,11 +130,13 @@ export class PdfViewer {
   private body: HTMLElement | null = null;
   private track: HTMLDivElement | null = null;
   private readonly initialView: PdfViewState;
+  private readonly saved: PdfPosition | null;
   /** The loaded document whose place was restored; until then a scroll reports nothing. */
   private restored: PDFDocumentProxy | null = null;
 
-  constructor(private readonly src: string, title: string, initialView?: PdfViewState, private readonly onViewChange?: (view: PdfViewState) => void) {
+  constructor(private readonly src: string, title: string, initialView?: PdfViewState | PdfPosition, private readonly onViewChange?: (view: PdfPosition) => void) {
     this.initialView = initialView ?? { page: 0, offset: 0, zoom: null, left: 0 };
+    this.saved = initialView && "width" in initialView && "ratios" in initialView ? initialView : null;
     this.zoom = this.initialView.zoom;
     this.previous = surfaceAction({ label: "Previous page", icon: ChevronUp as IconNode, disabled: true, onPress: () => this.showPage(this.current() - 1) });
     this.next = surfaceAction({ label: "Next page", icon: ChevronDown as IconNode, disabled: true, onPress: () => this.showPage(this.current() + 1) });
@@ -198,7 +204,9 @@ export class PdfViewer {
         }));
         if (controller.signal.aborted) return;
         this.pageWidth = first.width;
-        this.ratios = Array.from({ length: document.numPages }, (_, index) => sizes[index] ?? first.height / first.width);
+        // A saved place brings the page shapes it was laid out with, so the pages before it sit where they did.
+        this.ratios = this.saved?.ratios.length === document.numPages ? this.saved.ratios
+          : Array.from({ length: document.numPages }, (_, index) => sizes[index] ?? first.height / first.width);
         this.pdf = document;
         this.search();
         this.update();
@@ -231,8 +239,8 @@ export class PdfViewer {
   /** PdfViewer's saveView: the reader's place, reported once the document's own place is restored. */
   private saveView() {
     if (!this.pdf || this.restored !== this.pdf) return;
-    const { offsets } = this.sizes(), page = this.current();
-    this.onViewChange?.({ page, offset: Math.max(0, this.scroll.scrollTop - (offsets[page]! - 16)), zoom: this.zoom, left: this.scroll.scrollLeft });
+    const { offsets, width } = this.sizes(), page = this.current();
+    this.onViewChange?.({ page, offset: Math.max(0, this.scroll.scrollTop - (offsets[page]! - 16)), zoom: this.zoom, left: this.scroll.scrollLeft, width, ratios: this.ratios });
   }
   private changeZoom(value: number | null) {
     const { offsets, width } = this.sizes(), current = this.current();
@@ -352,7 +360,9 @@ export class PdfViewer {
     if (this.restored !== pdf) {
       this.restored = pdf;
       const page = Math.min(this.initialView.page, pdf.numPages - 1);
-      this.scroll.scrollTo({ top: offsets[page]! - 16 + Math.min(this.initialView.offset, Math.max(0, width * this.ratios[page]! - 1)), left: this.initialView.left });
+      // An offset saved at another width scales with the page.
+      const offset = this.initialView.offset * (this.saved && this.saved.width > 0 ? width / this.saved.width : 1);
+      this.scroll.scrollTo({ top: offsets[page]! - 16 + Math.min(offset, Math.max(0, width * this.ratios[page]! - 1)), left: this.initialView.left });
       this.scrollTop = this.scroll.scrollTop;
       this.saveView();
     }

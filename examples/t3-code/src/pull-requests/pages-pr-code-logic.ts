@@ -1,4 +1,4 @@
-// The pull request Code tab's pure logic, ported from T3 Code 2359643cff
+// The pull request Code tab's pure logic, ported from T3 Code 5d3d78ab93
 // (MIT, see LICENSE-T3): apps/web/src/components/pullRequest/{pullRequestDiff.logic,
 // pullRequestFilesViewed.logic,pullRequestFileOrder.logic}.ts, pullRequestDetail.logic.ts (the
 // thread comment pages), apps/web/src/reviewCommentContext.ts resolveDiffReviewPosition and resolveDiffReviewAnchor,
@@ -234,7 +234,17 @@ function orderByImports(paths: readonly string[], imports: ReadonlyMap<string, R
   }
   return ordered;
 }
-const testedBaseName = (path: string) => (path.split('/').at(-1) ?? '').replace(/\.(?:test|spec)\..*$/, '').replace(/\.[^.]+$/, '');
+/** `a.logic.test.ts` covers `a.logic.ts` while `a.browser.test.ts` covers `a.ts`, so the longest dotted prefix that names a source file wins. */
+function testedSourcePosition(path: string, sourcePositions: ReadonlyMap<string, number>): number {
+  let name = (path.split('/').at(-1) ?? '').replace(/\.(?:test|spec)\..*$/, '');
+  while (true) {
+    const position = sourcePositions.get(name);
+    if (position !== undefined) return position;
+    const dot = name.lastIndexOf('.');
+    if (dot <= 0) return Number.MAX_SAFE_INTEGER;
+    name = name.slice(0, dot);
+  }
+}
 /** Diff files in reading order: source in dependency order, then the tests that cover it, then what a tool wrote. */
 export function orderDiffFiles<T extends { name: string; additionLines: readonly string[]; deletionLines: readonly string[] }>(files: readonly T[]): T[] {
   const byPath = new Map<string, T>();
@@ -255,10 +265,8 @@ export function orderDiffFiles<T extends { name: string; additionLines: readonly
   const orderedSource = orderByImports(sourcePaths, imports);
   const sourcePositions = new Map<string, number>();
   orderedSource.forEach((path, index) => { const base = baseName(path); if (!sourcePositions.has(base)) sourcePositions.set(base, index); });
-  const orderedTests = [...byPath.keys()].filter(path => tiers.get(path) === 'test').sort((left, right) => {
-    const leftPosition = sourcePositions.get(testedBaseName(left)) ?? Number.MAX_SAFE_INTEGER, rightPosition = sourcePositions.get(testedBaseName(right)) ?? Number.MAX_SAFE_INTEGER;
-    return leftPosition - rightPosition || left.localeCompare(right);
-  });
+  const orderedTests = [...byPath.keys()].filter(path => tiers.get(path) === 'test')
+    .sort((left, right) => testedSourcePosition(left, sourcePositions) - testedSourcePosition(right, sourcePositions) || left.localeCompare(right));
   const orderedGenerated = [...byPath.keys()].filter(path => tiers.get(path) === 'generated').sort((left, right) => left.localeCompare(right));
   return [...orderedSource, ...orderedTests, ...orderedGenerated].map(path => byPath.get(path)!);
 }

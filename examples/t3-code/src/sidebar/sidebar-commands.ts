@@ -36,6 +36,7 @@ import { openHome } from '../pages/home-landing';
 import { snapshotDefaultProject } from '../snapshot/snapshot-adopt';
 import { focusFleetThread, parseFleetThreadId } from '../connections/settings-b-fleet';
 import { letGo } from '../client/let-go';
+import { clearDeletedThreadPanelState } from '../panel/deleted-thread-state';
 
 const failure = (error: unknown) => error instanceof Error ? error.message : 'An error occurred.';
 const threadOf = (client: T3Client, id: string): Obj | undefined => client.shell.threads.find(thread => thread.id === id);
@@ -243,6 +244,7 @@ export async function remove(client: T3Client, native: Native, storage: Files, i
   const fallback = getFallbackThreadIdAfterDelete({ threads: client.shell.threads.filter(entry => !entry.archivedAt), deletedThreadId: id, deletedThreadIds: deleted, sortOrder: threadSortOrder(client) });
   await dispatch(client, native, { type: 'thread.delete', threadId: id });
   forget(client, id);
+  clearDeletedThreadPanelState(client, client.environmentId, id);
   delete client.local.drafts[`${client.environmentId}:${id}`];
   const session = sidebarSession(client);
   session.selection = session.selection.filter(selected => selected !== id);
