@@ -205,20 +205,18 @@ fn node(runner: &Runner<Replies>, id: &str) -> u32 {
     runner.kernel().node_by_key(nodes[0]).unwrap().id
 }
 
+/// Whether the row's action slot is hidden: it fades to opacity 0 and stays in the Tab order and the accessibility
+/// tree, as the reference's `opacity-0` slot does (ThreadRow, upstream 5b9731cedc).
 fn actions_hidden(runner: &Runner<Replies>, trigger: u32) -> bool {
     let mut parent = runner.kernel().node(trigger).unwrap().parent;
     while let Some(view) = parent {
         let node = runner.kernel().node(view).unwrap();
-        if let Some((_, value)) = node
-            .props
-            .iter()
-            .find(|(id, _)| id.name() == "accessibilityElementsHidden")
-        {
-            return value.as_bool().unwrap();
+        if node.style.opacity == 0.0 {
+            return true;
         }
         parent = node.parent;
     }
-    panic!("snooze action slot has an explicit accessibilityElementsHidden property")
+    false
 }
 
 #[test]

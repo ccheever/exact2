@@ -405,12 +405,13 @@ fn the_keybinding_recorder_captures_a_chord_and_escape_restores() {
         "the recorder keeps the focus after a chord"
     );
     // Escape on it gives the row its binding back (the new row's is none) and is the recorder's alone: Settings stays.
+    // With no Edit pill to return to, the field lets go of the focus (NewKeybindingKeyInput's `blur()`).
     runner
         .dispatch(recorder, keydown("Escape", "Escape", ""))
         .unwrap();
     assert_eq!(
         names(runner),
-        ["preventDefault", "stopPropagation"],
+        ["preventDefault", "stopPropagation", "blur"],
         "no ancestor hears that Escape"
     );
     assert_eq!(runner.slot("keybindingKey"), Some(&Value::str("")));
@@ -419,10 +420,7 @@ fn the_keybinding_recorder_captures_a_chord_and_escape_restores() {
         Some(&Value::Bool(false))
     );
     assert_eq!(runner.slot("settingsOpen"), Some(&Value::Bool(true)));
-    // The new row's field (NewKeybindingKeyInput) stays a text field, "Unassigned", once the focus leaves it.
-    let recorder = node(runner, "keybinding-recorder-new")
-        .expect("the unassigned row's field still has the focus");
-    runner.dispatch(recorder, Event::Blur).unwrap();
+    // The new row's field (NewKeybindingKeyInput) is a text field again, "Unassigned".
     assert!(node(runner, "keybinding-recorder-new").is_none(), "left");
     assert_eq!(
         prop(runner, "keybinding-field-new", "placeholder").as_deref(),
