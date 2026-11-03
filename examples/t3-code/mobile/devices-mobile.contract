@@ -20,7 +20,7 @@ shape MobileDevicesSnapshot
   operating: bool
   needsRefresh: bool
 
-// Root supplies safeAreaTop. Full-screen presentation and hidden system bars remain unimplemented.
+// Root supplies safeAreaTop. The fullscreen host reads the route's system-bar policy.
 component MobileDevices
   props
     data: MobileDevicesSnapshot

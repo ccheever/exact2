@@ -9,6 +9,12 @@ import UIKit
 /// edit has it paint again (`Presenter.applyThemeTint`).
 protocol PaintsSheetSurface: AnyObject { func paintSurface() }
 extension ModalController: PaintsSheetSurface {}
+
+/// A route's first-class system-bar policy, kept in the native presentation
+/// owner where UIKit asks for it rather than asking route content to reach up.
+enum ModalSystemBars {
+    static func hidden(_ value: String?) -> Bool { value == "hidden" }
+}
 #endif
 
 private final class ModalController: UIViewController, UIGestureRecognizerDelegate {
@@ -115,6 +121,15 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     // LLP 1105 D6: UIKit asks a presented controller that covers the screen;
     // it answers the presenter's one resolved style, as the root does.
     override var preferredStatusBarStyle: UIStatusBarStyle { host?.presenter.statusBar.style ?? .default }
+    override var prefersStatusBarHidden: Bool { ModalSystemBars.hidden(route?.props["navigationSystemBars"]) }
+    override var prefersHomeIndicatorAutoHidden: Bool { ModalSystemBars.hidden(route?.props["navigationSystemBars"]) }
+    override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge {
+        ModalSystemBars.hidden(route?.props["navigationSystemBars"]) ? .all : []
+    }
+    func updateSystemBarPreferences() {
+        setNeedsStatusBarAppearanceUpdate()
+        setNeedsUpdateOfHomeIndicatorAutoHidden()
+    }
     // LLP 1133.029 D5: and the session's orientation lock, as the root does.
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         host?.presenter.orientationLock.supported ?? super.supportedInterfaceOrientations
@@ -532,6 +547,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             layer.controller.updateSheet(detent: layer.route.props["navigationDetent"], cornerRadius: ModalController.cornerRadius(of: layer.route), grabber: layer.route.props["navigationGrabber"])
             #if os(iOS)
             layer.controller.paintSurface()
+            layer.controller.updateSystemBarPreferences()
             #endif
         }
     }
