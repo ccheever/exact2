@@ -163,8 +163,7 @@ test('an implementation that is its own substitute answers under the agent, behi
     // A reply overtaken before it landed is dropped, and its handles disposed of.
     await s.tap('slow');
     await s.tap('start');
-    await s.clock('settle');
-    await new Promise(r => setTimeout(r, 500));
+    // Settle once: it waits for the slow reply, in flight for 5 s, which is dropped as it lands
     await s.clock('settle');
     expect((await seen()).disposed).toEqual(['t2']);
     expect((await texts()).opened).toBe('t3');
