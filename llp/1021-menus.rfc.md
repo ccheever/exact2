@@ -913,12 +913,27 @@ menu's glass and the dismissal. In the delegate:
   its animator's completion. A hidden row, or no row,
   means no preview, and UIKit's own lifted node is the preview. Two rows
   are refused, logged as `context menu <id> refused a preview: …`.
-- The **targeted preview** (highlight and dismissal) is the node itself
-  (`UITargetedPreview(view:)`), with a `visiblePath` for its
-  `border-radius`, so the lift and the morph are Apple's. After a commit
-  that navigated, the dismissal has no target: the node is under the new
-  screen, as Signal's is under the conversation. After a press that
-  stayed, the dismissal returns to the node.
+- The **targeted preview** (highlight and dismissal) is the node itself,
+  live (`UITargetedPreview(view:)`), clipped to its `border-radius`
+  outline, so the lift, the morph and the return are Apple's: UIKit hides
+  the node while it is lifted. It rises over the view of the controller
+  that holds the node, not the node's superview, so an ancestor that clips
+  (a strip that scrolls sideways) cuts neither it nor its shadow. A text
+  run that names a `contextPopover` cannot lift its paragraph, which UIKit
+  would hide whole: it lifts a picture of its lines with the padding UIKit
+  gives text lines (`UIPreviewParameters(textLineRects:)`), taken as the
+  finger lands, before a press the touch starts has drawn. The picture is
+  the run's own boxes from the screen over what lies under the paragraph
+  without its other text, which the padding would take in: a flat color
+  where only fills that cover the area paint there, else the layers drawn
+  from the tree. Where only the render server draws what lies there (a
+  blur, video, Metal), it is the screen, the neighboring text included.
+  Its padding fades as UIKit returns it, so it lands as the screen shows
+  it then; UIKit leaves the picture in the window once it has returned
+  it, and the host takes it off the screen when the dismissal completes.
+  After a commit that navigated, the dismissal has no target: the node is
+  under the new screen, as Signal's is under the conversation.
+  After a press that stayed, the dismissal returns to the node.
 - **The commit** (`willPerformPreviewActionForMenuWith`): if the preview row
   is still the popover's, enabled and has a `press`, it is pressed by view
   id, synchronously, with the navigation stack's own push animation off for
