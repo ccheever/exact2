@@ -129,7 +129,20 @@ export type Refreshed = { ok: true; session: Session } | { ok: false; offline?: 
 /** A round's end: caught up, or why not. `offline`: the server was not
  * reached; `retry`: it asked to be asked again; `busy`: a round is already
  * running; `stale`: this round was replaced (the client was reopened). */
-export interface Round { ok: boolean; offline?: boolean; retry?: boolean; busy?: boolean; stale?: boolean; denied?: Refusal }
+export interface Round { ok: boolean; acquired?: boolean; acquisition?: Acquisition; offline?: boolean; retry?: boolean; busy?: boolean; stale?: boolean; denied?: Refusal }
+
+export interface Acquisition {
+  acquired: boolean;
+  exhausted: boolean;
+  cursor: string | null;
+  /** Device coverage, restored on reopen. */
+  acquiredTables: string[];
+  flooredGroups: number;
+  /** Received row images in this open's acquisition, including re-deliveries. */
+  rows: number;
+  tables: Record<string, number>;
+  failure?: Refusal;
+}
 
 export interface Status {
   open: boolean;
@@ -140,6 +153,7 @@ export interface Status {
   revision: number;
   watermark?: number;
   acquired?: boolean;
+  acquisition: Acquisition;
   queued?: { id: string; op: string; args?: Json }[];
 }
 
@@ -742,11 +756,14 @@ export class Snapback {
     return ok<Status>(await this.call({ op: 'status' }));
   }
 
-  /** One round: open if needed, sync to the head, send the outbox, sync again.
+  /** One round: publish an acquisition page, drain ordinary changes, send the outbox.
+   * `until: 'acquired'` repeats rounds until all declared history is acquired,
+   * or a round ends offline or refused. Reads and writes can run between rounds.
    * Rounds on a partition run one at a time: a `sync()` while another runs
    * (from this client or another source's) waits for it, then runs its own,
    * so what was written meanwhile is sent too. */
-  sync(): Promise<Round> {
+  sync(options?: { until?: 'acquired' }): Promise<Round> {
+    if (options?.until === 'acquired') return this.acquire();
     if (this.closed) return Promise.reject(new Error('Snapback4: this client is closed'));
     const partition = this.partition;
     const check = this.fence();
@@ -757,6 +774,14 @@ export class Snapback {
       if (done.denied?.code !== 'E_AUTH') check();
       return done;
     });
+  }
+
+  private async acquire(): Promise<Round> {
+    let done: Round;
+    do {
+      done = await this.sync();
+    } while (done.ok && done.acquired === false && !done.acquisition?.failure);
+    return done;
   }
 
   private async round(): Promise<Round> {

@@ -56,9 +56,26 @@ fn denied(why: Refusal) -> Stop {
 }
 
 pub(crate) async fn round(io: Io, config: Arc<Config>, shared: Arc<Mutex<Shared>>) -> Json {
-    let outcome = run(&io, &config, &shared).await;
+    let mut outcome = run(&io, &config, &shared).await;
+    let opened = shared.lock().unwrap_or_else(|p| p.into_inner()).opened;
+    let state = if opened {
+        match io
+            .device(json!({"op": "sync_state", "capture": false}))
+            .await
+        {
+            Ok(state) => state,
+            Err(why) => {
+                if outcome.is_ok() {
+                    outcome = Err(denied(why));
+                }
+                Json::Null
+            }
+        }
+    } else {
+        Json::Null
+    };
     let mut shared = shared.lock().unwrap_or_else(|p| p.into_inner());
-    match outcome {
+    let mut done = match outcome {
         Ok(()) => {
             shared.online = Some(true);
             shared.denied = None;
@@ -77,7 +94,10 @@ pub(crate) async fn round(io: Io, config: Arc<Config>, shared: Arc<Mutex<Shared>
             shared.denied = Some(why.clone());
             json!({"ok": false, "offline": false, "denied": why})
         }
-    }
+    };
+    done["acquired"] = json!(state["acquired"] == true);
+    done["acquisition"] = shared.progress.status(&state, &shared.acquisition.failure);
+    done
 }
 
 /// Save what the client holds (outcomes taken over from another device),
@@ -419,6 +439,7 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
                 .unwrap_or_else(|p| p.into_inner())
                 .acquisition
                 .reset();
+            shared.lock().unwrap_or_else(|p| p.into_inner()).progress = Default::default();
             bump(shared);
             generation = backend
                 .get("generation")
@@ -496,6 +517,11 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
             bump(shared);
         }
         let published = applied["published"] != false;
+        shared
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .progress
+            .page(&page, first, published);
         publication_outstanding = !published;
         if published {
             // Publication, including full acquisition, is solely the device's fact.

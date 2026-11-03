@@ -5,9 +5,11 @@ the device (its partition in SQLite, its outbox, local queries and
 predictions) and the client protocol over it (opening, sync rounds, store
 identity and generation adoption, at-most-once sends with receipts, the
 change poll), written once in Rust and performing no I/O. Each HTTP exchange
-is handed to whoever drives it. Pinned to Snapback4 **0.4.33**
-(engine sources in `snapback4/Cargo.toml`); the npm CLI in the root
-`package.json` matches.
+is handed to whoever drives it. Pinned to Snapback4 **0.4.52**, revision
+`13f30b2fbc7875588cb541b7c2bbbe8c3c90d84f` (engine sources in
+`snapback4/Cargo.toml`). This revision adds progressive acquisition and is
+newer than the published npm 0.4.52 package. The root npm CLI remains
+0.4.33 for the historical README examples and older-server checks.
 
 | | |
 |---|---|
@@ -106,7 +108,8 @@ above it): `bun exact.mjs snapback`. Either one:
 It names the `appId` line `app.ts` needs when the two disagree: `app.json`'s
 `"app": { "id" }`, which `exact new` set from the directory's name. Last it
 says the server to start, `bunx snapback4 dev --port <n>` above. The driver is
-pinned to Snapback4 0.4.33: install that version for the server. A new app
+pinned to Snapback4 0.4.52 at `13f30b2fbc`; see Progressive history below
+for the server revision needed for early offline reads. A new app
 made this way and tested as written against 0.4.33 (2026-10-20): both of the
 guestbook's tests pass.
 
@@ -1441,6 +1444,44 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   it names: name every one the write changes (`refreshes board, feed`), or a
   second view of the same rows stays as it was until its next refresh.
 
+### Progressive history
+
+On a server advertising `progressive-acquisition-v1`, one `await db.sync()`
+round publishes one acquisition page (which may pack several groups), drains
+up to four published ordinary stream pages, then sends the outbox. Deferred
+publication finishes its required drain before yielding. Horizonless tables
+arrive first, followed by the most recently read supported conversation and
+the remaining groups. A read can be `complete: true` while `acquired` is false;
+use the read's coverage to render it.
+
+Keep calling `sync()` in the app's background loop while `round.acquired` is
+false. To wait for full acquisition explicitly:
+
+```ts
+const round = await db.sync({ until: 'acquired' });
+// Offline or refusal can end the loop with round.acquired === false.
+const progress = round.acquisition ?? (await db.status()).acquisition;
+```
+
+Each turn releases the round queue, so reads and writes remain interleavable.
+Both `status()` and the round result expose `acquisition` with `acquired`,
+`exhausted`, `cursor`, `acquiredTables`, `flooredGroups`, `rows`, `tables`, and
+an optional typed `failure`. Coverage comes from the device and survives
+reopen. Row-image counts describe this open's acquisition, include duplicate
+deliveries, and restart when acquisition is replaced; they are not a total or
+proof of readable rows. Show “Syncing offline history…” or “Offline · some
+history is not downloaded”; show a failure when present. Do not show a
+percentage or ETA without a measured denominator. An indivisible acquisition
+`E_BOUND` stops retries until reopen; serialization overflow first reduces
+the requested page size.
+
+Early offline reads need a server built from Snapback revision
+`13f30b2fbc7875588cb541b7c2bbbe8c3c90d84f` or later; the npm version number
+alone is insufficient. Older servers use staged snapshots and finish with
+`acquired: true`. Generation and store replacement retain staged acquisition.
+Rebuild an app's native and web device after updating the pin with
+`bun exact.mjs snapback --rebuild`.
+
 ### Photos and video: upload and download
 
 Device-backed apps can keep a picked file and its placing mutation in one durable
@@ -1577,7 +1618,10 @@ unchanged. Only a successful run updates the npm and Cargo pins, lockfiles,
 tested-against dates and `readme-tested.json`; it makes no commit.
 `node scripts/check-snapback-readme.mjs` refuses claims whose source or pin has
 changed since that run. Run the retest command when repinning, rather than editing
-the tested-against claims.
+the tested-against claims. The 0.4.52 progressive source pin has not been
+retested through that command: its npm package is not published. The dated
+0.4.33 claims and file hashes remain historical; the receipt is intentionally
+stale until a published package can qualify the examples again.
 
 This workspace is outside the root's; its lock carries the private Snapback
 source. Run `cargo test -p exact-snapback4 -p exact-snapback4-client`

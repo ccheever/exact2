@@ -146,6 +146,7 @@ pub(crate) fn refusal(code: &str, family: &str, message: impl Into<String>) -> R
 #[derive(Default)]
 pub(crate) struct Shared {
     pub acquisition: crate::acquisition::Acquisition,
+    pub progress: crate::progress::Progress,
     pub opened: bool,
     pub online: Option<bool>,
     pub denied: Option<Refusal>,
@@ -783,8 +784,9 @@ impl Client {
         let revision = lock(&self.shared).revision;
         let mut status = json!({"open": self.is_open(), "online": online, "denied": denied,
             "syncing": self.round.is_some(), "revision": revision});
+        let mut state = Json::Null;
         if self.is_open() {
-            let state = ok(core.call(json!({"op": "sync_state", "capture": false})))?;
+            state = ok(core.call(json!({"op": "sync_state", "capture": false})))?;
             status["watermark"] = state["watermark"].clone();
             status["acquired"] = state["acquired"].clone();
             let queued = ok(core.call(json!({"op": "queued"})))?;
@@ -795,6 +797,8 @@ impl Client {
                 .map(|entry| json!({"id": entry["id"], "op": entry["op"], "args": entry["args"]}))
                 .collect();
         }
+        let shared = lock(&self.shared);
+        status["acquisition"] = shared.progress.status(&state, &shared.acquisition.failure);
         Ok(status)
     }
 

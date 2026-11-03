@@ -12,6 +12,7 @@ pub mod client;
 pub mod dispatch;
 mod journal;
 pub mod partition;
+mod progress;
 mod round;
 mod uploads;
 
