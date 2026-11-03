@@ -18,6 +18,7 @@ import { machineKind } from '../connections/connections';
 import { commandShortcut } from '../shell/shell';
 import { NO_SCRIPTS, cardScripts } from './project-scripts';
 import { gitDetails, EMPTY_GIT } from './git-card'; // branch picker, Git actions and dialogs
+import { changesTotals } from './git-logic';
 import { environmentOptions } from './git-env'; // the environments that hold this project
 import { prRowsView, emptyPrRows } from '../panel/pr-surface'; // the pull request rows under the branch
 import { EDITOR_DEFINITIONS } from '../shared/editors';
@@ -27,6 +28,7 @@ import { autoBalanceState } from '../composer/auto-balance';
 import { threadDetailsMenu, threadDetailsVisibility } from './thread-details-items';
 import { NO_SERVERS, threadServersView, watchThreadServers } from './thread-servers'; // ThreadServersPanel
 import { NO_USAGE, threadContext, threadUsage } from './thread-details-usage'; // ThreadDetailsUsage, ThreadDetailsContext
+import { lineageTags } from '../sidebar/thread-tag-filter';
 
 /** EDITORS in contracts/editor.ts order; `file-manager` is Finder on macOS (editorLabelForPlatform). */
 export const EDITORS: [string, string][] = EDITOR_DEFINITIONS.map(editor => [editor.id, editor.label]);
@@ -136,8 +138,6 @@ export async function shellDetails(client: T3Client, native: Native | null | und
   const { status, error } = await watchVcsStatus(client, native, cwd, now);
   await refreshVcsOnFocus(client, native, cwd, focused); // GitActionsControl: vcs.refreshStatus when the window regains the focus
   const action = quickAction(status);
-  // The Changes row reads the branch's totals when the server reports them (upstream d1034d62b2).
-  const totals = obj(status?.branchChanges ?? status?.workingTree);
   // BranchToolbarEnvModeSelector (panel): a draft or an unstarted server thread picks Current checkout / New worktree
   // here; several models force New worktree; a started thread's workspace is locked.
   const envMode = forced ? 'worktree' : override ? serverEnvMode(client) : worktree ? (thread ? 'worktree' : 'local') : draft?.envMode === 'worktree' ? 'worktree' : 'local';
@@ -171,7 +171,7 @@ export async function shellDetails(client: T3Client, native: Native | null | und
     editorShortcut: commandShortcut(client.config, 'editor.openFavorite'),
     ...cardScripts(obj(client.config.settings), project), // the project script row (project-scripts.ts)
     isGit: status?.isRepo === true, branch: str(status?.refName), actionLabel: action.label, actionKind: action.kind === 'run_action' ? action.action : action.kind,
-    actionDisabled: action.disabled, actionHint: action.hint, insertions: num(totals.insertions), deletions: num(totals.deletions), ...env,
+    actionDisabled: action.disabled, actionHint: action.hint, ...changesTotals(status), ...env,
     diffScheme: client.local.clientSettings?.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green',
     git: { ...(await gitDetails(client, native, { status, error, cwd, root: str(project?.workspaceRoot), now, editor, envRow: env.envShow, unstarted: !thread || thread.latestRunId == null })),
       // BranchToolbar's run-context glyphs: the machine names where it runs, the folder its path (its label until it has one).
@@ -181,6 +181,6 @@ export async function shellDetails(client: T3Client, native: Native | null | und
     prRows: await prRowsView(client, native, { status, threadId, now, projectId: str(project?.id), rightGap, inline: inline && !open, visible }),
     automations: await threadAutomations(client, native, thread ? threadId : '', now), // thread-automations.ts: ThreadAutomationsPanel
     ...(thread ? lineageView(client.shell.threads, client.threadId === threadId ? client.projection : null, threadId, arr(client.config.providers), now,
-      workflows, phasesOpen, phasesClosed, client.writable, nativeParent) : noLineage),
+      workflows, phasesOpen, phasesClosed, client.writable, nativeParent, lineageTags(client), client.config) : noLineage),
   };
 }

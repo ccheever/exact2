@@ -42,7 +42,12 @@ describe('Side chats and Lineage', () => {
     const hidden = body.derives({}, { details: { ...details, items: { sideChats: false, lineage: true } }, density: 'full' });
     expect(hidden.showSideChats).toBe(false);
     const row = contractComponent('shell-details.contract', 'LineageRow');
-    const pressed = (group: string) => row.attribute('testId=`details-lineage-${row.id}`', 'press', {}, { row: { group, id: 'x', canStop: false }, hovered: '', focused: '', act: (...args: unknown[]) => args });
+    const pressed = (group: string) => {
+      const calls: unknown[][] = [];
+      row.call('open', {}, { row: { group, id: 'x', title: 'X', agent: false, tipLines: [], canStop: false }, hovered: '', focused: '', rem: 16,
+        frame: () => ({}), hoverTipAtFrame: () => ({}), hover: () => {}, hoverTipAt: () => {}, act: (...args: unknown[]) => calls.push(args) }, []);
+      return calls[0];
+    };
     expect([pressed('side'), pressed('related')]).toEqual([['shelllocal:surface-side-chat-open', 'x', ''], ['select-thread', 'x', '']]);
   });
 });

@@ -20,6 +20,7 @@ import { threadErrorView } from '../timeline/timeline-errors';
 import { diffNotGit, diffSnapshot, NOT_GIT_REPO } from '../diff/diff';
 import { composerSnapshot } from '../composer/composer-presentation';
 import { antigravitySendBlockReason, composerSelection } from '../composer/composer-provider-selection';
+import { runtimeModeCeiling } from '../composer/composer-controls-view'; // a managed policy's permission ceiling
 import { fanoutSelections } from '../composer/composer-controls-fanout';
 import { triggerModelName } from '../composer/composer-controls-model';
 import { resolveModelShortName } from './model-short-name';
@@ -164,7 +165,7 @@ export function snapshot(client: T3Client, now = 0, displayMode = '', formatLoca
     renameDir: headerRenameDir(client, str(obj(client.projection.thread).title, 'New thread')), parentThread: parentThreadLink(client), draft: client.draft, snapshotDrafts: snapshotDraftTiles(client), snapshotOwner: client.snapshotOwner,
     settled: section(obj(client.projection.thread)) === 'settled', ...projectIdentity(str(project?.title)),
     running: !!run, subagentsLive: transcript.some(message => (message.activities ?? []).some(activity => (activity.startedMs ?? 0) > 0)), // AgentElapsed ticks
-    canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId && !projectCloneBlock(client) && !feedbackUploading(client) && !waitingSend(client), // a cloning project waits (project-clones-live.ts), and a draft sends one press at a time (composer-uploads.ts)
+    canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId && !projectCloneBlock(client) && !feedbackUploading(client) && !waitingSend(client) && !runtimeModeCeiling(client).denial, // a cloning project waits (project-clones-live.ts), and a draft sends one press at a time (composer-uploads.ts)
     canStop: client.writable && !pending && !client.busy && !!run,
     // ProviderModelPicker: the trigger's accessible name is the full name (triggerLabel); its text is the name said on
     // the model's provider (triggerTitle: the catalog's shortName, else model-short-name.ts), and an unavailable

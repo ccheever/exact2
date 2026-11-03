@@ -24,6 +24,7 @@ import { dragTo, gutterClick, parseLineCellId, pressGutter, pressLine, releaseDr
 import { changeType, expandRange, type Expansion, type FileContents } from '../diff/diff-lazy';
 import { diffFileTreeEntries, diffTreeRows, ancestorDirectories, collectDirectoryPaths, allDirectoriesExpanded, orderDiffFilesLikeTree, type DiffTreeRow } from '../diff/diff-tree';
 import { hideTestFiles, setHideTestFiles, shownDiffFiles, testFileCount } from '../diff/hide-test-files';
+import { diffTreeWidth, setDiffTreeWidth } from '../diff/diff-tree-width';
 import { decodeClientPrefs } from '../settings/settings-core';
 import { rememberDiffLayout } from '../appearance/settings-appearance-look';
 import { pagesPrefs } from '../pages/pages-prefs';
@@ -41,11 +42,12 @@ import { startFleetDetached } from '../usage/usage-replies';
 import { environmentCall, environmentTarget, pullRequestServer, routedPullRequestRequest, routerHost } from './pages-pr-environments';
 import { pullRequestRouter } from './pages-pr-routing';
 import { emptyThreadState, presentThreads, threadBodies, threadCommand, type PrThreadCard, type ThreadState } from './pages-pr-threads';
+import { textDirection, type TextDirection } from '../shared/text-direction';
 
 /** Commits per press of "Show more" in the scope menu. */
 export const COMMIT_PAGE_SIZE = 10;
 
-type Draft = { fileKey: string; path: string; oldPath: string | null; position: PullRequestReviewPosition; startPosition?: PullRequestReviewPosition; range: SelectedLineRange };
+type Draft = { fileKey: string; path: string; oldPath: string | null; position: PullRequestReviewPosition; startPosition?: PullRequestReviewPosition; range: SelectedLineRange; dir?: TextDirection };
 export type CodeState = {
   find: DiffFind;
   key: string; mounted: boolean; commit: string | null; refresh: number;
@@ -241,7 +243,7 @@ export function emptyCode() {
     testFiles: 0, hideTests: false, hiddenTests: '',
     find: new DiffFind().view(), items: [] as CodeItem[], truncated: false, threads: [] as PrThreadCard[], footer: '', footerFailed: false,
     orphansLabel: '', orphanCount: 0, orphanSummary: '', orphansOpen: false, orphans: [] as { path: string; threads: { id: string; line: string }[] }[],
-    treeRows: [] as DiffTreeRow[], treeLabel: '', treeCount: 0, treeFolders: false, treeAllOpen: true, treeFooter: '', treeBusy: false,
+    treeRows: [] as DiffTreeRow[], treeLabel: '', treeCount: 0, treeFolders: false, treeAllOpen: true, treeFooter: '', treeBusy: false, treeWidth: -1,
     // `canComment`: lines can be selected (the gutter is on); `reviewable`: the draft can join the review, else it goes to the agent only.
     revealPath: '', revealNonce: 0, draftOpen: false, canComment: false, reviewable: false, viewedQueued: 0, threadPending: false,
   };
@@ -312,7 +314,7 @@ export function presentCode(ctx: CodeContext & { now: number }): { view: PrCodeV
     annotations: path => ({
       threads: threads.filter(thread => placed.has(str(thread.id)) && str(thread.path) === path).map(thread => ({ id: str(thread.id), side: (thread.side === 'left' ? 'left' : 'right') as PrDiffSide, line: num(thread.line) })),
       pending: pending.filter(comment => comment.path === path).map(comment => ({ id: comment.id, body: comment.body, position: comment.position as PullRequestReviewPosition })),
-      draft: draft && canSelectLines && draft.path === path ? { position: draft.position, label: `${draft.path}:${reviewPositionAnchor(draft.position).line}` } : null,
+      draft: draft && canSelectLines && draft.path === path ? { position: draft.position, label: `${draft.path}:${reviewPositionAnchor(draft.position).line}`, dir: draft.dir } : null,
     }),
     selection: draft ? { path: draft.path, range: draft.range } : code.selection, contents: code.contents, contentsKey: path => contentsKeyOf(code, path), expansions: code.expansions,
   });
@@ -338,6 +340,7 @@ export function presentCode(ctx: CodeContext & { now: number }): { view: PrCodeV
   const entries = diffFileTreeEntries(files.map(file => ({ path: file.path, status: file.status })));
   view.treeRows = diffTreeRows(entries, code.treeClosed, code.treeSelected); view.treeLabel = `${capitalizeTerm(term)} #${num(detail.number)} files`; view.treeCount = entries.length;
   view.treeFolders = collectDirectoryPaths(paths).length > 0; view.treeAllOpen = allDirectoriesExpanded(paths, code.treeClosed);
+  view.treeWidth = diffTreeWidth(client);
   view.treeFooter = nextCursor === null ? '' : code.diffError ? 'Retry' : code.diffDue ? 'Loading more files...' : 'Load more files';
   view.treeBusy = nextCursor !== null && code.diffDue;
   // The states that take the list's place: loading, the error, the raw text, nothing changed.
@@ -397,6 +400,7 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
       return '';
     }
     case 'hide-tests': setHideTestFiles(client, value === '' ? !hideTestFiles(client) : value === 'true'); return '';
+    case 'tree-width': setDiffTreeWidth(client, value); return '';
     case 'next': {
       const nextCursor = code.slices.at(-1)?.nextCursor ?? null;
       // A failed slice is not asked for again on its own: Retry asks.
@@ -434,6 +438,8 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
       return '';
     }
     case 'begin': return beginComment(ctx, code, value);
+    // The draft's text as typed: DiffCommentAnnotation's textarea reads in its textDirection.
+    case 'text': if (code.draft) code.draft.dir = textDirection(value); return '';
     case 'cancel': code.draft = null; code.selection = null; return '';
     case 'add': {
       // "Add to review": the comment joins the pending review (pages-pr-writes-logic.ts PullRequestReviewStore).

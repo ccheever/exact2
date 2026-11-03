@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'bun:test';
 import type { Obj } from '../../src/client/domain';
 import {
-  LIVE_REFRESH_IDLE_AFTER_MS, LIVE_REFRESH_INTERVAL_MS, LIVE_REFRESH_MIN_INTERVAL_MS, buildPullRequestTimeline, editPullRequestThreadComment, groupPullRequestTimelineConversations,
+  LIVE_REFRESH_IDLE_AFTER_MS, LIVE_REFRESH_INTERVAL_MS, LIVE_REFRESH_MIN_INTERVAL_MS, buildPullRequestTimeline, comparePullRequestsByRecency, editPullRequestThreadComment, groupPullRequestTimelineConversations,
   isPullRequestVerdictStale, latestPullRequestReviewOutcomes, mergePullRequestThreadComments, newestPullRequestCommitAt, orderPullRequestComments, pullRequestReviewOutcome,
   pullRequestReviewOutcomeLabel, pullRequestReviewOutcomeStaleLabel, readPullRequestDetailSnapshot, resolveDisplayedPullRequestDetail, resolvePullRequestReferenceHost,
   shouldLiveRefresh, shouldRefreshOnArrival, shouldRefreshOnInterval, shouldRefreshPullRequestActivity, writePullRequestDetailSnapshot,
@@ -124,9 +124,21 @@ describe('review verdicts', () => {
   });
 });
 
+describe('comparePullRequestsByRecency', () => {
+  it('sorts by the parsed instant, fractional seconds and offsets included, and puts unreadable times last', () => {
+    const entries = [{ id: 'd', updatedAt: '2026-07-03T00:10:00Z' }, { id: 'b', updatedAt: 'not a date' }, { id: 'c', updatedAt: '2026-07-03T00:10:00.250Z' }, { id: 'a', updatedAt: '2026-07-02T23:30:00-01:00' }];
+    expect(entries.sort(comparePullRequestsByRecency).map(entry => entry.id)).toEqual(['a', 'c', 'd', 'b']);
+  });
+});
+
 describe('pull request timeline', () => {
   it('orders creation, commits and comments newest first', () => {
     expect(buildPullRequestTimeline(TIMELINE_SOURCE).map(event => event.id)).toEqual(['c1', '1baf7bdcafe', 'created']);
+  });
+  it('orders by the instant, so a later time written with an earlier offset still comes first', () => {
+    // 23:30-01:00 on the 2nd is 00:30Z on the 3rd, after the commit at 00:10Z, though its text sorts before it.
+    const source = { ...TIMELINE_SOURCE, commits: [{ ...TIMELINE_SOURCE.commits[0]!, committedDate: '2026-07-03T00:10:00.5Z' }], comments: [{ ...first, createdAt: '2026-07-02T23:30:00-01:00' }] };
+    expect(buildPullRequestTimeline(source).map(event => event.id)).toEqual(['c1', '1baf7bdcafe', 'created']);
   });
   it('carries the comment url, and leaves the events the host cannot address without one', () => {
     expect(buildPullRequestTimeline({ ...TIMELINE_SOURCE, comments: [{ ...first, url: 'https://example.test/pull/1#c1' }] }).map(event => event.url)).toEqual(['https://example.test/pull/1#c1', null, null]);

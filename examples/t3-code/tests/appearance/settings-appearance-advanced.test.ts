@@ -113,3 +113,15 @@ describe('Open VSX results name the extension\'s namespace as the publisher', ()
       'dracula-theme · 431.5K downloads', 'Dracula-2 · 104K downloads', 'bceskavich · 18K downloads', 'MateuszDrewniak · 16.9K downloads']);
   });
 });
+
+describe('theme ids', () => {
+  // themePalette.test.ts "gives non-Latin theme names distinct stable ids" (5d3d78ab93).
+  test('non-Latin theme names get distinct stable ids', () => {
+    const file = (name: string) => JSON.stringify({ version: 1, name, appearance: 'dark', colors: { canvas: '#101820' } });
+    const night = parseThemeFile(file('夜'), []);
+    expect(night.id).toMatch(/^theme-[0-9a-z]+$/);
+    expect(parseThemeFile(file('朝'), []).id).not.toBe(night.id);
+    expect(parseThemeFile(file(' 夜 '), []).id).toBe(night.id);
+    expect(parseThemeFile(file('Ocean Night'), []).id).toBe('ocean-night');
+  });
+});

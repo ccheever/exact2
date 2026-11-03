@@ -3,8 +3,8 @@ import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { closedView, commandView, fieldChords, resetPaletteOrder, rootFallback, threadJumpChords, type PaletteView } from './palette';
-import { addProjectView, isBrowseQuery } from './palette-add';
-import { forgetNewProjectEnvironment } from './palette-environments';
+import { addProjectView, forgetBrowse, isBrowseQuery } from './palette-add';
+import { addProjectEnvironments, forgetNewProjectEnvironment, isNewProjectPage } from './palette-environments';
 import { contentSearchView, filePickerView } from './palette-files';
 import { linkPullRequestView, resetLinkDialog } from './palette-linkpr';
 import { linkedThreadItems, threadPickerView } from '../pull-requests/pages-pr-links';
@@ -64,15 +64,25 @@ export function isAddProjectPage(page: string): boolean {
   return page === 'add-project' || page.startsWith('add-project/') || page === 'new-project' || page.startsWith('env:');
 }
 
+/**
+ * canBrowsePaths: the command palette's field takes a pasted path wherever it could browse one, so not on a clone's
+ * repository step, on New project, or with no environment to add a project to.
+ */
+function pastesPaths(client: T3Client, open: boolean, mode: string, page: string): boolean {
+  return open && mode === 'command' && page !== 'link-pr' && page !== 'pr-link-thread' && !isNewProjectPage(page) && !/(^|\/)clone:[^/]+$/.test(page)
+    && addProjectEnvironments(client).length > 0;
+}
 /** The list's full height (rows plus the list's 8pt end padding), for the scroll fades. */
 export async function paletteView(client: T3Client, native: Native | null | undefined, args: unknown[]): Promise<PaletteView> {
   const view = await paletteViewOf(client, native, args);
-  return { ...view, listHeight: view.rows.length ? Math.max(...view.rows.map(entry => entry.top + entry.height)) + 8 : 0 };
+  return { ...view, listHeight: view.rows.length ? Math.max(...view.rows.map(entry => entry.top + entry.height)) + 8 : 0,
+    pastePaths: pastesPaths(client, args[0] === true, String(args[1] || 'command'), String(args[2] || '')) };
 }
 async function paletteViewOf(client: T3Client, native: Native | null | undefined, args: unknown[]): Promise<PaletteView> {
   const open = args[0] === true, mode = String(args[1] || 'command'), page = String(args[2] || ''), query = String(args[3] ?? '');
   const flags = String(args[4] || ''), highlighted = args[5] === true, now = Number(args[6]) || 0, scheme = args[7] === 'dark' ? 'dark' : 'light';
   forgetNewProjectEnvironment(client, open ? page : '');
+  if (!open || !(isAddProjectPage(page) || (page === '' && isBrowseQuery(query)))) forgetBrowse(client);
   if (page === 'link-pr' && open) return linkPullRequestView(client, query);
   resetLinkDialog(client);
   if (!open) { resetPaletteOrder(client); return closedView; }

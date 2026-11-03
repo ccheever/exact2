@@ -17,6 +17,18 @@
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { capitalizeTerm, terminologyOf } from '../details/git-logic';
 
+const sortableInstant = (value: unknown) => { const parsed = Date.parse(str(value)); return Number.isFinite(parsed) ? parsed : null; };
+/**
+ * comparePullRequestsByRecency (pullRequestList.logic.ts): newest update first by the instant it names, so mixed offsets
+ * and fractional seconds order right; an entry without a readable time goes last.
+ */
+export function comparePullRequestsByRecency(left: Obj, right: Obj): number {
+  const a = sortableInstant(left.updatedAt), b = sortableInstant(right.updatedAt);
+  const known = Number(a === null) - Number(b === null);
+  if (known !== 0) return known;
+  return a === null || b === null ? 0 : b - a;
+}
+
 // ── Live refresh (useLiveRefresh.ts) ────────────────────────────────────────
 
 /** Long enough that alt-tabbing through windows does not become a request per tab stop. */
@@ -214,7 +226,7 @@ export function buildPullRequestTimeline(detail: { provider?: unknown; createdAt
         replies: item.replies.map(commentTimelineEvent), moreReplies: item.moreReplies, hasMoreReplies: item.hasMoreReplies, url: item.url } }),
     ...(mergedAt ? [lifecycle('merged', mergedAt, 'merged', `${capitalizeTerm(term)} merged`, null)] : []),
     ...(closedAt && !mergedAt ? [lifecycle('closed', closedAt, 'closed', `${capitalizeTerm(term)} closed`, null)] : []),
-  ].sort((left, right) => right.at.localeCompare(left.at));
+  ].sort((left, right) => (instant(right.at) || 0) - (instant(left.at) || 0));
 }
 
 // ── Presentation (pullRequestPresentation.tsx) ──────────────────────────────

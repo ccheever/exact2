@@ -22,9 +22,10 @@ import { shortcutInput } from '../settings/keybinding-settings';
 import { shortcutLabel } from '../settings/keybinding-view';
 import { snoozePresets, snoozePresetSettings } from '../sidebar/sidebar-presentation';
 import { canTurnIntoProject } from '../sidebar/sidebar-menu';
+import { leaveHiddenRoute } from '../sidebar/sidebar-commands';
 import { canSnooze, effectiveSnoozed } from '../sidebar/sidebar-model';
 import { diffNotGit } from '../diff/diff';
-import { threadNotifications, notifyStatus, notificationSounds, notificationsWaiting, reportWindowFacts, type NotifyStatus } from './shell-notify';
+import { threadNotifications, notifyStatus, notificationSounds, reportWindowFacts, type NotifyStatus } from './shell-notify';
 import { slowRequests, tracking } from './shell-slow';
 import { settleLiveTraces } from '../client/protocol-reader'; // answered requests whose answer was let go end on the next shell read
 import { permissionUpdateNotices } from './permission-update-notice';
@@ -297,6 +298,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     await cloneToasts(client, native); // project-clones-live.ts: a toast per tracked clone, every environment
     await coordinateGuides(client, native, state.status, now);
     await threadNotifications(client, state.status, undefined, now); // every connected environment: the focus and the fleet (shell-notify.ts)
+    await leaveHiddenRoute(client, native); // the open thread leaves its route once the tag filter hides it
     if (tracking(client)) await settleLiveTraces(client, native);
   }
   slowRequests(client, now);
@@ -308,7 +310,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
   const announce = announcements(client, now); // before `ticking`: a region it just wrote keeps the clock running
   settleAgentHolds(client, now, runtimeId => frameEntry(client, runtimeId) !== null, (environmentId, threadId) => threadTurnRunning(client, environmentId, threadId));
   return {
-    toasts: toastViews(queue, copiedToasts(client, now), copiedActions(client)), toastCount: queue.length, ticking: announcing(client) || notificationsWaiting(client) || guideReader(client).watches.size > 0 || updateEverythingState(client).run?.machines.some(machine => machine.result === null) === true || tracking(client) || gitTicking(client) || refsPageWanted(client) || revealWaiting(client) || agentHoldWaiting(client, now),
+    toasts: toastViews(queue, copiedToasts(client, now), copiedActions(client)), toastCount: queue.length, ticking: announcing(client) || guideReader(client).watches.size > 0 || updateEverythingState(client).run?.machines.some(machine => machine.result === null) === true || tracking(client) || gitTicking(client) || refsPageWanted(client) || revealWaiting(client) || agentHoldWaiting(client, now),
     ...opened, openGuideSelected: decodeGuideOpenTarget(opened.openThreadId) ?? '', // openRequest, openThreadId: a clicked notification's thread or a `t3 app` request (desktop-activation.ts)
     keyRightPanel: commandShortcut(client.config, 'rightPanel.toggle'), keyThreadPanel: commandShortcut(client.config, 'threadPanel.toggle'),
     keyTerminal: commandShortcut(client.config, 'terminal.toggle'), keyNewThread: commandShortcut(client.config, 'chat.new'),

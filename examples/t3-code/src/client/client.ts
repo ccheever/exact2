@@ -9,6 +9,7 @@ import { shellFailure, shellSuccess, settingsFailure } from '../shell/shell-comm
 import { trackRpc } from '../shell/shell-slow';
 import { configEventSideEffects } from './protocol-config';
 import { traceRpc, statusTicket, settleTraces } from './protocol-reader';
+import { vcsRefsFreshness } from '../composer/vcs-refs-fresh';
 import { compatibilityProblem } from './protocol-outdated';
 import { type ComposerControlsPrefs, emptyComposerControls, decodeComposerControls, applySticky, applyStaged, reconcileStagedModels } from '../composer/composer-controls';
 import { adoptStash } from '../composer/composer-editor-stash';
@@ -41,6 +42,7 @@ import { reservedAttachments } from '../composer/composer-editor-attach';
 import { DiffState, DIFF_LOCAL_OPS } from '../diff/diff';
 import { TELEMETRY_KEY, telemetryEvent } from '../settings/settings-a-telemetry';
 import { mostRecentProjectId } from '../pages/pages-home';
+import { visibleShell } from '../sidebar/thread-tag-filter';
 import { landHome, settleHome, settleHomeElsewhere, type HomeTarget } from '../pages/home-landing';
 import { adoptPagesPrefs } from '../pages/pages-prefs';
 import { adoptClosedViews } from '../panel/closed-views';
@@ -236,12 +238,12 @@ export class T3Client {
     if (this.connection === 'connected' && this.scopesKnown) requireRpcPermissions(this.scopes, request);
     let response;
     // shell-slow.ts "Some requests are slow", with a trace the transport lists while pending (protocol-reader.ts).
-    const traced = traceRpc(this, request);
-    try { response = await this.raw(native, { ...traced.request, generation: expected }); }
+    const traced = traceRpc(this, request), refs = vcsRefsFreshness(this, traced.request);
+    try { response = await this.raw(native, { ...refs.request, generation: expected }); }
     catch (error) {
       if (error instanceof ClientError) throw error;
       throw new ClientError(message(error), 'transport', write);
-    } finally { traced.done(); }
+    } finally { traced.done(); refs.done(response?.ok === true); }
     if (!response.ok) throw new ClientError(response.error!.message, response.error!.kind, response.error!.uncertain, response.error!);
     if (response.generation !== expected || this.generation !== expected) {
       throw new ClientError('The connection changed. Refresh before continuing.', 'stale', write);
@@ -545,7 +547,7 @@ export class T3Client {
   ensureSelection(): void {
     const selected = this.shell.threads.find(thread => thread.id === this.threadId);
     if (selected) this.projectId = str(selected.projectId);
-    if (!this.shell.projects.some(project => project.id === this.projectId)) this.projectId = landHome(this, () => mostRecentProjectId(this.shell));
+    if (!this.shell.projects.some(project => project.id === this.projectId)) this.projectId = landHome(this, () => mostRecentProjectId(visibleShell(this)));
   }
   chooseDefaults(): void {
     const project = this.shell.projects.find(project => project.id === this.projectId);
@@ -857,7 +859,7 @@ export class T3Client {
       forgetMissingAttachments(this, error); // a send refused for an attachment the server no longer has: it uploads again
       // These commands return their error to the owning form. Do not copy it
       // into the unrelated transcript banner or a later form.
-      const formCommand = ['settings-core', 'snapshot-shortcut-save', 'snapshot-shortcut-record', 'setting-snapshot', 'rename-project', 'remove-project', 'rename-group', 'remove-group', 'remove-group-member', 'setting-permissions', 'setting-model', 'setting-storage', 'setting-scoped', 'task-save', 'task-toggle', 'task-delete', 'task-run', 'keybinding-save', 'keybinding-remove', 'unarchive-thread', 'delete-archived-thread', 'provider-create', 'provider-name', 'provider-enabled', 'provider-remove'].includes(op) || PROVIDER_OPS.includes(op) || CONNECTION_OPS.includes(op) || op.startsWith('rest:') || op.startsWith('restlocal:') || op.startsWith('sb:');
+      const formCommand = ['grouping-override', 'settings-core', 'snapshot-shortcut-save', 'snapshot-shortcut-record', 'setting-snapshot', 'rename-project', 'remove-project', 'rename-group', 'remove-group', 'remove-group-member', 'setting-permissions', 'setting-model', 'setting-storage', 'setting-scoped', 'task-save', 'task-toggle', 'task-delete', 'task-run', 'keybinding-save', 'keybinding-remove', 'unarchive-thread', 'delete-archived-thread', 'provider-create', 'provider-name', 'provider-enabled', 'provider-remove'].includes(op) || PROVIDER_OPS.includes(op) || CONNECTION_OPS.includes(op) || op.startsWith('rest:') || op.startsWith('restlocal:') || op.startsWith('sb:');
       // Main-window actions the reference toasts (shell-commands.ts) leave the transcript banner alone.
       if (!this.pending?.uncertain && !formCommand) { if (!shellFailure(this, op, resultMessage)) this.error = resultMessage; else if (this.error === resultMessage) this.error = ''; }
       else if (formCommand && !this.pending?.uncertain && settingsFailure(this, op, id, value, resultMessage)) resultMessage = `toasted:${resultMessage}`;

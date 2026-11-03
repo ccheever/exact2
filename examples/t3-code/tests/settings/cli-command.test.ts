@@ -12,6 +12,10 @@ test('the desktop command row follows installation, PATH and shadowing state', (
   expect(cliCommandRow({ supported: true, installedPath: '/bin/t3', onPath: true })).toMatchObject({ label: 'Remove', value: 'uninstall', description: 'Installed at /bin/t3. Open a new terminal to use it.' });
   expect(cliCommandRow({ supported: true, installedPath: '/bin/t3', onPath: false })?.description).toContain('not on your PATH yet');
   expect(cliCommandRow({ supported: true, installedPath: null, onPath: false, shadowedBy: '/other/t3' })?.description).toBe("Another t3 at /other/t3 runs first in a new terminal. Remove it to use T3 Code's.");
+  // Install is blocked behind another t3; removing our own installation is not.
+  expect(cliCommandRow({ supported: true, installedPath: null, onPath: false, shadowedBy: '/other/t3' })).toMatchObject({ label: 'Install', disabled: true });
+  expect(cliCommandRow({ supported: true, installedPath: null, onPath: false })!.disabled).toBe(false);
+  expect(cliCommandRow({ supported: true, installedPath: '/bin/t3', onPath: true, shadowedBy: '/other/t3' })).toMatchObject({ label: 'Remove', disabled: false });
 });
 
 test('the General command uses the local desktop bridge and toasts install/remove failures', async () => {

@@ -73,6 +73,10 @@ component DiffPanelBody
       hoveredFile = ""
   // diff-review: the open comment draft's text (AnnotatableCodeView draftText), kept here so a scrolled-away row keeps it.
   state draftText = ""
+  // The row the file tree shares with the diff (DiffTree's responsive width).
+  state treeRow = 0
+  action treeRowSized(width: number, height: number)
+    treeRow = width
   action findOp(op: string, value: string)
     local(`diff-find-${op}`, "", value)
   action findJump(e: IntersectionObserverEntry)
@@ -83,6 +87,7 @@ component DiffPanelBody
       scrollIntoView("diff-list", data.diffRevealTarget, block="start")
   action editDraft(text: string)
     draftText = text
+    command("diffreview", "draft-text", text, 0)
   action beginComment(path: string, side: string, line: number)
     draftText = ""
     command("diffreview", `comment:${side}`, path, line)
@@ -108,7 +113,7 @@ component DiffPanelBody
       if data.diffReveal > 0
         for reveal in [data.diffReveal] key=reveal
           box intersect=revealJump width=0 height=0 position="absolute" pointer-events="none"
-      row flex=1 min-height=0 width="100%" margin-top=(sheet ? "0.375rem" : "0.75rem")
+      row flex=1 min-height=0 width="100%" margin-top=(sheet ? "0.375rem" : "0.75rem") resize=treeRowSized
         column flex=1 min-width=0 min-height=0
           if data.diffError != ""
             text data.diffError font-size="0.6875rem" line-height="1rem" padding-left="0.75rem" padding-right="0.75rem" padding-bottom="0.5rem" color="light-dark(#fb2c36cc, #fb414acc)" testId="diff-error"
@@ -146,7 +151,7 @@ component DiffPanelBody
                 for item in data.diffItems key=item.id
                   DiffRow(family=data.look.codeFont, item=item, wrap=data.diffWrap, command=command, scheme=data.look.diff, size=data.look.codeSize, commentOpen=data.diffCommentOpen, draftText=draftText, editDraft=editDraft, beginComment=beginComment, cancelComment=cancelComment, saveComment=saveComment, hoveredPath=hoveredFile, hoverPath=hoverFile)
         if data.diffTree and data.diffFiles.length > 0
-          DiffTree(data=data, command=command, scheme=data.look.diff)
+          DiffTree(data=data, command=command, scheme=data.look.diff, rowWidth=treeRow)
       if not sheet and not maximized
         PanelResizeRail(label="Resize diff panel", resize=resize, finish=finishResize, testId="diff-resize")
 

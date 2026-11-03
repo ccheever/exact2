@@ -79,7 +79,7 @@ type Decision = 'pending' | 'wizard' | 'app';
 type Candidate = { key: string; environmentId: string; path: string; title: string; projectId: string; sources: string[]; threadCount: number; lastActiveAt: string; alreadyImported: boolean; git: boolean };
 type Scan = { environmentId: string; label: string; error: string; candidates: Candidate[]; truncated: boolean };
 // Data sources have no wall clock: `now` is the last time the view was handed (LLP 1027.000).
-type State = { decision: Decision; selection: Set<string> | null; auto: Set<string>; setup: string[]; scans: { key: string; list: Scan[] } | null; picked: Set<string> | null; importing: boolean; now: number; copied: number; seen: Set<string>;
+type State = { decision: Decision; selection: Set<string> | null; auto: Set<string>; setup: string[]; scans: { key: string; list: Scan[] } | null; picked: ImportSelection | null; importing: boolean; now: number; copied: number; seen: Set<string>;
   /** ConnectionStep's expandPairingInitially, taken when the wizard first shows. */
   pairStartsOpen: boolean | null;
   /** ConnectedAgentsStep's createdAccount: the ChatGPT account Add ChatGPT account just created here. */
@@ -152,11 +152,18 @@ export function transition(current: Decision, next: Decision): Decision {
 
 export { providerState, providerSummary } from '../providers/provider-readiness';
 import { providerState, providerSummary } from '../providers/provider-readiness';
+import { isManagedDriverAllowed, managedPolicySummary } from '../client/managed-policy';
+import { managedInstanceLocks } from '../settings/managed-policy';
+/** A policy that owns Codex's launch settings also rules out ChatGPT's own runtime. */
+const chatGptAllowed = (config: Obj) => managedInstanceLocks(managedPolicySummary(config), 'codex')?.configKeys.has('setupMode') !== true;
 const PRIORITY: Record<string, number> = { checking: 0, disabled: 1, install: 2, attention: 3, signIn: 4, ready: 5 };
 export type AgentRow = { key: string; driver: string; kind: string; instanceId: string; name: string; summary: string; state: string; badge: string; terminalOpen: boolean; terminalAvailable: boolean; codex: CodexSetupView[] };
-/** ConnectedAgentsStep: every Codex instance (setup rows until one is pointed at an existing CLI), then Claude. */
+/**
+ * ConnectedAgentsStep: every Codex instance (setup rows until one is pointed at an existing CLI), then Claude;
+ * an agent whose driver the environment's managed policy leaves out is not offered.
+ */
 export function agentRows(config: Obj): AgentRow[] {
-  const providers = arr(config.providers), settings = obj(config.settings);
+  const providers = arr(config.providers), settings = obj(config.settings), policy = managedPolicySummary(config);
   const best = new Map<string, Obj>();
   for (const provider of providers) {
     const current = best.get(str(provider.driver));
@@ -170,7 +177,7 @@ export function agentRows(config: Obj): AgentRow[] {
       badge: state === 'ready' ? 'Ready' : state === 'checking' ? 'Checking...' : state === 'disabled' ? 'Disabled' : state === 'attention' ? summary.headline : state === 'signIn' ? 'Sign in' : 'Install' };
   };
   const codex = providers.filter(provider => provider.driver === 'codex');
-  const rows: AgentRow[] = (codex.length ? codex : [best.get('codex')]).map((provider, index) => {
+  const rows: AgentRow[] = !isManagedDriverAllowed(policy, 'codex') ? [] : (codex.length ? codex : [best.get('codex')]).map((provider, index) => {
     const instanceId = str(provider?.instanceId, 'codex');
     const instance = obj(obj(settings.providerInstances)[instanceId]);
     const instanceConfig = Object.keys(instance).length ? obj(instance.config) : obj(obj(settings.providers).codex);
@@ -178,7 +185,7 @@ export function agentRows(config: Obj): AgentRow[] {
     if (instanceConfig.setupMode === 'existing') return card('codex', provider, `codex:${instanceId}:${index}`);
     return { terminalOpen: false, terminalAvailable: false, codex: [], key: `codex:${instanceId}:${index}`, driver: 'codex', kind: 'codex-setup', instanceId, name: 'Codex', state: providerState(provider), summary: 'Code with your ChatGPT subscription.', badge: '' };
   });
-  rows.push(card('claudeAgent', best.get('claudeAgent'), 'claudeAgent'));
+  if (isManagedDriverAllowed(policy, 'claudeAgent')) rows.push(card('claudeAgent', best.get('claudeAgent'), 'claudeAgent'));
   return rows;
 }
 
@@ -226,6 +233,17 @@ export function splitOnboardingProjectPath(path: string): { name: string; parent
   return separator < 0 ? { name: trimmed, parent: '' } : { name: trimmed.slice(separator + 1), parent: trimmed.slice(0, separator + 1) };
 }
 
+/**
+ * WelcomeWizard's ImportSelection (5d3d78ab93), kept by the wizard so going back to the computers and forward again keeps it: the
+ * computers whose projects were listed when the selection changed, and the picks. A computer listed later starts from
+ * the recent defaults.
+ */
+type ImportSelection = { environmentIds: Set<string>; keys: Set<string> };
+/** ImportStep's `selected`: the picks on the computers the selection knows, the recent defaults on the others. */
+export function pickedCandidates(candidates: Candidate[], picked: ImportSelection | null, now: number): Set<string> {
+  const recent = recentCandidates(candidates, now);
+  return new Set(candidates.filter(candidate => picked?.environmentIds.has(candidate.environmentId) ? picked.keys.has(candidate.key) : recent.has(candidate.key)).map(candidate => candidate.key));
+}
 const RECENT_WINDOW = 30 * 24 * 60 * 60 * 1000;
 /** partitionOnboardingProjects: every candidate is offered; recent busy repositories start selected. */
 export function recentCandidates(candidates: Candidate[], now: number): Set<string> {
@@ -328,7 +346,7 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
     const active = terminal.environmentId === source.environmentId;
     for (const agent of agents) { agent.terminalOpen = active && terminal.open && agent.driver === terminal.driver; agent.terminalAvailable = !!str(source.config.cwd); }
     return { key: source.key, label: source.label || 'Computer', agents, terminal: { ...terminal, open: active && terminal.open, face: appearance.terminalFace, light: appearance.terminalLight, dark: appearance.terminalDark,
-      frame: setupTerminalFrame(client, terminal) }, chatgpt: arr(source.config.providers).some(provider => provider.driver === 'codex' && providerState(provider) === 'ready') };
+      frame: setupTerminalFrame(client, terminal) }, chatgpt: chatGptAllowed(source.config) && arr(source.config.providers).some(provider => provider.driver === 'codex' && providerState(provider) === 'ready') };
   });
   // ManagedCodexSetup's provider.auth / provider.install streams for the rows it shows (a host the welcome stopped showing keeps none).
   for (const host of welcomeHosts) if (!mounted.some(item => item.host === host.host)) await watchProviderSetup(host.host, host.native, 'welcome', { auth: [], install: [] });
@@ -342,10 +360,9 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
   const scanKey = setup.map(source => source.key).join('\n');
   if (!state.scans || state.scans.key !== scanKey) {
     state.scans = { key: scanKey, list: await Promise.all(setup.map(source => scanEnvironment(client, native, source))) };
-    state.picked = null;
   }
   const scans = state.scans.list, all = scans.flatMap(scan => scan.candidates);
-  const picked = state.picked ?? recentCandidates(all, state.now);
+  const picked = pickedCandidates(all, state.picked, state.now);
   view.legend = scans.length > 1;
   view.scans = scans.map(scan => ({ key: scan.environmentId, label: scan.label, error: scan.error, empty: !scan.error && scan.candidates.length === 0, truncated: scan.truncated,
     candidates: scan.candidates.map(candidate => ({ key: candidate.key, title: candidate.title, path: splitOnboardingProjectPath(candidate.path).name, parent: splitOnboardingProjectPath(candidate.path).parent, selected: picked.has(candidate.key),
@@ -421,13 +438,14 @@ export async function welcomeLocal(client: T3Client, native: Native, op: string,
   if (op === 'setup') {
     const selected = state.selection ?? state.auto;
     state.setup = environmentSources(client, fleet.saved, fleet.entries).filter(source => selected.has(source.key) && source.enabled && source.phase === 'connected').map(source => source.key);
-    state.scans = null; state.picked = null; return '';
+    state.scans = null; return '';
   }
   if (op === 'pick' || op === 'pick-all' || op === 'pick-none') {
-    const candidates = state.scans?.list.flatMap(scan => scan.candidates) ?? [];
-    const current = new Set(state.picked ?? recentCandidates(candidates, state.now));
+    const scans = state.scans?.list ?? [], candidates = scans.flatMap(scan => scan.candidates);
+    const current = pickedCandidates(candidates, state.picked, state.now);
     if (op === 'pick') { if (current.has(id)) current.delete(id); else current.add(id); }
-    state.picked = op === 'pick-all' ? new Set(candidates.map(candidate => candidate.key)) : op === 'pick-none' ? new Set() : current;
+    const keys = op === 'pick-all' ? new Set(candidates.map(candidate => candidate.key)) : op === 'pick-none' ? new Set<string>() : current;
+    state.picked = { environmentIds: new Set(scans.filter(scan => !scan.error).map(scan => scan.environmentId)), keys };
     return '';
   }
   // The command carries the window's wall time (app.contract: wallTime.epochAtZero + performanceNow()). A launch-relative
@@ -461,7 +479,7 @@ function finish(client: T3Client, landing: string): string {
 export async function importProjects(client: T3Client, native: Native): Promise<string> {
   const state = stateOf(client);
   const all = state.scans?.list.flatMap(scan => scan.candidates) ?? [];
-  const picked = state.picked ?? recentCandidates(all, state.now);
+  const picked = pickedCandidates(all, state.picked, state.now);
   const candidates = all.filter(candidate => picked.has(candidate.key));
   if (!candidates.length) return finish(client, '');
   state.importing = true;

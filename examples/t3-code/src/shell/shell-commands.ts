@@ -285,6 +285,7 @@ export function settingsFailure(client: T3Client, op: string, id: string, value:
   } else if (op === 'rest:task' || op === 'task-toggle' || op === 'task-delete' || op === 'task-run') title = 'Could not update scheduled task';
   else if (op === 'task-save') title = 'Could not save scheduled task';
   else if (op === 'rest:keybinding' || op === 'keybinding-save' || op === 'keybinding-remove') title = form.action === 'remove' || op === 'keybinding-remove' ? 'Unable to remove keybinding' : 'Unable to save keybinding';
+  else if (op === 'grouping-override') title = 'Could not save grouping rule';
   else if (op === 'rest:keybinding-open') title = 'Unable to open keybindings file';
   else if (op === 'unarchive-thread') title = 'Failed to unarchive thread';
   else if (op === 'delete-archived-thread') title = 'Failed to delete thread';

@@ -1,4 +1,5 @@
 // Adapted from T3 Code 6d450a4284 (MIT); see LICENSE-T3.
+use ManagedControl from "./managed-policy.contract"
 use HostCredentials from "./source-control-credentials.contract"
 use HostCredentialsForm from "./source-control-credentials.contract"
 // Settings → Source control, Browser and Devices (reference SourceControlSettings.tsx,
@@ -90,6 +91,8 @@ shape ScopedRow
   traits: CoreOption[]
   // The row's search target (settings-catalog.ts `targetId ?? id`), "" for a row no result names.
   target: string
+  // SettingsRow managedBy: the policy's reason the control is inert ("" when the setting is the user's).
+  managed: string
 shape DiscoveryRow
   kind: string
   label: string
@@ -235,20 +238,21 @@ component ScopedSettingRow
               text row.description font-size="0.75rem" line-height="1.125rem" color="light-dark(#71717b, #a1a1a1)" max-width="42rem" text-wrap="balance"
             if row.status != ""
               text row.status font-size="0.75rem" line-height="1rem" padding-top="0.125rem" color="light-dark(#71717b, #a1a1a1)"
-          row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem"
-            if row.kind == "switch"
-              SettingsPageSwitch(checked=row.checked, label=(row.control != "" ? row.control : row.title), disabled=(busy or row.disabled), switchId=`scoped-${row.key}`, toggle=rest("scoped", `key=${row.key}&value=${row.checked ? "false" : "true"}`))
-            if row.kind == "select"
-              SettingsPageSelect(selectId=`scoped-${row.key}`, label=(row.control != "" ? row.control : row.title), valueLabel=row.valueLabel, empty=false, value="", width=((row.key == "sourceControlWritingStyle" ? 224 : 160) * rem / 16), disabled=(busy or row.disabled), options=row.options, choose=restInput("scoped", `key=${row.key == "sourceControlWritingStyle" ? "sourceControlWritingStyle.mode" : row.key}&value=`))
-            if row.kind == "text"
-              ScopedTextField(value=row.value, placeholder=row.placeholder, label=row.title, fieldKey=row.key, busy=(busy or row.disabled), restInput=restInput)
-            if row.kind == "model"
-              // ProviderModelPicker: the window's picker under this trigger, while a provider can write.
-              if row.checked and row.status == ""
-                SettingsModelTrigger(stop="enabled page", rowId=(row.key == "reviewGuideModelSelection" ? "review-guide-model" : "source-control-writer-model"), label=row.valueLabel, name=row.title, driver=row.driver, badge=row.badge, accent=row.accent, disabled=(busy or row.disabled), press=pickModel((row.key == "reviewGuideModelSelection" ? "review-guide-model" : "source-control-writer-model"), scope))
-                if row.traitsLabel != ""
-                  WriterTraitsPicker(row=row, disabled=(busy or row.disabled), restInput=restInput)
-              SettingsPageSwitch(checked=row.checked, label=(row.key == "reviewGuideModelSelection" ? "Use a separate review guide model" : "Use a separate source control writer model"), disabled=(busy or row.disabled or (not row.checked and row.status != "")), switchId=`scoped-${row.key}-enabled`, toggle=rest("scoped", `key=${row.key}&value=${row.checked ? "off" : "default"}`))
+          ManagedControl(reason=row.managed, controlId=`scoped-${row.key}-inert`, offset=(row.kind == "switch" ? 22 : 32))
+            row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem"
+              if row.kind == "switch"
+                SettingsPageSwitch(checked=row.checked, label=(row.control != "" ? row.control : row.title), disabled=(busy or row.disabled), switchId=`scoped-${row.key}`, toggle=rest("scoped", `key=${row.key}&value=${row.checked ? "false" : "true"}`))
+              if row.kind == "select"
+                SettingsPageSelect(selectId=`scoped-${row.key}`, label=(row.control != "" ? row.control : row.title), valueLabel=row.valueLabel, empty=false, value="", width=((row.key == "sourceControlWritingStyle" ? 224 : 160) * rem / 16), disabled=(busy or row.disabled), options=row.options, choose=restInput("scoped", `key=${row.key == "sourceControlWritingStyle" ? "sourceControlWritingStyle.mode" : row.key}&value=`))
+              if row.kind == "text"
+                ScopedTextField(value=row.value, placeholder=row.placeholder, label=row.title, fieldKey=row.key, busy=(busy or row.disabled), restInput=restInput)
+              if row.kind == "model"
+                // ProviderModelPicker: the window's picker under this trigger, while a provider can write.
+                if row.checked and row.status == ""
+                  SettingsModelTrigger(stop="enabled page", rowId=(row.key == "reviewGuideModelSelection" ? "review-guide-model" : "source-control-writer-model"), label=row.valueLabel, name=row.title, driver=row.driver, badge=row.badge, accent=row.accent, disabled=(busy or row.disabled), press=pickModel((row.key == "reviewGuideModelSelection" ? "review-guide-model" : "source-control-writer-model"), scope))
+                  if row.traitsLabel != ""
+                    WriterTraitsPicker(row=row, disabled=(busy or row.disabled), restInput=restInput)
+                SettingsPageSwitch(checked=row.checked, label=(row.key == "reviewGuideModelSelection" ? "Use a separate review guide model" : "Use a separate source control writer model"), disabled=(busy or row.disabled or (not row.checked and row.status != "")), switchId=`scoped-${row.key}-enabled`, toggle=rest("scoped", `key=${row.key}&value=${row.checked ? "off" : "default"}`))
       if row.kind == "textarea"
         ScopedTextArea(mixed=row.mixed, value=row.value, placeholder=row.placeholder, label=row.title, fieldKey=row.key, busy=(busy or row.disabled), restInput=restInput)
       if row.child != "" or (row.key == "sourceControlWritingStyle" and row.value == "custom")

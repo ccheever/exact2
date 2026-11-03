@@ -4,9 +4,10 @@
 // (showProviderSubagentBar, parentThreadLink), packages/client-runtime/src/state/
 // threadExecution.ts (deriveProviderSubagentStatus, formatModelSelectionEffort,
 // formatProviderSubagentStatus; upstream 74541bab17) and packages/shared/src/orchestrationTiming.ts.
+import { REASONING_EFFORT_OPTION_IDS } from '../client/server-fields';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { formatDuration } from '../timeline/timeline-worklog';
-import { optionLabel, REASONING_EFFORT_OPTION_IDS, reportedModelLabel, reportedSelection, statedValue, type Selection } from './composer-controls-model';
+import { optionLabel, reportedModelLabel, reportedSelection, statedValue, type Selection } from './composer-controls-model';
 
 /** isProviderNativeSubagentThread: the provider runs it, so there is nothing to send. */
 export function isProviderSubagent(thread: Obj): boolean {
@@ -58,7 +59,7 @@ export function selectionEffort(selection: Obj, models: Obj[], reported: Selecti
 
 /** The bar's row in the composer view; `subagent` is false for every other thread. `width` is the bar's own, 0 unmeasured. */
 export function subagentBar(source: { threadId: string; projection: Obj; config: Obj }, now: number, width = 0) {
-  const empty = { subagent: false, subagentModel: '', subagentEffort: '', subagentStatus: '', subagentAnnounce: '', subagentParent: '', subagentWidth: 0 };
+  const empty = { subagent: false, subagentModel: '', subagentEffort: '', subagentStatus: '', subagentAnnounce: '', subagentParent: '', subagentWidth: 0, subagentNativeWork: false };
   const thread = obj(source.projection.thread);
   if (!source.threadId || !isProviderSubagent(thread)) return empty;
   const selection = obj(thread.modelSelection);
@@ -72,5 +73,6 @@ export function subagentBar(source: { threadId: string; projection: Obj; config:
   const announce = formatSubagentStatus(status && { ...status, startedAt: '' }, 0);
   return { subagent: true, subagentModel: modelLabel, subagentEffort: effort, subagentStatus: formatSubagentStatus(status, now),
     subagentAnnounce: `${effort ? `${modelLabel}, ${effort}` : modelLabel} subagent: ${announce}`,
-    subagentParent: parent, subagentWidth: width };
+    // ChatView's ProviderSubagentBar actions: an Antigravity subagent's native children (native-child-work.ts).
+    subagentParent: parent, subagentWidth: width, subagentNativeWork: str(provider?.driver) === 'antigravity' };
 }

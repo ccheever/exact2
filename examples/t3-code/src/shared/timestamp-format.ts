@@ -1,5 +1,5 @@
 // Timestamps in the Mac's locale. Reference apps/web/src/timestampFormat.ts (1e2ecbd975,
-// resolveHour12 at 74541bab17; MIT, see LICENSE-T3): resolveTimestampLocale, resolveWeekStartsOn,
+// resolveHour12 at 74541bab17, the time zone at 5d3d78ab93; MIT, see LICENSE-T3): resolveTimestampLocale, resolveWeekStartsOn,
 // resolveHour12 and the cached wall-clock formatters. The desktop host reports the system locale
 // (Electron's app.getSystemLocale() through toSystemLocaleTag, 2359643cff; here Contract's `exactTime().formatLocale`, the Region's
 // format locale, which app.contract passes with the snapshot request). The packaged Electron app's runtime default locale is en-US
@@ -102,11 +102,11 @@ function formatter(key: string, options: Intl.DateTimeFormatOptions): Intl.DateT
   if (!cached) { cached = new Intl.DateTimeFormat(currentTimestampLocale(), options); formatters.set(cacheKey, cached); }
   return cached;
 }
-/** getTimestampFormatter: hour and minute (and seconds), with hour12 unless the format is "locale". */
-export function timestampFormatter(format: string, includeSeconds = false): Intl.DateTimeFormat {
-  const options: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit', ...(includeSeconds ? { second: '2-digit' } : {}) };
+/** getTimestampFormatter: hour and minute (and seconds), with hour12 unless the format is "locale"; in `timeZone` if given. */
+export function timestampFormatter(format: string, includeSeconds = false, timeZone?: string): Intl.DateTimeFormat {
+  const options: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit', ...(includeSeconds ? { second: '2-digit' } : {}), ...(timeZone ? { timeZone } : {}) };
   if (format !== 'locale') options.hour12 = format === '12-hour';
-  return formatter(`${format}:${includeSeconds ? 's' : 'm'}`, options);
+  return formatter(`${format}:${includeSeconds ? 's' : 'm'}:${timeZone ?? ''}`, options);
 }
 /** resolveHour12: whether the Time format setting shows a 12-hour clock ("locale" asks the locale). */
 export function resolveHour12(format: string): boolean {
@@ -114,26 +114,31 @@ export function resolveHour12(format: string): boolean {
   const resolved = timestampFormatter(format).resolvedOptions().hour12;
   return typeof resolved === 'boolean' ? resolved : /[AP]M/i.test(timestampFormatter(format).format(new Date(2026, 0, 1, 15)));
 }
-/** numericDateFormatter / numericDateWithYearFormatter. */
-export function numericDateFormatter(withYear: boolean): Intl.DateTimeFormat {
-  return formatter(withYear ? 'date:y' : 'date', { month: 'numeric', day: 'numeric', ...(withYear ? { year: 'numeric' } : {}) });
+/** numericDateFormatter / numericDateWithYearFormatter, in `timeZone` if given. */
+export function numericDateFormatter(withYear: boolean, timeZone?: string): Intl.DateTimeFormat {
+  return formatter(`${withYear ? 'date:y' : 'date'}:${timeZone ?? ''}`, { month: 'numeric', day: 'numeric', ...(withYear ? { year: 'numeric' } : {}), ...(timeZone ? { timeZone } : {}) });
+}
+/** calendarDay: the date's year and its day as days since the epoch, so differences are whole days across DST shifts. */
+function calendarDay(date: Date, timeZone: string | undefined): { year: number; index: number } {
+  if (!timeZone) return { year: date.getFullYear(), index: Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000 };
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find(entry => entry.type === type)?.value);
+  return { year: part('year'), index: Date.UTC(part('year'), part('month') - 1, part('day')) / 86_400_000 };
 }
 /**
- * formatUpcomingTimestamp (timestampFormat.ts:197-222): an instant that has not happened yet (a
- * usage-limit reset): today `12:34 PM`, tomorrow `tomorrow at 12:34 PM`, later `8/13 12:34 PM`;
- * an instant already past reads as formatDayAwareTimestamp does (`yesterday at …`).
+ * formatUpcomingTimestamp (timestampFormat.ts at 5d3d78ab93): an instant that has not happened yet (a usage-limit
+ * reset): today `12:34 PM`, tomorrow `tomorrow at 12:34 PM`, later `8/13 12:34 PM`; an instant already past reads as
+ * formatDayAwareTimestamp does (`yesterday at …`). `timeZone` overrides the zone the formatters were built in, days
+ * included.
  */
-export function formatUpcomingTimestamp(isoDate: string, format: string, nowMs: number): string {
+export function formatUpcomingTimestamp(isoDate: string, format: string, nowMs: number, timeZone?: string): string {
   const date = new Date(isoDate);
   if (!Number.isFinite(date.getTime())) return '';
-  const time = timestampFormatter(format).format(date);
-  const now = new Date(nowMs);
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const startOfTargetDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  // Round so DST-shifted 23/25 hour days still count as whole days.
-  const dayDiff = Math.round((startOfTargetDay - startOfToday) / 86_400_000);
-  if (dayDiff < 0) return dayDiff === -1 ? `yesterday at ${time}` : `${numericDateFormatter(date.getFullYear() !== now.getFullYear()).format(date)} ${time}`;
+  const time = timestampFormatter(format, false, timeZone).format(date);
+  const today = calendarDay(new Date(nowMs), timeZone), target = calendarDay(date, timeZone);
+  const dayDiff = target.index - today.index;
+  if (dayDiff === -1) return `yesterday at ${time}`;
   if (dayDiff === 0) return time;
   if (dayDiff === 1) return `tomorrow at ${time}`;
-  return `${numericDateFormatter(date.getFullYear() !== now.getFullYear()).format(date)} ${time}`;
+  return `${numericDateFormatter(target.year !== today.year, timeZone).format(date)} ${time}`;
 }

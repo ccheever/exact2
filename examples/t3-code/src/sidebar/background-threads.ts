@@ -15,6 +15,7 @@ import { sidebarPrefs, sidebarSession, wall } from './sidebar-state';
 import { formatWorktreePathForDisplay, worktreePlan, type WorktreePlan } from './worktree-cleanup';
 import { EnvironmentFleet, fleet, parseFleetThreadId, type FleetEntry } from '../connections/settings-b-fleet';
 import { patchDraftContext, type DraftContext } from '../composer/composer-controls-branch';
+import { clearDeletedThreadPanelState } from '../panel/deleted-thread-state';
 
 /** A background environment's requests, through its own transport and generation. */
 export interface EnvAccess {
@@ -152,6 +153,7 @@ export async function removeBackground(client: T3Client, native: Native, id: str
   try { await access.request('terminal.close', { threadId: ref.id, deleteHistory: true }); } catch (error) { if (letGo(error)) throw error; }
   await access.dispatch({ type: 'thread.delete', threadId: ref.id });
   delete client.local.drafts[`${ref.environmentId}:${ref.id}`];
+  clearDeletedThreadPanelState(client, ref.environmentId, ref.id);
   const session = sidebarSession(client);
   session.selection = session.selection.filter(selected => selected !== id);
   if (plan && answer === true) {

@@ -18,13 +18,14 @@ import type { Native } from '../client/protocol';
 import { buildFileReviewComment, formatFileCommentRange, normalizeFileCommentRange, remapFileCommentAnnotations, reviewCommentContextRecord, type SelectedLineRange } from './diff-comments';
 import { dragTo, pressGutter, pressLine, releaseDrag, type FileSelection, type LineDrag, type RowIndex } from './diff-line-drag';
 import { addReviewCommentChip, localId, removeReviewCommentChip } from '../composer/composer-editor';
+import { textDirection, type TextDirection } from '../shared/text-direction';
 
 type Range = { start: number; end: number };
 type Saved = { contextId: string; path: string; startLine: number; endLine: number; text: string };
 /** `focus`: the right panel (its panel key) whose open draft's textarea took the focus, '' when it let go; the composer's
  * send chords then leave ⌘↩ to the draft (files-surface.ts fileDraftHoldsCommandEnter), as diff.ts draftFocus does.
  * `drag`: the gutter's press, held until its release (diff-line-drag.ts). */
-type FileComments = { selection: { path: string; range: Range } | null; draft: { path: string; id: string; startLine: number; endLine: number } | null; saved: Saved[]; texts: Map<string, string>; focus: string; drag: LineDrag | null };
+type FileComments = { selection: { path: string; range: Range } | null; draft: { path: string; id: string; startLine: number; endLine: number; dir?: TextDirection } | null; saved: Saved[]; texts: Map<string, string>; focus: string; drag: LineDrag | null };
 const states = new WeakMap<T3Client, FileComments>();
 function stateOf(client: T3Client): FileComments {
   let state = states.get(client);
@@ -80,11 +81,11 @@ function follow(state: FileComments, path: string, text: string): void {
 }
 
 /** `pinned`: the file has a selection, so its "+" is drawn only on `pin`, the selection's bottom line (placeUtilityFromSelection). */
-export type FileLine = { id: string; number: string; runs: { id: string; text: string; syntax: string }[]; kind: string; line: number; selected: boolean; pin: boolean; pinned: boolean; entry: string; text: string; label: string };
+export type FileLine = { id: string; number: string; runs: { id: string; text: string; syntax: string }[]; kind: string; line: number; selected: boolean; pin: boolean; pinned: boolean; entry: string; text: string; textDir: string; label: string };
 /** The preview's rows: its lines, each saved comment and the draft under its last line; no cards while the editor is open. */
 export function fileCommentLines(client: T3Client, path: string, text: string, lines: { id: string; number: string; runs: { id: string; text: string; syntax: string }[] }[], editing: boolean): FileLine[] {
   const state = stateOf(client);
-  const blank = { kind: 'line', line: 0, selected: false, pin: false, pinned: false, entry: '', text: '', label: '' };
+  const blank = { kind: 'line', line: 0, selected: false, pin: false, pinned: false, entry: '', text: '', textDir: 'ltr', label: '' };
   if (!path) return lines.map(line => ({ ...line, ...blank }));
   follow(state, path, text);
   const chips = client.draft;
@@ -97,8 +98,8 @@ export function fileCommentLines(client: T3Client, path: string, text: string, l
     const number = index + 1;
     out.push({ ...line, ...blank, line: number, selected: !!range && number >= range.start && number <= range.end, pinned: !!held, pin: !!held && number === held.end });
     if (editing) return;
-    for (const entry of saved) if (entry.endLine === number) out.push({ ...line, id: `note:${entry.contextId}`, runs: [], ...blank, kind: 'note', line: number, entry: entry.contextId, text: entry.text });
-    if (state.draft?.path === path && state.draft.endLine === number) out.push({ ...line, id: `draft:${state.draft.id}`, runs: [], ...blank, kind: 'draft', line: number, entry: state.draft.id, label: formatFileCommentRange(state.draft.startLine, state.draft.endLine) });
+    for (const entry of saved) if (entry.endLine === number) out.push({ ...line, id: `note:${entry.contextId}`, runs: [], ...blank, kind: 'note', line: number, entry: entry.contextId, text: entry.text, textDir: textDirection(entry.text) ?? 'ltr' });
+    if (state.draft?.path === path && state.draft.endLine === number) out.push({ ...line, id: `draft:${state.draft.id}`, runs: [], ...blank, kind: 'draft', line: number, entry: state.draft.id, textDir: state.draft.dir ?? 'ltr', label: formatFileCommentRange(state.draft.startLine, state.draft.endLine) });
   });
   return out;
 }
@@ -122,8 +123,8 @@ function openDraft(state: FileComments, path: string, range: Range, panel: strin
 /**
  * `shelllocal:surface-files-comment-*`: the gutter's `drag` / `drag-shift` / `gutter` (a press on a number, with Shift, on
  * the "+"; value = the line), `to` (value = the row id under the pointer), `end` (the release); `begin` (the "+"'s or a number's press with no pointer gesture: a keyboard or accessibility
- * press; value = the line), `cancel`, `save` (value = the text), `delete` (value = the context id), and the draft textarea's
- * `focus` / `blur` (`panel` = its panel key).
+ * press; value = the line), `cancel`, `save` (value = the text), `delete` (value = the context id), `text` (value = the draft's
+ * text as typed, for its textDirection), and the draft textarea's `focus` / `blur` (`panel` = its panel key).
  */
 export async function fileComment(client: T3Client, native: Native, op: string, path: string, value: string, contents: string, panel = ''): Promise<string> {
   const state = stateOf(client), line = Number(value) || 0;
@@ -153,6 +154,7 @@ export async function fileComment(client: T3Client, native: Native, op: string, 
     const selected = state.selection?.path === path ? normalize(state.selection.range) : null;
     return openDraft(state, path, selected && line >= selected.start && line <= selected.end ? selected : { start: line, end: line }, panel);
   }
+  if (op === 'text') { if (state.draft?.path === path) state.draft.dir = textDirection(value); return ''; }
   if (op === 'cancel') { state.draft = null; state.selection = null; state.focus = ''; state.drag = null; return ''; }
   if (op === 'save') {
     const draft = state.draft;

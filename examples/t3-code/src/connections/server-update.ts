@@ -24,6 +24,7 @@ import { allJobs, readJobs, startUpdateJob, type OutdatedJob } from './settings-
 import { manualUpdateCopy, configInstallation, type ServerInstallation } from './server-installation';
 import { CLIENT_VERSION, supportsDesktopAppUpdate, resolveServerSelfUpdateCapability } from './version-skew';
 import { letGo } from '../client/let-go';
+import { managedPolicySummary, managedUpdatesDenial } from '../client/managed-policy';
 
 export type ServerUpdateStage = 'downloading' | 'installing' | 'resuming';
 export type ServerUpdateState =
@@ -132,6 +133,7 @@ export interface ServerUpdateTarget {
   readonly selfUpdate: string | null;
   readonly installation?: ServerInstallation | undefined;
   readonly desktopAppUpdate?: boolean;
+  readonly managedDenial?: string;
   readonly targetVersion: string;
   readonly fromVersion: string;
   /** The config's capabilities, for the native job (a connected server's descriptor may omit them). */
@@ -159,6 +161,7 @@ export function updateTargetFromConfig(config: unknown, environmentKey: string, 
   return {
     environmentKey, environmentId, serverLabel, selfUpdate: resolveServerSelfUpdateCapability(config), installation: configInstallation(config),
     desktopAppUpdate: supportsDesktopAppUpdate(config),
+    managedDenial: managedUpdatesDenial(managedPolicySummary(obj(config))),
     targetVersion: CLIENT_VERSION, fromVersion: str(environment.serverVersion), capabilities: obj(environment.capabilities),
   };
 }
@@ -191,6 +194,11 @@ export function isServerUpdatePending(environmentId: string): boolean {
  */
 export async function updateEnvironment(target: ServerUpdateTarget, deps: UpdateDeps,
   { quiet = false, settle }: { quiet?: boolean; settle?: (outcome: ServerUpdateOutcome) => void } = {}): Promise<'copied' | 'started' | 'busy' | 'manual' | 'failed'> {
+  if (target.managedDenial) {
+    if (!quiet) deps.toast({ kind: 'error', title: failureTitle(target.serverLabel), description: target.managedDenial, stacked: true });
+    settle?.({ status: 'failed', message: target.managedDenial });
+    return 'failed';
+  }
   if (target.selfUpdate === null) {
     const manual = manualUpdateCopy(target.targetVersion, target.installation, target.serverLabel);
     try { await deps.copy(manual.command); }

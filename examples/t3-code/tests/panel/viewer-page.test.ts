@@ -347,3 +347,20 @@ describe('what the page hands back (NotebookPreview, ArchiveFile)', () => {
     await until(() => !files.has(url), "the notebook picture's file removed");
   });
 });
+
+describe('PDF positions past the page (PdfViewer positions)', () => {
+  const config = (key: string) => ({ view: 'pdf' as const, key, documentId: 'env:att-1', name: 'r.pdf', src: 'http://h/r.pdf', text: null, sizeBytes: 4, kind: '',
+    delimiter: null, wrap: true, revealLine: null, revealRequestId: 0, smoothing: true });
+  test('the page\'s report is kept by document, and a page that boots again is told where its reader was', () => {
+    const state = newFrame();
+    expect(JSON.parse(viewerFrameView(state, 'f', config('k1')).config)).not.toHaveProperty('pdfPosition');
+    viewerMessage(state, JSON.stringify({ type: 'boot' }));
+    const view = { page: 3, offset: 12, zoom: null, left: 0, width: 500, ratios: [1.29] };
+    viewerMessage(state, JSON.stringify({ type: 'pdf-view', id: 'env:att-1', view }));
+    // While the page shows that key its config stays as it was posted.
+    expect(JSON.parse(viewerFrameView(state, 'f', config('k1')).config)).not.toHaveProperty('pdfPosition');
+    // A thread switch unmounts the page; the next visit's config carries the place.
+    const next = newFrame();
+    expect(JSON.parse(viewerFrameView(next, 'f', config('k1')).config).pdfPosition).toEqual(view);
+  });
+});

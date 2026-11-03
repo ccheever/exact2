@@ -50,3 +50,21 @@ describe('attach files', () => {
     expect([...store.keys()].filter(path => path.startsWith(`${STAGED}/`))).toEqual([]);
   });
 });
+
+// A dropped folder's doc: handle deliberately exposes no server filesystem path.
+test('primary and saved loopback folders report the missing path; remote folders refuse locality', async () => {
+  const { attachIncoming } = await import('../../src/composer/composer-controls-attach');
+  for (const [environmentId, origin, expected] of [
+    ['env1', 'http://127.0.0.1:3773', 'Couldn\'t get the path of "notes"'],
+    ['saved-local', 'http://127.0.0.1:16222', 'Couldn\'t get the path of "notes"'],
+    ['remote', 'https://remote.example', 'Folders can only be referenced on a server running on this computer'],
+  ]) {
+    const { client, native } = await connected();
+    client.environmentId = environmentId!; client.origin = origin!;
+    memoryFiles({ 'doc:/folder/notes': 'folder' });
+    await attachIncoming(client, native, 'drop', { files: [], picked: [{ path: 'doc:/folder/notes', name: 'notes', type: '' }], asText: false, target: '' });
+    expect(toasts(client).at(-1)?.title).toBe(expected);
+    if (environmentId !== 'remote') expect(toasts(client).at(-1)?.description).toBe('Type the folder path with @ instead.');
+    expect(client.draft).toBe('');
+  }
+});

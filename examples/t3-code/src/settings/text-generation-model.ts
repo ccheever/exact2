@@ -1,5 +1,5 @@
 // The text generation model a setting resolves to, adapted from T3 Code
-// 9c161462c9 (MIT); see LICENSE-T3. Sources: apps/web/src/modelSelection.ts
+// 9c161462c9 (MIT), the OpenCode default at 5d3d78ab93; see LICENSE-T3. Sources: apps/web/src/modelSelection.ts
 // (resolveAppModelSelectionState, resolveAppModelSelectionForInstance) and
 // packages/contracts/src/model.ts (DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER).
 // Changes: `providers` are already the enabled, available instances that
@@ -9,7 +9,7 @@ import { resolveSelectableModel } from '../composer/composer-controls-model';
 
 /** Each driver's cheap text generation model; the catalog default is the flagship chat model. */
 export const DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER: Record<string, string> = {
-  codex: 'gpt-6-luna', antigravity: 'antigravity-default', claudeAgent: 'claude-haiku-5-5', cursor: 'composer-2', opencode: 'openai/gpt-5',
+  codex: 'gpt-6-luna', antigravity: 'antigravity-default', claudeAgent: 'claude-haiku-5-5', cursor: 'composer-2', opencode: 'opencode/big-pickle',
 };
 
 /**

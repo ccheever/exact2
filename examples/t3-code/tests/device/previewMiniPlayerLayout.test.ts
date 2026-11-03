@@ -435,3 +435,16 @@ describe("clampPreviewMiniPlayerPosition", () => {
     ).toEqual({ x: gap, y: 700 - 150 - gap - 500 });
   });
 });
+
+// T3 Code 5d3d78ab93 #26027: a player a tight container placed under the minimum does not snap larger as its edge is
+// dragged inward, and its stored width stays as it was resized.
+describe('inward resizes under the minimum', () => {
+  it('dragging the right edge inward never grows the player, and the next layout keeps the width', () => {
+    const source = { width: 1280, height: 800 }, container = { width: 1000, height: 300 };
+    const start = { x: 200, y: 40, width: 200, height: 125 };
+    const resized = resizePreviewMiniPlayer({ start, direction: 'east', delta: { x: -30, y: 0 }, source, container });
+    expect(resized.width).toBeLessThanOrEqual(start.width);
+    const stored = resolvePreviewMiniPlayerFrame({ width: resized.width, position: { x: resized.x, y: resized.y }, source, container });
+    expect(stored.width).toBe(resized.width);
+  });
+});

@@ -19,6 +19,9 @@ import { encodeMediaSource, mediaTooltip } from '../media/media-actions';
 import { syncInlineDocuments } from './inline-documents';
 import { draftThreadId } from '../composer/draft-thread-id';
 import { MEDIA_CACHE } from '../media/media-frame';
+import { mediaMimeType, mediaMimeTypeFromExtension } from '../media/media-source';
+import { mediaReferenceFileName } from '../media/media-reference';
+import { workspaceMutationId } from '../panel/files-surface';
 
 export interface MessageImage { id: string; name: string; snapshot: boolean; appName: string; appInitial: string; windowTitle: string; accessible: boolean; video: boolean }
 /** A sent file: `label` its name ("Pasted text" for a paste), `detail` its card's line ("TXT · 1.20 KB", a paste's size
@@ -186,7 +189,7 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
   // The visible messages' Markdown media on host paths (`media:<path>`, `media-failed:<path>`).
   const thread = obj(client.projection.thread), project = (client.shell?.projects ?? []).find(entry => entry.id === (thread.projectId ?? client.projectId));
   const root = str(thread.worktreePath) || str(project?.workspaceRoot);
-  const media: AttachmentUrl[] = await markdownMediaUrls(client, native, root, now);
+  const media: AttachmentUrl[] = await markdownMediaUrls(client, native, root, now, undefined, { mutationId: workspaceMutationId(client) });
   // The linked media's signed URL (signed again after Retry video; a refusal is `failed:<key>`).
   const preview = activeMediaPreview(client);
   if (preview && !preview.url) {
@@ -225,6 +228,11 @@ const activeGallery = (client: T3Client): Gallery | null => {
   if (gallery && gallery.threadId !== client.threadId) { galleries.set(client, null); return null; }
   return gallery ?? null;
 };
+/** A sent attachment's own MIME type, '' when it has none. */
+function attachmentMimeType(client: T3Client, messageId: string, id: string): string {
+  const row = arr(client.projection.visibleTurnItems).find(row => JSON.stringify([row.sourceThreadId, row.sourceItemId]) === messageId);
+  return str(arr(obj(row?.item).attachments).find(attachment => str(attachment.id) === id)?.mimeType).toLowerCase();
+}
 function messageImages(client: T3Client, messageId: string, selected = ''): MessageImage[] {
   const row = arr(client.projection.visibleTurnItems).find(row => JSON.stringify([row.sourceThreadId, row.sourceItemId]) === messageId);
   const all = messageAttachments(obj(row?.item)).images, video = all.find(image => image.id === selected && image.video);
@@ -318,20 +326,29 @@ export function forgetMediaPreviewUrl(client: T3Client, key: string): boolean {
   media.url = '';
   return true;
 }
+/**
+ * ExpandedImageDialog itemMimeType: whether the item is an SVG, by its own type, else its file name's extension, else
+ * its URL's. The dialog scales an SVG up to fill the viewer (ZoomableImage), where a bitmap stops at its own size.
+ */
+function isSvgItem(mimeType: string, source: { src?: string | null; reference?: Parameters<typeof mediaReferenceFileName>[0] } | null): boolean {
+  if (mimeType) return mimeType === 'image/svg+xml';
+  const fileName = source?.reference && mediaReferenceFileName(source.reference);
+  return (fileName ? mediaMimeTypeFromExtension(fileName.slice(fileName.lastIndexOf('.'))) : mediaMimeType(source?.src ?? '')) === 'image/svg+xml';
+}
 export function imagePreviewView(client: T3Client) {
   const tool = toolImagePreview(client);
-  if (tool) return tool;
+  if (tool) return { ...tool, imagePreviewSvg: false };
   const media = activeMediaPreview(client);
   if (media) {
     const source = markdownMedia(media.name, media.path, '', media.root).source;
     return { imagePreviewId: media.key, imagePreviewName: media.name, imagePreviewPosition: '', imagePreviewPrevious: false, imagePreviewNext: false,
-      imagePreviewVideo: media.video, imagePreviewSource: source ? encodeMediaSource({ ...source, name: media.name }) : '', imagePreviewTip: source ? mediaTooltip({ ...source, name: media.name }) : media.name, imagePreviewReturn: '' };
+      imagePreviewVideo: media.video, imagePreviewSvg: !media.video && isSvgItem('', source ?? null), imagePreviewSource: source ? encodeMediaSource({ ...source, name: media.name }) : '', imagePreviewTip: source ? mediaTooltip({ ...source, name: media.name }) : media.name, imagePreviewReturn: '' };
   }
   const gallery = activeGallery(client);
   if (gallery) {
     const item = gallery.items[gallery.index]!, many = gallery.items.length > 1;
     return { imagePreviewId: item.key, imagePreviewName: item.name, imagePreviewPosition: many ? `(${gallery.index + 1}/${gallery.items.length})` : '', imagePreviewPrevious: many,
-      imagePreviewNext: many, imagePreviewVideo: false, imagePreviewSource: encodeMediaSource(item.source), imagePreviewTip: mediaTooltip(item.source),
+      imagePreviewNext: many, imagePreviewVideo: false, imagePreviewSvg: isSvgItem('', item.source), imagePreviewSource: encodeMediaSource(item.source), imagePreviewTip: mediaTooltip(item.source),
       imagePreviewReturn: gallery.opener };
   }
   const current = previews.get(client);
@@ -339,7 +356,8 @@ export function imagePreviewView(client: T3Client) {
   const index = current ? images.findIndex(image => image.id === current.imageId) : -1;
   const image = index >= 0 ? images[index]! : null;
   return { imagePreviewId: image?.id ?? '', imagePreviewName: image?.name ?? '', imagePreviewPosition: image && images.length > 1 ? `(${index + 1}/${images.length})` : '',
-    imagePreviewPrevious: !!image && images.length > 1, imagePreviewNext: !!image && images.length > 1, imagePreviewVideo: !!image?.video, imagePreviewSource: image ? `attachment:${image.id}` : '',
+    imagePreviewPrevious: !!image && images.length > 1, imagePreviewNext: !!image && images.length > 1, imagePreviewVideo: !!image?.video,
+    imagePreviewSvg: !!image && !image.video && isSvgItem(attachmentMimeType(client, current!.messageId, image.id), null), imagePreviewSource: image ? `attachment:${image.id}` : '',
     imagePreviewTip: image?.name ?? '', imagePreviewReturn: '' };
 }
 

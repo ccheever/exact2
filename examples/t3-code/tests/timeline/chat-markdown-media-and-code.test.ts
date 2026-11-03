@@ -76,4 +76,18 @@ describe('a chat Markdown image is a "Preview <alt>" button that opens the expan
       expect(() => imagePreviewAction(client, 'image-md-open', shot.target, `${owner}\n${opener}\n${occurrence}`)).toThrow('That image is no longer available.');
     }
   });
+  test('an SVG, by its file name or URL, fills the viewer; a bitmap does not (#27519)', () => {
+    const { client } = chatClient();
+    const owner = 'files:/repo/docs/vectors.md';
+    const text = '![Plan](plan.svg) ![Web](https://example.com/chart.svg?v=2) ![Shot](shot.png)';
+    const chips = messageChips({ text }, '/repo/docs', [], owner);
+    const plan = chips.find(chip => chip.kind === 'media' && chip.label === 'Plan')!;
+    imagePreviewAction(client, 'image-md-open', plan.target, `${owner}\nmedia-${owner}-b1\n0`);
+    const svg = () => [imagePreviewView(client).imagePreviewName, imagePreviewView(client).imagePreviewSvg];
+    expect(svg()).toEqual(['Plan', true]);
+    imagePreviewAction(client, 'image-step', '', 'next');
+    expect(svg()).toEqual(['Web', true]);
+    imagePreviewAction(client, 'image-step', '', 'next');
+    expect(svg()).toEqual(['Shot', false]);
+  });
 });

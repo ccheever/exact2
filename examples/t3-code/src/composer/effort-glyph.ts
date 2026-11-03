@@ -1,4 +1,4 @@
-// The composer's effort as rising bars or a word. Adapted from T3 Code v0.1.5 (MIT; see LICENSE-T3):
+// The composer's effort as rising bars or a word. Adapted from T3 Code 5d3d78ab93 (MIT; see LICENSE-T3):
 // chat/EffortGlyph.tsx (resolveEffortGlyph, effortBarHeights), ported as is; the bars are drawn in
 // composer-controls.contract EffortBars.
 import { arr, str, type Obj } from '../client/domain';
@@ -7,6 +7,8 @@ import { arr, str, type Obj } from '../client/domain';
 // Max is named too, so the full scale stops short of it.
 const NAMED_LEVELS = new Set(['ultracode', 'max']);
 const OFF_LEVELS = new Set(['off', 'none']);
+// More bars than this no longer fit the glyph's height in whole pixels.
+const MAX_BARS = 7;
 
 export type EffortGlyph = { count: number; filled: number; special: string | null; label: string };
 
@@ -18,7 +20,7 @@ export function resolveEffortGlyph(descriptor: Obj, current: string | null): Eff
   const injected = Array.isArray(descriptor.promptInjectedValues) ? (descriptor.promptInjectedValues as unknown[]).map(value => str(value)) : [];
   const special = new Set([...injected, ...NAMED_LEVELS]);
   const options = arr(descriptor.options), levels = options.filter(option => !special.has(str(option.id)));
-  if (levels.length < 2 || current === null) return null;
+  if (levels.length < 2 || levels.length > MAX_BARS || current === null) return null;
   const startsAtOff = OFF_LEVELS.has(str(levels[0]!.id));
   const count = startsAtOff ? levels.length - 1 : levels.length;
   if (special.has(current)) {

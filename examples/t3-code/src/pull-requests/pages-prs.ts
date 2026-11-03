@@ -8,6 +8,7 @@ import { sharedPullRequestSummary } from './pages-pr-shared';
 // pullRequestIcons,PullRequestDetailPanel,PullRequestListEmptyState}.tsx.
 import { diffSchemeOf } from '../timeline/message-chips';
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { comparePullRequestsByRecency } from './pages-pr-logic';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import { pagesPrefs } from '../pages/pages-prefs';
 import { projectIdentity } from '../client/presentation';
@@ -125,20 +126,16 @@ export function filterByInvolvement(entries: Obj[], viewers: Obj, involvement: s
 }
 const size = (entry: Obj) => num(entry.additions) + num(entry.deletions);
 const measured = (entry: Obj) => size(entry) > 0;
-const updated = (entry: Obj) => str(entry.updatedAt);
 const at = (value: unknown) => { const parsed = Date.parse(str(value)); return Number.isFinite(parsed) ? parsed : null; };
 export function rankByMergeReadiness(entries: Obj[]): Obj[] {
   const tier = (entry: Obj) => entry.mergeability === 'conflicting' ? 4 : entry.state !== 'open' ? 3 : entry.isDraft === true ? 2
     : entry.checksState === 'passing' && entry.reviewDecision === 'approved' ? 0 : entry.checksState === 'passing' ? 1 : 2;
-  return [...entries].sort((left, right) => (tier(left) - tier(right)) || (Number(measured(right)) - Number(measured(left))) || (size(left) - size(right)) || updated(right).localeCompare(updated(left)));
+  return [...entries].sort((left, right) => (tier(left) - tier(right)) || (Number(measured(right)) - Number(measured(left))) || (size(left) - size(right)) || comparePullRequestsByRecency(left, right));
 }
 function rankByTier(entries: Obj[], tier: (entry: Obj) => number): Obj[] {
   return [...entries].sort((left, right) => {
     const byTier = tier(left) - tier(right);
-    if (byTier) return byTier;
-    const a = at(left.updatedAt), b = at(right.updatedAt);
-    const known = Number(a === null) - Number(b === null);
-    return known || (a === null || b === null ? 0 : b - a);
+    return byTier || comparePullRequestsByRecency(left, right);
   });
 }
 const blockedOnAuthor = (entries: Obj[]) => rankByTier(entries, entry => entry.state !== 'open' ? 6 : entry.mergeability === 'conflicting' ? 0
@@ -162,7 +159,7 @@ export function scoreMatch(entry: Obj, query: string): number {
 }
 export function sortGroups(groups: { key: string; label: string; entries: Obj[] }[], sort: string, searchText: string, involvement: string) {
   const each = (rank: (entries: Obj[]) => Obj[]) => groups.map(group => ({ ...group, entries: rank(group.entries) }));
-  if (searchText.trim()) return each(entries => [...entries].sort((left, right) => (scoreMatch(right, searchText) - scoreMatch(left, searchText)) || updated(right).localeCompare(updated(left))));
+  if (searchText.trim()) return each(entries => [...entries].sort((left, right) => (scoreMatch(right, searchText) - scoreMatch(left, searchText)) || comparePullRequestsByRecency(left, right)));
   if (sort === 'ready') return each(rankByMergeReadiness);
   if (sort === 'blocked') return groups.map(group => {
     const role = group.key === 'others' ? involvement : group.key === 'authored' ? 'authored' : 'reviewing';

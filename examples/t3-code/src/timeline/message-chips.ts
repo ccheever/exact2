@@ -24,6 +24,7 @@ import { COMPOSER_CITATION } from '../composer/composer-source-chips';
 import { markdownLinkHref, markdownMediaChips, noteMarkdownDocument, type MediaScope } from '../media/media-views'; // a message's images and their actions
 import type { ThreadLinkGlyph } from './markdown-thread-glyphs';
 import { parseThreadLinkHref, percentDecodedThreadLinkId, resolveThreadLink, threadLinksIn, unknownThreadLinkLabel } from './thread-links';
+import { textDirection } from '../shared/text-direction';
 import { notePullRequestLinks } from './pull-link-registry';
 import { chipInks } from '../composer/composer-chip-presentation';
 import { pullRequestChipHover } from '../pull-requests/pr-chip-preview';
@@ -31,6 +32,7 @@ import { pullRequestChipHover } from '../pull-requests/pr-chip-preview';
 export interface ChipView {
   id: string; href: string; kind: string; label: string; size: string; tip: string;
   detail: string; icon: string; target: string; owner: string;
+  labelDir?: string; quoteDir?: string; commentDir?: string;
   /** A file link's menu rows (file-link-menu.ts withFileLinkMenus); a pull request chip's PullRequestContextDetails lines
    *  (pr-chip-preview.ts); [] for every other chip. */
   menu: { id: string; label: string }[];
@@ -111,9 +113,10 @@ export function markdownLinks(markdown: string): { image: boolean; label: string
   return links;
 }
 
-/** formatAttachmentSize (client-runtime state/attachments.ts). */
+/** formatAttachmentSize (client-runtime state/attachments.ts): the unit is chosen after rounding, so 1023.5 KB reads "1.0 MB". */
 export function attachmentSize(bytes: number): string {
-  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
+  const kilobytes = Math.max(1, Math.ceil(bytes / 1024));
+  return kilobytes >= 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${kilobytes} KB`;
 }
 /** middleTruncateAttachmentName (composerInlineChip.ts): the start and the extension survive. */
 export function middleTruncate(name: string, max = 36): string {
@@ -255,7 +258,9 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
 function citationChip(href: string): Omit<ChipView, 'id' | 'owner' | 'menu'> {
   const citation = parseAssistantCitationHref(href);
   return { href, kind: 'citation', label: citation ? assistantCitationLabel(citation) : '', size: citation?.comment ?? '', tip: citation?.text ?? '',
-    detail: citation?.messageId ?? '', icon: '', target: citation?.threadId ?? '' };
+    detail: citation?.messageId ?? '', icon: '', target: citation?.threadId ?? '',
+    labelDir: textDirection(citation ? assistantCitationLabel(citation) : '') ?? 'ltr',
+    quoteDir: textDirection(citation?.text ?? '') ?? 'ltr', commentDir: textDirection(citation?.comment ?? '') ?? 'ltr' };
 }
 /**
  * A thread link's chip (MarkdownThreadLink): the thread's current title, never a title written into the link, which only
@@ -374,9 +379,7 @@ const SKILL_TOKEN_REGEX =
   /(^|\s)\p{Sc}(?![0-9][0-9_]*(?:[kKmMbBtT]|[eE][0-9]+)?(?:\s|$))(?=[a-zA-Z0-9:_-]*[a-zA-Z])([a-zA-Z0-9][a-zA-Z0-9:_-]*)(?=\s|$)/gu;
 export interface MarkdownSkill { name: string; displayName: string }
 export function formatProviderSkillDisplayName(skill: { name: string; displayName?: string }): string {
-  const displayName = skill.displayName?.trim();
-  if (displayName) return displayName;
-  return skill.name.split(/[\s:_-]+/).filter(Boolean).map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  return skill.displayName?.trim() || skill.name;
 }
 export function markdownSkills(skills: readonly { name: string; displayName?: string }[]): MarkdownSkill[] {
   const seen = new Set<string>();

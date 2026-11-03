@@ -1,0 +1,48 @@
+// ManagedPolicy.tsx (T3 Code 5d3d78ab93, MIT, LICENSE-T3): what a control or a feature an
+// administrator's policy manages looks like. The reasons come from managed-policy.ts.
+use Tip from "../shell/shell-tip.contract"
+
+// ManagedControl, and settingsLayout's inertControl: the control drawn inert at half opacity inside a
+// focusable group whose label is the reason, which a tooltip shows on hover and keyboard focus. With no
+// reason the control is untouched. `offset` is the control's height plus the tooltip's 4 pt gap.
+component ManagedControl
+  props
+    reason: string
+    controlId: string
+    offset: number
+  slot
+  view
+    if reason == ""
+      children
+    else
+      Tip(label=reason, side="top", align="center", offset=offset)
+        box id=controlId tabindex=0 role="group" aria-disabled=true aria-label=reason display="flex" flex-direction="row" align-items="center" border-radius="0.375rem" testId=controlId data-focus-stop="enabled page"
+          box inert=true opacity=0.5 display="flex" flex-direction="row" align-items="center" gap="0.5rem"
+            children
+
+// lucide BuildingIcon (24 grid, stroke 2 as the reference draws it).
+component ManagedBuildingIcon
+  props
+    size: number
+    color: string
+  view
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+      path d="M12 10h.01M12 14h.01M12 6h.01M16 10h.01M16 14h.01M16 6h.01M8 10h.01M8 14h.01M8 6h.01M9 22v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3M6 2h12a2 2 0 0 1 2 2v16a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-16a2 2 0 0 1 2 -2Z"
+
+// ManagedNotice: one line of policy text with the building mark (flex items-start gap-2, text-xs
+// leading-relaxed muted; the icon size-3.5 mt-0.5), for places a whole feature is managed. A
+// non-empty `helpUrl` adds ManagedByOrganization's " Get help" link (text-foreground, underlined).
+component ManagedNotice
+  props
+    message: string
+    helpUrl: string
+    noticeId: string
+  view
+    row width="100%" align-items="flex-start" gap="0.5rem" testId=noticeId
+      box padding-top="0.125rem" flex-shrink=0
+        ManagedBuildingIcon(size=14, color="light-dark(#71717b, #a1a1a1)")
+      row flex=1 min-width=0 flex-wrap="wrap" align-items="baseline" column-gap="0.25rem"
+        text message font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #a1a1a1)" testId=`${noticeId}-text`
+        if helpUrl != ""
+          link cursor="pointer" href=helpUrl id=`${noticeId}-help` testId=`${noticeId}-help` text-decoration-line="none" data-focus-stop="enabled page"
+            text "Get help" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#18181b, #f5f5f5)" text-decoration-line="underline"

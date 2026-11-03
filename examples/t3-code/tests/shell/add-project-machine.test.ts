@@ -32,6 +32,47 @@ describe('cloneUrlForProtocol (addProjectToMachine.test.ts)', () => {
     expect(cloneUrlForProtocol('/srv/git/repo.git', 'https')).toBeNull();
     expect(cloneUrlProtocol('file:///srv/git/repo.git')).toBeNull();
   });
+
+  // T3 Code 5d3d78ab93 packages/shared/src/cloneUrl.test.ts.
+  test.each([['ordinary', 'user:password'], ['an embedded at sign', 'user:pa@rt'], ['multiple at signs', 'user:pa@rt@word'], ['encoded', 'us%40er:pa%40ss%3Aword']])(
+    'separates Azure hosts from credentials (%s)', (_label, userinfo) => {
+      const https = `https://${userinfo}@dev.azure.com/org/Project%20One/_git/repo%40name`;
+      const ssh = `ssh://${userinfo}@ssh.dev.azure.com/v3/org/Project%20One/repo%40name`;
+      expect([cloneUrlProtocol(https), cloneUrlProtocol(ssh)]).toEqual(['https', 'ssh']);
+      expect(cloneUrlForProtocol(https, 'ssh')).toBe('git@ssh.dev.azure.com:v3/org/Project%20One/repo%40name');
+      expect(cloneUrlForProtocol(ssh, 'https')).toBe('https://dev.azure.com/org/Project%20One/_git/repo%40name');
+      expect([cloneUrlForProtocol(https, 'https'), cloneUrlForProtocol(ssh, 'ssh')]).toEqual([https, ssh]);
+    });
+  test.each([['https', 'ssh', 'dev.azure.com', 'org/project/_git/repo'], ['ssh', 'https', 'ssh.dev.azure.com', 'v3/org/project/repo'],
+    ['https', 'ssh', 'host.example', 'org/repo.git'], ['ssh', 'https', 'host.example', 'org/repo.git']] as const)(
+    'refuses credential-bearing %s URLs with custom ports on %s switches', (from, to, host, path) => {
+      const url = `${from}://user:pa@rt@${host}:8443/${path}`;
+      expect(cloneUrlForProtocol(url, to)).toBeNull();
+      expect(cloneUrlForProtocol(url, from)).toBe(url);
+    });
+  test('drops all userinfo on generic hosts without consuming at signs in paths', () => {
+    expect(cloneUrlForProtocol('https://user:pa@rt@github.com/org/repo@branch.git', 'ssh')).toBe('git@github.com:org/repo@branch.git');
+    expect(cloneUrlForProtocol('ssh://user:pa@rt@github.com/org/repo@branch.git', 'https')).toBe('https://github.com/org/repo@branch.git');
+    expect(cloneUrlForProtocol('https://github.com/org/repo@branch.git', 'ssh')).toBe('git@github.com:org/repo@branch.git');
+  });
+  test.each(['https://user:pa@rt@/org/repo', 'ssh://user:pa@rt@/org/repo'])('refuses a credential-bearing URL without a hostname (%s)', url => {
+    expect([cloneUrlProtocol(url), cloneUrlForProtocol(url, 'ssh'), cloneUrlForProtocol(url, 'https')]).toEqual([null, null, null]);
+  });
+  test.each(['git@ssh.dev.azure.com:v3/Fabrikam/Project1/fab_repo', 'ssh://git@ssh.dev.azure.com/v3/Fabrikam/Project1/fab_repo', 'git@SSH.DEV.AZURE.COM:v3/Fabrikam/Project1/fab_repo'])(
+    "uses Azure's HTTPS host and repository path for %s", url => {
+      expect(cloneUrlForProtocol(url, 'https')).toBe('https://dev.azure.com/Fabrikam/Project1/_git/fab_repo');
+    });
+  test.each(['https://dev.azure.com/Fabrikam/Project1/_git/fab_repo', 'https://Fabrikam@dev.azure.com/Fabrikam/Project1/_git/fab_repo', 'https://DEV.AZURE.COM/Fabrikam/Project1/_git/fab_repo'])(
+    "uses Azure's SSH host and repository path for %s", url => {
+      expect(cloneUrlForProtocol(url, 'ssh')).toBe('git@ssh.dev.azure.com:v3/Fabrikam/Project1/fab_repo');
+    });
+  test('refuses Azure rewrites when the project is missing or a custom port is set', () => {
+    for (const [url, to] of [['git@ssh.dev.azure.com:v3/Fabrikam/fab_repo', 'https'], ['https://dev.azure.com/Fabrikam/_git/fab_repo', 'ssh'],
+      ['git@ssh.dev.azure.com:v3/Fabrikam?token/Project1/fab_repo', 'https'], ['https://dev.azure.com/Fabrikam/Project1/_git/fab_repo#main', 'ssh'],
+      ['ssh://git@ssh.dev.azure.com:2222/v3/Fabrikam/Project1/fab_repo', 'https'], ['https://dev.azure.com:8443/Fabrikam/Project1/_git/fab_repo', 'ssh']] as const) {
+      expect(cloneUrlForProtocol(url, to)).toBeNull();
+    }
+  });
 });
 
 const REMOTE = 'https://github.com/acme/widgets.git';
@@ -163,6 +204,19 @@ describe('the dialog (AddProjectToMachineDialog)', () => {
     await addMachineLocal(client, native, 'path', '', '  ');
     expect(await submitAddMachine(client, native)).toEqual({ status: null, generation: -1 });
     expect(addMachineView(client).error).toBe('Choose a folder on the other machine.');
+  });
+
+  test('a path pasted from Finder replaces the folder the field held; typing keeps its escapes', async () => {
+    primaryAt('http://127.0.0.1:16960', 'env');
+    const { client, native } = harness({ listing: false });
+    await machine('studio', 'Studio');
+    await addMachineLocal(client, native, 'open', '', '');
+    expect(addMachineView(client).destination).toBe('~/code/widgets');
+    await addMachineLocal(client, native, 'path', '', "~/code/widgets'/Users/me/My Code'");
+    expect(addMachineView(client).destination).toBe('/Users/me/My Code');
+    await addMachineLocal(client, native, 'path', '', '');
+    for (const char of '/tmp/a\\ b') await addMachineLocal(client, native, 'path', '', `${addMachineView(client).destination}${char}`);
+    expect(addMachineView(client).destination).toBe('/tmp/a\\ b');
   });
 
   test('Return in the folder field before the ignored files load starts nothing (the button is disabled then)', async () => {

@@ -234,7 +234,10 @@ export async function attachmentView(client: T3Client, native: Native | null | u
   const table = !failure && readsText && !!content && !!delimiter && rendered;
   const pageView: ViewerConfig['view'] | null = failure || !state.url ? null
     : streamsText || table ? 'text' : kind === 'viewer' ? (fileKind === 'pdf' ? 'pdf' : office ? 'office' : 'binary') : null;
-  const viewer = pageView ? viewerConfig(client, meta, state, pageView, { streams: streamsText, table, delimiter, office, kind: fileKind, local: !!source.local }) : null;
+  // AttachmentFilePreview's documentKey: a sent attachment by its id, a draft by its own key, which outlives its
+  // upload; a workspace file shown here has none.
+  const documentId = source.local ? `draft:${source.key}` : source.resource ? undefined : `${client.environmentId}:${meta.id}`;
+  const viewer = pageView ? viewerConfig(client, meta, state, pageView, { streams: streamsText, table, delimiter, office, kind: fileKind, local: !!source.local, documentId }) : null;
   // A copy that could not be made says why itself: its draft is past what the bytes' read below takes.
   let given = '', uncopied = false;
   if (viewer && source.local && !viewer.text) {
@@ -287,13 +290,13 @@ export async function attachmentView(client: T3Client, native: Native | null | u
 
 /** What the viewer page shows for this preview, keyed as the reference keys the viewer it mounts. */
 function viewerConfig(client: T3Client, meta: AttachmentMeta, state: State, view: ViewerConfig['view'],
-  how: { streams: boolean; table: boolean; delimiter: ',' | '\t' | null; office: string | null; kind: FilePreviewKind; local: boolean }): ViewerConfig {
+  how: { streams: boolean; table: boolean; delimiter: ',' | '\t' | null; office: string | null; kind: FilePreviewKind; local: boolean; documentId?: string }): ViewerConfig {
   const url = state.url, revision = state.revision, settings = client.local.clientSettings as { wordWrap?: boolean; fontSmoothing?: boolean };
   const base = { name: meta.name, src: how.local ? '' : url, text: null, sizeBytes: meta.sizeBytes, kind: '', delimiter: null, wrap: wrapOf(client, state), revealLine: null, revealRequestId: 0, smoothing: settings.fontSmoothing !== false };
   // LargeTextViewer `${url}:${rendered}:${revision}`; DelimitedTablePreview by the name, with the text already read.
   if (how.streams) return { ...base, view, key: `text:${url}:${state.rendered}:${revision}`, delimiter: state.rendered ? how.delimiter : null };
   if (how.table) return { ...base, view, key: `table:${meta.name}:${revision}`, src: '', text: state.content?.text ?? '', sizeBytes: -1, delimiter: how.delimiter };
-  if (view === 'pdf') return { ...base, view, key: `pdf:${url}:${revision}` };
+  if (view === 'pdf') return { ...base, view, key: `pdf:${url}:${revision}`, ...(how.documentId ? { documentId: how.documentId } : {}) };
   if (view === 'office') return { ...base, view, key: JSON.stringify([url, how.office, meta.sizeBytes, revision]), kind: how.office ?? '' };
   return { ...base, view, key: `binary:${revision}:${url}`, kind: how.kind === 'sqlite' ? 'sqlite' : 'archive' };
 }

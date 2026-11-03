@@ -1,4 +1,4 @@
-// MIT T3 Code 74541bab17 (LICENSE-T3): scheduledTasksSettings.logic.ts,
+// MIT T3 Code 74541bab17, the field labels at 5d3d78ab93 (LICENSE-T3): scheduledTasksSettings.logic.ts,
 // scheduledTaskWebhook.ts, webhookAddress.ts and the webhook schedule checks of
 // packages/contracts/src/scheduledTask.ts. Secrets are write-only.
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -88,7 +88,7 @@ export function isWebhookDedupeTemplate(template: string): boolean {
 export function webhookDraftErrors(input: Record<string, string>): { title: string; description: string }[] {
   if (parseMaxDeliveryAge(str(input.maxDeliveryAgeMinutes)) === undefined) return [{ title: 'Invalid age limit', description: `Enter whole minutes from 1 to ${MAX_WEBHOOK_DELIVERY_AGE_MINUTES}, or leave it blank.` }];
   const errors: { title: string; description: string }[] = [];
-  const keys: [string, string][] = [['Replay key', str(input.replayKey)], ['Coalesce key', str(input.coalesceKey)]];
+  const keys: [string, string][] = [['Duplicate request key', str(input.replayKey)], ['Coalesce key', str(input.coalesceKey)]];
   for (const [label, value] of keys) {
     if (value.trim() && !isWebhookDedupeTemplate(value.trim())) errors.push({ title: 'Invalid webhook settings', description: `${label} must contain a valid request placeholder.` });
   }

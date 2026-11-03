@@ -4,6 +4,7 @@ import { obj, type Obj } from './shared/domain';
 import type { Files, Native } from './shared/protocol';
 import { mobileQueueSnapshot, mobileQueueCommand } from './queue';
 import { mobileQueuePrepare } from './queue-read';
+import { appText } from '../tests/support/app-files';
 function fixture() {
   const client = new T3Client(), calls: Obj[] = [];
   Object.assign(client, { origin: 'https://example.test', environmentId: 'e', projectId: 'p', threadId: 't', generation: 9,
@@ -33,6 +34,16 @@ function fixture() {
   };
   return { client, native, files, calls, snapshot, action, grant(value: string[]) { grants = value; }, hook(value: typeof hook) { hook = value; } };
 }
+
+test('queue rows expose source swipe removal and drag reorder affordances', () => {
+  const source = appText('mobile/queue.contract');
+  expect(source).toContain('reorderGroup="mobile-queue" reorderdrop=dropped');
+  expect(source).toContain('box reorderFor="mobile-queue-scroll"');
+  expect(source).toContain('pan=dragged(entry.id, entry.canRemove)');
+  expect(source).toContain('panrelease=released(entry.id, entry.actionId)');
+  expect(source).toContain('width=76');
+  expect(source).toContain('text "Remove"');
+});
 const writes = (f: ReturnType<typeof fixture>) => f.calls.filter(call => call.method === 'orchestration.dispatchCommand').map(call => obj(call.payload));
 
 test('queue rows preserve source text and exclude automatic notifications; edit uses a dedicated content owner', () => {

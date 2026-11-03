@@ -3,7 +3,7 @@ import { noPrimary, resetPrimary } from '../support/local-primary-fixture';
 // These cases are the hosted rules (resolveHostedFirstRunDecision): no embedded server runs on this Mac.
 beforeEach(noPrimary);
 afterEach(resetPrimary);
-import { splitOnboardingProjectPath, hostedDecision, transition, agentRows, providerState, decodeCandidates, recentCandidates, welcomeView, welcomeLocal, importProjects, welcomeShowing } from '../../src/pages/pages-welcome';
+import { splitOnboardingProjectPath, hostedDecision, transition, agentRows, providerState, decodeCandidates, recentCandidates, pickedCandidates, welcomeView, welcomeLocal, importProjects, welcomeShowing } from '../../src/pages/pages-welcome';
 import { pagesPrefs } from '../../src/pages/pages-prefs';
 import { fleet, environmentKey } from '../../src/connections/settings-b-fleet';
 import { initialShell } from '../../src/client/domain';
@@ -57,6 +57,16 @@ test('scan candidates decode, and only busy recent repositories start selected',
   expect([...recentCandidates(candidates, now)]).toEqual(['["env","/a"]']);
 });
 
+test('a selection keeps its picks on the computers listed when it changed; a computer listed later starts from the defaults', () => {
+  const now = Date.parse('2026-10-04T00:00:00.000Z');
+  const busy = { title: 'a', sources: ['codex'], threadCount: 5, lastActiveAt: '2026-10-01T00:00:00.000Z', git: { root: '/a' } };
+  const here = decodeCandidates('env-a', { candidates: [{ ...busy, path: '/a' }, { ...busy, path: '/b', threadCount: 1 }] });
+  const there = decodeCandidates('env-b', { candidates: [{ ...busy, path: '/c' }] });
+  expect([...pickedCandidates([...here, ...there], null, now)]).toEqual(['["env-a","/a"]', '["env-b","/c"]']);
+  const picked = { environmentIds: new Set(['env-a']), keys: new Set(['["env-a","/b"]']) };
+  expect([...pickedCandidates([...here, ...there], picked, now)]).toEqual(['["env-a","/b"]', '["env-b","/c"]']);
+});
+
 function fakeNative(saved: Obj[]): Native {
   return { available: true, watch: () => {}, later: async (request: Obj) => {
     if (request.op === 'environments') return { ok: true, value: { saved }, generation: 1 };
@@ -96,9 +106,14 @@ test('the wizard lists the paired computer, sets it up, scans, and finishing lan
   expect([projects.candidateCount, projects.selectedCount, projects.selectionLabel, projects.importLabel]).toEqual([1, 1, '1 of 1 selected', 'Import 1 project']);
   // One computer: its group has no legend.
   expect([projects.legend, projects.scans.map(scan => [scan.label, scan.empty, scan.candidates.length])]).toEqual([false, [['Morgan’s MacBook Pro', false, 1]]]);
+  // Back to the computers and forward again (WelcomeWizard importSelection): the picks stay.
+  await welcomeLocal(client, native, 'pick-none', '', '');
+  await welcomeLocal(client, native, 'setup', '', '');
+  expect((await welcomeView(client, native, { step: 'import', now: Date.now() })).selectedCount).toBe(0);
+  await welcomeLocal(client, native, 'pick-all', '', '');
   await importProjects(client, native);
-  expect(calls.map(call => call.method)).toEqual(['agentSessions.scan', 'projects.mutate', 'agentSessions.import']);
-  expect(calls[1]!.payload).toMatchObject({ type: 'project.create', projectId: 'project-1', title: 'app', workspaceRoot: '/work/app', createWorkspaceRootIfMissing: false });
+  expect(calls.map(call => call.method)).toEqual(['agentSessions.scan', 'agentSessions.scan', 'projects.mutate', 'agentSessions.import']);
+  expect(calls[2]!.payload).toMatchObject({ type: 'project.create', projectId: 'project-1', title: 'app', workspaceRoot: '/work/app', createWorkspaceRootIfMissing: false });
   expect(client.projectId).toBe('project-1');
   expect(pagesPrefs(client).onboardingCompletedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   expect((await welcomeView(client, native, { step: 'import', now: 0 })).show).toBe(false);

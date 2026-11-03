@@ -431,6 +431,21 @@ export function remoteThread(client: T3Client, thread: Obj, source: LocalPrimary
   return background ? { machine: str(thread.fleetMachine, 'server'), label: str(thread.fleetEnvironmentLabel) }
     : { machine: kindOf(client.config), label: str(obj(client.config.environment).label) };
 }
+/**
+ * ProjectEnvironmentBadge: a project group's checkouts off the primary environment, as "On <labels>" or, when the
+ * primary holds one too, "Also on <labels>", with the first one's machine glyph (labels in order, "Remote" for one
+ * without a label); null when every checkout is the primary's.
+ */
+export function projectEnvironmentBadge(client: T3Client, members: readonly Obj[], source: LocalPrimary = primary, environments: EnvironmentFleet = fleet): { description: string; machine: string } | null {
+  const configOf = (environmentId: string): Obj | undefined => environmentId === client.environmentId ? client.config
+    : [...environments.entries.values()].find(entry => entry.environmentId === environmentId)?.config;
+  const remote = members.map(member => str(member.environmentId)).filter(environmentId => !isPrimaryEnvironment(environmentId, source))
+    .map(environmentId => { const config = configOf(environmentId) ?? {}; return { label: str(obj(config.environment).label, 'Remote'), machine: kindOf(config) }; })
+    .sort((left, right) => left.label.localeCompare(right.label));
+  if (!remote.length) return null;
+  const labels = [...new Set(remote.map(member => member.label))].join(', ');
+  return { description: `${remote.length < members.length ? 'Also on' : 'On'} ${labels}`, machine: remote[0]!.machine };
+}
 /** Every synchronized background environment's shell threads, decorated for the sidebar. */
 export function fleetThreads(source: EnvironmentFleet = fleet): Obj[] {
   const threads: Obj[] = [];

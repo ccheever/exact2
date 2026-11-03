@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { pushToast, toasts } from '../../src/shell/toast';
 import { applyDismissals, advanceToasts, toastViews, commandShortcut, surfaces, titleMenu, withOffsets, TOAST_LIMIT } from '../../src/shell/shell';
 import { threadTransitions, transitionToast, threadNotifications, notifyStatus, reportWindowFacts, notifyEnvironments, notificationOps, notificationPermission, notificationPermissionMessage,
-  notificationSounds, notificationsWaiting, useNotificationCalls, PERMISSION_DENIED, WORKING_EXIT_GRACE_MS, type NotificationCalls } from '../../src/shell/shell-notify';
+  notificationSounds, useNotificationCalls, PERMISSION_DENIED, type NotificationCalls } from '../../src/shell/shell-notify';
 import { EnvironmentFleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { threadOps } from '../../src/client/client-ops-threads';
 import { shellCommand, shellLocal, shellFailure, shellSuccess, resolveRenameCommit, settingsFailure } from '../../src/shell/shell-commands';
@@ -184,6 +184,7 @@ describe('thread notifications', () => {
     expect(threadTransitions(client, second.next).transitions.map(entry => entry.title)).toEqual(['Thread failed']);
     expect(transitionToast({ threadId: 'a', kind: 'input', status: 'failed', title: '' })).toEqual({ kind: 'error', leading: 'circle-alert:destructive-foreground' });
     expect(transitionToast({ threadId: 'a', kind: 'input', status: 'input', title: '' }).leading).toBe('message-circle-question:info-foreground');
+    expect(transitionToast({ threadId: 'a', kind: 'input', status: 'limited', title: 'Usage limit reached' })).toEqual({ kind: 'warning', leading: 'circle-alert:warning-foreground' });
   });
 
   test('focused: an in-app toast for another thread only; unfocused: a silent system notification and the badge; sound either way', async () => {
@@ -274,6 +275,29 @@ describe('thread notifications', () => {
       expect(toasts(client)).toHaveLength(2);
     });
 
+    // T3 Code 30654b3e91: hiding tagged threads closes what was shown for them and raises nothing new.
+    test('the tag filter: turning it on closes a hidden thread\'s toast and notification; it raises nothing more', async () => {
+      const { notified, client, source, entry } = setup();
+      const inactive = { ...active, active: false };
+      entry.shell = { ...entry.shell, threads: [thread('b1', { title: 'Build B', tags: ['private'] }), thread('b2', { title: 'Docs' })] };
+      await threadNotifications(client, active, source);
+      entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:01:00.000Z', { title: 'Build B', tags: ['private'] }), thread('b2', { title: 'Docs' })] };
+      await threadNotifications(client, active, source);
+      entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:01:00.000Z', { title: 'Build B', tags: ['private'] }), thread('b2', { title: 'Docs', pendingRuntimeRequest: { kind: 'approval' } })] };
+      await threadNotifications(client, inactive, source);
+      expect(toasts(client).map(toast => toast.description)).toEqual(['Build B']);
+      expect(notified.posts().map(post => post.tag)).toEqual(['env-b:b2']);
+      entry.config = { settings: { hideTaggedThreads: true, hiddenThreadTags: ['private'] } };
+      await threadNotifications(client, inactive, source);
+      expect(toasts(client)).toEqual([]);
+      // b2 carries no hidden tag: its notification stays.
+      expect(notified.calls.filter(call => call.call === 'close')).toEqual([]);
+      entry.shell = { ...entry.shell, threads: [thread('b1', { title: 'Build B', tags: ['private'], pendingRuntimeRequest: { kind: 'approval' } }), thread('b2', { title: 'Docs', tags: ['private'], pendingRuntimeRequest: { kind: 'approval' } })] };
+      await threadNotifications(client, inactive, source);
+      expect(notified.calls.filter(call => call.call === 'close').map(call => call.tag)).toEqual(['env-b:b2']);
+      expect(notified.posts().map(post => post.tag)).toEqual(['env-b:b2']);
+    });
+
     test('unfocused: the system notification is tagged with B and opens B\'s thread', async () => {
       const { notified, client, source, entry } = setup();
       const inactive = { ...active, active: false };
@@ -300,27 +324,20 @@ describe('thread notifications', () => {
       expect(toasts(client)).toHaveLength(2);
     });
 
-    // ThreadNotificationCoordinator.badge.browser.test.ts "rechecks a pending completion after reconnect".
-    for (const continued of [false, true]) test(`a completion waiting out its grace when the environment drops waits again on reconnect (continued: ${continued})`, async () => {
+    // ThreadNotificationCoordinator.badge.browser.test.ts "does not replay a notified completion after reconnect".
+    for (const continued of [false, true]) test(`a completion notifies at once and not again after a reconnect (continued: ${continued})`, async () => {
       const { client, source, entry } = setup();
       await threadNotifications(client, active, source, 1_000);
       entry.shell = { ...entry.shell, threads: [done('b1', '2026-10-09T10:01:00.000Z')] };
       await threadNotifications(client, active, source, 1_100);
-      expect(notificationsWaiting(client)).toBe(true);
+      expect(toasts(client).map(toast => toast.title)).toEqual(['Thread completed']);
+      expect(notificationSounds(client).completion).toBe(1);
       entry.synchronized = -1; entry.generation = 4;
       await threadNotifications(client, active, source, 1_200);
-      await threadNotifications(client, active, source, 1_200 + WORKING_EXIT_GRACE_MS + 1);
-      expect(notificationsWaiting(client)).toBe(false);
-      expect(toasts(client)).toEqual([]);
       entry.synchronized = 4;
       if (continued) entry.shell = { ...entry.shell, threads: [thread('b1', { title: 'Build B' })] };
-      const back = 10_000;
-      await threadNotifications(client, active, source, back);
-      await threadNotifications(client, active, source, back + 1);
-      await threadNotifications(client, active, source, back + 2 + WORKING_EXIT_GRACE_MS);
-      expect(toasts(client).map(toast => toast.title)).toEqual(continued ? [] : ['Thread completed']);
-      await threadNotifications(client, active, source, back + 3 + WORKING_EXIT_GRACE_MS * 2);
-      expect(toasts(client)).toHaveLength(continued ? 0 : 1);
+      await threadNotifications(client, active, source, 10_000);
+      expect(toasts(client).map(toast => toast.title)).toEqual(['Thread completed']);
     });
 
     test('an environment that leaves is forgotten; one the focus moved to keeps notifying its own threads', async () => {

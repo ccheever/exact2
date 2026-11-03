@@ -39,6 +39,8 @@ describe('ThreadDetailsCard measures its content per density', () => {
     expect(measureThreadDetailsCard(fullLayout)).toEqual({ full: FULL, compact: COMPACT, content: FULL });
     // Lineage (inside the full-only tail) is left out of the height the density fits, not out of the content's.
     expect(measureThreadDetailsCard({ ...fullLayout, [DETAILS_FRAMES.lineage]: [1300, 310, 264, 40] })).toEqual({ full: FULL - 40, compact: COMPACT, content: FULL });
+    // So are Automations, whose list scrolls past 13.5rem: many of them no longer fold the card to a smaller density.
+    expect(measureThreadDetailsCard({ ...fullLayout, [DETAILS_FRAMES.automations]: [1300, 260, 264, 50] })).toEqual({ full: FULL - 50, compact: COMPACT, content: FULL });
     // Without Automations, Lineage, a resting Git group or a Version Control section, compact is full less the workspace rows.
     expect(measureThreadDetailsCard({ [DETAILS_FRAMES.content]: [0, 0, 280, 200], [DETAILS_FRAMES.fullTop]: [0, 0, 264, 64] })).toEqual({ full: 202, compact: 138, content: 202 });
     expect(measureThreadDetailsCard({ [DETAILS_FRAMES.content]: [0, 0, 280, 180], [DETAILS_FRAMES.compact]: [0, 0, 0, 0] })).toEqual({ compact: 182 });

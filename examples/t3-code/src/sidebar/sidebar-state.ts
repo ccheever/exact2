@@ -71,6 +71,8 @@ export interface SidebarSession {
   calendarMonth: string; calendarFocus: string; calendarFocusSeq: number;
   /** 1826fb55cc: bumped when a row-action sweep is released, which ends the view's sweep. */
   sweepEpoch: number;
+  /** Bumped when the project filter changes, which starts the thread list at the top. */
+  listTopSeq: number;
   /** The route the sidebar last saw and the reveal it owes (route-reveal.ts), kept across the sidebar's remounts. */
   reveal: RouteReveal;
 }
@@ -81,7 +83,7 @@ export function sidebarSession(client: T3Client): SidebarSession {
     session = { settledVisible: SETTLED_TAIL_INITIAL_COUNT, settledScope: '', searchKey: '', searchQuery: '', searchShown: [], searchFoundFor: '', messageOrder: null,
       renameId: '', renameTitle: '', selection: [], anchor: '', dialog: { kind: '', threadIds: [], title: '' },
       undo: null, regenerating: new Set(), busy: new Set(), jumpHints: false, dismissedPill: '', scopeOpen: false, scopeQuery: '', scopeHold: { order: null }, dialogMode: 'date', dialogDate: '', dialogTime: '', dialogAmount: '2', dialogUnit: 'hours', dialogError: '',
-      calendarMonth: '', calendarFocus: '', calendarFocusSeq: 0, sweepEpoch: 0, reveal: { observedKey: '', pendingKey: '' } };
+      calendarMonth: '', calendarFocus: '', calendarFocusSeq: 0, sweepEpoch: 0, listTopSeq: 0, reveal: { observedKey: '', pendingKey: '' } };
     sessions.set(client, session);
   }
   return session;

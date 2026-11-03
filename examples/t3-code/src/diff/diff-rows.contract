@@ -86,9 +86,9 @@ component DiffRow
         // A comment under a selected line takes the line's colour and the selection's bar.
         column width="100%" position="relative" background-color=(item.selected ? diffSel("row") : "#00000000")
           if item.kind == "note"
-            DiffCommentCard(text=item.text, remove=command("diffreview", "delete", item.entry, 0))
+            DiffCommentCard(text=item.text, dir=item.textDir, remove=command("diffreview", "delete", item.entry, 0))
           else
-            DiffDraftCard(rangeLabel=item.label, text=draftText, selected=item.selected, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=command("diffreview", "focus", "", 0), focusOut=command("diffreview", "blur", "", 0))
+            DiffDraftCard(rangeLabel=item.label, text=draftText, dir=item.textDir, selected=item.selected, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=command("diffreview", "focus", "", 0), focusOut=command("diffreview", "blur", "", 0))
           if item.selected
             box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffSel("bar")
       // The numbers come after every cell's code (DiffNumber).

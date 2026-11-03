@@ -383,4 +383,17 @@ describe('media views', () => {
     (client as unknown as { connection: string }).connection = 'connected';
     expect(await signed('["c2",null]')).toBe('http://127.0.0.1:16260/api/assets/f/a.png?sig=4');
   });
+  test('an image signed again keeps the URL it shows while the file revision holds and that URL has time left (#29741)', async () => {
+    let signature = 0, revision = 'r1', expiresAt = 5 + 10 * 60_000;
+    const { client } = fakeClient(() => ({}), { rpc: async () => ({ relativeUrl: `/api/assets/f/a.png?sig=${++signature}`, fileRevision: revision, expiresAt }) });
+    const signed = async (mutationId: string, now = 5) => (await markdownMediaUrls(client, native, '/repo', now, ['![a](/tmp/a.png)'], { mutationId }))[0]!.url;
+    expect(await signed('m1')).toEndWith('sig=1');
+    // The agent ran a command that left the file as it was: the shown URL stays, so the picture does not reload.
+    expect(await signed('m2')).toEndWith('sig=1');
+    // It rewrote the file: a new URL, this one with less time left.
+    revision = 'r2'; expiresAt = 5 + 4 * 60_000;
+    expect(await signed('m3')).toEndWith('sig=3');
+    // The same revision, but the shown URL has five minutes or less left: the new one.
+    expect(await signed('m4')).toEndWith('sig=4');
+  });
 });

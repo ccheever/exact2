@@ -9,6 +9,9 @@
       html, body { margin: 0; background: transparent; overflow: hidden; }
       /* MermaidDiagram's `flex w-full justify-center` span: pele lays the diagram out for its width. */
       #host { display: flex; width: 100%; justify-content: center; }
+      /* The expanded preview (ZoomableImage): a vector scales without loss, so the diagram fills the frame, larger
+         than drawn when the frame is. */
+      [data-view="preview"] #host > svg.pele { width: 100%; height: auto; }
       /* index.css `.pele`: pele reads its colours through these, here the stock T3 Code palette of each appearance. */
       .pele {
         --pele-bg: #fcfcfc; --pele-fg: #18181b; --pele-muted: #71717b; --pele-line: #71717b; --pele-surface: #fafafa;

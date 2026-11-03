@@ -231,6 +231,12 @@ describe('the card\'s Git rows (GitActionsControl panel)', () => {
         .toMatchObject({ changesAdd: '+12,500', changesDel: '-3' });
     } finally { adoptHostLocale(null); }
   });
+  test('a dirty tree on a branch with no changes of its own reads the tree, not +0 (resolveChangesTotals)', () => {
+    const view = (extra: Obj) => gitCardView(client, status(extra), '', '/repo', 100);
+    expect(view({ workingTree: { files: [], insertions: 5, deletions: 2 }, branchChanges: { insertions: 0, deletions: 0 } })).toMatchObject({ changesAdd: '+5', changesDel: '-2' });
+    expect(view({ workingTree: { files: [], insertions: 5, deletions: 2 }, branchChanges: { insertions: 0, deletions: 1 } })).toMatchObject({ changesAdd: '+0', changesDel: '-1' });
+    expect(view({ workingTree: { files: [], insertions: 0, deletions: 0 }, branchChanges: { insertions: 0, deletions: 0 } })).toMatchObject({ changesAdd: '+0', changesDel: '-0' });
+  });
   test('a split pair keeps its fill while its menu is open (data-popup-open): the branch picker, the options and Run on', () => {
     const rows = contractComponent('git.contract', 'GitRows'), state = rows.state(), fill = 'light-dark(#0000000e, #ffffff13)', clear = '#00000000';
     const scope = { compact: false, inline: true, rem: 16, KmItem: (item: Obj) => item, details: { cwd: '/repo', git: { repo: true, quiet: false, progress: false, success: false, menu: [], branch: { show: true, label: 'main', labelHead: '', labelTail: '' } } } };

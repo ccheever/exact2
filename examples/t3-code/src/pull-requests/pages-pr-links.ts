@@ -26,6 +26,7 @@ import { openLink as openLinkByTarget } from '../browser/browser-links';
 import { openCommitLink } from '../diff/diff-commit-links';
 import { activeRef } from '../terminal/terminal-drawer-view';
 import { openExternal } from '../client/external-open';
+import { visibleEnvironmentThreads, visibleRelationThreads } from '../sidebar/thread-tag-filter';
 
 // ── The panel's link context ────────────────────────────────────────────────
 
@@ -102,7 +103,7 @@ export function presentLinks(client: T3Client, context: LinkContext): PrLinksVie
   if (!linkedHere && !canLink(environment.projects, mode, context.url)) return view;
   view.shown = true;
   const relations = state.relations.get(relationsKey(context));
-  const threads = mode === 'multiple' ? relations?.threads ?? [] : [];
+  const threads = mode === 'multiple' ? visibleRelationThreads(client, context.environmentId, relations?.threads ?? []) : [];
   view.countShown = context.page && mode === 'multiple' && (threads.length > 0 || !!relations?.error);
   view.countText = threads.length ? String(threads.length) : '?';
   view.countLabel = linkedThreadsLabel(threads.length);
@@ -207,7 +208,9 @@ export function linkedThreadItems(client: T3Client, page: string, query: string)
   const relations = state.relations.get(relationsKey(context));
   if (!relations?.threads) return null;
   const focused = !context.environmentId || context.environmentId === client.environmentId;
-  return buildLinkedThreadActionItems({ environmentId: context.environmentId || client.environmentId, threads: relations.threads, query }).map(item => ({ terms: item.searchTerms,
+  // Rows were captured when the palette opened; none the tag filter has hidden since then.
+  const threads = visibleRelationThreads(client, context.environmentId, relations.threads);
+  return buildLinkedThreadActionItems({ environmentId: context.environmentId || client.environmentId, threads, query }).map(item => ({ terms: item.searchTerms,
     row: row({ key: item.value, op: 'thread', arg: focused ? item.threadId : fleetThreadId(item.environmentId, item.threadId), icon: 'message-square', title: item.title, description: item.description }) }));
 }
 
@@ -219,7 +222,7 @@ export function linkedThreadItems(client: T3Client, page: string, query: string)
 export function threadPickerView(client: T3Client, query: string, busy: boolean): PaletteView {
   const context = stateOf(client).context;
   const environment = context ? prEnvironment(client, context.environmentId) : null;
-  const candidates = context && environment ? threadPickerCandidates({ threads: environment.threads, projects: environment.projects, query, url: context.url, mode: linkMode(environment.config) }) : [];
+  const candidates = context && environment ? threadPickerCandidates({ threads: visibleEnvironmentThreads(client, environment.id, environment.threads), projects: environment.projects, query, url: context.url, mode: linkMode(environment.config) }) : [];
   const pending = busy || (!!context && stateOf(client).pending === context.url);
   let index = 0, top = 8;
   const rows = candidates.map(candidate => {

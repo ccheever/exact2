@@ -41,6 +41,7 @@ import { composerHistoryComplete, composerHistoryRecall } from './composer-promp
 import { importDroppedThread } from './composer-thread-import';
 import { parseFleetThreadId } from '../connections/settings-b-fleet';
 import { checkMissingEditThreads } from './composer-controls-queue';
+import { visibleEnvironmentThreads } from '../sidebar/thread-tag-filter';
 
 export type ComposerMenuRow = Omit<MenuRow, 'insert'>;
 export type ComposerMenu = { open: boolean; kind: string; listLabel: string; searchKey: string; loading: boolean; emptyText: string; count: number; rows: ComposerMenuRow[] };
@@ -325,7 +326,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
     if (search === 'loading') loading = true;
     else { rows = pullRequestRows(search.entries, client.projectId, repository, trigger.query, search.providers ?? [], arr(obj(client.projection.thread).pullRequests ?? client.shell.threads.find(thread => thread.id === client.threadId)?.pullRequests)); prFailed = search.failed; }
   } else if (trigger.kind === 'path') {
-    const threads = threadRows(client.shell.threads, client.threadId, trigger.query, mentionClock(client, now), client.environmentId);
+    const threads = threadRows(visibleEnvironmentThreads(client, client.environmentId, client.shell.threads), client.threadId, trigger.query, mentionClock(client, now), client.environmentId);
     const query = trigger.query.trim();
     let entries: Obj[] = [];
     if (query && cwd && native?.available) {
@@ -334,6 +335,8 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
     }
     rows = [...threads, ...pathRows(entries)];
   }
+  // The cwd's skills may still arrive while its snapshot is scanned (useComposerMenuItems' workspaceSkillsScanning).
+  if ((trigger.kind === 'skill' || trigger.kind === 'slash-command') && entry.discovery.scanning(current, cwd)) loading = true;
   rows = rows.map((row, index) => ({ ...row, index }));
   entry.rows = rows;
   entry.rowsTarget = { query: trigger.query.trim(), environmentId: client.environmentId, cwd };
@@ -341,7 +344,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   return {
     owner: client.snapshotOwner, promptLimit, overLimit, usageLimits: entry.usageLimits, stash,
     menu: { open: true, kind: trigger.kind, listLabel: LIST_LABEL[trigger.kind] ?? '', searchKey, loading: loading && rows.length === 0,
-      emptyText: loading ? (trigger.kind === 'pull-request' ? 'Finding pull request...' : trigger.kind === 'skill' ? 'Searching workspace skills...' : 'Searching workspace files...') : emptyText(trigger.kind, trigger.query, prAvailable, prFailed),
+      emptyText: loading ? (trigger.kind === 'pull-request' ? 'Finding pull request...' : trigger.kind === 'skill' || trigger.kind === 'slash-command' ? 'Searching workspace skills...' : 'Searching workspace files...') : emptyText(trigger.kind, trigger.query, prAvailable, prFailed),
       count: rows.length, rows: rows.map(({ insert: _insert, ...rest }) => rest) },
   };
 }

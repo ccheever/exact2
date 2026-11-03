@@ -105,6 +105,17 @@ describe('the comparison target', () => {
     expect(snapshot(client)).toMatchObject({ diffBase: 'origin/main', diffBaseAutomatic: true });
   });
 
+  test('a branch diff that failed keeps "HEAD → Automatic" and its picker, which still reads the workspace\'s refs', async () => {
+    const { client, command, listRefs } = harness();
+    client.diffState.source = null;
+    client.diffError = 'fatal: no merge base';
+    expect(snapshot(client)).toMatchObject({ diffCompare: true, diffHead: 'HEAD', diffBase: 'Automatic', diffBaseAutomatic: true });
+    await command('diffbase', 'open');
+    expect(listRefs().map(call => call.cwd)).toEqual(['/repo', '/repo']);
+    // With no status yet the head is HEAD, so no branch is left out.
+    expect(snapshot(client).diffBaseRefs.map(row => row.label)).toEqual(['feature/audit', 'main', 'origin/release/2026-10']);
+  });
+
   test("only the newest read lands: another thread's older answer for the same query is dropped", async () => {
     const picker = emptyBaseRefPicker();
     const answers = new Map<string, (value: Obj) => void>();

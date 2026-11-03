@@ -17,6 +17,7 @@ import { acpInstanceIcon } from './acp-instance-icon';
 import { pickerReady, pickerOptions, pickerSetupEntries, shouldOfferModelPickerSetup } from '../providers/provider-picker-setup';
 import { usesChatGptSharing } from '../providers/chatgpt-plan';
 import { composerPair } from './composer-provider-selection'; // the checked row
+import { textWidth } from './composer-controls-view';
 
 type Badge = (provider: Obj | undefined, providers: Obj[]) => { providerBadge: string; providerBadgeColor: string };
 type Item = { id: string; name: string; shortName: string; subProvider: string; providerId: string; providerName: string;
@@ -101,7 +102,8 @@ export type PickerTarget = { reason: (instanceId: string, model: string) => stri
 export function railLabel(provider: Obj, locked: boolean): string {
   const name = str(provider.displayName, str(provider.driver));
   if (!pickerReady(provider)) {
-    if (provider.enabled !== true || provider.status === 'disabled') return `${name}: Disabled in settings.`;
+    // An unavailable instance (a driver this build lacks, or one the managed policy leaves out) says why instead.
+    if ((provider.enabled !== true && provider.availability !== 'unavailable') || provider.status === 'disabled') return `${name}: Disabled in settings.`;
     const kind = provider.status === 'error' ? 'Unavailable' : provider.status === 'warning' ? 'Limited' : 'Not ready';
     const message = str(provider.message).trim();
     return message ? `${name}: ${kind}. ${message}` : `${name}: ${kind}.`;
@@ -195,13 +197,16 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
   // Several models chosen for a new thread (composer-controls-fanout.ts): each chosen row is selected and checked.
   const fan = target ? null : fanoutSelections(client as unknown as T3Client);
   const fanKeys = new Set((fan ?? []).map(selection => `${selection.instanceId}:${selection.model}`));
+  // ModelListRow names a row in full on hover only when its name is cut: the list (360 inside its border and px-3, less the
+  // 44pt rail while it shows) less the row's logo, gaps, star and check, the sub-provider and NEW.
+  const nameRoom = (item: Item) => (searching ? 335 : 291) - 90 - (item.subProvider.trim() ? textWidth(item.subProvider.trim(), true) + 8 : 0) - (item.isNew ? 30 : 0);
   const row = (item: Item, index: number, kind: string) => ({ key: `${item.providerId}:${item.id}`, kind, id: item.id, providerId: item.providerId,
-    name: display(item), label: item.subProvider.trim(), driver: item.driver, icon: item.icon, twoLine: false,
+    name: display(item), nameTip: textWidth(display(item)) > nameRoom(item) ? display(item) : '', label: item.subProvider.trim(), driver: item.driver, icon: item.icon, twoLine: false,
     providerName: item.providerName, providerBadge: rowBadge.get(item.providerId)?.providerBadge ?? '', providerBadgeColor: rowBadge.get(item.providerId)?.providerBadgeColor ?? '',
     favorite: item.favorite, selected: fan ? fanKeys.has(`${item.providerId}:${item.id}`) : item.providerId === current.providerId && item.id === current.modelId, isNew: item.isNew,
     index, highlighted: false, expanded: false, checked: !!fan && fanKeys.has(`${item.providerId}:${item.id}`), reason: target?.reason(item.providerId, item.id) ?? '', jump: '', jumpKey: '' });
   const rows = ordered.map((item, index) => item === null
-    ? { key: `legacy:${selected}`, kind: 'legacy', id: '', providerId: selected, name: '', label: '',
+    ? { key: `legacy:${selected}`, kind: 'legacy', id: '', providerId: selected, name: '', nameTip: '', label: '',
       driver: '', icon: '', twoLine: false, providerName: '', providerBadge: '', providerBadgeColor: '', favorite: false, selected: false, isNew: false, index, highlighted: false, expanded: false, checked: false, reason: '', jump: '', jumpKey: '' }
     : row(item, index, legacy.length && inLegacy(item) ? 'legacy-model' : 'model'));
   // The rail's instance badges count only its own (enabled) entries, as ModelPickerSidebar does.

@@ -10,7 +10,7 @@ import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { byEnvironment, groupOfMember, settingsGroups, settingsPageClient } from '../../src/settings/projects-fleet';
 import { archiveCommand } from '../../src/settings/settings-a-archive';
 import { defaultProjectIcon, hasDefaultProjectIcon, projectsPage } from '../../src/settings/projects-view';
-import { sidebarWrites } from '../../src/client/client-ops-sidebar';
+import { sidebarOps, sidebarWrites } from '../../src/client/client-ops-sidebar';
 import { restCommand } from '../../src/settings/settings-rest-commands';
 import { runIconOp } from '../../src/settings/settings-b-icons';
 import type { OpOut } from '../../src/client/client-ops';
@@ -84,6 +84,22 @@ describe('Settings › Projects on a project only a background environment has',
     const shared = projectsPage(client, 'github.com/acme/app', '', true);
     expect(shared.members.map(member => [member.id, member.environment])).toEqual([['p1', 'This Mac'], ['fleet:env-remote:r9', 'Studio']]);
     expect(shared.removeLabel).toBe('Remove all entries');
+  });
+  test('Checkouts lists a lone checkout with its grouping rule; Remove needs another checkout (f2513bd288)', async () => {
+    const client = focused(); studio();
+    const solo = projectsPage(client, 'env-remote:/srv/solo', '', true);
+    expect([solo.multipleCheckouts, solo.members.length]).toEqual([false, 1]);
+    expect(solo.members[0]).toMatchObject({ groupingLabel: 'Grouping rule for /srv/solo on Studio (env-remote)', groupingValue: 'Default (Group by repository)' });
+    expect(solo.members[0]!.groupingOptions.map(option => [option.value, option.label, option.selected])).toEqual([['inherit', 'Use global default', true],
+      ['repository', 'Group by repository', false], ['repository_path', 'Group by repository path', false], ['separate', 'Keep separate', false]]);
+    expect(projectsPage(client, 'github.com/acme/app', '', true).multipleCheckouts).toBe(true);
+    // The rule is this device's override by the checkout's physical key, for a background environment's checkout too.
+    const out = { message: '', id: '', value: '' } as OpOut;
+    await sidebarOps.call(client, 'grouping-override', 'fleet:env-remote:r9', 'separate', 0, nativeOf(fleet.entries.get('remote')!, []), files, out);
+    expect(client.local.groupingOverrides).toEqual({ 'env-remote:/srv/app': 'separate' });
+    const moved = projectsPage(client, 'env-remote:/srv/app', '', true);
+    expect(moved.members[0]).toMatchObject({ groupingValue: 'Keep separate' });
+    expect(moved.members[0]!.groupingOptions.find(option => option.selected)?.value).toBe('separate');
   });
   test('a settings page keyed by environment and project reads the background environment under its own project id', () => {
     const client = focused(); studio();

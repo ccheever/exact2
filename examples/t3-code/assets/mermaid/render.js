@@ -12,7 +12,8 @@ const theme = params.get('theme') === 'dark' ? 'dark' : 'light';
 const font = params.get('font') || 'system-ui, sans-serif';
 const source = (params.get('source') || '').trim();
 const view = params.get('view') || '';
-// The expanded preview lays the diagram out as its opener drew it, at that width, and scales the SVG to its box.
+// The expanded preview lays the diagram out as its opener drew it, at that width, and scales the SVG to fill its box
+// (index.html).
 const drawnWidth = Number(params.get('width')) || 0;
 const round = value => Math.round(value * 1000) / 1000;
 
@@ -103,6 +104,7 @@ async function loadMath() {
 
 async function render() {
   document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.view = view;
   document.body.style.fontFamily = font;
   let pele, sanitize, type = null;
   try {

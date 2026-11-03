@@ -1,4 +1,5 @@
-// Adapted from T3 Code 7c3b3b3605ef (MIT; the project pins at 2359643cff); see LICENSE-T3.
+// Adapted from T3 Code 7c3b3b3605ef (MIT; the project pins at 2359643cff, the thread rows' leading status at
+// 5d3d78ab93); see LICENSE-T3.
 // The command palette (⌘K): reference CommandPalette.tsx, CommandPalette.logic.ts,
 // CommandPaletteResults.tsx, CommandPaletteThreadItems.tsx, ThreadSearchMatch.tsx and
 // ThreadCommandSubtitle.tsx. One view model for every page the overlay can show; Contract
@@ -25,8 +26,10 @@ import { pickerProjects } from './palette-projects'; // Project order
 import { openPanelPullRequestUrl, threadReferenceTarget } from '../sidebar/thread-reference';
 import { addProjectEnvironments, newProjectEnvironments, projectLocation } from './palette-environments';
 import { fleet, fleetThreads, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { rowThreadKey, threadTagFilter } from '../sidebar/thread-tag-filter';
 import { sourceControlHosts } from '../shared/source-control-hosts';
 import { textDirection } from '../shared/text-direction';
+import { leadingStatus, type LeadingStatus } from './palette-thread-status';
 import {
   findSearchTokenRanges, foldSearchQuery, PALETTE_MESSAGE_LIMIT, PALETTE_SECONDARY_LIMIT, PALETTE_THREAD_LIMIT, rankMessageMatches, rankSearchGroups, scoreSearchTerms,
   scoreThreadSearch, splitSearchText, threadRecentUse, threadSearchSubject, type SearchMatchHint, type SearchRange, type ThreadSearchSubject,
@@ -54,7 +57,7 @@ export type PaletteRow = {
   /** The title's reading direction (textDirection): 'rtl', else '' for the page's own. */
   titleDir: string;
   branch: string; provider: string; current: boolean; titleParts: PalettePart[]; line: string; orbs: Orb[]; top: number; height: number;
-};
+} & LeadingStatus; // a thread row's ThreadRowLeadingStatus
 type Orb = ReturnType<typeof themeCards>[number]['orbs'][number];
 export type PaletteView = {
   open: boolean; mode: string; page: string; parent: string; back: boolean; addon: string; placeholder: string; label: string; testId: string;
@@ -66,11 +69,20 @@ export type PaletteView = {
   jumpKeys: string[];
   /** The chords that resolve to thread.pin in the field, space-separated: they pin the highlighted row's project. */
   pinKeys: string;
+  /**
+   * Tab in the folder browser with no folder highlighted (a highlighted one is entered): 'browse-to' makes `tabArg`
+   * the query (a sole match's folder entered, or several matches' common prefix), 'stay' does nothing; '' leaves Tab
+   * to the dialog.
+   */
+  tabOp: string; tabArg: string;
+  /** canBrowsePaths: the field reads a path pasted from Finder or Explorer (pasted-path.contract) on this page. */
+  pastePaths: boolean;
 };
 
 export const RECENT_THREAD_LIMIT = 12;
 const blankRow: PaletteRow = { key: '', index: -1, header: '', headerGap: false, kind: 'action', op: '', arg: '', arg2: '', icon: '', prefix: '', title: '', bold: '',
-  publishHost: '', publishHostLabel: '', publishHosts: [], terminalCount: 0, prNumber: '', prIcon: '', prState: '', prLabel: '', description: '', shortcut: '', jump: '', timestamp: '', trailing: '', badge: '', badgeOp: '', checkbox: false, checked: false, project: '', projectInk: '', projectSurface: '', env: '', envMachine: '', pin: '', pinKey: '', pinTitle: '',
+  publishHost: '', publishHostLabel: '', publishHosts: [], terminalCount: 0, prNumber: '', prIcon: '', prState: '', prLabel: '',
+  leadPrIcon: '', leadPrState: '', leadPrLabel: '', leadPending: '', leadStatus: '', leadStatusInk: '', leadStatusDot: '', leadStatusPulse: false, description: '', shortcut: '', jump: '', timestamp: '', trailing: '', badge: '', badgeOp: '', checkbox: false, checked: false, project: '', projectInk: '', projectSurface: '', env: '', envMachine: '', pin: '', pinKey: '', pinTitle: '',
   branch: '', provider: '', current: false, matchLabel: '', matchParts: [], context: '', titleDir: '', titleParts: [], line: '', orbs: [], top: 0, height: 32 };
 export function row(fields: Partial<PaletteRow>): PaletteRow { return { ...blankRow, ...fields }; }
 
@@ -79,6 +91,7 @@ export const closedView: PaletteView = {
   autoHighlight: true, empty: '', enterLabel: '', escapeLabel: 'Close', backHint: false, popOnEmpty: false, enterOp: '', enterArg: '', enterArg2: '', accessory: '', accessoryKey: '',
   accessoryEnabled: false, accessoryOp: '', accessoryArg: '', accessoryArg2: '', footerAction: '', contextLabel: '', contextTitle: '', contextDescription: '', contextIcon: '',
   toggles: false, matchCase: false, wholeWord: false, regex: false, summary: '', panel: 'list', inputPaddingRight: 11, loading: false, listHeight: 0, jumpKeys: [], pinKeys: '',
+  tabOp: '', tabArg: '', pastePaths: false,
 };
 
 /**
@@ -264,13 +277,15 @@ function severalEnvironments(client: T3Client): boolean {
 export function threadItems(client: T3Client, now: number, query: string, source: EnvironmentFleet = fleet): Item[] {
   const searchedLabels = severalEnvironments(client);
   const entries = new Map([...source.entries.values()].map(entry => [entry.environmentId, entry]));
-  return sortedThreads([...client.shell.threads, ...fleetThreads(source)]).filter(thread => isListedThreadLineage(thread.lineage)).map(thread => {
+  // useVisibleThreadShells: none the tag filter hides.
+  const tagHidden = threadTagFilter(client, source).keys;
+  return sortedThreads([...client.shell.threads, ...fleetThreads(source)]).filter(thread => isListedThreadLineage(thread.lineage) && !tagHidden.has(rowThreadKey(client, str(thread.id)))).map(thread => {
     const id = str(thread.id), ref = parseFleetThreadId(id), environmentId = ref?.environmentId ?? client.environmentId;
     // ThreadCommandSubtitle's environmentLabel: the thread's own environment's.
     const environmentLabel = projectLocation(client, environmentId, source).label;
     const projectTitle = ref ? str(thread.fleetProjectTitle) : str(client.shell.projects.find(candidate => candidate.id === thread.projectId)?.title);
     const identity = projectIdentity(projectTitle);
-    const providers = arr((ref ? entries.get(environmentId)?.config : client.config)?.providers);
+    const config = obj(ref ? entries.get(environmentId)?.config : client.config), providers = arr(config.providers);
     const instance = providers.find(provider => provider.instanceId === obj(thread.modelSelection).instanceId);
     const stampIso = str(thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt);
     const current = !ref && id === client.threadId;
@@ -278,7 +293,7 @@ export function threadItems(client: T3Client, now: number, query: string, source
     return { thread: subject, terms: [str(thread.title)], ...(current ? { secondary: true } : {}),
       row: row({ key: id, op: 'thread', arg: id, icon: 'message-square', title: str(thread.title, 'Untitled thread'), timestamp: relativeLabel(stampIso, now),
         project: projectTitle ? identity.projectMark : '', projectInk: identity.projectInk, projectSurface: identity.projectSurface, description: projectTitle, env: projectTitle ? environmentLabel : '',
-        terminalCount: terminalProcessCount(client, id), ...palettePullRequest(client, thread, query), branch: str(thread.branch), provider: str(instance?.driver), current }) };
+        ...leadingStatus(client, thread, config), terminalCount: terminalProcessCount(client, id), ...palettePullRequest(client, thread, query), branch: str(thread.branch), provider: str(instance?.driver), current }) };
   });
 }
 /**

@@ -1,4 +1,5 @@
-// One environment, several routes (T3 Code 9c161462c9, hasSavedBearerRoute at 74541bab17: packages/client-runtime/src/connection/
+// One environment, several routes (T3 Code 9c161462c9, hasSavedBearerRoute at 74541bab17, insertRoute and upsertRoute at
+// 5d3d78ab93: packages/client-runtime/src/connection/
 // routes.ts and pullRequestRoutingPermissions.ts pullRequestRoutingConnectionKey; MIT, see LICENSE-T3). A
 // saved environment keeps an ordered list of routes: direct URLs (loopback, LAN, tailnet, other
 // VPNs, public) and SSH tunnels. The client connects over the first route
@@ -81,19 +82,26 @@ export function connectionRouteKind(route: ConnectionRoute): ConnectionRouteKind
 const ROUTE_KIND_RANK: Record<ConnectionRouteKind, number> = { loopback: 0, lan: 1, tailnet: 2, vpn: 2, public: 3, ssh: 4, relay: 5 };
 
 /**
- * Where a newly added route goes: after every saved route of the same or a
- * faster kind, so LAN lands ahead of tailnet and both ahead of T3 Connect.
- * Users can reorder afterwards; this only picks a sensible starting point.
+ * Where a newly added route goes: after every saved route of a faster kind and,
+ * unless `aheadOfSameKind`, of the same kind, so LAN lands ahead of tailnet and
+ * both ahead of T3 Connect. Users can reorder afterwards; this only picks a
+ * sensible starting point.
  */
-export function insertRoute(routes: readonly ConnectionRoute[], route: ConnectionRoute): ConnectionRoute[] {
-  const rank = ROUTE_KIND_RANK[connectionRouteKind(route)];
-  const index = routes.findIndex(existing => ROUTE_KIND_RANK[connectionRouteKind(existing)] > rank);
+export function insertRoute(routes: readonly ConnectionRoute[], route: ConnectionRoute, { aheadOfSameKind = false }: { aheadOfSameKind?: boolean } = {}): ConnectionRoute[] {
+  const kind = connectionRouteKind(route), rank = ROUTE_KIND_RANK[kind];
+  const index = routes.findIndex(existing => {
+    const existingKind = connectionRouteKind(existing);
+    return ROUTE_KIND_RANK[existingKind] > rank || (aheadOfSameKind && existingKind === kind);
+  });
   return index === -1 ? [...routes, route] : [...routes.slice(0, index), route, ...routes.slice(index)];
 }
 
-/** Replaces the route with the same id in place, or inserts it by kind. */
+/**
+ * Replaces the route with the same id in place, or inserts it by kind. A route paired at a new address, such as
+ * localhost beside a saved 127.0.0.1, goes first among its kind so its fresh credential connects.
+ */
 export function upsertRoute(routes: readonly ConnectionRoute[], route: ConnectionRoute): ConnectionRoute[] {
-  return routes.some(existing => existing.id === route.id) ? routes.map(existing => existing.id === route.id ? route : existing) : insertRoute(routes, route);
+  return routes.some(existing => existing.id === route.id) ? routes.map(existing => existing.id === route.id ? route : existing) : insertRoute(routes, route, { aheadOfSameKind: true });
 }
 
 /**

@@ -23,7 +23,7 @@ import { readableFailure } from '../details/pr-row-logic';
 import { capitalizeTerm, termView, terminologyOf } from '../details/git-logic';
 import type { T3Client } from '../client/client';
 import type { PrReactionPill } from './pages-pr-summary';
-import { actionState, finishAction, type PanelContext } from './pages-pr-actions';
+import { actionState, finishAction, pendingActionKey, type PanelContext } from './pages-pr-actions';
 import {
   PULL_REQUEST_REACTION_ORDER, applyPendingPullRequestReactions, canEditPullRequestChangeRequest, canEditPullRequestComment, isReactionContent, pullRequestReactionEmoji,
   pullRequestReactionName, pullRequestReactionTooltip, pullRequestReviewKey, pullRequestReviewStore, reactionsSignature, readReactions, type PullRequestReactionContent,
@@ -109,7 +109,7 @@ export function presentWrites(client: object, reference: WriteReference, detail:
   view.summaryRequired = detail.provider === 'forgejo';
   view.pendingCount = store.pending(key).length;
   view.submitting = state.submitting.get(key) ?? '';
-  view.actionPending = actionState(client).pending !== null;
+  view.actionPending = actionState(client).pending.has(pendingActionKey(client as { environmentId: string }, reference));
   view.reviewPending = state.reviewing.has(key);
   view.closeSerial = serial(state, `${key}|close`); view.commentSerial = serial(state, `${key}|comment`); view.reviewSerial = serial(state, `${key}|review`);
   view.canEditChange = canEditPullRequestChangeRequest(detail);
@@ -210,16 +210,17 @@ async function postComment(context: WriteContext, text: string, action: 'comment
   const { client, native, reference } = context, state = stateOf(client), key = pullRequestReviewKey(reference), body = text.trim();
   const actions = actionState(client);
   // Locked while posting or while an action runs, and nothing to post without words (the buttons say so too).
-  if (body.length === 0 || state.submitting.has(key) || actions.pending) return '';
+  const pendingKey = pendingActionKey(client, reference);
+  if (body.length === 0 || state.submitting.has(key) || actions.pending.has(pendingKey)) return '';
   const ctx = action === 'comment' ? null : context.actionContext?.() ?? null;
   if (action !== 'comment' && !ctx) return '';
   state.comments.set(key, text); state.submitting.set(key, action);
-  if (ctx) actions.pending = { key: ctx.key, action };
+  if (ctx) actions.pending.set(pendingKey, action);
   await wakePanel(native);
   try {
     try { await client.rpc(native, 'pullRequests.comment', { ...reference, body }, true); }
     catch (error) {
-      if (ctx && actions.pending?.key === ctx.key) actions.pending = null;
+      if (ctx) actions.pending.delete(pendingKey);
       failureOf(error);
       pushToast(client, { kind: 'error', title: 'Could not post the comment' });
       return error instanceof Error ? error.message : 'Could not post the comment';

@@ -7,14 +7,33 @@ use DiffTreeRow from "../shared/shapes.contract"
 use ReqIcon from "../composer/requests.contract"
 use diffInk from "../appearance/settings-appearance-look.contract"
 use DiffGlyph from "./diff-glyphs.contract"
+use ExplorerResizeHandle from "../panel/tree-resize.contract"
+use treePaneMax from "../panel/tree-resize.contract"
+use treePaneWidth from "../panel/tree-resize.contract"
 
+// FileExplorerPane resizable: 40% of the row up to 256 at first, at least 160; its left edge resizes it ("Resize Changes
+// files") and the width it ends on is the one PR Code's tree shares.
 component DiffTree
   props
     data: Snapshot
     command: action
     scheme: string
+    // The row the tree shares with the diff, measured by the panel.
+    rowWidth: number
+  state userWidth = -1
+  derive most = treePaneMax(rowWidth, 256, 160)
+  derive width = treePaneWidth(rowWidth, userWidth >= 0 ? userWidth : data.diffTreeWidth, 256, 160)
+  action resize(dx: number, dy: number)
+    userWidth = max(160, min(most, width - dx))
+  action resized(vx: number, vy: number)
+    command("diff-view", "tree-width", `${width}`, 0)
+  action set(next: number)
+    let chosen = max(160, min(most, next))
+    userWidth = chosen
+    command("diff-view", "tree-width", `${chosen}`, 0)
   view
-    column width="13.5rem" flex-shrink=0 height="100%" padding-left="0.75rem" padding-right="0.5rem" box-sizing="border-box" border-left-style="solid" border-left-width=1 border-color="light-dark(#e4e4e7, #191919)" role="complementary" aria-label="Files" testId="diff-tree"
+    column position="relative" width=`${width}px` flex-shrink=0 height="100%" padding-left="0.75rem" padding-right="0.5rem" box-sizing="border-box" border-left-style="solid" border-left-width=1 border-color="light-dark(#e4e4e7, #191919)" role="complementary" aria-label="Files" testId="diff-tree"
+      ExplorerResizeHandle(width=width, least=160, max=most, label="Resize Changes files", testId="diff-tree-resize", resize=resize, finish=resized, set=set)
       row height="1.5rem" align-items="center" margin-bottom="1rem" gap="0.25rem" padding-right=0
         text "Files" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#18181b, #f5f5f5)" flex=1
         text `${data.diffFiles.length}` font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717a, #a1a1a1)" testId="diff-tree-count"

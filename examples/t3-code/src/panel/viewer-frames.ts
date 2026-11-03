@@ -25,8 +25,10 @@ export type ViewerConfig = {
   /** The viewer's identity: a new key mounts a new viewer, as the reference's React keys do. */
   key: string;
   /** A PDF's identity without its revision: a new key of the same document opens where the reader was
-   *  (BrowserDocumentFrame's `documentId`). */
+   *  (BrowserDocumentFrame's `documentId`), and so does a later visit (`pdfPosition`). */
   documentId?: string;
+  /** Where the reader last was in `documentId` (the frame adds it from `pdfPositions`). */
+  pdfPosition?: Obj;
   name: string;
   /** The signed URL, or '' for a draft: its bytes posted after it, or the file the page is given (`given`). */
   src: string;
@@ -69,10 +71,26 @@ export type FrameState = {
    * clipboard's, and the request goes when the frame shows another key or another file (`dropCopy`).
    */
   copyKey: string | null;
+  /** The saved PDF position the config carries, read when the page boots or the key changes, so it stays put while the
+   *  page reports new ones. */
+  pdfSeed: Obj | null;
 };
 
+/** PdfViewer's positions by document (the 50 most recent): a thread switch unmounts the page, and the next visit's config
+ *  brings the place back. */
+const PDF_MAX_POSITIONS = 50;
+const pdfPositions = new Map<string, Obj>();
+export function rememberPdfPosition(id: string, view: Obj): void {
+  if (!id) return;
+  pdfPositions.delete(id);
+  pdfPositions.set(id, view);
+  const oldest = pdfPositions.keys().next();
+  if (pdfPositions.size > PDF_MAX_POSITIONS && !oldest.done) pdfPositions.delete(oldest.value);
+}
+export const savedPdfPosition = (id: string): Obj | null => pdfPositions.get(id) ?? null;
+
 const emptyMenu = (): ViewerMenu => ({ serial: 0, x: 0, y: 0, width: 0, height: 0, label: '', rows: [] });
-export const newFrame = (): FrameState => ({ booted: false, posts: [], serial: 0, menu: emptyMenu(), entry: null, notebook: null, height: 0, sentBytes: '', pageSerial: 0, configKey: '', copyKey: null });
+export const newFrame = (): FrameState => ({ booted: false, posts: [], serial: 0, menu: emptyMenu(), entry: null, notebook: null, height: 0, sentBytes: '', pageSerial: 0, configKey: '', copyKey: null, pdfSeed: null });
 export const emptyViewerFrame = (): ViewerFrameView => ({ id: '', src: '', config: '', posts: [], menu: emptyMenu() });
 
 /** A frame's id: a preview key, made safe for an element id and still one per key (`a.b` and `a_b` differ). */
@@ -91,7 +109,11 @@ export function connectionScope(src: string): string {
 
 /** The frame's view: the config as JSON and the page's next post, once it has booted. */
 export function viewerFrameView(state: FrameState, id: string, config: ViewerConfig, given = ''): ViewerFrameView {
-  if (state.configKey !== config.key) { state.configKey = config.key; state.copyKey = null; }
+  if (state.configKey !== config.key || !state.booted) {
+    if (state.configKey !== config.key) { state.configKey = config.key; state.copyKey = null; }
+    state.pdfSeed = config.view === 'pdf' && config.documentId ? savedPdfPosition(config.documentId) : null;
+  }
+  if (state.pdfSeed) config = { ...config, pdfPosition: state.pdfSeed };
   // A file in app:/cache named in the page's own query, which the host puts a URL the page can fetch in place of.
   const src = given ? `${VIEWER_PAGE}?file=${encodeURIComponent(given)}` : VIEWER_PAGE;
   return { id, src, config: JSON.stringify({ type: 'config', ...config }), posts: state.booted ? state.posts.slice(0, 1) : [], menu: state.menu };
@@ -196,6 +218,9 @@ export function viewerMessage(state: FrameState, payload: string): ViewerEvent {
     }
     case 'height':
       state.height = Math.max(0, Number(message.value) || 0);
+      return { type: 'none' };
+    case 'pdf-view':
+      rememberPdfPosition(str(message.id), obj(message.view));
       return { type: 'none' };
     // The clipboard takes text only for a Copy the app asked for, of the file it was asked for.
     case 'copy':

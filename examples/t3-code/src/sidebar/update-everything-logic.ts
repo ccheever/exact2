@@ -1,4 +1,4 @@
-// Update everything's pure logic, T3 Code 2359643cff (MIT, see LICENSE-T3):
+// Update everything's pure logic, T3 Code 5d3d78ab93 (MIT, see LICENSE-T3):
 // apps/web/src/components/sidebar/updateEverything.logic.ts and packages/shared/src/cliRelease.ts
 // cliReleaseChannelOf.
 // Port changes: a machine's server config is the server's JSON (`Obj`), and a server target is
@@ -7,6 +7,7 @@
 import { obj, str, type Obj } from '../client/domain';
 import { resolveServerSelfUpdateCapability, resolveVersionMismatch, supportsDesktopAppUpdate } from '../connections/version-skew';
 import { updateTargetFromConfig, type ServerUpdateState, type ServerUpdateTarget } from '../connections/server-update';
+import { managedNightlyDeniedMessage, managedPolicySummary, managedUpdatesDenial } from '../client/managed-policy';
 
 export interface UpdateEverythingMachine {
   readonly environmentId: string;
@@ -60,6 +61,8 @@ export function collectServerUpdateTargets(machines: readonly UpdateEverythingMa
     const unavailable = unavailableReason(machine);
     if (config === null || unavailable !== null) { skip(unavailable ?? 'not connected'); continue; }
     const selfUpdate = resolveServerSelfUpdateCapability(config);
+    const managedDenial = managedMachineUpdateDenial(config, selfUpdate === 'desktop-managed' ? undefined : targetVersion);
+    if (managedDenial !== undefined) { skip(managedDenial); continue; }
     const desktopAppUpdate = supportsDesktopAppUpdate(config);
     if (selfUpdate === null) { skip('needs a manual update'); continue; }
     if (selfUpdate === 'desktop-managed' && !desktopAppUpdate) { skip('needs a newer desktop app'); continue; }
@@ -71,6 +74,17 @@ export function collectServerUpdateTargets(machines: readonly UpdateEverythingMa
     targets.push({ ...updateTargetFromConfig(config, machine.key, machine.environmentId, machine.label), targetVersion });
   }
   return { targets, skipped };
+}
+
+/**
+ * The server refuses these with the same message; say so before the run instead of after.
+ * `targetVersion` is undefined when the server picks its own version, as desktop apps do.
+ */
+function managedMachineUpdateDenial(config: Obj, targetVersion: string | undefined): string | undefined {
+  const policy = managedPolicySummary(config);
+  return managedUpdatesDenial(policy) ??
+    (policy !== undefined && policy.limits?.updates?.allowNightly === false && targetVersion !== undefined && cliReleaseChannelOf(targetVersion) !== 'stable'
+      ? managedNightlyDeniedMessage(policy.organization) : undefined);
 }
 
 function unavailableReason(machine: UpdateEverythingMachine): string | null {

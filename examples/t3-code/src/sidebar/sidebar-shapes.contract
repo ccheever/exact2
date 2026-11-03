@@ -136,6 +136,8 @@ shape Thread
   metaEmpty: bool // a card with no branch, machine, pull request, remote glyph or terminal: two lines, its provider beside the title
   statusIcon: string
   statusColor: string
+  // --secondary-label: the row's metadata (project, branch, age, PR number), the theme's in either mode.
+  metaInk: string
   duration: string
   titleColor: string
   titleWeight: number
@@ -213,6 +215,9 @@ shape SidebarScope
   canPin: bool
   pinned: bool
   pinTitle: string
+  // ProjectEnvironmentBadge while the projects span environments: "On X" or "Also on X" ("" for none), and its machine.
+  envBadge: string
+  envMachine: string
 shape SidebarDraft
   id: string
   projectName: string
@@ -251,6 +256,8 @@ shape SidebarView
   newThreadPicks: bool
   // The thread pin shortcut as `aria-keyshortcuts` spells it, which pins the project filter's highlighted row.
   scopePinChord: string
+  // Why this machine's policy refuses updates (managedUpdatesDenial), or ''; the update pill's tooltip names it.
+  updatesDenial: string
   dragEnabled: bool
   scopeKey: string
   scopeLabel: string
@@ -301,3 +308,7 @@ shape SidebarView
   updateDialog: UpdateDialogView
   revealRow: string
   revealPending: string
+  // Moves when the project filter changes: the thread list scrolls back to its top.
+  listTop: number
+  // --secondary-label, for the draft rows' project names.
+  metaInk: string

@@ -544,13 +544,14 @@ test("an instance's Arguments header is ProviderCommandArguments' row: the add b
     + '\\1    column flex-grow=\\(rowWide \\? 1 : 0\\) flex-shrink=1 min-width=0 gap="0\\.25rem"\\n'
     + '\\1      row min-height="1\\.25rem" align-items="center"\\n\\1        text "Arguments" font-size="0\\.875rem" line-height="1\\.25rem" font-weight=500[^\\n]*\\n'
     + '\\1      text "One literal argument per row, in launch order\\." font-size="0\\.75rem" line-height="1\\.125rem" color="light-dark\\(#70707acc, #a1a1a1cc\\)"\\n'
-    + '\\1    row justify-content="flex-end"\\n\\1      button press=op\\("provider-argument-add", editor\\.id, "", "", true\\) class=PvOutline[^\\n]*\\n'
-    + '\\1        PvIcon\\(name="plus", size=16, color="light-dark\\(#71717b, #a1a1a1\\)"\\)\\n\\1        text "Add argument" font-size="0\\.875rem" line-height="1\\.25rem" font-weight=500[^\\n]*\\n'
+    // A managed policy that pins the arguments makes the add button inert and lists them as text (ManagedControl).
+    + '\\1    row justify-content="flex-end"\\n\\1      ManagedControl\\(reason=editor\\.argsManaged, [^\\n]*\\n\\1        button press=op\\("provider-argument-add", editor\\.id, "", "", true\\) class=PvOutline[^\\n]*\\n'
+    + '\\1          PvIcon\\(name="plus", size=16, color="light-dark\\(#71717b, #a1a1a1\\)"\\)\\n\\1          text "Add argument" font-size="0\\.875rem" line-height="1\\.25rem" font-weight=500[^\\n]*\\n'
     + '\\1  if editor\\.commandArgs\\.length > 0\\n\\1    column width="100%" min-width=0 gap="0\\.5rem" margin-top="0\\.75rem" padding-bottom="0\\.5rem"\\n'
-    + '\\1      for arg in editor\\.commandArgs key=arg\\.key\\n\\1        ProviderCommandArgumentRow\\(');
+    + '\\1      for arg in editor\\.commandArgs key=arg\\.key\\n(?:\\1        //[^\\n]*\\n)?\\1        if editor\\.argsManaged != ""\\n\\1          text arg\\.value [^\\n]*\\n\\1        else\\n\\1          ProviderCommandArgumentRow\\(');
   expect(source).toMatch(header);
   // The Variables row it follows the form of.
-  expect(source).toContain('padding-top="0.75rem" padding-bottom=(editor.hasVariables ? "0.25rem" : "0.75rem")\n            row width="100%" flex-direction=(rowWide ? "row" : "column") gap=(rowWide ? "2rem" : "0.75rem") align-items=(rowWide ? "center" : "stretch")');
+  expect(source).toContain('padding-top="0.75rem" padding-bottom=(editor.hasVariables ? "0.25rem" : "0.75rem")\n              row width="100%" flex-direction=(rowWide ? "row" : "column") gap=(rowWide ? "2rem" : "0.75rem") align-items=(rowWide ? "center" : "stretch")');
 });
 
 // The Identity card links Docs to the agent's website and Source to its repository, each only when the registry gives
@@ -587,13 +588,28 @@ test('ACP registry search and prepare fill the identity step without installing 
   expect(providerWizard(server, true, 8, 'acpRegistry', false, '', false, '').prepared).toEqual([]);
 });
 
+test('a Kiro instance offers its optional KIRO_API_KEY beside the binary path', () => {
+  const server = new FakeServer();
+  server.settings.providerInstances = { ...obj(server.settings.providerInstances), kiro: { driver: 'kiro', enabled: true } };
+  server.config = server.snapshot();
+  const editor = providerPage(server, 'kiro', 0).editors.find(entry => entry.id === 'kiro')!;
+  // ProviderInstanceCard's header action: the driver's warning badge before the version.
+  expect(editor).toMatchObject({ title: 'Kiro', known: true, showSetup: true, badge: 'Early Access' });
+  expect(providerPage(server, 'codex', 0).editors.find(entry => entry.id === 'codex')!.badge).toBe('');
+  expect(editor.envFields.map(field => [field.key, field.label, field.description, field.placeholder])).toEqual([
+    ['KIRO_API_KEY', 'Kiro API key', 'Optional. Signs in without `kiro-cli login` (Kiro Pro and above).', 'Paste API key']]);
+  expect(editor.fields.map(field => [field.key, field.placeholder])).toEqual([['binaryPath', 'kiro-cli']]);
+});
+
 test('Add provider leads with first-class providers and warns before a second Codex or Claude account', () => {
   const server = new FakeServer();
   const wizard = providerWizard(server, true, 1, 'codex', false, '', false, '');
   expect(wizard.drivers.map(driver => [driver.id, driver.badge])).toEqual([['codex', ''], ['claudeAgent', ''], ['cursor', ''], ['grok', ''], ['opencode', ''],
     ['antigravity', ''], ['muse', ''], ['pi', '']]);
-  // packages/provider-fx's client is not featured: fx is listed under Show more, with the ACP Registry.
-  expect(wizard.moreDrivers.map(driver => [driver.id, driver.label, driver.badge])).toEqual([['fx', 'fx', '']]);
+  // packages/provider-fx's and provider-kiro's clients are not featured: they are listed under Show more, with the ACP Registry.
+  expect(wizard.moreDrivers.map(driver => [driver.id, driver.label, driver.badge])).toEqual([['fx', 'fx', ''], ['kiro', 'Kiro', 'Early Access']]);
+  expect(providerWizard(server, true, 1, 'kiro', false, '', false, '')).toMatchObject({ label: 'Kiro', instanceId: 'kiro' });
+  expect(providerWizard(server, true, 1, 'kiro', false, '', false, '').fields.map(field => [field.key, field.label, field.placeholder])).toEqual([['binaryPath', 'Binary path', 'kiro-cli']]);
   expect(providerWizard(server, true, 1, 'fx', false, '', false, '')).toMatchObject({ label: 'fx', instanceId: 'fx' });
   expect(providerWizard(server, true, 1, 'fx', false, '', false, '').fields.map(field => [field.key, field.label, field.description, field.placeholder])).toEqual([
     ['binaryPath', 'Binary path', 'Path to the fx binary. All fx instances on this machine share its fx login.', 'fx']]);
@@ -749,6 +765,19 @@ test('default-slot upsert resets the legacy mirror; reset removes the explicit s
   expect(obj(obj(server.settings.providers).claudeAgent)).toEqual({ enabled: true, binaryPath: 'claude', homePath: '', customModels: [], launchArgs: '', autoCompactWindow: '' });
 });
 
+test('Delete and Reset ask first: confirmProviderInstanceRemoval names the instance and what is lost', async () => {
+  const server = new FakeServer();
+  server.settings = { providerInstances: { codex_work: { driver: 'codex', displayName: ' Work ', enabled: true }, cursor: { driver: 'cursor', enabled: true }, claudeAgent: { driver: 'claudeAgent', displayName: 'My Claude' } } };
+  server.config = server.snapshot();
+  const editor = (id: string) => providerPage(server, id, 0).editors.find(entry => entry.id === id)!;
+  expect(editor('codex_work')).toMatchObject({ canDelete: true, removeTitle: 'Remove the Work provider instance?', removeBody: 'Its saved settings, including any custom binary path, will be removed.' });
+  expect(editor('cursor')).toMatchObject({ canReset: true, resetTitle: 'Reset the Cursor provider to its defaults?', resetBody: 'Its saved settings, including any custom binary path, will be removed. It will also be turned off.' });
+  expect(editor('claudeAgent')).toMatchObject({ resetTitle: 'Reset the My Claude provider to its defaults?', resetBody: 'Its saved settings, including any custom binary path, will be removed.' });
+  const card = appText('providers.contract');
+  expect(card).toContain('press=ui("provider-reset", editor.id)');
+  expect(card).toContain('press=ui("provider-remove", editor.id))');
+});
+
 test('environment variables stay local until valid, keep redacted secrets and publish once', async () => {
   const server = new FakeServer();
   const op = (name: string, key: string, value = '') => runProviderOp(server, native, name, 'exact_fixture', JSON.stringify({ key, value }));
@@ -763,6 +792,10 @@ test('environment variables stay local until valid, keep redacted secrets and pu
   obj(obj(server.settings.providerInstances).exact_fixture).environment = [{ name: 'FIXTURE_TOKEN', value: '', sensitive: true, valueRedacted: true }];
   server.config = server.snapshot();
   expect(providerPage(server, 'exact_fixture', 0).editors[0]!.variables[0]).toMatchObject({ name: 'FIXTURE_TOKEN', value: '', redacted: true });
+  expect(providerPage(server, 'exact_fixture', 0).editors[0]!.hasRedactedVariables).toBe(true);
+  // An empty commit on the saved secret (a draft typed and cleared) keeps it.
+  await op('provider-env-value', '0', '');
+  expect(arr(obj(obj(server.settings.providerInstances).exact_fixture).environment)).toEqual([{ name: 'FIXTURE_TOKEN', value: '', sensitive: true, valueRedacted: true }]);
   await op('provider-env-add', '');
   await op('provider-env-name', '1', 'BASE_URL');
   await op('provider-env-sensitive', '1', 'false');

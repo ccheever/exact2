@@ -1,4 +1,5 @@
 // Adapted from T3 Code 6d450a4284 (MIT); see LICENSE-T3.
+import { managedSettingReason } from './managed-policy';
 import { hostCredentials, type HostCredentials } from './source-control-credentials';
 import { can } from '../connections/command-permissions';
 // Settings → Source control and Integrations view models (reference
@@ -41,7 +42,9 @@ export type ScopedRow = { key: string; kind: string; title: string; description:
   /** The writer model's TraitsPicker: its trigger label ('' draws none) and menu rows. */
   traitsLabel: string; traits: CoreOption[];
   /** The row's search target (settings-catalog.ts `targetId ?? id`), '' for a row no result names. */
-  target: string };
+  target: string;
+  /** SettingsRow managedBy: "Managed by <organization>." when a target's policy locks the setting, else ''. */
+  managed: string };
 
 export const DEFAULTS: Obj = { defaultAutoPull: false, pullRequestMergeMethod: null, branchNamingMode: 'static', branchNamePrefix: 't3', branchNameInstructions: '',
   sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true }, sourceControlWriterModelSelection: null, reviewGuideModelSelection: null, reviewGuideInstructions: '', reviewGuidesEnabled: false, removeAgentCreditsOnMerge: false,
@@ -83,7 +86,7 @@ function effective(settings: Obj, projectId: string): Obj {
 function row(settings: Obj, projectId: string, environmentLabel: string, key: string, partial: Partial<ScopedRow>): ScopedRow {
   const info = inheritance(settings, projectId, key, environmentLabel);
   return { key, kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: false, first: false, status: '', child: '', reset: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '',
-    traitsLabel: '', traits: [], target: '', ...info, ...partial, ...(SEARCH_TARGETS[partial.key ?? key] ? { target: SEARCH_TARGETS[partial.key ?? key] } : {}) };
+    traitsLabel: '', traits: [], target: '', managed: '', ...info, ...partial, ...(SEARCH_TARGETS[partial.key ?? key] ? { target: SEARCH_TARGETS[partial.key ?? key] } : {}) };
 }
 
 /** Source-control route rows: Repositories, and Writing & review with its Advanced rows. */
@@ -128,7 +131,7 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
       child: writing === 'custom' ? str(style.customInstructions) : '', placeholder: 'Keep titles concise. Use short bullet points in descriptions.',
       reset: project ? (overridden('sourceControlWritingStyle') ? 'key=sourceControlWritingStyle&value=__inherit__' : '') : (writing !== 'repo_conventions' || str(style.customInstructions) !== '' ? 'key=sourceControlWritingStyle&value=__default__' : '') }),
     row(settings, projectId, environmentLabel, 'reviewGuidesEnabled', { title: 'Review guides (beta)', control: 'Review guides', checked: settings.reviewGuidesEnabled === true, disabled: project || !writable,
-      description: 'Adds a Guide tab to pull requests: an agent writes a tour of the change, stop by stop, with the calls a maintainer should make.' }),
+      description: 'Add a Guide tab to pull requests. An agent explains the changes and points out decisions that need review.' }),
     ...(settings.reviewGuidesEnabled === true ? [modelRow('reviewGuideModelSelection', 'Review guide model',
       'Model that reads a pull request to write its review guide. It reads the change itself over many steps, so a stronger model helps. Off uses the source control writer model.'),
       row(settings, projectId, environmentLabel, 'reviewGuideInstructions', { kind: 'textarea', title: 'Review guide instructions', resetLabel: 'review guide instructions', value: str(value.reviewGuideInstructions), disabled: !writable,
@@ -138,7 +141,7 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
   const writingAdvanced = [
     row(settings, projectId, environmentLabel, 'sourceControlWritingStyle', { key: 'sourceControlWritingStyle.followChangeRequestTemplates', kind: 'switch', title: 'Follow change request templates', resetLabel: 'change request templates', checked: style.followChangeRequestTemplates !== false, disabled: !writable,
       description: "Use the repository's template for change request descriptions when available.", reset: project ? '' : style.followChangeRequestTemplates === false ? 'key=sourceControlWritingStyle.followChangeRequestTemplates&value=__default__' : '' }),
-    modelRow('sourceControlWriterModelSelection', 'Source control writer model', "Model for source control text and branch or bookmark names. Off uses the environment's text generation model."),
+    modelRow('sourceControlWriterModelSelection', 'Source control writer model', 'Model for source control text and branch or bookmark names. When disabled, use the text generation model configured for this environment.'),
   ];
   const first = (rows: ScopedRow[]) => rows.map((entry, index) => ({ ...entry, first: index === 0 }));
   return { repositories, writing: first(writingRows), writingAdvanced: first(writingAdvanced) };
@@ -288,6 +291,9 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
     const rows = sourceControlRows(settings, selectedProjectId, environmentLabel(owner), arr(config.providers), can(owner, 'settings:write'));
     for (const row of [...rows.repositories, ...rows.writing, ...rows.writingAdvanced]) {
       row.layerGroups = inheritanceGroups(context, row.key, DEFAULTS);
+      // An administrator's lock on any target wins over every other reason a control is inert, and leaves no reset.
+      const managed = managedSettingReason(context.policies ?? [], [row.key]);
+      if (managed) Object.assign(row, { managed, disabled: true, reset: '' });
       if (row.key === 'reviewGuideInstructions') {
         const values = context.targets.map(target => str(target.settings.reviewGuideInstructions));
         row.mixed = values.some(value => value !== (values[0] ?? ''));
@@ -359,5 +365,5 @@ export function toolVersion(value: unknown): string {
   return version ? `v${version}` : 'Not installed';
 }
 function blankRow(): ScopedRow {
-  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], layerGroups: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', traitsLabel: '', traits: [], target: '' };
+  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], layerGroups: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', traitsLabel: '', traits: [], target: '', managed: '' };
 }

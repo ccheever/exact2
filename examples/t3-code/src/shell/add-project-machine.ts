@@ -1,6 +1,6 @@
 // Adding a project to another connected machine, ported from T3 Code 74541bab17 (MIT; see
-// LICENSE-T3): apps/web/src/lib/addProjectToMachine.ts (clone URL protocols, the default env-file
-// pick, the clone start and the ignored-file relay) and hooks/useAddProjectTargets.ts (which
+// LICENSE-T3): apps/web/src/lib/addProjectToMachine.ts (clone URL protocols, as 5d3d78ab93's
+// packages/shared/src/cloneUrl.ts has them; the default env-file pick, the clone start and the ignored-file relay) and hooks/useAddProjectTargets.ts (which
 // machines can take the project); T3 Code 7c3b3b3605ef: AddProjectToMachineDialog.tsx's source URL. The two servers never talk to each other, so the client reads
 // the chosen ignored files from the source, starts the tracked clone on the target, and writes
 // the files there once the clone is done. The reference waits in a detached promise; here each
@@ -25,8 +25,9 @@ export type CloneProtocol = 'ssh' | 'https';
 export const COPYABLE_FILE_MAX_BYTES = 1024 * 1024;
 
 const SCP_LIKE_URL = /^(?:[^@/\s]+@)?([^:/\s]+):(?!\/)(.+)$/;
-const SSH_URL = /^ssh:\/\/(?:[^@/\s]+@)?([^:/\s]+)(:\d+)?\/(.+)$/;
-const HTTPS_URL = /^https?:\/\/(?:[^@/\s]+@)?([^:/\s]+)(:\d+)?\/(.+)$/;
+// Userinfo may contain `@`; the last one before the first slash separates the host.
+const SSH_URL = /^ssh:\/\/(?:[^/\s]*@)?([^@:/\s]+)(:\d+)?\/(.+)$/;
+const HTTPS_URL = /^https?:\/\/(?:[^/\s]*@)?([^@:/\s]+)(:\d+)?\/(.+)$/;
 
 function parseCloneUrl(url: string): { protocol: CloneProtocol; host: string; path: string; customPort: boolean } | null {
   const trimmed = url.trim();
@@ -53,6 +54,16 @@ export function cloneUrlForProtocol(url: string, protocol: CloneProtocol): strin
   if (!parsed) return null;
   if (parsed.protocol === protocol) return url.trim();
   if (parsed.customPort) return null;
+  // Azure's transports use different hosts and put the repository marker in
+  // different positions; changing only the scheme produces an invalid clone URL.
+  if (parsed.protocol === 'ssh' && parsed.host.toLowerCase() === 'ssh.dev.azure.com') {
+    const azure = /^v3\/([^/?#]+)\/([^/?#]+)\/([^/?#]+)$/.exec(parsed.path);
+    return azure ? `https://dev.azure.com/${azure[1]}/${azure[2]}/_git/${azure[3]}` : null;
+  }
+  if (parsed.protocol === 'https' && parsed.host.toLowerCase() === 'dev.azure.com') {
+    const azure = /^([^/?#]+)\/([^/?#]+)\/_git\/([^/?#]+)$/.exec(parsed.path);
+    return azure ? `git@ssh.dev.azure.com:v3/${azure[1]}/${azure[2]}/${azure[3]}` : null;
+  }
   return protocol === 'ssh' ? `git@${parsed.host}:${parsed.path}` : `https://${parsed.host}/${parsed.path}`;
 }
 

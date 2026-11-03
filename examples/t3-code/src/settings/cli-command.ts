@@ -1,4 +1,4 @@
-// CliCommandSettingsRow.tsx (9c161462c9; MIT, see LICENSE-T3).
+// CliCommandSettingsRow.tsx (9c161462c9, the blocked Install at 5d3d78ab93; MIT, see LICENSE-T3).
 import type { T3Client } from '../client/client';
 import { obj, str } from '../client/domain';
 import type { Native } from '../client/protocol';
@@ -16,7 +16,9 @@ export function cliCommandRow(state: CliCommandState): CoreRow | null {
     : !installed ? "Run T3 Code's CLI as `t3` from any terminal."
     : state.onPath ? `Installed at ${state.installedPath}. Open a new terminal to use it.`
     : `Installed at ${state.installedPath}, which is not on your PATH yet. Add its folder to your PATH to run \`t3\`.`;
-  return coreRow('cli-command', 't3 command', description, 'action', { label: installed ? 'Remove' : 'Install', value: installed ? 'uninstall' : 'install' });
+  // Installing behind another t3 would not take effect, so Install waits for it to go; Remove stays available.
+  return coreRow('cli-command', 't3 command', description, 'action', { label: installed ? 'Remove' : 'Install', value: installed ? 'uninstall' : 'install',
+    disabled: !installed && Boolean(state.shadowedBy) });
 }
 
 export async function readCliCommand(client: T3Client, native: Native | null | undefined): Promise<CoreRow | null> {

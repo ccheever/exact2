@@ -80,13 +80,16 @@ describe('effort keys', () => {
 describe('traits and text model settings', () => {
   test('speed follows reasoning in text, including labels around it', () => {
     const context = { id: 'context', type: 'select', options: [{ id: '1m', label: '1M', isDefault: true }] };
-    expect(traitsDisplay('codex', [context, effort, tier], [{ id: 'serviceTier', value: 'flex' }])).toEqual({ label: '1M · Medium Ultrafast', speedLabel: 'Ultrafast', otherLabels: ['1M'] });
+    expect(traitsDisplay('codex', [context, effort, tier], [{ id: 'serviceTier', value: 'flex' }])).toEqual({ label: '1M · Medium Ultrafast', speedLabel: 'Ultrafast' });
   });
   test('unlisted text models choose the cheap provider default before its flagship', () => {
     const p = { ...provider('claude', 'claudeAgent'), models: [{ slug: 'opus', isDefault: true }, { slug: 'claude-haiku-5-5', name: 'Haiku' }] };
     expect(resolveTextGenerationSelection({ instanceId: 'claude', model: 'gone' }, [p])?.model?.slug).toBe('claude-haiku-5-5');
     expect(resolveTextGenerationSelection({ instanceId: 'missing', model: 'opus' }, [p])?.model?.slug).toBe('claude-haiku-5-5');
     expect(resolveTextGenerationSelection({ instanceId: 'claude', model: 'opus' }, [p])?.model?.slug).toBe('opus');
+    // OpenCode's is Big Pickle (b970bcb34b).
+    const open = { ...provider('opencode', 'opencode'), models: [{ slug: 'openai/gpt-5', isDefault: true }, { slug: 'opencode/big-pickle', name: 'Big Pickle' }] };
+    expect(resolveTextGenerationSelection(null, [open])?.model?.slug).toBe('opencode/big-pickle');
   });
   test('writer and review-guide models expose and save their own traits at either scope', () => {
     const p = { ...provider('codex'), models };

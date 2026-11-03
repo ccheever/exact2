@@ -41,6 +41,25 @@ describe('file preview comments', () => {
     expect(fileCommentLines(client, 'README.md', edited, lines(edited), true).some(line => line.kind === 'note')).toBe(false);
     expect(fileCommentLines(client, 'README.md', edited, lines(edited), false).find(line => line.kind === 'note')).toMatchObject({ line: 6 });
   });
+  test('a Hebrew comment and its draft read right to left; an English one and a blank draft left to right', async () => {
+    const { client, native, calls } = harness();
+    const draftDir = () => fileCommentLines(client, 'README.md', readme, lines(readme), false).find(line => line.kind === 'draft')?.textDir;
+    await fileComment(client, native, 'begin', 'README.md', '3', readme);
+    expect(draftDir()).toBe('ltr');
+    await fileComment(client, native, 'text', 'README.md', 'שלום עולם', readme);
+    expect(draftDir()).toBe('rtl');
+    await fileComment(client, native, 'text', 'README.md', 'Fix שלום this line', readme);
+    expect(draftDir()).toBe('ltr');
+    await fileComment(client, native, 'text', 'README.md', 'שלום עולם', readme);
+    await fileComment(client, native, 'save', 'README.md', 'שלום עולם', readme);
+    client.local.drafts[client.draftKey] = String(calls.at(-1)!.text);
+    await fileComment(client, native, 'begin', 'README.md', '5', readme);
+    expect(draftDir()).toBe('ltr');
+    await fileComment(client, native, 'save', 'README.md', 'Tighten this.', readme);
+    client.local.drafts[client.draftKey] += String(calls.at(-1)!.text);
+    expect(fileCommentLines(client, 'README.md', readme, lines(readme), false).filter(line => line.kind === 'note').map(line => [line.text, line.textDir]))
+      .toEqual([['שלום עולם', 'rtl'], ['Tighten this.', 'ltr']]);
+  });
   test('remapLine keeps lines above an edit, shifts lines below it and clamps inside it', () => {
     const before = 'a\nb\nc\nd', after = 'a\nX\nY\nZ\nd';
     expect([1, 2, 3, 4].map(line => remapLine(before, after, line))).toEqual([1, 2, 3, 5]);

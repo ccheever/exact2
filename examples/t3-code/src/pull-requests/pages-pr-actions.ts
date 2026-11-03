@@ -87,8 +87,8 @@ const CONFIRMS: readonly ConfirmAction[] = ['merge', 'close', 'enable-auto-merge
 export type ConfirmControl = 'primary' | 'menu' | 'approve' | 'comment';
 const CONTROLS: readonly ConfirmControl[] = ['primary', 'menu', 'approve', 'comment'];
 type State = {
-  /** pendingAction: which action is in flight; every control is disabled while any runs. */
-  pending: { key: string; action: string } | null;
+  /** pendingAction per pull request (pendingActionKey): one pull request's action does not hold another's controls. */
+  pending: Map<string, string>;
   /** The one armed control (per client, as the reference keeps one per panel); `serial` tells its lapse from a later arming's. */
   confirm: { key: string; action: ConfirmAction; control: ConfirmControl; serial: number } | null;
   armSerial: number;
@@ -104,7 +104,7 @@ type State = {
 const states = new WeakMap<object, State>();
 export function actionState(client: object): State {
   let state = states.get(client);
-  if (!state) { state = { pending: null, confirm: null, armSerial: 0, deleteBranchConfirm: '', methods: new Map(), armed: new Map(), overrides: new Map(), token: 0, detailTokens: new Map(), noted: new Map(), relist: 0 }; states.set(client, state); }
+  if (!state) { state = { pending: new Map(), confirm: null, armSerial: 0, deleteBranchConfirm: '', methods: new Map(), armed: new Map(), overrides: new Map(), token: 0, detailTokens: new Map(), noted: new Map(), relist: 0 }; states.set(client, state); }
   return state;
 }
 const MERGE_METHODS: readonly MergeMethod[] = ['merge', 'squash', 'rebase'];
@@ -123,6 +123,10 @@ const names = (value: unknown): string[] => (Array.isArray(value) ? value.map(St
 const can = (detail: Obj, action: string) => names(obj(detail.capabilities).actions).includes(action) && names(obj(detail.viewerPermissions).actions).includes(action);
 
 /** The panel the menu speaks for: its key, its reference, the detail on screen and how to read it again. */
+/** usePullRequestActionRunner's actionKey: the environment and the pull request, whatever page or panel shows it. */
+export function pendingActionKey(client: { environmentId: string }, reference: Obj): string {
+  return JSON.stringify([client.environmentId, str(reference.host) || null, str(reference.repository), num(reference.number)]);
+}
 export type PanelContext = { key: string; selected: string; reference: Obj; detail: Obj | null; listEntry: Obj | null; refresh: (fromHost: boolean) => void };
 
 /** PullRequestDetailPanel's terminology: the host of the detail on screen (or its summary), of the list's row, else of the project's repository. */
@@ -146,7 +150,7 @@ export function selectedMethod(client: T3Client, ctx: { key: string; detail: Obj
 export function emptyActions() {
   return {
     guideEnabled: false, guideDisabled: true, guideLabel: 'Write guide',
-    primary: '', primaryLabel: '', primaryBase: '', primaryIcon: '', primaryDisabled: false, armedLabel: '', armedTip: '', stateLabel: '', stateKey: '',
+    primary: '', primaryLabel: '', primaryBase: '', primaryIcon: '', primaryDisabled: false, primaryBlocked: '', armedLabel: '', armedTip: '', stateLabel: '', stateKey: '',
     refreshing: false, moreLabel: 'More pull request actions', pending: false, open: false,
     draftToggle: '', mergeNow: false, mergeNowLabel: 'Merge now', autoMerge: '', autoMergeLabel: '', methods: [] as { key: string; method: string; label: string; selected: boolean }[], methodsSeparator: false, groupSeparator: false,
     closeItem: false, closeLabel: 'Close pull request', reopenItem: false, revertItem: false, revertLabel: 'Revert changes',
@@ -173,8 +177,8 @@ export function presentActions(client: T3Client, input: PresentInput): PrActions
   view.refreshing = input.refreshing;
   view.moreLabel = input.refreshing ? `Refreshing ${term.singular}` : `More ${term.singular} actions`;
   if (!detail) return view;
-  const state = actionState(client), pendingAction = state.pending?.key === input.key ? state.pending.action : '';
-  const actionPending = state.pending !== null;
+  const state = actionState(client), pendingAction = state.pending.get(pendingActionKey(client, input.reference)) ?? '';
+  const actionPending = pendingAction !== '';
   const allowed = allowedMergeMethods(detail), method = selectedMethod(client, input), methodLabel = PULL_REQUEST_MERGE_METHOD_LABELS[method];
   const open = detail.state === 'open', draft = detail.isDraft === true, conflicting = open && detail.mergeability === 'conflicting';
   const autoMergeArmed = open && detail.autoMergeEnabled === true;
@@ -186,9 +190,13 @@ export function presentActions(client: T3Client, input: PresentInput): PrActions
   const saved = savedPullRequestStack(input.threadLinks, { host: str(input.reference.host), repository: str(input.reference.repository), number: num(input.reference.number) });
   const hasStack = (query.isSuccess ? query.data : (query.data ?? saved)) !== null;
   const single = allowsSinglePullRequestMerge({ supportsStackActions: stacks, hasStack, stackPending: !pullRequestStackView(query, saved).isFresh, stackError: query.error });
+  // Merge and Enable auto-merge stay in place while the lookup runs or after it failed, held with the reason; only a
+  // stack that owns the merge takes them away.
+  const stackOwnsMerge = stacks && hasStack;
+  const mergeBlocked = single ? '' : query.error ? "Couldn't check stack membership" : 'Checking stack membership…';
   const primary: PrimaryControl = resolvePullRequestPrimaryControl({ state: str(detail.state), isDraft: draft, mergeability: str(detail.mergeability), checksState: input.checksState,
     autoMergeEnabled: typeof detail.autoMergeEnabled === 'boolean' ? detail.autoMergeEnabled : undefined, hasMergeMethod: allowed.length > 0,
-    canMerge: single && can(detail, 'merge'), canMarkReady: can(detail, 'ready'), canEnableAutoMerge: single && can(detail, 'enable-auto-merge') });
+    canMerge: !stackOwnsMerge && can(detail, 'merge'), canMarkReady: can(detail, 'ready'), canEnableAutoMerge: !stackOwnsMerge && can(detail, 'enable-auto-merge') });
   view.pending = actionPending; view.open = open;
   view.primary = primary ?? '';
   // The menu's action group (showsDraftToggle, showsAutoMerge, showsMergeNow, showsMergeMethods).
@@ -216,11 +224,11 @@ export function presentActions(client: T3Client, input: PresentInput): PrActions
   else if (primary === 'enable-auto-merge') {
     view.primaryBase = `Auto-merge (${methodLabel.toLowerCase()})`;
     view.primaryLabel = pendingAction === 'enable-auto-merge' ? 'Enabling...' : isArmed('enable-auto-merge') ? 'Confirm auto-merge?' : view.primaryBase;
-    view.primaryIcon = isArmed('enable-auto-merge') ? 'check' : 'git-merge'; view.primaryDisabled = actionPending;
+    view.primaryIcon = isArmed('enable-auto-merge') ? 'check' : 'git-merge'; view.primaryDisabled = actionPending; view.primaryBlocked = mergeBlocked;
   } else if (primary === 'merge') {
     view.primaryBase = methodLabel;
     view.primaryLabel = pendingAction === 'merge' ? 'Merging...' : isArmed('merge') ? 'Confirm merge?' : methodLabel;
-    view.primaryIcon = isArmed('merge') ? 'check' : 'git-merge'; view.primaryDisabled = actionPending;
+    view.primaryIcon = isArmed('merge') ? 'check' : 'git-merge'; view.primaryDisabled = actionPending; view.primaryBlocked = mergeBlocked;
   } else if (primary === 'auto-merge-armed') view.primaryLabel = armedLabel;
   else if (primary === 'merged' || primary === 'closed') { view.stateKey = primary; view.stateLabel = primary === 'merged' ? 'Merged' : 'Closed'; }
   if (!view.primaryBase) view.primaryBase = view.primaryLabel;
@@ -318,11 +326,11 @@ export const listRelist = (client: object) => actionState(client).relist;
 
 /** perform / finishAction: one action at a time, the reference's toasts, the right re-read, the list told. */
 export async function performAction(client: T3Client, native: Native, ctx: PanelContext, action: string, method?: MergeMethod, updateMethod?: UpdateMethod): Promise<string> {
-  const state = actionState(client);
-  if (state.pending) return '';
+  const state = actionState(client), pendingKey = pendingActionKey(client, ctx.reference);
+  if (state.pending.has(pendingKey)) return '';
   if (!(PULL_REQUEST_ACTIONS as readonly string[]).includes(action)) throw new ClientError(`Unknown pull request action: ${action}`);
   if (action === 'delete-branch' && (!client.ready || !client.writable || !ctx.detail || !canDeletePullRequestBranch(ctx.detail))) throw new ClientError('This branch cannot be deleted.');
-  state.pending = { key: ctx.key, action };
+  state.pending.set(pendingKey, action);
   return finishAction(client, native, ctx, action, method, updateMethod);
 }
 /**
@@ -330,7 +338,7 @@ export async function performAction(client: T3Client, native: Native, ctx: Panel
  * comment landed (Close/Reopen with comment, pages-pr-writes.ts). '' when it landed.
  */
 export async function finishAction(client: T3Client, native: Native, ctx: PanelContext, action: string, method?: MergeMethod, updateMethod?: UpdateMethod): Promise<string> {
-  const state = actionState(client), term = contextTerm(client, ctx).singular;
+  const state = actionState(client), term = contextTerm(client, ctx).singular, pendingKey = pendingActionKey(client, ctx.reference);
   if (state.confirm?.key === ctx.key) state.confirm = null;
   if (state.deleteBranchConfirm === ctx.key) state.deleteBranchConfirm = '';
   noteActed(client, ctx.listEntry, action, 'sent');
@@ -338,14 +346,14 @@ export async function finishAction(client: T3Client, native: Native, ctx: PanelC
     await wakePanel(native);
     await client.rpc(native, 'pullRequests.runAction', actionPayload(ctx.reference, action, method, updateMethod ? { updateMethod } : {}), true);
   } catch (error) {
-    state.pending = null;
+    state.pending.delete(pendingKey);
     if (letGo(error)) throw error;
     // The host's own sentence, because it is the only thing that says why; the hint for what was asked.
     pushToast(client, { kind: 'error', title: actionFailureLabels(term)[action] ?? `Could not update this ${term}`, description: readableFailure(error, actionHint(action, term, updateMethod)) });
     noteActed(client, ctx.listEntry, action, 'failed');
     return error instanceof Error ? error.message : 'The host refused it.';
   }
-  state.pending = null;
+  state.pending.delete(pendingKey);
   // Reverting opens another pull request and a deleted branch leaves the panel as it was; every other action shows its answer in the panel itself.
   if (action === 'revert') pushToast(client, { kind: 'success', title: `Revert ${term} opened` });
   if (action === 'delete-branch') pushToast(client, { kind: 'success', title: 'Branch deleted' });
@@ -385,10 +393,11 @@ export async function runStackAction(client: T3Client, native: Native, ctx: Pane
   ui.pending = '';
   ctx.refresh(false); markStackDue(client, ctx.key); noteActed(client, ctx.listEntry, undefined, 'done');
   if (failure !== null) {
-    // String(failure): the error's name and its message, as the reference's toast prints it.
-    const kind = failure instanceof ClientError && failure.kind ? failure.kind : failure instanceof Error ? failure.name : '';
     const message = failure instanceof Error ? failure.message : String(failure);
-    updateToast(client, toast, { kind: 'error', title: confirm === 'merge' ? 'Could not merge the stack' : 'Could not rebase the stack', description: kind ? `${kind}: ${message}` : message, timeoutMs: 5000 });
+    updateToast(client, toast, { kind: 'error', title: confirm === 'merge' ? 'Could not merge the stack' : 'Could not rebase the stack',
+      description: readableFailure(failure, confirm === 'merge'
+        ? 'The host refused the merge. Check that you have write access, that the checks it requires have passed, and that the branch is not conflicting.'
+        : 'The host refused the rebase. A rebase stops at the first commit that does not apply cleanly.'), timeoutMs: 5000 });
     return message;
   }
   updateToast(client, toast, confirm === 'merge' ? { kind: 'success', title: 'Stack merge request completed', description: 'GitHub merged the stack or added it to its merge queue.', timeoutMs: 5000 } : { kind: 'success', title: 'Stack rebased', timeoutMs: 5000 });
@@ -414,7 +423,7 @@ export const isActionOp = (op: string) => op === 'action' || op === 'stack-run' 
 /** `chatlocal:pr-ui-*`: the menu's choices, answered without the command gate. */
 export function prActionUi(client: T3Client, op: string, ctx: { key: string; detail: Obj | null; reference: Obj }, value: string): string {
   const state = actionState(client);
-  if (op === 'ask' && value === 'delete-branch') { if (!state.pending) state.deleteBranchConfirm = ctx.key; return ''; }
+  if (op === 'ask' && value === 'delete-branch') { if (!state.pending.has(pendingActionKey(client, ctx.reference))) state.deleteBranchConfirm = ctx.key; return ''; }
   if (op === 'cancel') { if (state.deleteBranchConfirm === ctx.key) state.deleteBranchConfirm = ''; return ''; }
   // `arm`: "<control>|<action>", the first press. `disarm`: '' for whatever is armed, "serial:<n>" for the arming
   // a lapse was set for, "<control>|<action>" for a control that lost the focus.
@@ -422,7 +431,7 @@ export function prActionUi(client: T3Client, op: string, ctx: { key: string; det
     const [rawControl = '', rawAction = ''] = value.split('|');
     const control = CONTROLS.find(item => item === rawControl), action = CONFIRMS.find(item => item === rawAction);
     if (!control || !action) throw new ClientError(`Unknown confirmation: ${value}`);
-    if (!state.pending) state.confirm = { key: ctx.key, action, control, serial: ++state.armSerial };
+    if (!state.pending.has(pendingActionKey(client, ctx.reference))) state.confirm = { key: ctx.key, action, control, serial: ++state.armSerial };
     return '';
   }
   if (op === 'disarm') {

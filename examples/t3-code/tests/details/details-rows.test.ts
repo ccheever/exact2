@@ -39,6 +39,19 @@ describe('lineage (upstream 9c161462c9)', () => {
     expect(view.lineage[1]!.hint).toBe('Open fork in this chat');
   });
 
+  // T3 Code 30654b3e91 ThreadRelationshipsPanel: the tag filter's hidden threads leave the rows and the merge label;
+  // while hiding, an unloaded parent or fork may be hidden too, while an unloaded subagent child stays.
+  test('the tag filter leaves hidden relations out, and while hiding the unloaded parent but not an unloaded subagent', () => {
+    const threads = [shell('me', { lineage: { parentThreadId: 'root', relationshipToParent: 'fork' } }),
+      shell('fork', { createdAt: at(1), lineage: { parentThreadId: 'me', relationshipToParent: 'fork' } }), shell('plain-fork', { createdAt: at(2), lineage: { parentThreadId: 'me', relationshipToParent: 'fork' } })];
+    const projection = { thread: { id: 'me', lineage: { parentThreadId: 'root', relationshipToParent: 'fork' } }, runs: [{ id: 'r1', ordinal: 1, status: 'completed' }],
+      subagents: [{ childThreadId: 'idle-kid', status: 'completed' }], contextTransfers: [] };
+    const rows = (hidden: string[], hiding: boolean) => lineageView(threads, projection, 'me', [], Date.parse(at(10)), [], [], [], true, null, { hidden: id => hidden.includes(id), hiding });
+    expect(rows([], false).lineage.map(row => row.id)).toEqual(['root', 'plain-fork', 'fork', 'idle-kid']);
+    expect(rows(['fork'], true).lineage.map(row => row.id)).toEqual(['plain-fork', 'idle-kid']);
+    expect(rows(['root'], false)).toMatchObject({ mergeLabel: 'Merge back to source conversation' });
+  });
+
   test('a settled subagent sent a follow-up shows as running, its timer follows the live run', () => {
     const threads = [shell('me'), shell('kid', { title: 'Subagent: /root/work/fix_tests', status: 'completed', activityRunStatus: 'running', activityRunStartedAt: at(8),
       lineage: { parentThreadId: 'me', relationshipToParent: 'subagent' } }), shell('done-kid', { status: 'completed', lineage: { parentThreadId: 'me', relationshipToParent: 'subagent' } })];

@@ -25,7 +25,9 @@ import { wordAltMarks } from '../appearance/settings-font-previews'; // Pierre's
 import type { Token } from '../highlight/timeline-highlight';
 import type { HighlightView } from '../highlight/highlights';
 import { utilityPlacement, type LineDrag } from './diff-line-drag';
+import { textDirection, type TextDirection } from '../shared/text-direction';
 import { hideTestFiles, setHideTestFiles, shownDiffFiles, testFileCount } from './hide-test-files';
+import { diffTreeWidth, setDiffTreeWidth } from './diff-tree-width';
 import { resolveToolCallDiffTarget, toolCallDiff, toolCallTarget, type ToolCallDiffTarget, type ToolCallPreview } from './tool-call-diff';
 import { renderablePatch } from '../pull-requests/pages-pr-code-logic';
 import { branchCommitsView, commitScopeLabels, emptyBranchCommits, type BranchCommits } from './diff-commits';
@@ -70,7 +72,7 @@ export class DiffState {
   /** The gutter's drag in progress (diff-line-drag.ts), in the selection's scope. */
   drag: LineDrag | null = null;
   /** `previous` and `status`: the file's old path and change type as the draft opened, which name its file (AnnotatableCodeView's fileKey). */
-  draft: { scope: string; path: string; previous: string; status: string; id: string; range: SelectedLineRange; rangeLabel: string } | null = null;
+  draft: { scope: string; path: string; previous: string; status: string; id: string; range: SelectedLineRange; rangeLabel: string; dir?: TextDirection } | null = null;
   saved: { contextId: string; scope: string; path: string; range: SelectedLineRange; rangeLabel: string; text: string }[] = [];
   /** The thread whose open draft's textarea took the focus ('' when it let go): the composer's send chords then leave ⌘↩ to it
    * (composer-presentation.ts). The host sends no blur when a focused view leaves the tree (LLP 1008), so it counts only
@@ -250,6 +252,7 @@ export function diffView(client: T3Client, action: string, value: string, paths:
   else if (action === 'wrap') state.wrap = !state.wrap;
   else if (action === 'tree') state.tree = !state.tree;
   else if (action === 'hide-tests') setHideTestFiles(client, !hideTestFiles(client));
+  else if (action === 'tree-width') setDiffTreeWidth(client, value);
   else if (action === 'file') state.expanded[`${scope}::${value}`] = !(state.expanded[`${scope}::${value}`] ?? state.defaultExpanded);
   else if (action === 'reveal') state.expanded[`${scope}::${value}`] = true;
   else if (action === 'expand-all' || action === 'collapse-all') for (const path of paths) state.expanded[`${scope}::${path}`] = action === 'expand-all';
@@ -361,7 +364,7 @@ type DiffItemView = { id: string; kind: string; path: string; name: string; stat
   /** File headers: Retry, the partial mark, a header whose patch is not there (chevron off). Gaps: a press opens hidden lines. */
   error: boolean; partial: boolean; unavailable: boolean; expandable: boolean;
   /** Comment items (`note`, `draft`): the entry's id (a saved one's context id) and text. */
-  entry: string; text: string;
+  entry: string; text: string; textDir: string;
   /** File headers' counts: Pierre's own ("-d" then "+a", each shown when it is not zero or the other is) or, for a
    * large source read file by file, DiffPanel's DiffStatLabel (additions first, both always, compact, 4ch columns). */
   statAligned: boolean; addText: string; delText: string };
@@ -442,7 +445,7 @@ export function diffSnapshot(client: T3Client, now: number) {
   let rows = 0;
   const base = { tone: '', number: '', segments: [] as Segment[], leftTone: '', leftNumber: '', leftSegments: [] as Segment[], rightTone: '', rightNumber: '', rightSegments: [] as Segment[],
     label: '', gutter: 33.3, name: '', status: '', letter: '', additions: 0, deletions: 0, expanded: false, markdown: false, side: '', line: 0, selected: false, leftLine: 0, rightLine: 0,
-    leftSelected: false, rightSelected: false, pinned: false, pin: false, leftPin: false, rightPin: false, error: false, partial: false, unavailable: false, expandable: false, entry: '', text: '',
+    leftSelected: false, rightSelected: false, pinned: false, pin: false, leftPin: false, rightPin: false, error: false, partial: false, unavailable: false, expandable: false, entry: '', text: '', textDir: 'ltr',
     statAligned: false, addText: '', delText: '' };
   // A draft or the selected lines belong to the scope they were made in; saved comments stay while their chip is in the prompt.
   const draft = state.draft?.scope === scope ? state.draft : null, picked = state.selection?.scope === scope ? state.selection : null;
@@ -472,8 +475,8 @@ export function diffSnapshot(client: T3Client, now: number) {
     const isSelected = (side: string, line: number) => { const index = line > 0 ? at.get(sideKey(side, line)) : undefined; return !!chosen && index !== undefined && index >= chosen[0] && index <= chosen[1]; };
     const utility = utilityPlacement(range ?? null, point => at.get(sideKey(point.side, point.line)) ?? null);
     // Comments sit under the range's end line, on its side; one card per line, entries stacked (AnnotatableCodeView).
-    const notes = [...saved.filter(entry => entry.path === file.path).map(entry => ({ kind: 'note', id: entry.contextId, range: entry.range, label: entry.rangeLabel, text: entry.text })),
-      ...(draft?.path === file.path ? [{ kind: 'draft', id: draft.id, range: draft.range, label: draft.rangeLabel, text: '' }] : [])];
+    const notes = [...saved.filter(entry => entry.path === file.path).map(entry => ({ kind: 'note', id: entry.contextId, range: entry.range, label: entry.rangeLabel, text: entry.text, dir: textDirection(entry.text) })),
+      ...(draft?.path === file.path ? [{ kind: 'draft', id: draft.id, range: draft.range, label: draft.rangeLabel, text: '', dir: draft.dir }] : [])];
     const placed = new Set<string>();
     const annotate = (oldLine: number, newLine: number) => {
       for (const note of notes) {
@@ -482,7 +485,7 @@ export function diffSnapshot(client: T3Client, now: number) {
         if (!anchored) continue;
         placed.add(note.id);
         // Painted as selected under a selected line (Pierre's renderSelection).
-        items.push({ ...base, id: `${note.kind}:${file.path}:${note.id}`, kind: note.kind, path: file.path, expanded, entry: note.id, label: note.label, text: note.text,
+        items.push({ ...base, id: `${note.kind}:${file.path}:${note.id}`, kind: note.kind, path: file.path, expanded, entry: note.id, label: note.label, text: note.text, textDir: note.dir ?? 'ltr',
           selected: isSelected(note.range.endSide, note.range.end) });
       }
     };
@@ -548,19 +551,24 @@ export function diffSnapshot(client: T3Client, now: number) {
   const entries = diffFileTreeEntries(shown.map(file => ({ path: file.path, status: file.status })));
   const closed = new Set(state.treeCollapsed[scope] ?? []);
   const additions = totals.reduce((sum, file) => sum + file.additions, 0), deletions = totals.reduce((sum, file) => sum + file.deletions, 0);
-  // The Changes header's "<head> → <base>" and its picker, for the branch source that answered (DiffPanel selectedGitSource).
+  // The Changes header's "<head> → <base>" and its picker (DiffPanel canSelectBranchBase): for the branch source that
+  // answered, and also while the branch diff failed or has no base yet, from the status's branch (else HEAD) and the
+  // chosen base (else Automatic), so the base can still be changed.
   const branchSource = selection.kind === 'branch' && !notGit && state.source?.kind === 'branch-range' ? state.source : null;
-  const picker = baseRefView(state.baseRefs, branchSource?.cwd ?? '', branchSource?.headRef ?? null, selection.kind === 'branch' ? selection.baseRef : null);
+  const canSelectBase = selection.kind === 'branch' && !notGit && !!client.threadId && !!workspace(client);
+  const compareHead = branchSource?.headRef || str(peekVcsStatus(client, workspace(client))?.refName) || 'HEAD';
+  const compareBase = branchSource?.baseRef ?? (selection.kind === 'branch' ? selection.baseRef : null) ?? 'Automatic';
+  const picker = baseRefView(state.baseRefs, branchSource?.cwd ?? (canSelectBase ? workspace(client) : ''), compareHead, selection.kind === 'branch' ? selection.baseRef : null);
   const marked = markDiffRows(items, state.find);
   const pending = client.diffLoading && !diffAnswered(client);
   return {
-    diffCompare: !!branchSource?.baseRef, diffHead: branchSource?.headRef || 'HEAD', diffBase: branchSource?.baseRef ?? '',
+    diffCompare: canSelectBase, diffHead: compareHead, diffBase: compareBase,
     diffBaseRefs: picker.rows, diffBaseAutomatic: picker.automatic, diffBaseEmpty: picker.empty,
     diffScopeLabel: scopeLabel, diffScope: selection.kind === 'turn' ? `turn:${selection.runId}` : selection.kind === 'tool-call' ? '' : selection.kind === 'commit' ? `commit:${selection.sha}` : selection.kind,
     diffCommits: branchCommitsView(client, now),
     diffTurns: turns.map(entry => ({ id: `turn:${entry.runId}`, label: `Turn ${entry.count}`, time: messageTime(entry.completedAt, now, client.local.deviceSettings.timestampFormat), selected: selection.kind === 'turn' && selection.runId === entry.runId })),
     diffLatestSelected: selection.kind === 'turn' && selection.runId === turns[0]?.runId,
-    diffCanRefresh: isGitSelection(selection) && !notGit, diffLayout: state.layout, diffWrap: state.wrap, diffIgnoreWhitespace: state.ignoreWhitespace, diffTree: state.tree,
+    diffCanRefresh: isGitSelection(selection) && !notGit, diffLayout: state.layout, diffWrap: state.wrap, diffIgnoreWhitespace: state.ignoreWhitespace, diffTree: state.tree, diffTreeWidth: diffTreeWidth(client),
     // The size banner shows only for a truncated preview the panel cannot read file by file (older servers).
     // A project outside git reads as the centred empty state, as DiffPanel's !isGitRepo branch, not as an error.
     diffTruncated: (state.truncated && !lazy) || rows > (state.find.open ? 100_000 : ROW_LIMIT), diffEmpty: notGit || (!pending && (!client.diffError || client.diffError === NOT_GIT_REPO) && files.length === 0),

@@ -13,6 +13,7 @@ import { mobileGitFeedbackMetadata, mobileGitFeedbackObserve } from './git-feedb
 import { mobileDevicesEvents } from './devices-mobile-data';
 import { mobileBrowserEvents } from './browser-mobile-data';
 import { mobileVoiceObserveDraft } from './voice-data';
+import { mobileThreadErrorAction } from './thread-error';
 // upstream 365aa87982 mobile pairing.ts and connection/platform.ts; shared reducers remain unchanged.
 // @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#mobile-adaptations
 import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
@@ -300,6 +301,15 @@ async function runMobileCommand(args: unknown[], nativeInput: Native | null | un
   const { native, storage } = answerHandles(nativeInput, suppliedStorage);
   if (!native?.available) return { revision: mobileClient.revision, message: 'Open T3 Code on your iPhone or iPad to connect.' };
   let op = str(args[0]), id = str(args[1]), value = str(args[2]);
+  if (op === 'chatlocal:admin-request' || op === 'pageslocal:chatgpt-usage') {
+    try {
+      if (await mobileThreadErrorAction(mobileClient, native, op.slice(op.indexOf(':') + 1)))
+        return { revision: ++mobileClient.revision, message: '' };
+    } catch (error) {
+      if (letGo(error)) throw error;
+      return { revision: mobileClient.revision, message: error instanceof Error ? error.message : 'The action could not be completed.' };
+    }
+  }
   if (op.startsWith('pending-input:')) {
     const { revision, message } = await mobilePendingInputCommand(mobileClient, native, storage, id, op.slice('pending-input:'.length), value, str(args[3]));
     return { revision, message };

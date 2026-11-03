@@ -89,6 +89,8 @@ shape FilesCodeLine
   pinned: bool
   entry: string
   text: string
+  // A comment's or the open draft's reading direction (textDirection): "rtl" or "ltr".
+  textDir: string
   label: string
 shape FileEditor
   id: string

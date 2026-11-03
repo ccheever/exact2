@@ -16,7 +16,7 @@ import { pushToast } from '../shell/toast';
 import { draftContext } from '../composer/composer-controls-branch';
 import { branchState } from './git-branch';
 import {
-  defaultBranchCopy, featureBranchUnavailableReason, formatElapsed, menuItems, menuNotes, menuReason, progressPresentation, providerMark, publishPathValid,
+  changesTotals, defaultBranchCopy, featureBranchUnavailableReason, formatElapsed, menuItems, menuNotes, menuReason, progressPresentation, providerMark, publishPathValid,
   quickAction, quickActionIcon, requiresDefaultBranchConfirmation, sortedPublishProviders, terminology, workingFiles, workingTreeRoot,
 } from './git-logic';
 import { letGo } from '../client/let-go';
@@ -334,8 +334,7 @@ export function gitCardView(client: T3Client, status: Obj | null, error: string,
   const form = state.publish, providers = sortedPublishProviders(form.discovered);
   const chosen = providers.find(option => option.value === form.provider && option.ready) ?? providers.find(option => option.ready) ?? providers.find(option => option.value === (form.provider || 'github'))!;
   const repository = form.repository ?? (sourceControlHost(chosen.value)?.inferOwner && chosen.account ? `${chosen.account}/` : '');
-  // The Changes row's totals: the branch's where the server reports them, else the working tree's.
-  const totals = obj(status?.branchChanges ?? status?.workingTree), insertions = num(totals.insertions), deletions = num(totals.deletions);
+  const { insertions, deletions } = changesTotals(status);
   return {
     writable, repo: status?.isRepo !== false,
     // quietEmptyDraft: a draft or a run-less thread with nothing to commit, push or diff shows neither the Git action nor Changes.

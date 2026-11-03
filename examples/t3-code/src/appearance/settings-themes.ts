@@ -36,7 +36,18 @@ export function toHex(value: unknown): string | null {
   return '#' + rgb.map(v => { const c = Math.max(0, Math.min(1, v)); const g = c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055; return Math.round(g * 255).toString(16).padStart(2, '0'); }).join('')
     + (alphaValue >= 1 ? '' : Math.round(Math.max(0, alphaValue) * 255).toString(16).padStart(2, '0'));
 }
-export const themeIdFromName = (name: string) => name.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'theme';
+/** themeIdFromName (themePalette.ts at 5d3d78ab93): a name with no ASCII letter or digit gets a stable FNV-1a id of its own. */
+export function themeIdFromName(name: string): string {
+  const label = name.trim().toLowerCase();
+  const normalized = label.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+  if (normalized || !label) return normalized || 'custom-theme';
+  let hash = 2_166_136_261;
+  for (let index = 0; index < label.length; index += 1) {
+    hash ^= label.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return `theme-${(hash >>> 0).toString(36)}`;
+}
 function colors(value: unknown, where: string): Record<string, string> {
   const entries = Object.entries(obj(value));
   const result: Record<string, string> = {};

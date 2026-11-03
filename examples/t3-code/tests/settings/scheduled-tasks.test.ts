@@ -1,9 +1,10 @@
-// Ported from T3 Code 1e2ecbd975 (the default project at 2359643cff) apps/web/src/components/settings/scheduledTasksSettings.logic.test.ts
+// Ported from T3 Code 1e2ecbd975 (the default project at 2359643cff, one-time tasks at 5d3d78ab93) apps/web/src/components/settings/scheduledTasksSettings.logic.test.ts
 // (MIT, see LICENSE-T3), with the original test names. resolveSettingsScope's groups are the
 // reduced ScopeGroup records; provider entries are the server's provider snapshots.
-import { describe, expect, test } from 'bun:test';
-import { automationLine, defaultScheduledTaskProjectId, matchesScheduledTaskScope, relativeLabel, resolveTaskScope, scheduleLabel, scheduledTaskDefaultModel, taskStatus, taskToDraft, validateScheduledTasksSearch, type ScopeGroup, type ScopeMember } from '../../src/settings/scheduled-tasks';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { automationLine, defaultScheduledTaskProjectId, offersOnceSchedules, onceDraftErrors, onceSchedule, suggestedRunAt, matchesScheduledTaskScope, relativeLabel, resolveTaskScope, scheduleLabel, scheduledTaskDefaultModel, taskStatus, taskToDraft, validateScheduledTasksSearch, type ScopeGroup, type ScopeMember } from '../../src/settings/scheduled-tasks';
 import type { Obj } from '../../src/client/domain';
+import { taskInput } from '../../src/settings/scheduled-view';
 
 const laptopId = 'laptop', serverId = 'server';
 const environments = [{ environmentId: laptopId, label: 'Laptop' }, { environmentId: serverId, label: 'Server' }];
@@ -73,6 +74,62 @@ describe('editing scheduled task branch settings', () => {
   });
 });
 
+describe('one-time scheduled tasks', () => {
+  const zone = process.env.TZ;
+  afterEach(() => { if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone; });
+  // scheduleFromDraft's once branch over the editor's two fields.
+  const fromDraft = (task: Obj, runAt?: string) => { const draft = taskToDraft(task); return onceSchedule(runAt ?? draft.runAt, draft.savedRunAt); };
+
+  test('round-trips the run time through the local date-time input', () => {
+    const runAt = '2026-11-03T17:00:42.000Z';
+    const task = { ...legacyTask, schedule: { type: 'once', runAt } };
+    expect(taskToDraft(task).scheduleMode).toBe('once');
+    expect(fromDraft(task)).toEqual({ type: 'once', runAt });
+    expect(fromDraft(task, '2026-11-04T09:30')).toEqual({ type: 'once', runAt: new Date('2026-11-04T09:30').toISOString() });
+    expect(fromDraft(task, '')).toBeNull();
+  });
+
+  test('rejects a time skipped by daylight saving', () => {
+    process.env.TZ = 'America/Los_Angeles';
+    const task = { ...legacyTask, schedule: { type: 'once', runAt: '2027-03-14T18:00:00.000Z' } };
+    expect(fromDraft(task, '2027-03-14T02:30')).toBeNull();
+    expect(onceDraftErrors('2027-03-14T02:30')).toEqual([{ title: 'Invalid run time', description: 'That time does not exist in your time zone.' }]);
+    expect(onceDraftErrors('')).toEqual([{ title: 'Invalid run time', description: 'Pick a date and time.' }]);
+  });
+
+  test('keeps the saved offset when an edit stays in an hour that repeats', () => {
+    process.env.TZ = 'America/Los_Angeles';
+    // 01:30 PST, the second 01:30 on 2026-11-01.
+    const task = { ...legacyTask, schedule: { type: 'once', runAt: '2026-11-01T09:30:00.000Z' } };
+    expect(fromDraft(task, '2026-11-01T01:35')).toEqual({ type: 'once', runAt: '2026-11-01T09:35:00.000Z' });
+  });
+
+  test('suggests the next whole hour, and its instant', () => {
+    process.env.TZ = 'UTC';
+    expect(suggestedRunAt(Date.parse('2026-11-03T16:20:00.000Z'))).toEqual({ runAt: '2026-11-03T17:00', savedRunAt: '2026-11-03T17:00:00.000Z' });
+    expect(suggestedRunAt(null)).toEqual({ runAt: '', savedRunAt: '' });
+  });
+
+  test('labels a listed once task', () => {
+    process.env.TZ = 'UTC';
+    // The joiner between date and time is the runtime's ICU data's (", " or " at ").
+    expect(scheduleLabel({ type: 'once', runAt: '2026-11-03T17:00:00.000Z' })).toMatch(/^Once, Nov 3, 2026(,| at) 5:00\u202fPM$|^Once, Nov 3, 2026(,| at) 5:00 PM$/);
+    expect(taskStatus({ schedule: { type: 'once', runAt: '2026-11-03T17:00:00.000Z' }, enabled: false }, 0)).toEndWith(' · Paused');
+  });
+
+  test('offers Once where the server accepts it, or for a task that has it', () => {
+    const capable = { environment: { capabilities: { oneTimeSchedules: true } } };
+    const onceTask = { ...legacyTask, schedule: { type: 'once', runAt: '2026-11-03T17:00:00.000Z' } };
+    expect(offersOnceSchedules(capable, undefined)).toBe(true);
+    expect(offersOnceSchedules({ environment: { capabilities: {} } }, undefined)).toBe(false);
+    expect(offersOnceSchedules({}, onceTask)).toBe(true);
+    const input = { title: 'Ship', prompt: 'Go', projectId: 'project-1', modelKey: 'codex:gpt-5', scheduleMode: 'once', runAt: '2026-11-04T09:30', savedRunAt: '', workspaceMode: 'root', enabled: 'true' };
+    expect(() => taskInput(input, undefined, false)).toThrow('Once is not available here: This environment runs an older T3 Code. Update it to schedule a one-time task, or pick another schedule.');
+    expect(taskInput(input, undefined, true).schedule).toEqual({ type: 'once', runAt: new Date('2026-11-04T09:30').toISOString() });
+    expect(() => taskInput({ ...input, runAt: '' }, undefined, true)).toThrow('Invalid run time: Pick a date and time.');
+  });
+});
+
 describe('scheduled task model defaults', () => {
   const instanceId = 'codex', projectId = 'project';
   const environmentSelection = { instanceId, model: 'environment-model', options: [{ id: 'reasoning', value: 'high' }] };
@@ -121,6 +178,7 @@ describe('labels (ScheduledTasksSettings.tsx, ThreadAutomationsPanel.tsx)', () =
     expect(automationLine(task, now)).toBe('Every 1 min · next in under a minute');
     expect(automationLine({ ...task, enabled: false }, now)).toBe('Every 1 min · paused');
     expect(automationLine({ ...task, nextRunAt: null }, now)).toBe('Every 1 min');
+    expect(automationLine({ ...task, blockedByPolicy: 'Blocked by your organization' }, now)).toBe('Every 1 min · Blocked by your organization');
     expect(taskStatus({ ...task, enabled: false }, now)).toBe('Every 1 min · Paused');
   });
   test('validateScheduledTasksSearch keeps only non-blank ids', () => {

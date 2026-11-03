@@ -41,6 +41,8 @@ component MediaActions
     // Its video is full screen (preview-player.contract): the box is then no containing block, so the player can
     // cover the window, and shows no tooltip over it.
     full: bool
+    // Whether hovering shows the tooltip: the expanded image dialog's shows none (ExpandedImageDialog at 5d3d78ab93).
+    showTooltip: bool
   // The tooltip is drawn (MediaTip), as the reference's TooltipPopup; opening the menu closes it.
   state over = false
   action hover(value: bool)
@@ -59,7 +61,7 @@ component MediaActions
   view
     box id=elementId data-focus-stop="enabled" tabindex=0 title="" hover=hover contextmenu=pointerMenu key=menuKey aria-label=tip hatch="t3-media" data-media-kind="actions" position=(full ? "static" : "relative") max-width="100%" testId=testId
       children
-      MediaTip(label=tip, shown=(over and not full))
+      MediaTip(label=tip, shown=(over and showTooltip and not full))
 
 // A Markdown image once it has loaded (ChatMarkdown expandableMarkdownImageProps): the
 // image is a button "Preview <alt>" (a click, Enter or Space) that opens the expanded image dialog over its document's images
@@ -157,6 +159,8 @@ component FilesVideo
   props
     media: MediaView
     local: action
+    // The room the preview leaves it (FilesMedia measures it); 0 until measured.
+    room: number
   state playing = false
   state heldSrc = ""
   state heldRevision = ""
@@ -185,29 +189,36 @@ component FilesVideo
     if media.state == "failed" and not (playing and heldSrc != "")
       MediaVideoFailure(media=media, dark=false, local=local, testId="file-video-failed")
     else
-      video src controls=true playsinline=true preload="metadata" aria-label=media.name loadedmetadata=loaded play=started pause=stopped ended=stopped error=broke width="100%" aspect-ratio="16 / 9" background-color="#000000" object-fit="contain" testId="file-video-player"
+      video src controls=true playsinline=true preload="metadata" aria-label=media.name loadedmetadata=loaded play=started pause=stopped ended=stopped error=broke max-width="100%" max-height=(room > 0 ? `${room}px` : "none") background-color="#000000" object-fit="contain" testId="file-video-player"
 
-// The Files surface's image or video file (WorkspaceImagePreview / WorkspaceVideoPreview).
+// The Files surface's image or video file (WorkspaceImagePreview / WorkspaceVideoPreview). A video keeps its own aspect
+// ratio within the preview (aspect-auto max-h-full w-auto max-w-full), so it is held to the preview's height less its
+// 1rem padding.
 component FilesMedia
+  inject
+    rem: number
   props
     media: MediaView
     local: action
+  state videoRoom = 0
+  action videoSized(width: number, height: number)
+    videoRoom = max(0, height - 2 * rem)
   view
     if media.state == "loading"
       column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" role="status" aria-label=(media.kind == "video" ? "Loading video" : "Loading image") testId="file-media-loading"
         ShellIcon(name="loader", size=24, color="light-dark(#71717b, #a1a1a1)")
     if media.state == "failed" and media.kind == "image"
-      MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-image-failed", full=false)
+      MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-image-failed", full=false, showTooltip=true)
         column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" padding-left="1.5rem" padding-right="1.5rem" box-sizing="border-box"
           text media.failText text-align="center" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#e40014, #ff6467)" testId="file-image-error"
     if media.state == "ready" and media.kind == "image"
       column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" overflow="auto" padding="1rem" box-sizing="border-box" testId="file-image"
-        MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-image-actions", full=false)
+        MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-image-actions", full=false, showTooltip=true)
           image media.url aria-label=media.name error=local("media-image-error", media.url) max-width="100%" max-height="100%" object-fit="contain" testId="file-image-picture"
     if media.kind == "video" and media.state != "loading"
-      column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" overflow="hidden" padding="1rem" box-sizing="border-box" testId="file-video"
+      column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" overflow="hidden" padding="1rem" box-sizing="border-box" resize=videoSized testId="file-video"
         column width="100%" max-width="64rem" align-items="center"
-          MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-video-actions", full=false)
+          MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-video-actions", full=false, showTooltip=true)
             // A player per file (WorkspaceVideoPreview's key): another file's video starts with nothing held.
             for shown in [media] key=media.retryKey
-              FilesVideo(media=shown, local=local)
+              FilesVideo(media=shown, local=local, room=videoRoom)

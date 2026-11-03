@@ -1,5 +1,5 @@
-// The sidebar as a keyboard tree (lib/sidebarTree.ts at T3 Code 6d450a4284): the rows sidebar-view.ts lists for it,
-// and sidebar.contract's arrows, Home and End, shelf open and close, and its one Tab stop.
+// The sidebar's keyboard (lib/sidebarTree.ts at T3 Code 5d3d78ab93): the rows sidebar-view.ts lists for it, and
+// sidebar.contract's arrows, Home and End, and shelf open and close over rows that are ordinary buttons.
 import { expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
@@ -46,7 +46,7 @@ test('the arrows, Home and End move the focus through the rows; Right and Left o
   const press = (id: string, k: string, mods: Obj = {}) => {
     const done: unknown[][] = [], state = sidebar.state();
     const e = { key: k, shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, isComposing: false, repeat: false, ...mods };
-    const writes = sidebar.call('treeKey', state, { data: { sidebar: { tree, treeCurrent: '' } }, min: Math.min, max: Math.max,
+    const writes = sidebar.call('treeKey', state, { data: { sidebar: { tree } }, min: Math.min, max: Math.max,
       preventDefault: () => done.push(['prevent']), stopPropagation: () => {}, focus: (target: string) => done.push(['focus', target]),
       scrollIntoView: (target: string) => done.push(['scroll', target]), local: (...args: unknown[]) => done.push(['local', ...args]) }, [id, k, e]) as Obj | undefined;
     return { done, writes };
@@ -72,12 +72,20 @@ test('the arrows, Home and End move the focus through the rows; Right and Left o
   expect(press('thread-a', 'Enter').done).toEqual([]);
 });
 
-test('the list is one Tab stop: a row is a tree item that takes the stop only while it holds it', () => {
-  expect(lines('sidebar.contract', 'role="tree" aria-label="Threads"')).toHaveLength(1);
-  const rows = lines('sidebar-row.contract', 'id=`thread-${t.id}` press=openPress');
-  expect(rows).toHaveLength(2); // the card and the slim row
-  for (const row of rows) for (const part of ['role="treeitem"', 'aria-level=treeLevel', 'tabindex=(sidebarTreeStop == `thread-${t.id}` ? 0 : -1)', 'key=treeKey(`thread-${t.id}`)']) expect(row).toContain(part);
-  expect(lines('sidebar.contract', 'id=`shelf-${section}`')[0]).toContain('role="treeitem"');
+test('the list is no tree: Tab visits each row, a button, and its actions; the arrows still move between rows', () => {
+  expect(lines('sidebar.contract', 'role="tree"')).toHaveLength(0);
+  expect(lines('sidebar.contract', 'column min-height="100%" width="100%" gap=1 role="presentation"')).toHaveLength(1);
+  const rows = [...lines('sidebar-row.contract', 'id=`thread-${t.id}` press=openPress'), ...lines('sidebar-row.contract', 'id=`draft-${d.id}` press='),
+    ...lines('sidebar.contract', 'id=`shelf-${section}`'), ...lines('sidebar.contract', 'id="settled-more"')];
+  expect(rows).toHaveLength(5); // the card and the slim row, a draft, a shelf header and Show more
+  for (const row of rows) {
+    expect(row.trimStart().startsWith('button ')).toBe(true);
+    for (const part of ['role="treeitem"', 'aria-level']) expect(row).not.toContain(part);
+    expect(row).toMatch(/key=(treeKey|rowKey)/);
+    expect(row).toContain('tabindex=0');
+  }
+  // The hidden actions are in the Tab order of every row, not only the focused one's.
+  expect(lines('sidebar-row.contract', 'inert=')).toHaveLength(0);
   // Each tree item draws the reference's focus-visible ring (ring-2 ring-inset ring-ring) beneath its own line.
   for (const [file, marker] of [['sidebar-row.contract', 'id=`thread-${t.id}` press=openPress'], ['sidebar-row.contract', 'id=`draft-${d.id}`'],
     ['sidebar.contract', 'id=`shelf-${section}`'], ['sidebar.contract', 'id="settled-more"']] as const) {

@@ -98,12 +98,13 @@ export function workflowPhaseStatus(phase: WorkflowPhase): string {
 
 
 /** Workflow body rows use each member's reported model and provider, without borrowing the coordinator's traits. */
-export function workflowBody(group: WorkflowGroup, threads: Obj[], providers: Obj[], now: number) {
+export function workflowBody(group: WorkflowGroup, providers: Obj[], now: number) {
   const providerInstanceId = str(group.workflow.providerInstanceId), provider = providers.find(entry => entry.instanceId === providerInstanceId);
   const driver = str(provider?.driver) || str(group.workflow.driver);
   const member = (agent: WorkflowAgent) => {
     const elapsed = agentElapsed(agent, now), childThreadId = agent.childThreadId ?? '';
-    return { id: agent.id, title: agent.title, childThreadId, disabled: !childThreadId || !threads.some(thread => thread.id === childThreadId),
+    // A member's child thread may be left out of the shell while idle; opening it loads its own detail.
+    return { id: agent.id, title: agent.title, childThreadId, disabled: !childThreadId,
       driver, dot: statusDot(agent.status), status: statusLabel(agent.status), elapsed,
       card: subagentCard({ title: agent.title, model: agent.model, providerInstanceId, origin: 'provider_native', provider, providers, driver,
         elapsed, status: agent.status, result: agent.result ?? agent.error, progress: agent.progress }) };

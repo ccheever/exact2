@@ -174,7 +174,7 @@ describe('the Working shelf over a grace', () => {
   const window = (threads: Obj[]) => ({
     shell: { projects: [{ id: 'p1', title: 'P' }], threads, sequence: 1 },
     config: { environment: { capabilities: { threadSettlement: true } }, providers: [], keybindings: [] },
-    environmentId: 'environment-1', threadId: '', query: '', presentation: {}, local: { drafts: {}, clientSettings: { sidebarWorkingShelfEnabled: true }, deviceSettings: {} },
+    environmentId: 'environment-1', connection: 'connected', shellLive: true, threadId: '', query: '', presentation: {}, local: { drafts: {}, clientSettings: { sidebarWorkingShelfEnabled: true }, deviceSettings: {} },
     projectGroups: () => [{ key: 'g1', name: 'P', members: [{ id: 'p1' }] }],
   }) as unknown as T3Client;
   const helpers = { projectIdentity: () => ({ projectMark: '', projectInk: '', projectSurface: '' }), providerBadge: () => ({ providerBadge: '', providerBadgeColor: '' }) };

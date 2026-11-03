@@ -1,4 +1,4 @@
-// From T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3): packages/shared/src/delimitedPreview.ts, as it stands.
+// From T3 Code 5d3d78ab93 (MIT, see LICENSE-T3): packages/shared/src/delimitedPreview.ts, as it stands.
 export function filePreviewDelimiter(file: { name: string; mimeType?: string }): "," | "\t" | null {
   const mime = file.mimeType?.split(";", 1)[0]?.trim().toLowerCase();
   if (mime === "text/csv") return ",";
@@ -25,6 +25,14 @@ export function parseDelimitedPreview(
   let truncated = false;
   let rowStart = text.charCodeAt(0) === 0xfeff ? 1 : 0;
   const endCell = () => {
+    if (cell.length > limits.maxCellLength) {
+      let end = limits.maxCellLength;
+      const before = cell.charCodeAt(end - 1);
+      const after = cell.charCodeAt(end);
+      if (before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff) end--;
+      cell = cell.slice(0, end);
+      truncated = true;
+    }
     if (row.length < limits.maxColumns) row.push(cell);
     else truncated = true;
     cell = "";
@@ -33,7 +41,7 @@ export function parseDelimitedPreview(
     const char = text[index];
     if (char === '"') {
       if (quoted && text[index + 1] === '"') {
-        if (cell.length < limits.maxCellLength) cell += '"';
+        if (cell.length <= limits.maxCellLength) cell += '"';
         else truncated = true;
         index++;
         continue;
@@ -53,7 +61,7 @@ export function parseDelimitedPreview(
         if (rows.length === limits.maxRows)
           return { rows, truncated: truncated || index < text.length - 1 };
       }
-    } else if (cell.length < limits.maxCellLength) cell += char;
+    } else if (cell.length <= limits.maxCellLength) cell += char;
     else truncated = true;
   }
   if (rowStart < text.length) {

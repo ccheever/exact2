@@ -156,8 +156,9 @@ describe('the Settings capture field (settings-keybindings.contract CaptureField
     const calls: string[] = [];
     const state = { ...field.state({ rowId: 'new', original: 'mod+n', recording }), taking };
     const scope = {
-      rowId: 'new', original: 'mod+n', recording,
+      rowId: 'new', original: 'mod+n', escapeTo: '', recording,
       record: () => calls.push('record'),
+      blur: () => calls.push('blur'),
       capture: (original: string, key: string) => calls.push(`capture:${original}:${key}`),
       held: (id: string, on: boolean) => calls.push(`held:${id}:${on}`),
     };
@@ -169,8 +170,8 @@ describe('the Settings capture field (settings-keybindings.contract CaptureField
     // An existing binding's field mounts from its pill already recording (autoFocus={isRecording}).
     expect(run('entered', [], true).calls).toEqual(['held:keybinding-recorder-new:true']);
   });
-  test('a chord or Escape keeps the field, leaving it ends recording only for the row that records', () => {
-    expect(run('took', ['escape'], true)).toEqual({ calls: ['capture:mod+n:escape'], taking: true });
+  test('a chord keeps the field, Escape leaves it, leaving it ends recording only for the row that records', () => {
+    expect(run('took', ['escape'], true)).toEqual({ calls: ['capture:mod+n:escape', 'blur'], taking: false });
     expect(run('took', ['mod+j'], true)).toEqual({ calls: ['capture:mod+n:mod+j'], taking: true });
     expect(run('took', ['blur'], true, true)).toEqual({ calls: ['capture:mod+n:blur', 'held:keybinding-recorder-new:false'], taking: false });
     // Another row's pill started recording as this field gave up the focus: its blur leaves that recording alone.

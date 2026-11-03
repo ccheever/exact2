@@ -19,7 +19,7 @@ component SentVideoTile
     local: action
   // UserVideoAttachment passes its signed attachment as actionsSource (Save video; no Copy image).
   view
-    MediaActions(source=`attachment:${id}`, tip=name, local=local, elementId="", testId=`attachment-video-actions-${id}`, full=false)
+    MediaActions(source=`attachment:${id}`, tip=name, local=local, elementId="", testId=`attachment-video-actions-${id}`, full=false, showTooltip=true)
       SentVideoFace(id=id, name=name, url=url, messageId=messageId, local=local)
 
 component SentVideoFace

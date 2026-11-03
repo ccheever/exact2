@@ -35,6 +35,7 @@ use kmKeyEnd from "../shared/menu-keys.contract"
 use kmEndKeyed from "../shared/menu-keys.contract"
 use kmTriggerKey from "../shared/menu-keys.contract"
 use kmTriggerTarget from "../shared/menu-keys.contract"
+use ExplorerResizeHandle from "./tree-resize.contract"
 
 // The surface body under the panel's tab bar; one subtree serves both schemes: an svg's light-dark() paint follows an appearance change (main 9223aad88) (file icons, chevrons).
 component FilesBody
@@ -92,43 +93,8 @@ component FilesSurface
         if files.showExplorer
           column min-height=0 min-width=0 position="relative" flex-shrink=(beside ? 0 : 1) flex-grow=(beside ? 0 : 1) width=(beside ? `${explorerWidth}px` : "100%") box-sizing="border-box" border-left-width=(beside ? 1 : 0) border-left-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" aria-label="File explorer" testId="files-explorer"
             if beside
-              ExplorerResizeHandle(width=explorerWidth, max=explorerMax, resize=explorerResize, finish=explorerResized, set=explorerSet)
+              ExplorerResizeHandle(width=explorerWidth, least=160, max=explorerMax, label="Resize file explorer", testId="files-explorer-resize", resize=explorerResize, finish=explorerResized, set=explorerSet)
             FilesExplorer(files=files, sheet=sheet, still=still, local=local, searchFocus=searchFocus)
-
-// RightPanelResizeHandle over the explorer's left edge (`absolute inset-y-0 -left-1 w-2`, z 20): its 1pt line shows in
-// the border colour on hover and in primary/60 while dragged or focused from the keyboard. ← widens and → narrows the
-// explorer by 16, Home takes the least and End the most.
-component ExplorerResizeHandle
-  props
-    width: number
-    max: number
-    resize: action
-    finish: action
-    set: action
-  state hovered = false
-  state dragging = false
-  state keyFocus = false
-  action hover(over: bool)
-    hovered = over
-  action down(e: PointerEvent)
-    dragging = true
-    keyFocus = false
-  action released(vx: number, vy: number)
-    dragging = false
-    finish(vx, vy)
-  action up(e: PointerEvent)
-    dragging = false
-  action blurred()
-    keyFocus = false
-  action keyed(k: string, e: KeyboardEvent)
-    if not e.altKey and not e.ctrlKey and not e.metaKey and (k == "ArrowLeft" or k == "ArrowRight" or k == "Home" or k == "End")
-      preventDefault()
-      stopPropagation()
-      keyFocus = true
-      set(k == "ArrowLeft" ? width + 16 : k == "ArrowRight" ? width - 16 : k == "Home" ? 160 : max)
-  view
-    box position="absolute" top=0 bottom=0 left="-0.25rem" width="0.5rem" z-index=20 cursor="col-resize" touch-action="none" tabindex=0 pan=resize panrelease=released pointerdown=down pointerup=up hover=hover key=keyed blur=blurred role="separator" aria-orientation="vertical" aria-label="Resize file explorer" aria-valuenow=width aria-valuemin=160 aria-valuemax=max testId="files-explorer-resize"
-      box position="absolute" top=0 bottom=0 left="3.5px" width=1 pointer-events="none" background-color=(dragging or keyFocus ? "light-dark(#1b4ed899, #346bf199)" : hovered ? "light-dark(#e4e4e7, #ffffff1a)" : "#00000000")
 
 // FILE_SURFACE_SUBHEADER_CLASS: 28pt with 12pt below in the inline panel, 40pt over a hairline in a sheet; 12pt sides, 8pt gaps.
 component FileHeader
@@ -385,6 +351,7 @@ component FilePreview
   state draftText = ""
   action editDraft(text: string)
     draftText = text
+    local("surface-files-comment-text", files.path, text)
   action beginComment(line: number)
     draftText = ""
     local("surface-files-comment-begin", files.path, `${line}`)
@@ -493,11 +460,11 @@ component FilePreview
               if line.kind == "line"
                 FilesCodeRow(family=family, line=line, gutter=files.gutter, wrap=files.wrap, path=files.path, open=(files.commentOpen or editing), local=local, begin=beginComment)
               if line.kind == "note"
-                DiffCommentCard(text=line.text, remove=local("surface-files-comment-delete", files.path, line.entry))
+                DiffCommentCard(text=line.text, dir=line.textDir, remove=local("surface-files-comment-delete", files.path, line.entry))
               if line.kind == "draft"
                 // The focus ops are the Diff panel's ⌘↩ hand-off (diff-review.ts): while the draft holds the focus the composer's Send
                 // declares no chord, so ⌘↩ reaches DiffDraftCard's `keys` (diff-file-comments.ts).
-                DiffDraftCard(rangeLabel=line.label, text=draftText, selected=false, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=local("surface-files-comment-focus", files.path, ""), focusOut=local("surface-files-comment-blur", files.path, ""))
+                DiffDraftCard(rangeLabel=line.label, text=draftText, dir=line.textDir, selected=false, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=local("surface-files-comment-focus", files.path, ""), focusOut=local("surface-files-comment-blur", files.path, ""))
           // Editing keeps the coloured, numbered lines: the editor's own text is clear over them, its caret and selection visible.
           if editing
             // A change from outside replaces the text: the editor mounts again on it (EditableFileSurface's externalFile).
