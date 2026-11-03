@@ -309,8 +309,12 @@ describe("the wait for the welcome wizard", () => {
   test("20 s until the local home holds the pinned runtime, 5 s after", () => {
     const home = join(root, "wait-home");
     expect(welcomeWait(home)).toBe(20000);
-    const { version } = JSON.parse(readFileSync(join(import.meta.dir, "../../server-runtime/runtime-pin.json"), "utf8"));
+    const { version, sha256 } = JSON.parse(readFileSync(join(import.meta.dir, "../../server-runtime/runtime-pin.json"), "utf8"));
     mkdirSync(join(home, "runtime/versions", version), { recursive: true });
+    // Another archive of the same version is unpacked again.
+    writeFileSync(join(home, "runtime/versions", version, ".install-archive"), `${"0".repeat(64)}\n`);
+    expect(welcomeWait(home)).toBe(20000);
+    writeFileSync(join(home, "runtime/versions", version, ".install-archive"), `${sha256}\n`);
     expect(welcomeWait(home)).toBe(5000);
   });
 });

@@ -1,4 +1,4 @@
-// The client operations 0.1.5 and 0.1.6 servers add (T3 Code 2359643cff, MIT, see LICENSE-T3: packages/contracts/src/rpc.ts,
+// The client operations 0.1.5, 0.1.6 and 5d3d78ab93 servers add (T3 Code 5d3d78ab93, MIT, see LICENSE-T3: packages/contracts/src/rpc.ts,
 // preview.ts, server.ts, project.ts, pullRequest.ts, orchestrationV2.ts; apps/web/src/connection/clientMetadata.ts). Each sends one request
 // on the focused connection; T3Client's methods of the same names call these. A refusal is the transport's typed
 // error (transport-wire.ts), whose message is the reference's sentence.
@@ -50,4 +50,26 @@ export async function forceStopThread(client: T3Client, native: Native, threadId
 /** pullRequests.update with maintainerCanModify alone: GitHub's "Allow edits by maintainers" (PullRequestActionsMenu). */
 export async function setMaintainerEdits(client: T3Client, native: Native, reference: Obj, allowed: boolean): Promise<void> {
   await client.rpc(native, 'pullRequests.update', { ...reference, maintainerCanModify: allowed }, true);
+}
+
+/** OrchestrationV2NativeChildWork: a provider-native subagent's child, read-only (native children take no messages). */
+export interface NativeChildStep { index: number; type: string; status: string | null; text: string | null; toolCalls: { name: string; input: string }[] }
+export interface NativeChildWork { conversationId: string; role: string; prompt: string; steps: NativeChildStep[] | null; truncated: boolean }
+
+const nullable = (value: unknown): string | null => typeof value === 'string' ? value : null;
+
+/**
+ * orchestration.getNativeChildWork: the native children a subagent thread launched (Antigravity's), with their steps; null
+ * steps when the provider keeps no readable transcript, and no children when its records do not prove which it launched.
+ */
+export async function getNativeChildWork(client: T3Client, native: Native, threadId: string): Promise<NativeChildWork[]> {
+  if (!threadId) throw new ClientError('Choose a thread.');
+  const result = obj(await client.request(native, 'orchestration.getNativeChildWork', { threadId }, client.generation));
+  return (Array.isArray(result.children) ? result.children : []).map(obj).filter(child => str(child.conversationId).trim() !== '').map(child => ({
+    conversationId: str(child.conversationId).trim(), role: str(child.role), prompt: str(child.prompt), truncated: child.truncated === true,
+    steps: Array.isArray(child.steps) ? child.steps.map(obj).map(step => ({
+      index: typeof step.index === 'number' ? step.index : 0, type: str(step.type), status: nullable(step.status), text: nullable(step.text),
+      toolCalls: (Array.isArray(step.toolCalls) ? step.toolCalls : []).map(obj).map(call => ({ name: str(call.name), input: str(call.input) })),
+    })) : null,
+  }));
 }

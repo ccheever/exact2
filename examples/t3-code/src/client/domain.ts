@@ -28,6 +28,8 @@ export interface Message { secret?: ReturnType<typeof import('../timeline/secret
   revert?: number; intent?: string; intentTip?: string; attribution?: string; targetId?: string; actionLabel?: string; copied?: number;
   /** A folded automation or agent message's one line. */
   summary?: string;
+  /** A user message that switched the model or effort on the same harness (`modelSwitch`). */
+  modelSwitch?: ModelSwitch;
   /** A sent message's shape (timeline-attachments.ts userMessageShape), and whether Copy has anything to take. */
   shape?: string; mediaAbove?: boolean; mediaLayout?: string; copyable?: boolean;
   /** An answer's text as the provider wrote it, before its thread links take their titles: the minimap's preview. */
@@ -81,6 +83,22 @@ export function projectGroupOrganization(members: readonly Record<string, unknow
 export function pickableProjectGroups<T extends { pinned: boolean; archived: boolean }>(groups: readonly T[]): T[] {
   const open = groups.filter(group => !group.archived);
   return [...open.filter(group => group.pinned), ...open.filter(group => !group.pinned)];
+}
+
+/** ModelSelection, as a model switch records it (contracts orchestrationV2.ts OrchestrationV2ModelSwitch, 5d3d78ab93). */
+export interface ModelSelection { instanceId: string; model: string; options?: Obj[] }
+export interface ModelSwitch { from: ModelSelection; to: ModelSelection }
+
+function modelSelection(value: unknown): ModelSelection | null {
+  const item = obj(value), instanceId = str(item.instanceId), model = str(item.model);
+  if (!instanceId || !model) return null;
+  return Array.isArray(item.options) ? { instanceId, model, options: arr(item.options) } : { instanceId, model };
+}
+
+/** A user message's `modelSwitch`: the same-harness model or effort change that took effect with it, or null. */
+export function modelSwitch(item: Obj): ModelSwitch | null {
+  const value = obj(item.modelSwitch), from = modelSelection(value.from), to = modelSelection(value.to);
+  return from && to ? { from, to } : null;
 }
 
 /** OrchestrationV2CheckpointFileTotals: sent only when a checkpoint's `files` is a prefix; the totals cover the full list. */
@@ -144,6 +162,7 @@ const threadEvents = new Set([
   "thread.active-reordered", "thread.metadata-updated", "thread.pull-request-synced",
   "thread.runtime-mode-updated", "thread.interaction-mode-updated",
   "thread.model-selection-updated", "thread.provider-switched", "thread.guest-share-updated", "thread.visited", "thread.marked-unread",
+  "thread.tags-updated",
 ]);
 const updateArrays: Record<string, string> = {
   "run.created": "runs", "run.updated": "runs",
@@ -189,6 +208,13 @@ function validateTurnItem(value: unknown, path: string): Obj {
   if (type === "user_message") {
     oneOf(item.inputIntent, ["turn_start", "queued_turn", "steer", "promoted_queued_to_steer"], `${path}.inputIntent`);
     objects(item.attachments, `${path}.attachments`);
+    if (item.modelSwitch !== undefined) {
+      const switched = object(item.modelSwitch, `${path}.modelSwitch`);
+      for (const side of ["from", "to"]) {
+        const selection = object(switched[side], `${path}.modelSwitch.${side}`);
+        string(selection.instanceId, `${path}.modelSwitch.${side}.instanceId`); string(selection.model, `${path}.modelSwitch.${side}.model`);
+      }
+    }
   }
   if (type === "secret_request") {
     string(item.label, `${path}.label`); string(item.reason, `${path}.reason`, true);
@@ -407,7 +433,8 @@ export function applyThread(state: ThreadState, value: unknown, sameLink: SameLi
   let projection: Obj = { ...state.projection, updatedAt: event.occurredAt };
   if (threadEvents.has(type)) {
     projection.thread = payload;
-    if (type === "thread.visited" || type === "thread.marked-unread") projection.updatedAt = state.projection.updatedAt;
+    // Visited tracking and tags are not activity: no updatedAt bump.
+    if (type === "thread.visited" || type === "thread.marked-unread" || type === "thread.tags-updated") projection.updatedAt = state.projection.updatedAt;
   } else if (type === "run.background-work-cancelled") {
     projection.runs = arr(projection.runs).map(run => run.id === payload.runId
       ? { ...run, restartCancelledBackgroundWork: payload.restartCancelledBackgroundWork } : run);
@@ -538,7 +565,11 @@ function present(row: Obj): Message {
   let title = str(item.title) || type.replace(/_/g, " ");
   let body = "";
   switch (type) {
-    case "user_message": kind = "user"; title = "You"; body = str(item.text); break;
+    case "user_message": {
+      const switched = modelSwitch(item);
+      if (switched) return { id, kind: "user", title: "You", body: str(item.text), runId: str(item.runId), sourceThreadId: str(row.sourceThreadId), modelSwitch: switched };
+      kind = "user"; title = "You"; body = str(item.text); break;
+    }
     case "assistant_message": kind = "assistant"; title = "Assistant"; body = str(item.text); break;
     case "compaction": kind = "system"; title = "Context compacted"; body = str(item.summary); break;
     case "reasoning": kind = "reasoning"; title = "Thinking"; body = str(item.text); break;

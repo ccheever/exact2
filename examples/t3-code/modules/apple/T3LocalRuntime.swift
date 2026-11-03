@@ -4,7 +4,9 @@
 // layout, `<T3 home>/runtime/versions/<version>` with `.install-complete` holding the version
 // (T3 Code MIT, see LICENSE-T3; reference 1e2ecbd975: apps/server/src/cloud/pinnedRuntime.ts
 // `pinnedRuntimePaths`, scripts/install.sh's staging folder, `t3 --version` and rename).
-// A runtime the `t3` installer already put there for the same version is used as it is.
+// The version folder also holds `.install-archive`, the SHA-256 of the archive it came from: two
+// builds can carry the same version (a pin built from an unreleased commit reports the last
+// release's), so a folder from another archive, or one the `t3` installer wrote, is unpacked again.
 //
 // Before the archive is expanded its SHA-256 must equal the pin's; after, every path must match
 // the manifest (type, mode, size, SHA-256, link), `t3` must be 0755 and `t3 --version` must print
@@ -51,6 +53,7 @@ final class T3LocalRuntime {
         let versionDir: URL
         let entry: URL
         let sentinel: URL
+        var archive: URL { versionDir.appendingPathComponent(".install-archive") }
     }
 
     static func versionsDir(home: URL) -> URL { home.appendingPathComponent("runtime/versions", isDirectory: true) }
@@ -75,15 +78,17 @@ final class T3LocalRuntime {
         return try? JSONDecoder().decode(T3LocalRuntimePin.self, from: data)
     }
 
-    static func installed(_ paths: Paths, version: String) -> Bool {
-        guard let sentinel = try? String(contentsOf: paths.sentinel, encoding: .utf8) else { return false }
-        return sentinel.trimmingCharacters(in: .whitespacesAndNewlines) == version && FileManager.default.isExecutableFile(atPath: paths.entry.path)
+    /// The folder holds `version`, complete; with `archive`, unpacked from the archive of that SHA-256.
+    static func installed(_ paths: Paths, version: String, archive: String? = nil) -> Bool {
+        let read = { (url: URL) in (try? String(contentsOf: url, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard read(paths.sentinel) == version, FileManager.default.isExecutableFile(atPath: paths.entry.path) else { return false }
+        return archive == nil || read(paths.archive) == archive
     }
 
     func ensure() -> T3LocalRuntimeResult {
         guard let pin = pin() else { return .missing("The app bundle has no runtime-pin.json.") }
         let paths = Self.paths(home: home, version: pin.version)
-        if Self.installed(paths, version: pin.version) { return .ready(versionDir: paths.versionDir, version: pin.version, installed: false) }
+        if Self.installed(paths, version: pin.version, archive: pin.sha256) { return .ready(versionDir: paths.versionDir, version: pin.version, installed: false) }
         guard let bundleDir else { return .missing("The app bundle has no server runtime.") }
         let archive = bundleDir.appendingPathComponent(pin.asset), manifestURL = bundleDir.appendingPathComponent("runtime-manifest.json")
         guard FileManager.default.fileExists(atPath: archive.path), let manifestData = try? Data(contentsOf: manifestURL) else {
@@ -102,7 +107,7 @@ final class T3LocalRuntime {
         defer { flock(lockFd, LOCK_UN); close(lockFd) }
         flock(lockFd, LOCK_EX)
         // Another launch may have finished while this one waited for the lock.
-        if Self.installed(paths, version: pin.version) { return .ready(versionDir: paths.versionDir, version: pin.version, installed: false) }
+        if Self.installed(paths, version: pin.version, archive: pin.sha256) { return .ready(versionDir: paths.versionDir, version: pin.version, installed: false) }
         for name in (try? FileManager.default.contentsOfDirectory(atPath: versions.path)) ?? [] where name.hasPrefix(".staging-") {
             try? FileManager.default.removeItem(at: versions.appendingPathComponent(name))
         }
@@ -131,6 +136,7 @@ final class T3LocalRuntime {
               ((attributes[.posixPermissions] as? NSNumber)?.intValue ?? 0) & 0o777 == 0o755 else { return fail("The unpacked t3 is not mode 0755.") }
         guard runVersion(entry) == "t3 v\(pin.version)" else { return fail("The unpacked t3 does not run.") }
         do {
+            try "\(pin.sha256)\n".write(to: staging.appendingPathComponent(".install-archive"), atomically: true, encoding: .utf8)
             try "\(pin.version)\n".write(to: staging.appendingPathComponent(".install-complete"), atomically: true, encoding: .utf8)
             if FileManager.default.fileExists(atPath: paths.versionDir.path) { try FileManager.default.removeItem(at: paths.versionDir) }
             try FileManager.default.moveItem(at: staging, to: paths.versionDir)
