@@ -37,7 +37,13 @@ func fixturePlan(_ key: String) throws -> Data {
 }
 
 #if os(iOS)
+@testable import ExactKit
 import UIKit
+
+/// Require the same foreground eligibility as a real touch's aim.
+func requireFront(_ window: UIWindow?) throws {
+    if let refusal = Agent.frontRefusal(window) { throw missing("foreground", refusal) }
+}
 
 /// Wait for the hosted test app's scene to connect before checking its prerequisites.
 func hostedWindowScene() -> UIWindowScene? {
