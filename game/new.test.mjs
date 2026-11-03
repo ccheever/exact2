@@ -561,6 +561,11 @@ test('lockDrift names what exact2 added and moved under a captured lock, never w
   assert.deepEqual(lockChanges(git('aaa'),git('bbb')),['tool 1.0.0 (git+https://example.com/tool#aaa) → 1.0.0 (git+https://example.com/tool#bbb)']);
   // So is a path package becoming crates.io's at the same version.
   assert.deepEqual(lockChanges(lock([['helper','1.0.0']]),lock([['helper','1.0.0','ll']])),['helper 1.0.0 (path) → 1.0.0']);
+  // With no package moved, added or removed, a manifest that dropped or gained a package the lock keeps is named, never "no changes".
+  const wired=lock([['web','0.1.0',null,['helper']],['helper','0.1.0']]), unwired=lock([['web','0.1.0'],['helper','0.1.0']]);
+  assert.deepEqual(lockChanges(wired,unwired),['web 0.1.0 (path) no longer depends on helper']);
+  assert.deepEqual(lockChanges(unwired,wired),['web 0.1.0 (path) now depends on helper']);
+  assert.deepEqual(lockChanges(wired,wired),[]);
 });
 
 test('lock seeds the SDK lock\'s versions, a same-series bump included, and keeps the game\'s own packages', async () => {

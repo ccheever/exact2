@@ -460,7 +460,8 @@ export function lockDrift(captured, sdk) {
 }
 /** What a lock refresh changed, by package name, for `lock` to print: the
  * versions (or a git or path package's source) that moved, then what was
- * added, then what was removed. */
+ * added, then what was removed; with none of those, the dependencies a package
+ * gained or lost (Cargo rewrites them when a manifest gains or drops a package the lock already holds). */
 export function lockChanges(before, after) {
   // As an author reads a package: its version, and where it comes from unless crates.io.
   const shown = pkg => `${pkg.version}${!pkg.source ? ' (path)' : pkg.source === CRATES_IO ? '' : ` (${pkg.source})`}`;
@@ -471,7 +472,12 @@ export function lockChanges(before, after) {
     if (!old) added.push(`added ${name} ${versions.join(', ')}`);
     else if (old.join() !== versions.join()) moved.push(`${name} ${old.join(', ')} → ${versions.join(', ')}`);
   }
-  return [...moved, ...added, ...[...was].filter(([name]) => !now.has(name)).map(([name, versions]) => `removed ${name} ${versions.join(', ')}`)];
+  const changes = [...moved, ...added, ...[...was].filter(([name]) => !now.has(name)).map(([name, versions]) => `removed ${name} ${versions.join(', ')}`)];
+  if (changes.length) return changes;
+  const lists = text => new Map((text ? Bun.TOML.parse(text).package ?? [] : []).map(pkg => [`${pkg.name} ${shown(pkg)}`, pkg.dependencies ?? []]));
+  const had = lists(before);
+  return [...lists(after)].flatMap(([pkg, deps]) => [...deps.filter(dep => !had.get(pkg)?.includes(dep)).map(dep => `${pkg} now depends on ${dep}`),
+    ...(had.get(pkg) ?? []).filter(dep => !deps.includes(dep)).map(dep => `${pkg} no longer depends on ${dep}`)]);
 }
 const CRATES_IO = 'registry+https://github.com/rust-lang/crates.io-index';
 const listed = (items, most = 6) => items.length > most ? `${items.slice(0, most).join(', ')}, … (${items.length} in all)` : items.join(', ');
