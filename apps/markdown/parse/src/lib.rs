@@ -12,14 +12,15 @@
 //! and pipe tables. Reference links, setext headings, footnotes, and inline
 //! HTML are not interpreted. Raw HTML stays visible and inert, which is
 //! what a reader that cannot render it should do rather than hide it, with
-//! one exception: lines of `<img>` and `<picture>` markup are images, read as
-//! GitHub's sanitizer reads them (`html`; [`Html`] turns it off).
+//! one exception: `<img>` and `<picture>` markup is images, read as T3
+//! Code's sanitizer reads it (`html`; [`Html`] turns it off).
 //!
 //! @ref LLP 1033 (the reader, D9 raw HTML images), LLP 1115 §2 (names stay CSS)
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod entities;
 pub mod html;
 mod inline;
 pub mod value;
@@ -150,13 +151,27 @@ pub fn parse(source: &str, link: &dyn Fn(&str) -> String) -> Document {
 }
 
 /// Which raw HTML a parse draws rather than shows as written.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Html<'a> {
-    /// Whether lines of `<img>` and `<picture>` markup are images.
+    /// Whether `<img>` and `<picture>` markup is images.
     pub images: bool,
     /// The URL schemes an image may load besides a scheme-less URL
     /// ([`html::allowed`]); a source naming another loads nothing.
     pub schemes: &'a [&'a str],
+    /// The run an image inside a line of text becomes, given its sources as
+    /// written; with none, its alt text, as a Markdown image inside a line
+    /// is its alt text in a reader that draws images only as blocks.
+    pub inline: Option<&'a dyn Fn(html::Image) -> Run>,
+}
+
+impl std::fmt::Debug for Html<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Html")
+            .field("images", &self.images)
+            .field("schemes", &self.schemes)
+            .field("inline", &self.inline.is_some())
+            .finish()
+    }
 }
 
 impl Html<'static> {
@@ -164,11 +179,13 @@ impl Html<'static> {
     pub const GITHUB: Html<'static> = Html {
         images: true,
         schemes: &["http", "https"],
+        inline: None,
     };
     /// Every line of raw HTML shown as written.
     pub const LITERAL: Html<'static> = Html {
         images: false,
         schemes: &[],
+        inline: None,
     };
 }
 
@@ -180,7 +197,7 @@ struct Context<'a> {
 
 impl Context<'_> {
     fn runs(&self, text: &str) -> Vec<Run> {
-        inline::runs(text, self.link, &self.scan)
+        inline::runs(text, self.link, &self.scan, self.html)
     }
 }
 
@@ -215,6 +232,8 @@ pub fn parse_with(
         }
         lines.push(line);
     }
+    // The elements image markup left open, whose end tags draw nothing.
+    let mut open = Vec::new();
     let mut at = 0;
     while at < lines.len() {
         if context.scan.cancelled() {
@@ -272,13 +291,18 @@ pub fn parse_with(
             at += 1;
             continue;
         }
-        if let Some((images, next)) = html_images(&lines, at, &context) {
+        if let Some((images, next, left_open)) = html_images(&lines, at, &context) {
             let image = |image| image_block(image, context.link);
             doc.blocks.extend(images.into_iter().map(image));
+            open.extend(left_open);
             at = next;
             continue;
         }
-        if trimmed.starts_with('<') && trimmed.len() > 2 {
+        if closes_open(trimmed, &mut open) {
+            at += 1;
+            continue;
+        }
+        if trimmed.starts_with('<') && trimmed.len() > 2 && !inline_image(trimmed, &context) {
             doc.blocks.push(Block {
                 kind: Kind::Html,
                 text: trimmed.to_string(),
@@ -615,16 +639,12 @@ fn paragraph(lines: &[&str], at: usize, context: &Context<'_>, doc: &mut Documen
     i
 }
 
-/// How much markup one run of images may span: a `<picture>` with a few
-/// sources is well under 1 KiB. Each line that starts with `<img` or
-/// `<picture` reads ahead this far at most, so a document of such lines that
-/// never close parses in linear time.
-const MARKUP_LIMIT: usize = 8 * 1024;
-
-/// The images of the `<img>` and `<picture>` markup that starts line
-/// `at`, and the line after it. The markup may run over several lines, up to
-/// the next blank one, and its last element must end its line; the lines
-/// after that element are the rest of the document's.
+/// The `<img>` and `<picture>` markup that starts line `at`: its images,
+/// the line after it, and the elements its end left open. The
+/// markup may run over several lines, up to the next blank one, and its last
+/// element must end its line; the lines after that element are the rest of
+/// the document's. The blank line or the document's end closes what is still
+/// open, as an HTML parser's end of input does.
 ///
 /// A paragraph ends before such a line, which CommonMark would read as inline
 /// HTML in the paragraph: a reader of blocks draws an image only as one.
@@ -632,13 +652,18 @@ fn html_images(
     lines: &[&str],
     at: usize,
     context: &Context<'_>,
-) -> Option<(Vec<html::Image>, usize)> {
+) -> Option<(Vec<html::Image>, usize, Vec<String>)> {
     if !context.html.images || !html::starts_element(lines[at].trim_start()) {
         return None;
     }
     let mut text = String::new();
+    let mut ends = true;
     for line in &lines[at..] {
-        if line.trim().is_empty() || text.len() + line.len() > MARKUP_LIMIT {
+        if line.trim().is_empty() {
+            break;
+        }
+        if text.len() + line.len() > html::MARKUP_LIMIT {
+            ends = false;
             break;
         }
         if !text.is_empty() {
@@ -654,20 +679,47 @@ fn html_images(
             return None;
         }
         offset += text[offset..].len() - text[offset..].trim_start().len();
-        let Some((drawn, len)) = html::element(&text[offset..], context.html.schemes) else {
+        let Some(markup) = html::element(&text[offset..], context.html.schemes, ends) else {
             break;
         };
-        offset += len;
-        images.extend(drawn);
+        offset += markup.len;
+        images.extend(markup.images);
         let line_end = text[offset..].find('\n').map_or(text.len(), |n| offset + n);
         if text[offset..line_end].trim().is_empty() {
             let line = at + text[..line_end].matches('\n').count();
-            found = Some((images.len(), line + 1));
+            found = Some((images.len(), line + 1, markup.open));
         }
     }
-    let (count, next) = found?;
+    let (count, next, open) = found?;
     images.truncate(count);
-    Some((images, next))
+    Some((images, next, open))
+}
+
+/// Whether `line` is the end tags of elements image markup left open, which
+/// close them and draw nothing, as T3 Code's HTML parser reads them.
+fn closes_open(line: &str, open: &mut Vec<String>) -> bool {
+    let Some(names) = html::end_tags(line) else {
+        return false;
+    };
+    let closes =
+        names.len() <= open.len() && names.iter().zip(open.iter().rev()).all(|(a, b)| a == b);
+    if closes {
+        open.truncate(open.len() - names.len());
+    }
+    closes
+}
+
+/// Whether `line` starts with an image that the paragraph it opens draws
+/// inline, with text after it on the line: CommonMark's inline HTML.
+fn inline_image(line: &str, context: &Context<'_>) -> bool {
+    if !context.html.images || !html::starts_image(line) {
+        return false;
+    }
+    let mut limit = line.len().min(html::MARKUP_LIMIT);
+    while !line.is_char_boundary(limit) {
+        limit -= 1;
+    }
+    html::element(&line[..limit], context.html.schemes, false).is_some()
 }
 
 fn image_block(image: html::Image, link: &dyn Fn(&str) -> String) -> Block {

@@ -21,8 +21,10 @@ another.
 
 Headings, prose with bold/italic/code/links, ordered and unordered lists,
 block quotes, rules, fenced code, images, and pipe tables. Lines of `<img>` and
-`<picture>` markup are images (a `<picture>` shows its dark source on a dark
-page); other raw HTML is shown and interpreted by nothing. Reference links, setext headings and footnotes are
+`<picture>` markup, alone or inside a `<div>` or `<p>`, are images (a
+`<picture>` shows its dark source on a dark page), and one inside a line of
+text shows its alt text; other raw HTML is shown and interpreted by nothing.
+Reference links, setext headings and footnotes are
 not interpreted. Files are read up to 4 MB and must be UTF-8; one that will
 not open leaves the document you were reading where it was and says why.
 
