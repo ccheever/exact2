@@ -91,6 +91,7 @@ describe('mobile media preview ownership', () => {
     const f = fixture(); expect((await prepare(f, 'video')).kind).toBe('video');
     expect(await mobileMediaShare('transcript', 'pdf', 'share-route', f.native, f.client)).toMatchObject({ message: '' });
     const share = f.calls.find(call => call.op === 'mobileMediaShare');
+    expect(share?.routeKey).toBe('share-route');
     expect(JSON.parse(String(share?.sourceJSON))).toMatchObject({ name: 'report.pdf', id: 'pdf', source: 'remote' });
   });
   test('local share rechecks the active draft before opening a native sheet', async () => {
