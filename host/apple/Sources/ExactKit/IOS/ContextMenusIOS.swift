@@ -475,45 +475,78 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         // A view the touch fell on that has left the window gives way to the node
         let shown = owner.touched.flatMap { $0.window == nil ? nil : $0 } ?? source
         let parameters = UIPreviewParameters()
-        // One radius, round or Apple's continuous, as UIKit's own rounded
-        // rectangle, which UIKit keeps through the lift's morph: UIKit applies
-        // any other path only after the morph's first frames, which show the
-        // node square (measured, iOS 27.1). One radius within the tolerance the
-        // layer's own (`applyBoxLayer`) has.
-        if let node = shown as? NodeView {
-            let corners = node.cornerSizes(in: node.bounds), shape = node.style["corner_shape"]
-            if let corner = corners.first, corner.width > 0, corners.allSatisfy({ abs($0.width - corner.width) < 0.01 && abs($0.height - corner.width) < 0.01 }),
-               shape == nil || CornerShape(shape)?.isAppleContinuous == true {
-                parameters.visiblePath = UIBezierPath(roundedRect: node.bounds, cornerRadius: corner.width)
-            } else if corners.contains(where: { $0.width > 0 }) {
-                parameters.visiblePath = node.roundedPath(in: node.bounds)
-            }
-        } else if shown.layer.cornerRadius > 0 {
-            parameters.visiblePath = UIBezierPath(roundedRect: shown.bounds, cornerRadius: shown.layer.cornerRadius)
-        }
+        parameters.visiblePath = Self.rounded(shown)
         guard let target = Self.target(shown) else { return nil }
         return UITargetedPreview(view: shown, parameters: parameters, target: target)
+    }
+
+    /// `view`'s outline in its own coordinates where its corners are rounded,
+    /// else nil. One radius, round or Apple's continuous, is UIKit's own
+    /// rounded rectangle, which UIKit keeps through the lift's morph: UIKit
+    /// applies any other path only after the morph's first frames, which show
+    /// the node square (measured, iOS 27.1). One radius within the tolerance the
+    /// layer's own (`applyBoxLayer`) has.
+    private static func rounded(_ view: UIView) -> UIBezierPath? {
+        guard let node = view as? NodeView else {
+            return view.layer.cornerRadius > 0 ? UIBezierPath(roundedRect: view.bounds, cornerRadius: view.layer.cornerRadius) : nil
+        }
+        let corners = node.cornerSizes(in: node.bounds), shape = node.style["corner_shape"]
+        if let corner = corners.first, corner.width > 0, corners.allSatisfy({ abs($0.width - corner.width) < 0.01 && abs($0.height - corner.width) < 0.01 }),
+           shape == nil || CornerShape(shape)?.isAppleContinuous == true {
+            return UIBezierPath(roundedRect: node.bounds, cornerRadius: corner.width)
+        }
+        return corners.contains(where: { $0.width > 0 }) ? node.roundedPath(in: node.bounds) : nil
     }
 
     /// A run's lines where the screen shows them in `container`: their boxes,
     /// and their outline as UIKit outlines text lines, with the padding UIKit
     /// gives them (`UIPreviewParameters(textLineRects:)`), in the coordinates of
-    /// the outline's area.
+    /// the outline's area. The outline is cut to the box the run sits in
+    /// (`box`) where the padding reaches past it, so the lift holds none of what
+    /// lies outside the box, such as the page around a card.
     private struct RunLines {
         let boxes: [CGRect], outline: UIBezierPath, area: CGRect, container: UIView
+        /// The layer the outline was cut to, which covers all of it
+        let box: CALayer?
 
         /// Nil where the run shows no lines.
         init?(_ run: InlineText, in source: NodeView, over container: UIView) {
             let boxes = source.inlineRects(run).map { source.convert($0, to: container) }.filter { !$0.isEmpty }
-            guard let outline = UIPreviewParameters(textLineRects: boxes.map { NSValue(cgRect: $0) }).visiblePath?.copy() as? UIBezierPath,
+            guard var outline = UIPreviewParameters(textLineRects: boxes.map { NSValue(cgRect: $0) }).visiblePath?.copy() as? UIBezierPath,
                   !outline.bounds.isEmpty else { return nil }
+            var cutTo: CALayer?
+            if let box = ContextMenuHost.box(of: source, below: container), !ContextMenuHost.covers(box.layer, outline.bounds, in: container.layer) {
+                let shape = ContextMenuHost.rounded(box) ?? UIBezierPath(rect: box.bounds)
+                shape.apply(ContextMenuHost.placement(of: box, in: container))
+                let cut = outline.cgPath.intersection(shape.cgPath)
+                if !cut.boundingBoxOfPath.isEmpty { (outline, cutTo) = (UIBezierPath(cgPath: cut), box.layer) }
+            }
             let area = outline.bounds
             outline.apply(CGAffineTransform(translationX: -area.minX, y: -area.minY))
-            (self.boxes, self.outline, self.area, self.container) = (boxes, outline, area, container)
+            (self.boxes, self.outline, self.area, self.container, self.box) = (boxes, outline, area, container, cutTo)
         }
 
         /// The lines' place, where a preview of them rises and returns
         var target: UIPreviewTarget { UIPreviewTarget(container: container, center: CGPoint(x: area.midX, y: area.midY)) }
+    }
+
+    /// The box a paragraph's runs sit in, below `container`: the paragraph
+    /// itself where it paints a fill or a background image, else the nearest
+    /// ancestor that does or that clips what it holds.
+    private static func box(of paragraph: NodeView, below container: UIView) -> UIView? {
+        sequence(first: paragraph as UIView, next: { $0.superview }).prefix(while: { $0 !== container }).first { view in
+            let node = view as? NodeView
+            let paints = (view.layer.backgroundColor?.alpha ?? 0) > 0 || node?.style["background_image"] != nil
+            return paints || view !== paragraph && (view.layer.masksToBounds || node?.overflowClips == true)
+        }
+    }
+
+    /// The transform from `view`'s coordinates to `container`'s: from its
+    /// bounds' origin, along its axes as they land in the container.
+    private static func placement(of view: UIView, in container: UIView) -> CGAffineTransform {
+        let b = view.bounds.origin
+        let o = view.convert(b, to: container), x = view.convert(CGPoint(x: b.x + 1, y: b.y), to: container), y = view.convert(CGPoint(x: b.x, y: b.y + 1), to: container)
+        return CGAffineTransform(translationX: -b.x, y: -b.y).concatenating(CGAffineTransform(a: x.x - o.x, b: x.y - o.y, c: y.x - o.x, d: y.y - o.y, tx: o.x, ty: o.y))
     }
 
     /// A run's preview: a picture of its lines (`picture`), cut to their
@@ -563,11 +596,11 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
     private static func padding(_ lines: RunLines, of source: NodeView) -> UIView? {
         let container = lines.container, area = lines.area
         guard !source.boxDrawn, source.layer.borderWidth == 0, let parent = source.superview else { return nil }
-        // From the nearest view under the paragraph that covers the area opaquely: nothing behind it shows
+        // From the nearest view under the paragraph that covers the outline opaquely: nothing behind it shows
         let root = sequence(first: parent, next: { $0.superview }).first {
-            $0.layer.opacity >= 1 && ($0.layer.backgroundColor?.alpha ?? 0) >= 1 && covers($0.layer, area, in: container.layer)
+            $0.layer.opacity >= 1 && ($0.layer.backgroundColor?.alpha ?? 0) >= 1 && ($0.layer === lines.box || covers($0.layer, area, in: container.layer))
         } ?? source.window ?? container
-        switch underneath(root.layer, across: area, in: container.layer, exceptFor: source.layer) {
+        switch underneath(root.layer, across: area, in: container.layer, exceptFor: source.layer, within: lines.box) {
         case .renderServer:
             return nil
         case .color(let color):
@@ -576,9 +609,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
             return padding
         case .layers(let outside):
             // The root's coordinates in the container's, from its bounds' origin, which `render(in:)` draws at the context's
-            let b = root.bounds.origin
-            let o = root.convert(b, to: container), x = root.convert(CGPoint(x: b.x + 1, y: b.y), to: container), y = root.convert(CGPoint(x: b.x, y: b.y + 1), to: container)
-            let placement = CGAffineTransform(a: x.x - o.x, b: x.y - o.y, c: y.x - o.x, d: y.y - o.y, tx: o.x, ty: o.y)
+            let placement = Self.placement(of: root, in: container).translatedBy(x: root.bounds.minX, y: root.bounds.minY)
             let radius = source.layer.cornerRadius
             var corners: UIRectCorner = []
             for (masked, corner) in [(CACornerMask.layerMinXMinYCorner, UIRectCorner.topLeft), (.layerMaxXMinYCorner, .topRight), (.layerMinXMaxYCorner, .bottomLeft), (.layerMaxXMaxYCorner, .bottomRight)]
@@ -637,13 +668,14 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
     /// `root`'s layers in the order they are composited. A layer counts as only its fill where
     /// it is sure to paint nothing else; the color is flat where every fill
     /// there, from the last opaque one that covers the whole area up, covers it
-    /// too, at full opacity. Anything else is drawn, never guessed.
-    private static func underneath(_ root: CALayer, across area: CGRect, in space: CALayer, exceptFor paragraph: CALayer) -> Underneath {
+    /// too, at full opacity. The box the outline was cut to (`box`) covers all
+    /// that shows. Anything else is drawn, never guessed.
+    private static func underneath(_ root: CALayer, across area: CGRect, in space: CALayer, exceptFor paragraph: CALayer, within box: CALayer?) -> Underneath {
         var flat = false, fills: [CGColor] = [], outside: [CALayer] = [], reordered = false
         func paint(_ layer: CALayer, opacity: Float) {
             if layer !== paragraph, paintsBeyondItsFill(layer) { flat = false; return }
             guard let fill = layer.backgroundColor, fill.alpha > 0 else { return }
-            let whole = opacity >= 1 && covers(layer, area, in: space)
+            let whole = opacity >= 1 && (layer === box || covers(layer, area, in: space))
             if whole, fill.alpha >= 1 { fills = [fill]; flat = true } else if whole, flat { fills.append(fill) } else { flat = false }
         }
         // Nil where the render server alone draws something of `layer`'s in the area; else whether any of it lies there
