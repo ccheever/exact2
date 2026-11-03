@@ -101,6 +101,27 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
   };
 }
 
+/** Whether each of `appVerbs`' verbs runs app.json's `before_build` first: those that build, run, compile or check the
+ * app, and so read what it makes (a fetched asset, a generated source). A verb whose arguments decide is a test of
+ * them; `test` and `agent` prepare in `run`, where they build first. */
+export const beforeBuild = {
+  status: false, web: true, 'web-build': true, serve: true, test: false, agent: false, verify: true, ios: true, mac: true, share: true,
+  linux: true, windows: true, android: true, update: false, lock: false, hatch: false, snapback: true, backend: false, docs: false,
+  feedback: false,
+  contract: ([command, ...rest]) => ['build', 'types', 'rust', 'verify', 'test', 'lean', 'symbols', 'gallery'].includes(command)
+    || command === 'tamber' && checksDesign(rest),
+  tamber: (rest) => checksDesign(rest),
+  pattern: (rest) => rest.some((arg) => !arg.startsWith('-')),
+  // A game's own: its compile, Rust tests and proof prepare; `shells` writes .shells/ without a build
+  check: true, game: false, 'test-rust': true, shells: false, prove: true,
+};
+
+/** The Tamber commands that compile the app's design: its check, evaluation, IR and generated code, the tokens it
+ * imports from CSS, which it checks, and the design it serves (`tool` without `--via`, which reaches the app's dev loop
+ * instead). */
+const checksDesign = ([command, ...rest]) => ['check', 'eval', 'ir', 'gen', 'serve'].includes(command)
+  || command === 'import' && rest[0] === 'css' || command === 'tool' && !rest.includes('--via');
+
 /** `bun exact.mjs <verb> [arguments]` for the app `name` in `dir`, with the checkout `exact2`; the exit code. */
 export async function run({ dir, name, game = false, exact2, args }) {
   // Before any process starts: which settings Bun loaded from this directory's `.env` files (LLP 1153 D4).
@@ -122,7 +143,8 @@ export async function run({ dir, name, game = false, exact2, args }) {
   // `commands`, each a command as argv (`"seed": ["bun", "seed.mjs"]`), run in the app's directory with the
   // arguments after the verb. A game's app.json is optional.
   const manifest = resolve(dir, 'app.json');
-  const own = (existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')).commands : null) ?? {};
+  const declared = existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')) : {};
+  const own = declared.commands ?? {};
   const clash = Object.keys(own).find((name) => verbs[name]);
   if (clash) {
     console.error(`app.json commands.${clash}: ${clash} is one of exact.mjs's own verbs; give the app's another name`);
@@ -153,6 +175,7 @@ export async function run({ dir, name, game = false, exact2, args }) {
   // checkout without it).
   const feedback = verb === 'feedback' ? null : await import(resolve(exact2, 'scripts/feedback-note.mjs')).catch(() => null);
   let interrupted = false;
+  let stopped = null; // the first signal passed on to a child
   const started = Date.now();
   // The diary's command log (exact2's docs/diary.md): which exact2, what ran, how it ended. No arguments.
   const log = (exit) => { if (verb !== 'feedback') try {
@@ -180,14 +203,14 @@ export async function run({ dir, name, game = false, exact2, args }) {
   // The automatic build reports on stderr, so a drive's stdout stays its reply (`--json`).
   // The child ends with this process: a signal here is passed on, and a dev server
   // stops when this process is gone however it ended (`EXACT_LAUNCHER_PID`).
-  const spawned = (command, args, stdio = 'inherit', cwd = undefined, piped = () => {}) => new Promise((done) => {
+  const spawned = (command, args, stdio = 'inherit', cwd = undefined, piped = () => {}, env = {}) => new Promise((done) => {
     const child = spawn(command, args, {
       stdio,
       cwd,
-      env: { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1', EXACT_APP_DIR: dir, EXACT2: exact2, EXACT_LAUNCHER_PID: String(process.pid) },
+      env: { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1', EXACT_APP_DIR: dir, EXACT2: exact2, EXACT_LAUNCHER_PID: String(process.pid), ...env },
     });
     piped(child);
-    const pass = (signal) => { interrupted = true; child.kill(signal); }, signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+    const pass = (signal) => { interrupted = true; stopped ??= signal; child.kill(signal); }, signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
     for (const signal of signals) process.on(signal, pass);
     child.on('error', () => done(1));
     child.on('exit', (code, signal) => {
@@ -198,6 +221,50 @@ export async function run({ dir, name, game = false, exact2, args }) {
     });
   });
   const script = ([file, ...args], more = [], stdio = 'inherit') => spawned(process.execPath, [resolve(exact2, file), ...args, ...more], stdio);
+  const bun = (command) => command === 'bun' ? process.execPath : command;
+  // A flag the command's script refuses (scripts/help.mjs), refused here first so that the refusal comes before any work
+  const refusedFlag = async () => (await import(resolve(exact2, 'scripts/help.mjs')).catch(() => null))?.guardFlags(verb, rest, { exit: (code) => ({ code }) })?.code;
+  // app.json's `before_build`, before a command that builds: with no input and its output on stderr, so a drive's
+  // stdout stays its reply. `contract build`, `share` and `verify` under `--json` report a failure on stdout, in their
+  // own shapes and with status 1; `contract build --json`, which writes nothing else anywhere, drops the output too. A
+  // signal passed to it stops the command even if it then exits 0. exact.mjs run inside it (`EXACT_BEFORE_BUILD`)
+  // prepares nothing.
+  const jsonFailure = !rest.includes('--json') ? null
+    : verb === 'contract' && rest[0] === 'build' ? (message) => [{ id: 'app-before-build', severity: 'error', message, file: manifest, line: 0, col: 0, end_col: 0, related: [] }]
+    : verb === 'share' ? (message) => ({ code: 'before_build', error: message })
+    : verb === 'verify' ? (message) => ({ error: message, exit: 1 })
+    : null;
+  const quiet = verb === 'contract' && jsonFailure != null;
+  const prepare = async () => {
+    const before = declared.before_build;
+    if (before === undefined || process.env.EXACT_BEFORE_BUILD) return 0;
+    const refuse = (code, message) => {
+      if (!jsonFailure) { console.error(message); return code; }
+      console.log(JSON.stringify(jsonFailure(message)));
+      return 1;
+    };
+    if (!(Array.isArray(before) && before.length && before.every((part) => typeof part === 'string' && part))) {
+      return refuse(2, `app.json before_build is ${JSON.stringify(before)}; it must be a command as argv, such as ["bun", "scripts/fetch.mjs"], so ${verb} did not run`);
+    }
+    const [command, ...args] = before;
+    let failed = null, output = '';
+    const ended = [];
+    const code = await spawned(bun(command), args, quiet ? ['ignore', 'pipe', 'pipe'] : ['ignore', 2, 2], dir, (child) => {
+      child.on('error', (e) => { failed = e; });
+      if (quiet) for (const stream of [child.stdout, child.stderr]) {
+        stream.setEncoding('utf8');
+        stream.on('data', (chunk) => { output += chunk; });
+        ended.push(new Promise((done) => stream.on('end', done)));
+      }
+    }, { EXACT_BEFORE_BUILD: '1' });
+    if (stopped) return code || 128 + (constants.signals[stopped] ?? 0);
+    if (failed) return refuse(1, `app.json before_build ${JSON.stringify(before)} could not start in ${dir} (${failed.message}): install ${command} or put it on PATH, so ${verb} did not run`);
+    // Its last lines, which may arrive after its exit
+    await Promise.all(ended);
+    const said = quiet ? `: ${output.trim().split('\n').slice(-5).join('\n')}` : jsonFailure ? '; what it said is on stderr' : '; what it said is above';
+    if (code) return refuse(code, `app.json before_build ${JSON.stringify(before)} exited ${code} in ${dir}, so ${verb} did not run${said}`);
+    return 0;
+  };
 // exact.mjs runs from any directory, and a file argument is found where you are, else in the app: `app.contract`
 // from the app's parent, `app/app.contract` from inside it (app farm wave 1: 13 builds ran one or the other). Each
 // file found in the app is said, with the app's directory; one found nowhere is named before the command runs.
@@ -256,11 +323,13 @@ if (verb === 'contract') {
   if (drivesWeb || drivesNative) {
     // A flag the drive does not take is refused before the build, not after it (scripts/help.mjs).
     // Its refusal ends here, so the command is logged like any other.
-    const refused = (await import(resolve(exact2, 'scripts/help.mjs')).catch(() => null))?.guardFlags(verb, rest, { exit: (code) => ({ code }) });
-    if (refused?.code != null) return log(refused.code);
+    const refused = await refusedFlag();
+    if (refused != null) return log(refused);
     // A server entry that does not read DB is refused before the build too, not after it (verify.mjs `withAppServer`, LLP 1116.008 D1).
     const refusal = verb === 'test' ? (await import(resolve(exact2, 'scripts/verify.mjs'))).appServer(dir)?.refusal : null;
     if (refusal) { console.error(`test: ${refusal}`); return log(1); }
+    const prepared = await prepare();
+    if (prepared) return log(prepared);
     // An `agent` drive's check hashes the build's inputs, and the driver need not again (LLP 1012.001.000 D1: once a drive).
     const checked = verb === 'agent' && drivesNative ? resolve(tmpdir(), `exact-build-check-${process.pid}`) : null;
     if (checked) process.env.EXACT_BUILD_CHECK_OUT = checked;
@@ -270,12 +339,24 @@ if (verb === 'contract') {
     if (checked) { delete process.env.EXACT_BUILD_CHECK_OUT; try { process.env.EXACT_BUILD_CHECKED = readFileSync(checked, 'utf8'); rmSync(checked); } catch {} }
     if (built) return log(built);
   }
+  // A verb that builds, runs, compiles or checks the app prepares first (`beforeBuild`); a drive prepared above. An
+  // app's own command keeps its name (a game's verify, an app's check) and prepares nothing.
+  const prepares = beforeBuild[verb];
+  if (declared.before_build !== undefined && !own[verb] && (typeof prepares === 'function' ? prepares(rest) : prepares)) {
+    // The verbs whose scripts refuse a flag they do not take (`guardFlags`)
+    if (['web', 'web-build', 'serve', 'verify', 'ios', 'mac', 'linux', 'android', 'snapback', 'pattern', 'share'].includes(verb)) {
+      const refused = await refusedFlag();
+      if (refused != null) return log(refused);
+    }
+    const prepared = await prepare();
+    if (prepared) return log(prepared);
+  }
   if (verb === 'contract' && rest[0] === 'build' && existsSync(manifest) && existsSync(resolve(exact2, 'snapback4/web/device-build.mjs'))) {
     const app = { dir, manifest: JSON.parse(readFileSync(manifest, 'utf8')) };
     const { devicePreflight } = await import(resolve(exact2, 'snapback4/web/device-build.mjs'));
     await devicePreflight(app);
   }
-  if (own[verb]) { const [command, ...args] = own[verb]; return log(await spawned(command === 'bun' ? process.execPath : command, [...args, ...rest], 'inherit', dir)); }
+  if (own[verb]) { const [command, ...args] = own[verb]; return log(await spawned(bun(command), [...args, ...rest], 'inherit', dir)); }
   // A drive on iOS shows UIKit's bars, as the app and verify do (`--chrome agent` paints the authored header and
   // tablist instead), and an Apple drive's screenshots are a pixel a point: a third of an iPhone's pixels each
   // way, about a third of the tokens an agent reads a picture for (`--scale 3`: the device's). A phone's drive too,
