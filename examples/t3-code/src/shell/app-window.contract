@@ -390,6 +390,7 @@ component T3Window
     titleSend: action
   provide
     guideKeysBlocked = paletteOpen or modal or settingsOpen
+    windowPresses = outsidePresses // primary presses in the window so far, counted at their release
     dialogFocusId
     dialogMenuEntered
     dialogOpener

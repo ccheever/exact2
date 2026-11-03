@@ -316,3 +316,22 @@ describe('image-only messages', () => {
     }
   });
 });
+
+// TimelineRowTimestamp's group-focus-within/timeline-row: Chromium focuses a pressed button, so the time stays shown
+// after a press until the next press in the window, which the window's press count stands in for (LLP 1115.000 D7.1).
+describe('a work row\'s time after a press', () => {
+  const { contractComponent } = require('../support/contract-action-fixture') as typeof import('../support/contract-action-fixture');
+  for (const [component, down] of [['TimelineContent', 'workDown'], ['WorkGroupHeader', 'down']] as const) {
+    test(`${component}: shown from the press until the next one, and while the button has the focus`, () => {
+      const row = contractComponent('timeline.contract', component), state = row.state();
+      const shown = (windowPresses: number, extra = {}) => {
+        const derived = row.derives({ ...state, ...extra }, { hovering: false, windowPresses, message: {} });
+        return derived.timeShown ?? derived.hovering;
+      };
+      expect(shown(4)).toBe(false);
+      row.call(down, state, { windowPresses: 4 }, []);
+      expect([shown(4), shown(5), shown(6)]).toEqual([true, true, false]);
+      expect(shown(9, { focused: true })).toBe(true);
+    });
+  }
+});

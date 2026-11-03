@@ -58,8 +58,9 @@ shape ComposerChipFace
 // text is its kind's accent raised to 5:1 on the theme (the face's `ink`, shared/chip-accents.ts); an unresolved chip
 // takes the field's text. It has no padding and `rounded-sm` corners; its name underlines under the pointer
 // (ContextChipLabel); selected as a node, the editor rings it in `--ring` (index.css `.ProseMirror-selectednode`, the
-// default theme's focus colour here), keeping its ink and the selection's highlight under it.
-atom citation link="t3-citation:" color="light-dark(#18181b, #f5f5f5)" background-color="#00000000" padding-inline="0" border-radius="4px"
+// default theme's focus colour here), keeping its ink and the selection's highlight under it. Its icon is 1em square,
+// 0.2em before its name ([&_svg]:size-[1em], gap-[0.2em]).
+atom citation link="t3-citation:" color="light-dark(#18181b, #f5f5f5)" background-color="#00000000" padding-inline="0" border-radius="4px" -exact-icon-size="1em" gap="0.2em"
   :hover
     text-decoration-line="underline"
   :checked
@@ -68,7 +69,7 @@ atom citation link="t3-citation:" color="light-dark(#18181b, #f5f5f5)" backgroun
     border-radius="6px"
     color="light-dark(#18181b, #f5f5f5)"
     background-color="#00000000"
-atom context link="t3-context:" color="light-dark(#18181b, #f5f5f5)" background-color="#00000000" padding-inline="0" border-radius="4px"
+atom context link="t3-context:" color="light-dark(#18181b, #f5f5f5)" background-color="#00000000" padding-inline="0" border-radius="4px" -exact-icon-size="1em" gap="0.2em"
   :hover
     text-decoration-line="underline"
   :checked
@@ -77,7 +78,7 @@ atom context link="t3-context:" color="light-dark(#18181b, #f5f5f5)" background-
     border-radius="6px"
     color="light-dark(#18181b, #f5f5f5)"
     background-color="#00000000"
-atom file link="relative" color="light-dark(#18181b, #f5f5f5)" background-color="#00000000" padding-inline="0" border-radius="4px"
+atom file link="relative" color="light-dark(#18181b, #f5f5f5)" background-color="#00000000" padding-inline="0" border-radius="4px" -exact-icon-size="1em" gap="0.2em"
   :hover
     text-decoration-line="underline"
   :checked
@@ -86,7 +87,7 @@ atom file link="relative" color="light-dark(#18181b, #f5f5f5)" background-color=
     border-radius="6px"
     color="light-dark(#18181b, #f5f5f5)"
     background-color="#00000000"
-atom mention prefix="@" color="light-dark(#18181b, #f5f5f5)" background-color="#00000000" padding-inline="0" border-radius="4px"
+atom mention prefix="@" color="light-dark(#18181b, #f5f5f5)" background-color="#00000000" padding-inline="0" border-radius="4px" -exact-icon-size="1em" gap="0.2em"
   :hover
     text-decoration-line="underline"
   :checked
@@ -95,7 +96,7 @@ atom mention prefix="@" color="light-dark(#18181b, #f5f5f5)" background-color="#
     border-radius="6px"
     color="light-dark(#18181b, #f5f5f5)"
     background-color="#00000000"
-atom skill prefix="$¢£¤¥֏؋߾߿৲৳৻૱௹฿៛₠₡₢₣₤₥₦₧₨₩₪₫€₭₮₯₰₱₲₳₴₵₶₷₸₹₺₻₼₽₾₿⃀⃁꠸﷼﹩＄￠￡￥￦𑿝𑿞𑿟𑿠𞋿𞲰" color="light-dark(#18181b, #f5f5f5)" background-color="#00000000" padding-inline="0" border-radius="4px"
+atom skill prefix="$¢£¤¥֏؋߾߿৲৳৻૱௹฿៛₠₡₢₣₤₥₦₧₨₩₪₫€₭₮₯₰₱₲₳₴₵₶₷₸₹₺₻₼₽₾₿⃀⃁꠸﷼﹩＄￠￡￥￦𑿝𑿞𑿟𑿠𞋿𞲰" color="light-dark(#18181b, #f5f5f5)" background-color="#00000000" padding-inline="0" border-radius="4px" -exact-icon-size="1em" gap="0.2em"
   :hover
     text-decoration-line="underline"
   :checked

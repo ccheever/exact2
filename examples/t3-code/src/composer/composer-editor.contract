@@ -313,8 +313,10 @@ component ComposerGlass
 // the card's edges, its last 17pt (the seam) under the card. Nothing in the
 // transcript or the composer moves when it opens, and the banners stay under it.
 // app-main.contract paints it after the composer overlay (banners
-// and card together), so the layer ends at the card's top and clips its seam
-// (margin-bottom -17 inside overflow hidden), which the card covered before.
+// and card together), so the layer clips its seam (margin-bottom -16 inside
+// overflow hidden), which the card covered before. It ends 1pt inside the
+// card, over the card's top border: the reference masks its surface 16pt
+// short of the 17pt seam, so the surface covers that border's pixel row.
 // The layer carries the surface's backdrop blur: a blur sees its parent's
 // subtree, here the chat column with the transcript and the overlay.
 component ComposerDrawerLayer
@@ -326,8 +328,8 @@ component ComposerDrawerLayer
     op: action
   view
     if editor.drawer.placed and editor.drawer.width > 2.75 * rem and (editor.menu.open or editor.stash.menuOpen)
-      column position="absolute" left=(editor.drawer.left + 1.375 * rem) width=(editor.drawer.width - 2.75 * rem) bottom=editor.drawer.bottom overflow="hidden" border-top-left-radius="1rem" border-top-right-radius="1rem" backdrop-filter=(dark ? "blur(16px)" : "blur(12px)") testId="composer-drawer-layer"
-        column width="100%" margin-bottom="-1.0625rem" flex-shrink=0
+      column position="absolute" left=(editor.drawer.left + 1.375 * rem) width=(editor.drawer.width - 2.75 * rem) bottom=(editor.drawer.bottom - 1) overflow="hidden" border-top-left-radius="1rem" border-top-right-radius="1rem" backdrop-filter=(dark ? "blur(16px)" : "blur(12px)") testId="composer-drawer-layer"
+        column width="100%" margin-bottom="-1rem" flex-shrink=0
           if editor.menu.open
             ComposerCommandMenu(menu=editor.menu, dark=dark, listMax=editor.drawer.listMax, layered=true, op=op)
           else

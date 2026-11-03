@@ -39,7 +39,7 @@ use ThreadNowLine, QueuedTurn, QueuedMore from "../composer/thread-end.contract"
 
 // The bottom padding each row kind keeps (TimelineRowContent and WorkLogBlock).
 // The gap under a row in px at the root size 16; the row lays it out in rem (Interface font size).
-fn rowGap(kind: string, continues: bool, expanded: bool, actions: bool, attached: bool, meta: bool): number = kind == "fork" ? 8 : kind == "status" or kind == "thread-now" or kind == "queued" or kind == "queued-more" ? 0 : kind == "user" or kind == "workflow" or actions or attached ? 16 : kind == "entry" or kind == "live" or kind == "group" or kind == "thinking" ? (continues or expanded ? 0 : 8) : kind == "details" ? (continues ? 0 : 4) : kind == "work" or kind == "working" ? 6 : kind == "assistant" ? (meta ? 0 : 8) : kind == "plan" ? 0 : kind == "checkpoint" ? 0 : kind == "compaction" or kind == "meta" ? 16 : kind == "subagents" ? 0 : 8
+fn rowGap(kind: string, continues: bool, expanded: bool, actions: bool, attached: bool, meta: bool): number = kind == "fork" ? 8 : kind == "status" or kind == "thread-now" or kind == "queued" or kind == "queued-more" ? 0 : kind == "user" or kind == "workflow" or actions or attached ? 16 : kind == "entry" or kind == "live" or kind == "group" or kind == "thinking" ? (continues or expanded ? 0 : 8) : kind == "details" ? (continues ? 0 : 4) : kind == "work" or kind == "working" ? 6 : kind == "assistant" ? (meta ? 0 : 8) : kind == "plan" ? 16 : kind == "checkpoint" ? 0 : kind == "compaction" or kind == "meta" ? 16 : kind == "subagents" ? 0 : 8
 
 // MessagesTimeline formatWorkingTimer: whole seconds, then formatDuration's "1m 5s".
 fn workingTimer(seconds: number): string = seconds < 60 ? `${seconds}s` : `${seconds >= 3600 ? floor(seconds / 3600).toString() + "h " : ""}${floor(seconds % 3600 / 60) > 0 ? floor(seconds % 3600 / 60).toString() + "m " : ""}${seconds % 60 > 0 ? (seconds % 60).toString() + "s" : ""}`.trim()
@@ -467,6 +467,8 @@ component TreeStat
       text file.minus width="1.505rem" text-align="right" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.625rem" line-height="0.875rem" font-variant-numeric="tabular-nums" color=(diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#c10007, #ff6467)")
 
 component TimelineContent
+  inject
+    windowPresses: number
   props
     documents: ChatDocument[]
     message: Message
@@ -481,6 +483,15 @@ component TimelineContent
     diffScheme: string
     // The answer's signed media URLs.
     attachments: AttachmentUrl[]
+  // A work summary's time also shows while its button has the focus (group-focus-within/timeline-row), as in
+  // WorkGroupHeader: after a press, until the next press anywhere in the window.
+  state pressedAt = -2
+  state focused = false
+  action workDown
+    pressedAt = windowPresses
+  action workFocus(value: bool)
+    focused = value
+  derive timeShown = hovering or focused or windowPresses <= pressedAt + 1
   view
     column width="100%"
       for card in message.secret key=`${card.key}:${card.submitted}`
@@ -501,12 +512,12 @@ component TimelineContent
           if message.kind == "work"
             column width="100%"
               row width="100%" padding-top="0.25rem" padding-bottom="0.5rem" padding-right="0.125rem" box-sizing="border-box" gap="0.25rem" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)"
-                button press=local("fold", message.groupId, "") testId=`activity-${message.id}` aria-expanded=message.expanded padding-left="0.25rem" padding-right="0.25rem" padding-top=0 padding-bottom=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.25rem"
+                button pointerdown=workDown focus=workFocus(true) blur=workFocus(false) press=local("fold", message.groupId, "") testId=`activity-${message.id}` aria-expanded=message.expanded padding-left="0.25rem" padding-right="0.25rem" padding-top=0 padding-bottom=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.25rem"
                   text message.title font-size="0.875rem" line-height="1.421875rem" color=(hovering ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)") line-clamp=1 font-variant-numeric="tabular-nums"
                   Icon(name=(message.expanded ? "chevron" : "right"), size=14, color=(hovering ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"))
                 box flex=1 min-width=0
-                RowTip(label=(hovering ? message.timeTip : ""), side="top", align="center", offset=20, shown=(part == "time"), hover=hoverPart(message.hoverKey, "time"))
-                  text message.timestamp font-size="0.75rem" line-height="1rem" margin-right="0.25rem" color="light-dark(#71717b, #a1a1a1)" opacity=(hovering ? 1 : 0)
+                RowTip(label=(timeShown ? message.timeTip : ""), side="top", align="center", offset=20, shown=(part == "time"), hover=hoverPart(message.hoverKey, "time"))
+                  text message.timestamp font-size="0.75rem" line-height="1rem" margin-right="0.25rem" color="light-dark(#71717b, #a1a1a1)" opacity=(timeShown ? 1 : 0)
           else
             if message.kind == "working"
               column width="100%" padding-top="0.25rem" padding-bottom="0.5rem" box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)"
@@ -638,6 +649,8 @@ component ThreadStatusLine
 
 // WorkGroupHeader: the group's icon (its tools' image, else the summary glyph) and sentence, hover time.
 component WorkGroupHeader
+  inject
+    windowPresses: number
   props
     message: Message
     local: action
@@ -645,9 +658,18 @@ component WorkGroupHeader
   state over = ""
   action hover(id: string, value: bool)
     over = value ? id : (over == id ? "" : over)
-  derive hovering = over != ""
+  // The time also shows while the row has the focus (group-focus-within). Chromium focuses a pressed button, so it
+  // stays shown after a press until the next press anywhere moves the focus; on the Mac a pressed button takes no
+  // focus (LLP 1115.000 D7.1), so the press's place in the window's count of presses stands in for it.
+  state pressedAt = -2
+  state focused = false
+  action down
+    pressedAt = windowPresses
+  action focusChanged(value: bool)
+    focused = value
+  derive hovering = over != "" or focused or windowPresses <= pressedAt + 1
   view
-    button hover=hover("row") press=local("group", message.groupId, "") testId=`group-${message.id}` aria-label=(message.failed ? `${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height="1.75rem" padding="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+    button hover=hover("row") pointerdown=down focus=focusChanged(true) blur=focusChanged(false) press=local("group", message.groupId, "") testId=`group-${message.id}` aria-label=(message.failed ? `${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height="1.75rem" padding="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
       for keyed in message.activities key=keyed.id
         WorkLine(icon=message.icon, label=keyed.label, failed=false, highlighted=false, tone="", answer="", strong=false, iconLight=keyed.iconLight, iconDark=keyed.iconDark)
       // TimelineRowTimestamp: the full date in a tooltip once the time shows. Hidden, it takes no pointer
