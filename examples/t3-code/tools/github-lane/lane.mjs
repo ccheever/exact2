@@ -21,7 +21,8 @@ export function serverCommand() {
   const chosen = process.env.T3_LANE_SERVER;
   if (chosen) return chosen.endsWith(".mjs") || chosen.endsWith(".js") ? [process.env.T3_LANE_NODE || Bun.which("node") || "node", chosen] : [chosen];
   const pin = JSON.parse(readFileSync(join(example, "server-runtime/runtime-pin.json"), "utf8"));
-  const tree = join(paths.runtime, pin.version), t3 = join(tree, "t3");
+  // Named by its archive: two archives can carry one version (a build of an unreleased commit).
+  const tree = join(paths.runtime, pin.asset.replace(/\.tar\.gz$/, "")), t3 = join(tree, "t3");
   if (!existsSync(t3)) {
     const archive = join(example, "server-runtime", pin.asset);
     if (!existsSync(archive)) throw new Error(`no staged server: run \`bun examples/t3-code/tools/stage-runtime/stage-runtime.mjs\` first, or set T3_LANE_SERVER`);

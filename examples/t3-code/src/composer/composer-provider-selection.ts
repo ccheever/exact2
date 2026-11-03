@@ -28,6 +28,7 @@ export const NO_PROVIDER_INSTANCE_ID = 't3code_no_provider';
 export const DEFAULT_MODEL = 'gpt-6-astra';
 export const ANTIGRAVITY_DEFAULT_MODEL = 'antigravity-default';
 export const DEFAULT_MODEL_BY_PROVIDER: Record<string, string> = {
+  // kiro: "default" keeps the Kiro session's current model; its real models come from its `model` config option.
   codex: DEFAULT_MODEL, claudeAgent: 'claude-opus-5-5', cursor: 'auto', grok: 'grok-build', fx: 'default', kiro: 'default', muse: 'default', acpRegistry: 'default',
   pi: 'default', opencode: 'openai/gpt-5', antigravity: ANTIGRAVITY_DEFAULT_MODEL,
 };

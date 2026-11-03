@@ -4,6 +4,7 @@
 // connection/compatibility.ts, supervisor.ts retryDelayMs, rpc/client.ts's expected-failure
 // retry; authorization/remote.ts bootstrapRemoteBearerSession; connection/errors.ts
 // mapRemoteEnvironmentError). Effect itself is not imported: its runtime reads the clock, which a data module refuses.
+import { disallowedProviderMessage } from '../client/managed-policy';
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type Frame = Record<string, unknown>;
@@ -202,6 +203,16 @@ function assetNotFoundContext(value: Record<string, unknown>): Record<string, st
   return Object.fromEntries(Object.entries({ resourceTag: text(resource._tag), resourcePath: text(resource.path), checkedPath: text(value.checkedPath) }).filter(([, field]) => field));
 }
 
+/** ServerSettingsError's message getter (contracts settings.ts), the managed policy's two refusals included. */
+function serverSettingsFailure(field: (key: string) => string): string {
+  const operation = field('operation');
+  if (operation === 'write-managed-setting') return `${field('managedSetting') || 'This setting'} is managed by ${field('managedBy') || 'your organization'} and cannot be changed.`;
+  if (operation === 'use-disallowed-provider') return disallowedProviderMessage(field('managedBy') || undefined, field('providerLabel') || field('providerInstanceId') || 'this');
+  const provider = field('providerInstanceId') ? ` for provider ${field('providerInstanceId')}` : '';
+  const variable = field('environmentVariable') ? ` and environment variable ${field('environmentVariable')}` : '';
+  return `Server settings ${operation} failed${provider}${variable} at ${field('settingsPath')}.`;
+}
+
 function typed(value: unknown): TransportFailure {
   if (!isObject(value)) return failure(value);
   const tag = text(value._tag) || text(value.name) || 'RPC';
@@ -229,8 +240,10 @@ function typed(value: unknown): TransportFailure {
   // PreviewStopLocalServerError's and ServerPrepareTriageError's messages are getters (contracts preview.ts, server.ts).
   if (!message && tag === 'PreviewStopLocalServerError') message = STOP_LOCAL_SERVER_FAILURE_MESSAGES[field('reason')] ?? '';
   if (!message && tag === 'ServerPrepareTriageError') message = 'Could not write the triage session files.';
-  // So is OrchestrationV2ForceStopThreadError's (contracts orchestrationV2.ts).
+  // So are OrchestrationV2ForceStopThreadError's and OrchestrationV2GetNativeChildWorkError's (contracts orchestrationV2.ts).
   if (!message && tag === 'OrchestrationV2ForceStopThreadError') message = field('reason') === 'superseded' ? 'A new turn started, so nothing was force stopped.' : 'Failed to force stop the agent.';
+  if (!message && tag === 'OrchestrationV2GetNativeChildWorkError') message = "Failed to read the subagent's work.";
+  if (!message && tag === 'ServerSettingsError') message = serverSettingsFailure(field);
   if (!message && field('detail')) message = field('detail');
   if (!message && 'cause' in value) message = failure(value.cause).message;
   if (!message || message === 'The server request failed.') message = `The server refused the request (${tag}).`;
