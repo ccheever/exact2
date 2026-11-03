@@ -11,7 +11,7 @@ const picture = `<picture>
 </picture>`;
 
 test('raw image sources use the same media loader and theme-specific preview as Markdown images', () => {
-  expect(markdownHtmlImages(picture)).toEqual([{ src: 'fallback.png', dark: 'dark.png', light: 'https://example.com/light.png', alt: 'A & B', offset: 0 }]);
+  expect(markdownHtmlImages(picture)).toEqual([{ src: 'fallback.png', dark: 'dark.png', light: 'https://example.com/light.png', alt: 'A & B', offset: 0, inline: false }]);
   const chips = markdownMediaChips(picture, '/repo');
   expect(chips.map(chip => [chip.href, chip.icon, chip.target])).toEqual([
     ['t3-file:fallback.png', 'environment', 'media:/repo/fallback.png'],
@@ -28,7 +28,8 @@ test('sanitization drops forbidden sources and attributes, keeps the first sourc
   expect(markdownHtmlImages(text)[0]?.dark).toBe('');
   expect(markdownGallery({ text, root: '/repo', scope: {} }, 'dark')[0]?.key).toBe('https://example.com/fallback.png');
   expect(markdownMediaChips('<img src="data:image/png;base64,AA" alt="blocked">', '/repo')[0]?.icon).toBe('blocked');
-  expect(markdownHtmlImages('```html\n<img src="code.png">\n```\n\nText <img src="inline.png">\n\n<div><img src="wrapped.png"></div>')).toEqual([]);
+  const kept = markdownHtmlImages('```html\n<img src="code.png">\n```\n\nText <img src="inline.png"> and `<img src="span.png">`\n\n<div><img src="wrapped.png"></div>\n\n<span><img src="literal.png"></span>');
+  expect(kept.map(image => [image.src, image.inline])).toEqual([['inline.png', true], ['wrapped.png', false]]);
   expect(markdownHtmlImages('<img src="a&#38;b.png" src="ignored.png">')[0]?.src).toBe('a&b.png');
 });
 
@@ -36,4 +37,43 @@ test("every chip carries the text directions markdown.contract's ChipView requir
   const chips = messageChips({ type: 'assistant_message', text: `${picture}\n\n[notes](notes.md)` }, '/repo', []);
   expect(chips.length).toBeGreaterThan(1);
   for (const chip of chips) expect([chip.labelDir, chip.quoteDir, chip.commentDir]).toEqual(['ltr', 'ltr', 'ltr']);
+});
+
+// The five cases markdown-parse draws since LLP 1033 D9's amendment (html.rs), each with the href its block or run keeps.
+test('an image inside a line or an element, an open picture, references and data-dark-src are indexed as drawn', () => {
+  const text = [
+    'Before <img src="shots/inline.png" alt="inline"> after.',
+    '',
+    '<div align="center"><img src="shots/div.png" alt="div"></div>',
+    '',
+    '<img src="javascript&colon;alert(1)" alt="&copy; colon">',
+    '',
+    '<img src="shots/light.png" data-dark-src="shots/dark.png" alt="themed">',
+    '',
+    '<picture>',
+    '<source media="(prefers-color-scheme: dark)" srcset="shots/dark.png">',
+    '<img src="shots/light.png" alt="open picture">',
+  ].join('\n');
+  expect(markdownHtmlImages(text).map(image => [image.alt, image.src, image.dark, image.inline])).toEqual([
+    ['inline', 'shots/inline.png', '', true],
+    ['div', 'shots/div.png', '', false],
+    ['\u00a9 colon', '', '', false],
+    ['themed', 'shots/light.png', 'shots/dark.png', false],
+    ['open picture', 'shots/light.png', 'shots/dark.png', false],
+  ]);
+  const chips = markdownMediaChips(text, '/repo');
+  expect(chips.map(chip => [chip.href, chip.icon])).toEqual([
+    // The inline image's media run (markdown_media.rs inline_html_image).
+    ['t3-image:t3-file:shots/inline.png', 'environment'],
+    ['t3-file:shots/div.png', 'environment'],
+    ['', 'blocked'],
+    ['t3-file:shots/light.png', 'environment'],
+    ['t3-file:shots/dark.png', 'environment'],
+  ]);
+  const gallery = (scheme: string) => markdownGallery({ text, root: '/repo', scope: {} }, scheme).map(image => image.key);
+  expect(gallery('dark')).toEqual(['media:/repo/shots/inline.png', 'media:/repo/shots/div.png', 'media:/repo/shots/dark.png', 'media:/repo/shots/dark.png']);
+  expect(gallery('light')).toEqual(['media:/repo/shots/inline.png', 'media:/repo/shots/div.png', 'media:/repo/shots/light.png', 'media:/repo/shots/light.png']);
+  // The end tag after a blank line closes the open picture and draws nothing; a user message keeps HTML literal.
+  expect(markdownHtmlImages('<picture><img src="a.png">\n\n</picture>\n\nText <img src="b.png">').map(image => image.src)).toEqual(['a.png', 'b.png']);
+  expect(markdownMediaChips(text, '/repo', { rawHtml: false })).toEqual([]);
 });

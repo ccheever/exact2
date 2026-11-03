@@ -62,7 +62,8 @@ composer's `$` menu offers the stand-in's skill, Frontend Design:
 
 `seed second --more-turns` adds to `agent-edits`, besides the `--turns` threads: "Second edit awaiting approval" (a
 second approval, so one can be approved and one declined), "Italic answer" (emphasis in prose and a list, for a font's
-italic face) and "Turn held open", whose turn the stand-in holds running until `bun ../acp-standin/install.mjs release
+italic face), "HTML images" (raw HTML `<img>` and `<picture>` in every form the Markdown parser draws, over PNGs the
+stand-in writes under `shots/`) and "Turn held open", whose turn the stand-in holds running until `bun ../acp-standin/install.mjs release
 --home <its t3home>` or a steer or Stop cancels it (for a send while a turn runs). The stand-in's sessions offer a
 reasoning effort select (Low, Medium, High, Max), so its composer shows effort as a word or bars, and "Which effort?"
 replies with the one the turn ran at.

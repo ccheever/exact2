@@ -310,10 +310,12 @@ export function markdownInlineImages(text: string): InlineImage[] {
   }
   return out;
 }
-/** A message's image lines and inline images, each with the href its block or run keeps. */
+/** A message's image lines and inline images, each with the href its block or run keeps: an HTML image block has one
+ *  per theme source, and an HTML image inside a line of text its media run's. */
 const allImages = (text: string, rawHtml = true) => [...markdownImages(text), ...markdownInlineImages(text),
-  ...(rawHtml ? markdownHtmlImages(text) : []).flatMap(image => [...new Set([image.src, image.dark || image.src, image.light || image.src])]
-    .map(src => ({ alt: image.alt, src, href: markdownImageHref(src) })))];
+  ...(rawHtml ? markdownHtmlImages(text) : []).flatMap(image => image.inline
+    ? [{ alt: image.alt, src: image.src, href: `${INLINE_IMAGE}${markdownImageHref(image.src)}` }]
+    : [...new Set([image.src, image.dark || image.src, image.light || image.src])].map(src => ({ alt: image.alt, src, href: markdownImageHref(src) })))];
 
 /**
  * Where a document's media resolve (ChatMarkdown's props): `root` is `imageBaseDir ?? cwd`, the folder a relative
@@ -395,8 +397,8 @@ export function markdownGallery(document: MarkdownDocument, scheme = 'light'): G
   let offset = 0;
   for (const image of document.scope.rawHtml === false ? [] : markdownHtmlImages(document.text)) {
     images.push(...markdownInlineImages(document.text.slice(offset, image.offset)));
-    const src = (scheme === 'dark' ? image.dark : image.light) || image.src;
-    images.push({ alt: image.alt, src, href: markdownImageHref(src) });
+    const src = (image.inline ? '' : scheme === 'dark' ? image.dark : image.light) || image.src;
+    images.push({ alt: image.alt, src, href: image.inline ? `${INLINE_IMAGE}${markdownImageHref(src)}` : markdownImageHref(src) });
     offset = image.offset;
   }
   images.push(...markdownInlineImages(document.text.slice(offset)));

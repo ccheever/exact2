@@ -150,6 +150,16 @@ describe("the agent", () => {
       expect(new Set(written.locations.map((location: { path: string }) => location.path.replace(/note-\d\.md$/, ""))).size).toBe(1);
       expect(readdirSync(join(repo, "notes")).filter((name) => name.startsWith("batch-")).length).toBe(round);
     }
+    // "Show the HTML image sample" writes its PNGs, then replies with the images over them.
+    notes.length = 0;
+    await talk(executable, [{ method: "session/load", params: { sessionId, cwd: repo, mcpServers: [] } }, { method: "session/prompt", params: { sessionId, prompt: first("Show the HTML image sample") } }], notes);
+    const sample = notes.find((note) => note.params.update.sessionUpdate === "agent_message_chunk")!.params.update.content.text;
+    for (const part of ["before <img src=\"shots/inline.png\"", "<div><img src=\"shots/div.png\"", "javascript&colon;", "data-dark-src=\"shots/dark.png\"", "<picture>\n"]) expect(sample).toContain(part);
+    expect(sample).not.toContain("</picture>");
+    for (const [name, width, height] of [["inline.png", 32, 32], ["div.png", 240, 96], ["light.png", 240, 96], ["dark.png", 240, 96]] as const) {
+      const bytes = readFileSync(join(repo, "shots", name));
+      expect([bytes.subarray(1, 4).toString(), bytes.readUInt32BE(16), bytes.readUInt32BE(20)]).toEqual(["PNG", width, height]);
+    }
 
     // The permission request goes to the client; the turn ends with its answer.
     const child = Bun.spawn([executable], { stdin: "pipe", stdout: "pipe", env: {}, cwd: root });

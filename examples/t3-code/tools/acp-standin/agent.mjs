@@ -33,6 +33,9 @@
 //                                   n seconds later (0 by default), a sequence diagram, a table and two display
 //                                   formulas, so a drive sees a closed fence drawn while the reply streams
 //   "Show the italic sample"        replies with emphasis (ITALIC_SAMPLE), so a font's italic face is drawn
+//   "Show the HTML image sample"    writes four PNGs under shots/ in the session's directory and replies with raw HTML
+//                                   images (HTML_IMAGE_SAMPLE): one inside a line, one in a <div>, a refused source,
+//                                   data-dark-src and a <picture> left open
 //   "Show the prose sample"         replies with headings, lists, inline and fenced code, a quote, a link and a rule
 //                                   (PROSE_SAMPLE), the blocks a transcript draws besides diagrams, tables and math
 //   "Hold the turn"                 streams "Holding the turn." and keeps the turn running until `install.mjs
@@ -57,6 +60,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
+import { crc32, deflateSync } from "node:zlib";
 
 const here = dirname(process.argv[1] ?? import.meta.path);
 const statePath = join(here, "state.json");
@@ -81,6 +85,31 @@ export const PROSE_SAMPLE = "# Release notes\n\nThe notes now live in **one plac
   + "## What changed\n\n1. The plan moved to `notes/`.\n2. Each outline has an owner:\n   - drafts stay in `notes/drafts/`\n   - reviews go to the thread\n3. Old links redirect.\n\n"
   + "### Example\n\n```ts\nexport function outline(title: string): string[] {\n  return [`# ${title}`, \"\", \"- First point\"];\n}\n```\n\n"
   + "> A quote from the review: keep the outline short, and link the plan rather than copying it.\n\n---\n\nThat is all for this release.\n";
+/** "Show the HTML image sample": the raw HTML images T3 Code's sanitizer draws, its open <picture> last as a streaming
+ *  reply leaves one. The sources are the PNGs SHOTS writes. */
+export const HTML_IMAGE_SAMPLE = [
+  "Inline: before <img src=\"shots/inline.png\" alt=\"inline\"> after.",
+  "<div><img src=\"shots/div.png\" alt=\"div\"></div>",
+  "<img src=\"javascript&colon;alert(1)\" alt=\"colon entity\">",
+  "<img src=\"shots/light.png\" data-dark-src=\"shots/dark.png\" alt=\"data-dark-src\">",
+  "<picture>\n<source media=\"(prefers-color-scheme: dark)\" srcset=\"shots/dark.png\">\n<img src=\"shots/light.png\" alt=\"unclosed picture\">",
+].join("\n\n");
+/** Each sample PNG: its size and its one colour. */
+export const SHOTS = { "inline.png": [32, 32, [13, 148, 136]], "div.png": [240, 96, [234, 88, 12]], "light.png": [240, 96, [253, 230, 138]], "dark.png": [240, 96, [49, 46, 129]] };
+/** A PNG of one colour (8-bit RGB, https://www.w3.org/TR/png-3/). */
+function png(width, height, rgb) {
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type), data]), out = Buffer.alloc(data.length + 12);
+    out.writeUInt32BE(data.length, 0); body.copy(out, 4); out.writeUInt32BE(crc32(body), data.length + 8);
+    return out;
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0); header.writeUInt32BE(height, 4); header[8] = 8; header[9] = 2;
+  const row = Buffer.alloc(1 + width * 3);
+  for (let x = 0; x < width; x++) row.set(rgb, 1 + x * 3);
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", header),
+    chunk("IDAT", deflateSync(Buffer.concat(Array.from({ length: height }, () => row)))), chunk("IEND", Buffer.alloc(0))]);
+}
 /** The reasoning effort select each session advertises: three levels drawn as bars, and Max, which is named. */
 export const EFFORT = { id: "reasoning_effort", name: "Reasoning effort", description: "How long the stand-in thinks", category: "thought_level", type: "select",
   currentValue: "medium", options: [{ value: "low", name: "Low" }, { value: "medium", name: "Medium" }, { value: "high", name: "High" }, { value: "max", name: "Max" }] };
@@ -202,6 +231,10 @@ if (process.argv.includes("--fixture-login")) {
         text = MARKDOWN_SAMPLE[1];
       } else if (/^show the italic sample/i.test(first)) {
         text = ITALIC_SAMPLE;
+      } else if (cwd && /^show the html image sample/i.test(first)) {
+        mkdirSync(join(cwd, "shots"), { recursive: true });
+        for (const [name, [width, height, rgb]] of Object.entries(SHOTS)) writeFileSync(join(cwd, "shots", name), png(width, height, rgb));
+        text = HTML_IMAGE_SAMPLE;
       } else if (/^show the prose sample/i.test(first)) {
         text = PROSE_SAMPLE;
       } else if (/^which effort\?/i.test(first)) {
