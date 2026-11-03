@@ -6,7 +6,7 @@
 **Author:** Charlie Cheever / Codex
 **Implementer:** Codex, starting 2026-09-05
 **Date:** 2026-09-05
-**Revised:** 2026-11-03 (D9)
+**Revised:** 2026-11-04 (D9: images side by side, `align`, an `<a>` around images); 2026-11-03 (D9)
 **Related:** LLP 1001 §6, LLP 1008 §3/§5, LLP 1010, LLP 1011, LLP 1030 D2 (the manifest is the one declaration), LLP 1031 D1/D6 (the embedder's value seam), LLP 1016 D1/D2 (the runner does no I/O)
 
 ## Milestone
@@ -705,7 +705,8 @@ wrapper, through markup that may span lines up to the next blank one and
 whose last element ends its line. A wrapper is an element in which T3 Code
 still counts an image standalone, `<div>`, `<p>`, `<center>`, `<figure>`,
 `<strong>` and `<em>`, holding only images, wrappers, `<br>`s and comments;
-`<a>` is not one, since its link would be lost. Each image is an `Image`
+`<a>` is one only for a caller with `Html::inline` (below), since a reader
+of blocks would lose its link. Each image is an `Image`
 block (`dark`, `width`, `height` beside `href` and the alt in `text`); a
 picture or a `<div>`, `<p>`, `<center>` or `<figure>` with no `<img>` draws
 nothing, and a `<strong>` or `<em>` with none stays literal. The blank
@@ -723,6 +724,40 @@ the run the caller's `Html::inline` makes of it, given its sources as
 written, or else its alt text, as a Markdown image inside a line is. A
 picture there is closed by the paragraph's end.
 
+**Lines of images, 2026-11-04.** An `<img>` is inline content, so HTML lays
+images out side by side: T3 Code draws three top-level `<img>` lines, a
+blank line between two of them, on one line box, and the images of one
+`<p>` on one line (measured at `5d3d78ab93`). The parser reads the markup's
+line boxes (`html::Line`): images with no `<p>`, `<div>` or `<br>` start or
+end between them share one, across elements and across a blank line, until a
+block of the document comes between; `<center>` and `<figure>`, which the
+sanitizer drops while keeping what they hold, and the inline `<strong>`,
+`<em>` and `<a>` end none. Markup that starts no CommonMark HTML block
+(spec §4.6: a tag with more after it on its line, as `<a href…><img…></a>` or
+`<img…> <img…>`) is inline HTML in a paragraph, a `<p>` of its own, whose
+images share no line with those around it. A caller with `Html::inline` gets a line of two
+images or more as one paragraph of its runs, with a space where white space
+parts two images; any other caller, and a line of one image, still gets an
+`Image` block for each. With `Html::inline` an `<a>` holding only images is
+read too: each image's `link` is its `href`, checked against `Html::links`
+(the sanitizer's `href` protocols, `http`, `https`, `irc`, `ircs`, `mailto`
+and `xmpp`, by default; a refused one is dropped and its image drawn with no
+link, as the sanitizer drops the attribute), and a line holding a linked
+image is a paragraph even when it is the only one. An `<a>` holding text, or
+inside another `<a>`, stays literal.
+
+**`align`, 2026-11-04.** The sanitizer keeps `align` on any element, and
+HTML's rendering maps a `<p>`'s or `<div>`'s to `text-align` (HTML §15.3.3,
+§15.3.6; a `<div>`'s `middle` is `center`), which GitHub READMEs use to
+centre a row of badges or a logo. A block gains `align`: `left`, `right`,
+`center` or `justify` from the innermost such element around it, or empty.
+A `<div align>` left open at a blank line holds every block up to its end
+tag, as HTML's tree does, so the headings and paragraphs inside it take its
+`align` too. `apps/markdown` draws a paragraph's and a heading's text in it
+and places an image in the column by it; `apps/llp` places images. An
+`align` on `<img>` itself (a float) and on elements the parser does not read
+as images (`<h1 align>`) is not read.
+
 **What may load.** A source with no scheme, a Windows drive path, or one of
 the schemes the caller allows (`Html::schemes`): `http` and `https` by
 default, the sanitizer's `src` protocols, compared case-sensitively as it
@@ -736,8 +771,8 @@ does. `Html::LITERAL` keeps all raw HTML literal, for text whose author did
 not write it as Markdown (T3 Code's user messages render with
 `parseRawHtml={false}`).
 
-**How a reader draws it.** The block value gains `dark`, `width` and
-`height` (`@exact/reading`'s `shape Block`). Both readers show `dark` on a
+**How a reader draws it.** The block value gains `dark`, `width`,
+`height` and, since 2026-11-04, `align` (`@exact/reading`'s `shape Block`). Both readers show `dark` on a
 dark page when it is set, and cap an image at its authored `width`; T3
 Code's further caps (30 rem, an aspect ratio from both sizes) are the
 clone's.

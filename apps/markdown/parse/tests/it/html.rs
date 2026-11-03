@@ -187,6 +187,15 @@ fn an_image_value_carries_its_dark_source_and_size() {
     assert_eq!(fields[9].as_str(), Some("d.png"));
     assert_eq!(fields[10].as_number(), Some(320.0));
     assert_eq!(fields[11].as_number(), Some(0.0));
+    assert_eq!(fields[12].as_str(), Some(""));
+    let doc = parse(
+        "<p align=\"center\"><img src=\"a.png\"></p>",
+        &str::to_string,
+    );
+    let Value::Record(fields) = markdown_parse::value::block(0, &doc.blocks[0]) else {
+        panic!("a block is a record");
+    };
+    assert_eq!(fields[12].as_str(), Some("center"));
 }
 
 #[test]
@@ -269,7 +278,6 @@ fn an_img_inside_a_line_of_text_is_drawn_where_it_stands() {
 fn an_img_inside_elements_that_draw_nothing_is_an_image() {
     for source in [
         "<div><img src=\"a.png\"></div>",
-        "<p align=\"center\">\n  <img src=\"a.png\">\n</p>",
         "<center><strong><img src=\"a.png\"></strong><br></center>",
         "<figure><!-- shot --><em><img src=\"a.png\"></em></figure>",
         // A `<div>` start closes an open `<p>`; an end tag that closes
@@ -295,14 +303,22 @@ fn an_img_inside_elements_that_draw_nothing_is_an_image() {
         ]
     );
     // Blank lines inside the element: its start tag and its end tag draw
-    // nothing, and what lies between is the document's.
+    // nothing, and what lies between is the document's, in its `align`.
     let blocks = here("<div align=\"center\">\n\n<img src=\"a.png\">\n\nText\n\n</div>\n\n</div>");
     assert_eq!(blocks.len(), 3);
-    assert_eq!(blocks[0], image("a.png", ""));
+    assert_eq!(
+        blocks[0],
+        Block {
+            align: "center".into(),
+            ..image("a.png", "")
+        }
+    );
     assert_eq!(markdown_parse::plain(&blocks[1].runs), "Text");
+    assert_eq!(blocks[1].align, "center");
     // An end tag that closes nothing the markup left open stays as written.
     assert_eq!(blocks[2].kind, Kind::Html);
     assert_eq!(blocks[2].text, "</div>");
+    assert_eq!(blocks[2].align, "");
 }
 
 #[test]
@@ -387,5 +403,172 @@ fn an_imgs_own_dark_light_and_local_sources_are_read() {
                 ..image("l.png", "")
             },
         ]
+    );
+}
+
+/// A reader that draws images inside a line: each image's run names its
+/// source, its link and its alt text.
+fn inline(source: &str) -> Vec<Block> {
+    let draw = |image: markdown_parse::html::Image| markdown_parse::Run {
+        text: image.alt.clone(),
+        href: format!("{}|{}", image.src, image.link),
+        ..markdown_parse::Run::default()
+    };
+    let html = Html {
+        inline: Some(&draw),
+        ..Html::GITHUB
+    };
+    parse_with(source, &str::to_string, &|| false, html)
+        .unwrap()
+        .blocks
+}
+
+/// A paragraph's runs as `href` for each image and `_` for a space.
+fn line_of(block: &Block) -> Vec<String> {
+    assert_eq!(block.kind, Kind::Paragraph, "{block:?}");
+    block
+        .runs
+        .iter()
+        .map(|r| {
+            if r.href.is_empty() {
+                r.text.replace(' ', "_")
+            } else {
+                r.href.clone()
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn images_html_lays_out_side_by_side_are_one_line() {
+    // At the top level, an image goes on with the one before it, a blank
+    // line or not, until a block comes between, as in HTML's tree.
+    let blocks = inline("<img src=\"a.png\">\n<img src=\"b.png\">\n\n<img src=\"c.png\">");
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(
+        line_of(&blocks[0]),
+        ["a.png|", "_", "b.png|", "_", "c.png|"]
+    );
+    // No white space between two images: no space between them.
+    assert_eq!(
+        line_of(&inline("<img src=\"a.png\"><img src=\"b.png\">")[0]),
+        ["a.png|", "b.png|"]
+    );
+    // A paragraph, a `<p>`, a `<div>` or a `<br>` ends the line; an image
+    // alone on its line is an image block, as before. Markup that starts no
+    // HTML block (a tag with more after it on its line) is CommonMark's
+    // inline HTML: a paragraph of its own.
+    for (source, count) in [
+        (
+            "<img src=\"a.png\"> <img src=\"b.png\">\n\n<img src=\"c.png\">",
+            2,
+        ),
+        (
+            "<a href=\"x\"><img src=\"a.png\"></a>\n\n<img src=\"c.png\">",
+            2,
+        ),
+        ("<img src=\"a.png\">\n\nText\n\n<img src=\"b.png\">", 3),
+        ("<p><img src=\"a.png\"></p>\n<img src=\"b.png\">", 2),
+        ("<img src=\"a.png\">\n<div><img src=\"b.png\"></div>", 2),
+        ("<div><img src=\"a.png\"><br><img src=\"b.png\"></div>", 2),
+    ] {
+        let blocks = inline(source);
+        assert_eq!(blocks.len(), count, "{source}");
+        // The last image is on a line of its own.
+        assert_eq!(blocks[count - 1].kind, Kind::Image, "{source}");
+    }
+    // The images inside one `<p>` or `<div>` share its line; the sanitizer
+    // drops a `<center>` and keeps what is in it, which then goes on with
+    // the images around it.
+    let blocks = inline("<p>\n<img src=\"a.png\">\n<img src=\"b.png\">\n</p>");
+    assert_eq!(line_of(&blocks[0]), ["a.png|", "_", "b.png|"]);
+    let blocks = inline("<center><img src=\"a.png\"></center>\n<img src=\"b.png\">");
+    assert_eq!(line_of(&blocks[0]), ["a.png|", "_", "b.png|"]);
+    // An element left open at a blank line goes on with the images after it.
+    let blocks =
+        inline("<div>\n<img src=\"a.png\">\n\n<img src=\"b.png\">\n</div>\n\n<img src=\"c.png\">");
+    assert_eq!(blocks.len(), 2);
+    assert_eq!(line_of(&blocks[0]), ["a.png|", "_", "b.png|"]);
+    assert_eq!(blocks[1], image("c.png", ""));
+    // A reader that draws images only as blocks draws them one under the other.
+    assert_eq!(
+        here("<img src=\"a.png\">\n<img src=\"b.png\">"),
+        [image("a.png", ""), image("b.png", "")]
+    );
+}
+
+#[test]
+fn a_p_or_div_align_is_the_text_align_html_gives_it() {
+    let center = |block: Block| Block {
+        align: "center".into(),
+        ..block
+    };
+    assert_eq!(
+        here("<p align=\"center\">\n  <img src=\"a.png\">\n</p>"),
+        [center(image("a.png", ""))]
+    );
+    let blocks = inline("<p align=\"center\"><img src=\"a.png\"> <img src=\"b.png\"></p>");
+    assert_eq!(blocks[0].align, "center");
+    assert_eq!(line_of(&blocks[0]), ["a.png|", "_", "b.png|"]);
+    // A `<div>`'s `middle` is `center` too, and the innermost `align` wins.
+    for (source, aligns) in [
+        ("<div align=\"MIDDLE\"><img src=\"a.png\"></div>", &["center"][..]),
+        ("<p align=\"middle\"><img src=\"a.png\"></p>", &[""]),
+        ("<p align=\"top\"><img src=\"a.png\"></p>", &[""]),
+        ("<div align=\"right\"><p align=\"justify\"><img src=\"a.png\"></p><img src=\"b.png\"></div>", &["justify", "right"]),
+        ("<center><img src=\"a.png\"></center>", &[""]),
+    ] {
+        let got: Vec<String> = here(source).into_iter().map(|b| b.align).collect();
+        assert_eq!(got, aligns, "{source}");
+    }
+    // A `<div align>` left open at a blank line holds every block up to its
+    // end tag, as GitHub READMEs write it.
+    let blocks = here(
+        "<div align=\"center\">\n\n# Title\n\n<img src=\"a.png\">\n\n- an item\n\n</div>\n\nAfter",
+    );
+    let got: Vec<(Kind, &str)> = blocks.iter().map(|b| (b.kind, b.align.as_str())).collect();
+    assert_eq!(
+        got,
+        [
+            (Kind::Heading, "center"),
+            (Kind::Image, "center"),
+            (Kind::Item, "center"),
+            (Kind::Paragraph, ""),
+        ]
+    );
+}
+
+#[test]
+fn an_image_inside_a_link_carries_the_link() {
+    let blocks =
+        inline("<a href=\"https://example.com/docs\"><img src=\"c.png\" alt=\"Docs\"></a>");
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(line_of(&blocks[0]), ["c.png|https://example.com/docs"]);
+    assert_eq!(blocks[0].runs[0].text, "Docs");
+    // A relative link is kept; a scheme the sanitizer does not allow is
+    // dropped, and its image is drawn with no link.
+    let blocks = inline("<p align=\"center\"><a href=\"/docs\"><img src=\"a.png\"></a> <a href=\"javascript:alert(1)\"><img src=\"b.png\"></a></p>");
+    assert_eq!(line_of(&blocks[0]), ["a.png|/docs", "_", "b.png|"]);
+    // Inside a line of text.
+    let blocks = inline("See <a href=\"mailto:a@b.c\"><img src=\"a.png\" alt=\"mail\"></a> here.");
+    let drawn = blocks[0].runs.iter().find(|r| r.text == "mail").unwrap();
+    assert_eq!(drawn.href, "a.png|mailto:a@b.c");
+    // A link holding anything else, or one inside a link, stays as written;
+    // so does any link for a reader that draws images only as blocks.
+    for source in [
+        "<a href=\"https://example.com\">text</a>",
+        "<a href=\"https://example.com\"><img src=\"a.png\">text</a>",
+        "<a href=\"x\"><a href=\"y\"><img src=\"a.png\"></a></a>",
+    ] {
+        let blocks = inline(source);
+        assert!(
+            matches!(blocks[0].kind, Kind::Html | Kind::Paragraph),
+            "{source}"
+        );
+        assert!(blocks[0].runs.iter().all(|r| r.href.is_empty()), "{source}");
+    }
+    assert_eq!(
+        here("<a href=\"https://example.com\"><img src=\"a.png\"></a>")[0].kind,
+        Kind::Html
     );
 }
