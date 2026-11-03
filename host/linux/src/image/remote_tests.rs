@@ -387,6 +387,21 @@ fn until(images: &mut Images, mut test: impl FnMut(&Images) -> bool) -> Vec<crat
     reports
 }
 
+/// Runs a host's turns (a poll, then a sync) until `test` holds.
+#[track_caller]
+fn turns_until(images: &mut Images, k: &Kernel, mut test: impl FnMut(&Images) -> bool) {
+    let started = Instant::now();
+    while !test(images) {
+        assert!(
+            started.elapsed() < SETTLED,
+            "the state it waits for comes within SETTLED"
+        );
+        images.poll();
+        images.sync(k, &k.roots());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 fn shown(images: &Images) -> Option<(String, (u32, u32))> {
     images.loaded.first().cloned()
 }
@@ -564,16 +579,7 @@ fn a_picture_on_screen_asks_again_for_a_failed_download_and_shows_it() {
     let k = kernel(&url);
     let mut images = images();
     images.sync(&k, &k.roots());
-    let started = Instant::now();
-    while shown(&images).is_none() {
-        assert!(
-            started.elapsed() < SETTLED,
-            "the picture is asked again until it shows"
-        );
-        images.poll();
-        images.sync(&k, &k.roots());
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    turns_until(&mut images, &k, |images| shown(images).is_some());
     assert_eq!(shown(&images), Some((url, (7, 5))));
     assert_eq!(asked.load(Ordering::SeqCst), 3);
 
@@ -582,19 +588,14 @@ fn a_picture_on_screen_asks_again_for_a_failed_download_and_shows_it() {
     let k = kernel(&dead);
     let mut images = self::images();
     images.sync(&k, &k.roots());
-    let started = Instant::now();
-    while started.elapsed() < Duration::from_secs(3) {
-        images.poll();
-        images.sync(&k, &k.roots());
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    turns_until(&mut images, &k, |images| images.views[&1].errored);
     assert_eq!(
         images.views[&1].retries,
         crate::image::RETRY_AFTER.len(),
-        "then it waits for the next showing"
+        "six times more, then its error"
     );
     assert_eq!(images.retry_due_in(), None);
-    // Off screen: nothing more is asked; shown again, it starts over.
+    // Take it off screen: its count starts over and nothing is due
     images.sync_visible(&k, &k.roots(), 1., |_| false);
     assert_eq!(images.views[&1].retries, 0);
     assert_eq!(images.retry_due_in(), None);
@@ -645,13 +646,7 @@ fn a_view_of_the_same_url_joins_another_views_retry_even_when_it_was_off_screen(
         std::thread::sleep(Duration::from_millis(5));
     }
     // The second, shown again, joins that download rather than keeping the failed one.
-    let started = Instant::now();
-    while !images.bitmaps.contains_key(&2) {
-        assert!(started.elapsed() < SETTLED, "the second shows too");
-        images.poll();
-        images.sync(&k, &k.roots());
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    turns_until(&mut images, &k, |images| images.bitmaps.contains_key(&2));
     assert_eq!(asked.load(Ordering::SeqCst), 2, "one retry served both");
 }
 
@@ -782,13 +777,9 @@ fn a_view_that_joined_a_retry_never_cancels_it_with_its_own_older_deadline() {
     images.sync(&k, &k.roots());
     // The second view's backoff is further along (it showed earlier): its deadline comes later than the first's.
     images.views.get_mut(&2).unwrap().retries = 3;
-    let started = Instant::now();
-    while !(images.bitmaps.contains_key(&1) && images.bitmaps.contains_key(&2)) {
-        assert!(started.elapsed() < SETTLED, "both show");
-        images.poll();
-        images.sync(&k, &k.roots());
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    turns_until(&mut images, &k, |images| {
+        images.bitmaps.contains_key(&1) && images.bitmaps.contains_key(&2)
+    });
     assert_eq!(
         asked.load(Ordering::SeqCst),
         2,
@@ -845,13 +836,7 @@ fn a_picture_on_screen_is_never_asked_again_sooner_than_its_server_says() {
     let k = kernel(&url);
     let mut images = images();
     images.sync(&k, &k.roots());
-    let started = Instant::now();
-    while shown(&images).is_none() {
-        assert!(started.elapsed() < SETTLED, "it shows after its wait");
-        images.poll();
-        images.sync(&k, &k.roots());
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    turns_until(&mut images, &k, |images| shown(images).is_some());
     let times: Vec<Instant> = asks.lock().unwrap().iter().map(|(_, at)| *at).collect();
     assert_eq!(times.len(), 2);
     assert!(
@@ -864,12 +849,14 @@ fn a_picture_on_screen_is_never_asked_again_sooner_than_its_server_says() {
     let k = kernel(&long);
     let mut images = self::images();
     images.sync(&k, &k.roots());
-    let started = Instant::now();
-    while started.elapsed() < Duration::from_millis(800) {
-        images.poll();
-        images.sync(&k, &k.roots());
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    // Wait for the first answer, not the error: retries on the showing's
+    // own backoff would end in an error too, and `Downloads` would answer
+    // them from its cooling map without asking the server
+    turns_until(&mut images, &k, |images| images.views[&1].refusal.is_some());
+    assert!(
+        images.views[&1].errored,
+        "its error comes with the first answer"
+    );
     let long_asks = asks
         .lock()
         .unwrap()
@@ -891,17 +878,8 @@ fn a_picture_shown_again_with_its_source_unchanged_sends_no_second_load() {
     let url = format!("{origin}/again.png");
     let k = kernel(&url);
     let mut images = images();
-    let show = |images: &mut Images| {
-        let started = Instant::now();
-        while shown(images).is_none() {
-            assert!(started.elapsed() < SETTLED, "it shows");
-            images.poll();
-            images.sync(&k, &k.roots());
-            std::thread::sleep(Duration::from_millis(5));
-        }
-    };
     images.sync(&k, &k.roots());
-    show(&mut images);
+    turns_until(&mut images, &k, |images| shown(images).is_some());
     let events = std::mem::take(&mut images.load_events);
     assert_eq!(
         events
@@ -915,7 +893,7 @@ fn a_picture_shown_again_with_its_source_unchanged_sends_no_second_load() {
     images.poll();
     assert!(images.bitmaps.is_empty());
     images.sync(&k, &k.roots());
-    show(&mut images);
+    turns_until(&mut images, &k, |images| shown(images).is_some());
     assert!(images.load_events.is_empty(), "{:?}", images.load_events);
 }
 
