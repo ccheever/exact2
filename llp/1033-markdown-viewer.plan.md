@@ -707,7 +707,8 @@ still counts an image standalone, `<div>`, `<p>`, `<center>`, `<figure>`,
 `<strong>` and `<em>`, holding only images, wrappers, `<br>`s and comments;
 `<a>` is not one, since its link would be lost. Each image is an `Image`
 block (`dark`, `width`, `height` beside `href` and the alt in `text`); a
-picture with no `<img>` draws nothing, nor does a block wrapper. The blank
+picture or a `<div>`, `<p>`, `<center>` or `<figure>` with no `<img>` draws
+nothing, and a `<strong>` or `<em>` with none stays literal. The blank
 line or the document's end closes what is left open, as the end of an HTML
 parser's input does, so a `<picture>` whose end tag is missing (an answer
 still streaming, or a slip) is drawn; a later line of only the end tags of
