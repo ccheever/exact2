@@ -391,31 +391,26 @@ final class FrameHealthIOSTests: XCTestCase {
             run(0.12)
         }
         XCTAssertEqual(screen.health.snapshot().callbacks, 0)
-        // Scrolling, frames come in UIKit's model times, whole refreshes apart: nearly all one refresh after the last, as
-        // a busy simulator may skip one
+        // Scrolling, each update is a frame with its work, and the frames of the last half second give the rate; a frame
+        // of the screen's bounds no frame time
         scroll.setContentOffset(CGPoint(x: 0, y: 3000), animated: true)
         run(0.6)
-        var snapshot = screen.health.snapshot()
-        let intervals = FrameHealthMetrics.read(screen.health).intervals
-        // Frame times fall in 0.5 ms bins below 24 ms; within a refresh and a quarter
-        let within = intervals.prefix(Int(screen.refresh * 1.25 * 2000)).reduce(0) { $0 + UInt64($1) }
-        XCTAssertGreaterThan(snapshot.intervals, 10)
-        XCTAssertGreaterThanOrEqual(within * 10, snapshot.intervals * 9)
+        let snapshot = screen.health.snapshot()
+        XCTAssertGreaterThan(snapshot.callbacks, 10)
         XCTAssertEqual(snapshot.worked, snapshot.callbacks, "each frame's commit is its work")
-        XCTAssertGreaterThan(chart.newest, 0)
+        XCTAssertEqual(snapshot.intervals, 0)
+        XCTAssertTrue(chart.columns.contains { $0.fps >= 20 && $0.budget > 0 })
+        XCTAssertFalse(chart.columns.contains { $0.frame > 0 }, "the charts plot no frame time")
         _ = screen.takeMainThread()
-        // Idle time between two scrolls is no frame interval; a stall within one delays a frame
+        // A stall within a scroll is the main thread's long spell, and the charts' work
         run(0.3)
         scroll.setContentOffset(.zero, animated: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { usleep(60_000) }
         run(0.6)
-        snapshot = screen.health.snapshot()
-        XCTAssertGreaterThanOrEqual(snapshot.max_interval_ns, 50_000_000, "the stall delayed a frame")
-        XCTAssertLessThan(snapshot.max_interval_ns, 250_000_000, "the time between the scrolls is not a frame interval")
         let main = screen.takeMainThread()
         XCTAssertGreaterThanOrEqual(main.longest, 0.06)
         XCTAssertGreaterThanOrEqual(main.long, 1)
-        XCTAssertTrue(chart.columns.contains { $0.work >= 60 }, "the stall is the frame-time chart's work")
+        XCTAssertTrue(chart.columns.contains { $0.work >= 60 }, "the stall is the work chart's")
         // Stopped, it observes nothing
         screen.stop()
         let callbacks = screen.health.snapshot().callbacks

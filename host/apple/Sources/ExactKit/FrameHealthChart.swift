@@ -144,6 +144,27 @@ final class FrameHealthChart {
         changed(lineStart(index)...index)
     }
 
+    /// A frame of the screen's, which UIKit expects on screen at `time`, with its work against its budget, in seconds
+    /// (LLP 1079.000 §7.4). Its frame rate is the frames of the last half second, since frames of the screen bound no
+    /// frame time; its line reaches back to a column whose frames lie within that half second.
+    func screenFrame(at time: Double, work: Double, budget: Double) {
+        guard !columns.isEmpty, time > newest else { return }
+        let index = Self.index(time), at = slot(index)
+        let before = newest > 0 ? Self.index(newest) : index
+        if count == times.count { (first, count) = ((first + 1) % times.count, count - 1) }
+        times[(first + count) % times.count] = time
+        count += 1
+        while count > 0, times[first] <= time - Self.average { (first, count) = ((first + 1) % times.count, count - 1) }
+        if columns[at].index != index { columns[at] = Column(index: index, joined: count > 1) }
+        columns[at].fps = Float(Double(count) / Self.average)
+        if Float(work * 1000) > columns[at].work { (columns[at].work, columns[at].budget) = (Float(work * 1000), Float(budget * 1000)) }
+        newest = time
+        latest = max(latest, time)
+        head = max(head, time)
+        if following { startClock() }
+        changed(lineStart(before)...index)
+    }
+
     /// A spell of the main thread's work longer than one refresh at the display's highest rate, `budget`, which delays
     /// a frame at that rate: the work of the column it ended in.
     func busy(start: Double, end: Double, budget: Double) {

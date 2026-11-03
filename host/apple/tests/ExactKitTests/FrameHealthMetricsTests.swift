@@ -842,21 +842,28 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertEqual(T.clock(idle), "Exact's clock idle")
         XCTAssertEqual(T.clock(.init(running: true, rates: .init(requestedHz: 0, periodMs: 1000 / 60))), "Exact's clock at the default rate")
         XCTAssertEqual(T.clock(.init(running: true, rates: .init(requestedHz: 120, periodMs: 1000 / 60))), "Exact asks 120 FPS, limit 60")
-        XCTAssertEqual(T.rows(source).map(\.0).prefix(2), ["Frame rate", "Late frames"], "the face gives late frames beside the rate")
+        XCTAssertEqual(T.rows(source).map(\.0).prefix(3), ["Frame rate", "Late frames", "Frames"], "the face gives late frames beside the rate")
+        XCTAssertFalse(T.rows(source).map(\.0).contains("Max frame time"))
         XCTAssertEqual(T.rows(source).last?.0, "Main thread over 8.3ms")
         XCTAssertEqual(T.caption(none, source: source, varied: false), "Late: sent after UIKit's deadline")
-        // The screen's refresh period is not stated, so its pacing is the 99th percentile frame time
+        // The screen's frames bound no frame time: its rate is its frames over the time a window covers, and the main
+        // thread's work stands in for pacing
         var t = FrameHealthCardReader.Window()
-        t.counts.frames = 200; t.intervals[16] = 200
-        XCTAssertEqual(T.pacing(t, rates: none, adaptiveSync: false, source: source).0, "Frame times")
-        XCTAssertEqual(T.pacing(t, rates: none, adaptiveSync: false, source: source).1, "99% of frames under 8.5ms")
-        // Late frames count by UIKit's deadline everywhere, the simulator included; the main thread's figures are the
-        // screen's alone
-        t.counts.worked = 200; t.counts.late = 3; t.counts.long = 2; t.mainLongest = 61.2; t.read = 1
+        (t.from, t.read) = (10, 10.5)
+        XCTAssertEqual(T.pacing(t, rates: none, adaptiveSync: false, source: source).0, "Longest 0.0ms")
+        XCTAssertEqual(T.pacing(t, rates: none, adaptiveSync: false, source: source).1, "None over one refresh, 8.3ms")
+        XCTAssertEqual(T.figures(t, rates: none, adaptiveSync: false, source: source).fps, "—", "no frames, no rate")
+        t.counts.callbacks = 60; t.counts.worked = 60; t.counts.late = 3; t.counts.long = 2; t.mainLongest = 61.2
         let screen = T.figures(t, rates: none, adaptiveSync: false, source: source)
-        XCTAssertEqual([screen.late, screen.mainLongest, screen.mainLong, screen.changes], ["3", "61.2ms", "2", "—"])
+        XCTAssertEqual([screen.fps, screen.frames, screen.late, screen.mainLongest, screen.mainLong, screen.changes],
+            ["120 FPS", "60", "3", "61.2ms", "2", "—"])
+        XCTAssertEqual(T.pacing(t, rates: none, adaptiveSync: false, source: source).1, "2 over one refresh, 8.3ms")
+        // Over a window that covers more than its nominal span, the rate is over the span it covers, which it names
+        t.from = 9.5
+        XCTAssertEqual(T.figures(t, rates: none, adaptiveSync: false, source: source).fps, "60 FPS")
+        XCTAssertEqual(T.window(t, nominal: 0.5, source: source), "Last 1.0s")
         let exact = T.figures(t, rates: none, adaptiveSync: false)
-        XCTAssertEqual([exact.mainLongest, exact.mainLong], ["—", "—"])
+        XCTAssertEqual([exact.fps, exact.frames, exact.mainLongest, exact.mainLong], ["—", "—", "—", "—"])
     }
 
     func testEachReadTakesTheMainThreadsWorkAndAPausedCardsCopyReadsNoMore() {

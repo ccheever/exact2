@@ -18,8 +18,9 @@ enum FrameHealthCardFace {
         /// the card measures the screen, which `unit` names
         var rows = [("Last 0.5s", "—", "—"), ("Last 5s", "—", "—")], unit = "missed"
         var pacing = ("—", "")
-        /// The window pacing covers: "last 5s", or the span it actually covers
-        var pacingWindow = "last 5s"
+        /// What the line under the figures gives, pacing or, where the card measures the screen, the main thread's work,
+        /// and the window it covers: "last 5s", or the span it actually covers
+        var pacingName = "Pacing", pacingWindow = "last 5s"
         var table = false
         /// Details shows in place of everything below the header
         var showsDetails = false
@@ -208,7 +209,7 @@ enum FrameHealthCardFace {
             D.text(ctx, state.unit, x: 162 + count + 3.6, y: y, body, p.label, .left)
         }
         separator(ctx, y: 125, width: width, p)
-        let label = "Pacing (\(state.pacingWindow))", verdict = 12 + D.width(label, body) + 3.6
+        let label = "\(state.pacingName) (\(state.pacingWindow))", verdict = 12 + D.width(label, body) + 3.6
         D.text(ctx, label, x: 12, y: 138, body, p.secondary, .left)
         D.text(ctx, state.pacing.0, x: verdict, y: 138, strong, p.label, .left, limit: width - 12 - verdict)
         D.text(ctx, state.pacing.1, x: 12, y: 154, Self.digits, p.label, .left, limit: width - 24)

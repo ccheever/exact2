@@ -66,13 +66,19 @@ enum FrameHealthCardDrawing {
         var rateTop: Double
         /// The frame-time chart's top: twice the target frame time
         var timeTop: Double
+        /// The charts show the screen's frames, which have work against their deadlines and no frame times (LLP 1079.000
+        /// §7.4)
+        var screen = false
 
-        init(reader: FrameHealthCardReader, rates: FrameHealthCardText.Rates, displayMaximumHz: Double) {
+        init(reader: FrameHealthCardReader, rates: FrameHealthCardText.Rates, displayMaximumHz: Double, screen: Bool = false) {
             self.rates = rates
+            self.screen = screen
             rateTop = rates.requestedHz > 0 ? rates.requestedHz : displayMaximumHz > 0 ? displayMaximumHz : 60
+            let thirty = reader.window(30)
+            // The screen's work chart reaches twice one refresh, or twice the longest budget it has seen
+            guard !screen else { timeTop = 2 * max(1000 / rateTop, thirty.budget); return }
             // The target is what the app requests or, when it runs slower, its 30-second mean frame
             // time in whole refreshes; a frame twice as long reaches the top
-            let thirty = reader.window(30)
             let period = rates.periodMs > 0 ? rates.periodMs : 1000 / rateTop
             let mean = thirty.frames == 0 ? 0 : Double(thirty.counts.activeNs) / Double(thirty.frames) / 1e6
             let average = mean == 0 ? 0 : max(1, (mean / period).rounded()) * period
@@ -94,7 +100,8 @@ enum FrameHealthCardDrawing {
         ctx.setFillColor(palette.background)
         ctx.fill(rect)
         for (chart, area, plot) in plots(rect, input, expanded: expanded) {
-            text(ctx, chart == 0 ? "Frame rate" : "Frame time", x: area.minX, y: area.minY + 7, titleFont, palette.label, .left)
+            text(ctx, chart == 0 ? "Frame rate" : input.screen ? "Work" : "Frame time", x: area.minX, y: area.minY + 7, titleFont,
+                palette.label, .left)
             for (label, value, _) in plot.labels {
                 text(ctx, label, x: plot.left - 4, y: plot.y(value), labelFont, palette.secondary, .right)
             }
@@ -103,7 +110,7 @@ enum FrameHealthCardDrawing {
             } else {
                 var x = area.maxX
                 for (name, color, dotted) in [("deadline", palette.secondary, true), ("work", palette.orange, false),
-                                              ("frame", palette.blue, false)] {
+                                              ("frame", palette.blue, false)].prefix(input.screen ? 2 : 3) {
                     x -= width(name, labelFont)
                     text(ctx, name, x: x, y: area.minY + 7, labelFont, palette.secondary, .left)
                     stroke(ctx, from: CGPoint(x: x - 16, y: area.minY + 7.5), to: CGPoint(x: x - 4, y: area.minY + 7.5),

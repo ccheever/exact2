@@ -155,6 +155,8 @@ final class FrameHealthOverlay: UIView {
             screen.start(scene)
             if screen.running, screenReader.start(claim: false) {
                 screen.health.changed = { [weak self] in self?.refresh() }
+                // Its recent late frames are what Share's report gives
+                screen.health.setHUDVisible(true)
             } else { screen.stop() }
         }
         // The screen's frames hold Exact's, so the charts take those only without them
@@ -186,6 +188,7 @@ final class FrameHealthOverlay: UIView {
     private func stopReading() {
         screen?.stop()
         screen?.health.changed = nil
+        screen?.health.setHUDVisible(false)
         follow(false)
         reader.stop()
         screenReader.stop()
@@ -344,7 +347,10 @@ final class FrameHealthOverlay: UIView {
         }
         switch kind {
         case .report:
-            FrameHealthReport.prepare(health: health.reportSource, session: DevMenu.session) { present(String(decoding: $0, as: UTF8.self)) }
+            // The report is of what the face shows: the screen's frames, with their recent late frames, where it measures them
+            FrameHealthReport.prepare(health: observing ? screen?.health ?? health.reportSource : health.reportSource, session: DevMenu.session) {
+                present(String(decoding: $0, as: UTF8.self))
+            }
         case .summary:
             present(FrameHealthCardText.summary(reader: shown.face, clock: shown.clock, rates: rates, display: display, source: source,
                 paused: paused, health: health).text)
