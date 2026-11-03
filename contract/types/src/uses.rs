@@ -100,15 +100,21 @@ fn provisional_scope(c: &Component, types: &Types, routes: bool) -> Scope {
             .collect(),
         sources: Default::default(),
     };
+    // One scope, each name retyped as it is learned: building it again for
+    // each state is quadratic in a large expanded root, and only a refused
+    // build gets here.
+    let mut scope = types.component_scope(c, &ct);
+    let first = c.props.len() + c.injects.len();
     for i in 0..c.states.len() {
         ct.slots[i] = if i == 0 && routes {
             Ty::Record("Router".into())
         } else {
-            infer(&c.states[i].expr, &types.component_scope(c, &ct), shapes).unwrap_or(Ty::Unknown)
+            infer(&c.states[i].expr, &scope, shapes).unwrap_or(Ty::Unknown)
         };
+        scope.retype(first + i, ct.slots[i].clone());
     }
+    let first = first + c.states.len();
     for _ in 0..c.derives.len() + 1 {
-        let scope = types.component_scope(c, &ct);
         let derives: Vec<Ty> = c
             .derives
             .iter()
@@ -117,9 +123,14 @@ fn provisional_scope(c: &Component, types: &Types, routes: bool) -> Scope {
         if derives == ct.derives {
             break;
         }
+        for (i, t) in derives.iter().enumerate() {
+            scope.retype(first + i, t.clone());
+        }
         ct.derives = derives;
     }
-    types.component_scope(c, &ct)
+    #[cfg(test)]
+    crate::scope_tests::same_declarations(&scope, &types.component_scope(c, &ct));
+    scope
 }
 
 /// The root's own uses, typed against [`provisional_scope`]. A refusal that

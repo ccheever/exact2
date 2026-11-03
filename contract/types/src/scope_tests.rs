@@ -217,3 +217,44 @@ fn a_parameter_shadows_a_state_in_a_large_component() {
     assert!(sink.errors.is_empty(), "{:?}", sink.errors);
     assert_eq!(ct.slots[0], Ty::Number);
 }
+
+#[test]
+fn a_refusal_is_not_said_again_as_the_capture_it_left_untyped() {
+    // `wide` is `?` once `rem` is refused, so the capture `note(wide > 1)`
+    // curries is too: that is the refusal's consequence, and saying it
+    // would ask for a handler `go` already has.
+    let source = "component App\n  view\n    Panel()\n\
+        component Panel\n  state last = \"\"\n  derive wide = 24 * rem\n\
+        \x20 action note(w: bool, label: string)\n    last = `${label} ${w}`\n\
+        \x20 view\n    Leaf(label=\"a\", tell=note(wide > 1))\n\
+        component Leaf\n  props\n    label: string\n    tell: action\n\
+        \x20 action go\n    tell(label)\n  view\n    button \"Go\" press=go\n";
+    let file = contract_syntax::parse(source).unwrap();
+    let Err(errors) = crate::check_all(&file, false, |_| false, None) else {
+        panic!("refused");
+    };
+    let ids: Vec<_> = errors.iter().map(|e| (e.id, e.message.as_str())).collect();
+    assert_eq!(ids, [("type-unknown-name", "unknown name `rem`")]);
+}
+
+#[test]
+fn a_refused_build_types_the_roots_uses_with_one_scope() {
+    // A refusal re-checks the root's uses against its declarations alone
+    // (`provisional_scope`); a scope built again for each state made that
+    // quadratic in a large expanded root.
+    let mut source = String::from("component App\n");
+    for i in 0..400 {
+        source.push_str(&format!("  state s{i} = {i}\n"));
+    }
+    source.push_str("  derive d = s1 + s399\n  derive e = d + 1\n  view\n    Child(n=e)\n");
+    source
+        .push_str("component Child\n  props\n    n: number\n  view\n    text `${n} ${missing}`\n");
+    let file = contract_syntax::parse(&source).unwrap();
+    crate::component::SCOPE_BUILDS.with(|count| count.set(0));
+    let Err(errors) = crate::check_all(&file, false, |_| false, None) else {
+        panic!("refused");
+    };
+    assert_eq!(errors[0].id, "type-unknown-name", "{errors:?}");
+    let builds = crate::component::SCOPE_BUILDS.with(|count| count.get());
+    assert!(builds < 100, "{builds} declaration scopes for 400 states");
+}
