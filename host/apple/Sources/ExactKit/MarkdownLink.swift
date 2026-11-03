@@ -142,6 +142,10 @@ package final class MarkupAtom: NSObject {
     /// radius, nil for the platform's; its ring's width, colour (nil the
     /// ink) and offset; and whether its label is underlined.
     package var padding: CGFloat?, paddingEm = false
+    /// Its icon's side and the space between it and its label, in px
+    /// (`em` of the label's size when `iconSizeEm`, `gapEm`); nil for the
+    /// platform's, the text's cap height and a quarter of its size.
+    package var iconSize: CGFloat?, iconSizeEm = false, gap: CGFloat?, gapEm = false
     package var borderWidth: CGFloat = 0, border: [Double]?
     package var radius: CGFloat?
     package var ring: CGFloat = 0, ringInk: [Double]?, ringOffset: CGFloat = 0

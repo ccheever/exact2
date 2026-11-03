@@ -15,6 +15,8 @@ pub(crate) struct AtomStyle {
     /// Paint rows by state: `""` the pill's own, then `hover`, `checked`.
     pub(crate) paint: Vec<(&'static str, Vec<Value>)>,
     padding: Option<String>,
+    icon_size: Option<String>,
+    gap: Option<String>,
     border_width: Option<(f64, Span)>,
     border_style: Option<(bool, Span)>,
 }
@@ -39,6 +41,19 @@ fn px(text: &str) -> Option<f64> {
         .parse::<f64>()
         .ok()
         .filter(|n| n.is_finite())
+}
+
+/// A length of 0 or more in px or em (`em` the label's size), as the row writes it.
+fn px_or_em(text: &str) -> Option<String> {
+    let em = text
+        .strip_suffix("em")
+        .and_then(|n| n.parse::<f64>().ok())
+        .filter(|n| n.is_finite() && *n >= 0.0);
+    match (px(text).filter(|n| *n >= 0.0), em) {
+        (Some(n), _) => Some(format!("{n}px")),
+        (None, Some(n)) => Some(format!("{n}em")),
+        _ => None,
+    }
 }
 
 /// A shorthand's words, a function's arguments kept with it
@@ -83,7 +98,9 @@ impl AtomStyle {
     }
 
     /// The measured part, into the kind's table row: `padding`, a CSS length
-    /// on each inline side, and `border`, its width in px on every side.
+    /// on each inline side, `iconSize` and `gap`, CSS lengths, the icon's
+    /// side and the space after it, and `border`, its width in px on every
+    /// side.
     pub(crate) fn finish(
         &self,
         name: &str,
@@ -91,6 +108,12 @@ impl AtomStyle {
     ) -> Result<(), LowerError> {
         if let Some(padding) = &self.padding {
             row.insert("padding".into(), json!(padding));
+        }
+        if let Some(size) = &self.icon_size {
+            row.insert("iconSize".into(), json!(size));
+        }
+        if let Some(gap) = &self.gap {
+            row.insert("gap".into(), json!(gap));
         }
         match (self.border_style, self.border_width) {
             (Some((true, _)), width) => {
@@ -247,16 +270,24 @@ impl Lowerer<'_> {
             }
             "padding-inline" => {
                 measured("padding")?;
-                let em = text
-                    .strip_suffix("em")
-                    .and_then(|n| n.parse::<f64>().ok())
-                    .filter(|n| n.is_finite() && *n >= 0.0);
-                let padding = match (px(text).filter(|n| *n >= 0.0), em) {
-                    (Some(n), _) => format!("{n}px"),
-                    (None, Some(n)) => format!("{n}em"),
-                    _ => return refuse(name, &row, "takes one length in px or em, both sides the same (`padding-inline=\"0\"`)"),
+                let Some(padding) = px_or_em(text) else {
+                    return refuse(name, &row, "takes one length in px or em, both sides the same (`padding-inline=\"0\"`)");
                 };
                 style.padding = Some(padding);
+            }
+            "-exact-icon-size" => {
+                measured("its icon's size")?;
+                let Some(size) = px_or_em(text) else {
+                    return refuse(name, &row, "takes one length in px or em, the icon's side (`-exact-icon-size=\"1em\"`)");
+                };
+                style.icon_size = Some(size);
+            }
+            "gap" => {
+                measured("the gap after its icon")?;
+                let Some(gap) = px_or_em(text) else {
+                    return refuse(name, &row, "takes one length in px or em, the space between its icon and its label (`gap=\"0.2em\"`)");
+                };
+                style.gap = Some(gap);
             }
             "border-width" => {
                 measured("a border's width")?;
@@ -306,7 +337,7 @@ impl Lowerer<'_> {
                 }
             }
             _ => {
-                return refuse(name, &row, "is not an atom's: an atom takes one form (`link=\"scheme:\"`, `link=\"relative\"` or `prefix=\"@\"`), an optional `role` (`button` or `link`), `color`, `background-color`, `padding-inline`, `border`, `border-radius`, `outline`, `outline-offset` and `text-decoration-line`, and the `:hover` and `:checked` states; its height and font are its line's (LLP 1045.000 D3, D4)");
+                return refuse(name, &row, "is not an atom's: an atom takes one form (`link=\"scheme:\"`, `link=\"relative\"` or `prefix=\"@\"`), an optional `role` (`button` or `link`), `color`, `background-color`, `padding-inline`, `-exact-icon-size`, `gap`, `border`, `border-radius`, `outline`, `outline-offset` and `text-decoration-line`, and the `:hover` and `:checked` states; its height and font are its line's (LLP 1045.000 D3, D4)");
             }
         }
         Ok(())

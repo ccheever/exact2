@@ -121,7 +121,7 @@ final class AtomPictureMacTests: XCTestCase {
         AtomIcons.reset(); session?.destroy(); session = nil; super.tearDown()
     }
 
-    private func editor(faces: String) -> (TextArea, NSWindow) {
+    private func editor(faces: String, atoms: String = kinds) -> (TextArea, NSWindow) {
         _ = NSApplication.shared
         let presenter = Presenter()
         session = ExactApp.shared.makeSession(label: "atom-pictures")
@@ -131,7 +131,7 @@ final class AtomPictureMacTests: XCTestCase {
         node.makeTextArea()
         node.props["markup"] = "markdown"
         node.props["value"] = "Ask " + cite + " now"
-        node.props["atoms"] = kinds
+        node.props["atoms"] = atoms
         node.props["atomFaces"] = faces
         node.applyTextArea()
         node.layoutTextArea()
@@ -187,6 +187,40 @@ final class AtomPictureMacTests: XCTestCase {
         let arrived = try drawn(f)
         let at = try XCTUnwrap(arrived.label), before = try XCTUnwrap(waiting.label)
         XCTAssertEqual(before, at, accuracy: 1, "the label does not move when the picture comes")
+    }
+
+    /// D4: a kind's `-exact-icon-size` and `gap` are its icon's side and the
+    /// space before its label; the icon is centred on half the cap height
+    /// above the baseline.
+    func testAKindsIconSizeAndGapAreItsIcons() throws {
+        let atoms = #"[{"name":"citation","link":"t3-citation:","iconSize":"14px","gap":"0px"}]"#
+        let (f, window) = editor(faces: face(redSquare), atoms: atoms)
+        defer { window.close() }
+        let deadline = Date().addingTimeInterval(10)
+        while try !drawn(f).red, Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        let pill = try pill(f), location = try XCTUnwrap(f.textLayoutManager?.documentRange.location)
+        let font = NSFont.systemFont(ofSize: 16)
+        let image = try XCTUnwrap(pill.image(for: CGRect(x: 0, y: 0, width: 60, height: 20), attributes: [.font: font], location: location, textContainer: nil))
+        let picture = try pixels(width: 60) { context, rect in
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            image.draw(in: rect)
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        var red: (x: [Int], y: [Int]) = ([], [])
+        for y in 0..<20 {
+            for x in 0..<60 {
+                let p = picture.data[(y * picture.row + x * 4)...].prefix(4).map(Int.init)
+                if p[3] > 200, p[0] > 200, p[1] < 60, p[2] < 60 { red.x.append(x); red.y.append(y) }
+            }
+        }
+        let left = try XCTUnwrap(red.x.min()), right = try XCTUnwrap(red.x.max()), top = try XCTUnwrap(red.y.min()), bottom = try XCTUnwrap(red.y.max())
+        XCTAssertEqual(Double(right - left + 1), 14, accuracy: 1, "14 px wide")
+        XCTAssertEqual(Double(bottom - top + 1), 14, accuracy: 1, "14 px tall")
+        let baseline = 20 - (font.ascender - font.descender) + font.ascender
+        XCTAssertEqual(Double(top + bottom + 1) / 2, Double(baseline - font.capHeight / 2), accuracy: 1, "centred on half the cap height")
+        let label = try XCTUnwrap(inked(picture, width: 60).label)
+        XCTAssertEqual(Double(label - right - 1), 0, accuracy: 1.5, "no gap before the label")
     }
 
     /// A picture that cannot be read leaves no room in its pill.
