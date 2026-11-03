@@ -525,6 +525,12 @@ public final class Agent {
         v.props["type"] == "password" && !value.isEmpty ? "•••" : value
     }
 
+    /// The refusal of `op` where its platform path is private API, which only
+    /// a development build compiles (LLP 1035.003 §3).
+    static func developmentOnly(_ op: String) -> [String: Any] {
+        ["error": "\(op): a development build's alone; it takes private API, which a production build does not compile", "developmentOnly": true]
+    }
+
     public static func reply(_ obj: [String: Any]) {
         guard let d = try? JSONSerialization.data(withJSONObject: obj) else { raw("{\"error\":\"unencodable reply\"}"); return }
         raw(String(decoding: d, as: UTF8.self))

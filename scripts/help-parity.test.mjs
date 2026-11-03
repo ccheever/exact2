@@ -25,7 +25,7 @@ test('the helps agree with their scripts here, and caps says it checked them', (
   const caps = spawnSync(process.execPath, [resolve(ROOT, 'scripts/caps.mjs')], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_CAPS_WASM: '0' } }); // the wasm32 check is wasm-check.test's
   expect(caps.status).toBe(0);
   expect(caps.stdout).toContain("helps: each verb's flags against its script's, its rows and lengths, 0 problems");
-});
+}, 300_000); // Bound only a hang: caps reads every file, which takes minutes on a loaded machine
 
 test('a flag with no help row, and a row whose flag no script parses, are each said', () => {
   const unsaid = over((edit) => edit('scripts/verify.mjs', (s) => `${s}\nconst frob = args.includes('--frobnicate');\n`));
@@ -83,4 +83,4 @@ test('caps fails on every problem the helps have, and fails closed when their ch
   expect(broken.out).toContain('no HELP');
   // A checkout without the file (another repository caps runs in) checks no helps, and passes.
   expect(caps(null).out).not.toContain('helps:');
-});
+}, 300_000);

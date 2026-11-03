@@ -1157,9 +1157,11 @@ extension Agent {
                     _ = field.returnHeard(prompt)
                 } else if let f = focus.selectionField {
                     (f as? TextField)?.heard = name
-                    if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = f.delegate?.textFieldShouldReturn?(f) }
+                    (f.delegate as? PromptField)?.heard = name
+                    if name == "Backspace" { if let prompt = f.delegate as? PromptField { prompt.deleteBackward(f) } else { f.deleteBackward() } } else if name == "Enter" { _ = f.delegate?.textFieldShouldReturn?(f) }
                     else if Agent.caretKey(name, in: f) {} else if types { f.insertText(name) }
                     (f as? TextField)?.heard = nil
+                    (f.delegate as? PromptField)?.heard = nil
                 } else if presenter.controls.radioKey(focus, name, held: held) { // x2apps survey #2
                 } else {
                     #if os(iOS)
@@ -1381,20 +1383,35 @@ extension Agent {
         var skipped: [CGRect] = []
         // A blur whose radius is unset or 0 (a navigation bar's between
         // transitions) changes nothing: there the display matched the app's
-        // drawing exactly (euxy's Patterns bar, light and dark).
+        // drawing exactly (euxy's Patterns bar, light and dark). The radius,
+        // and whether a backdrop only captures, are Core Animation's private
+        // keys, which only a development build reads (LLP 1035.003 §3); a
+        // production one counts every filter and backdrop, which leaves the
+        // display's pixels in more of the picture, never fewer.
         func changes(_ layer: CALayer, _ path: String) -> Bool {
             ((layer.value(forKey: path) as? [Any]) ?? []).contains { filter in
+                #if EXACT_INSPECT
                 let name = String(describing: filter)
                 guard name.contains("Blur") else { return true }
                 return ((layer.value(forKeyPath: "\(path).\(name).inputRadius") as? NSNumber)?.doubleValue ?? 0) != 0
+                #else
+                return true
+                #endif
             }
+        }
+        func onlyCaptures(_ layer: CALayer) -> Bool {
+            #if EXACT_INSPECT
+            return (layer.value(forKey: "captureOnly") as? Bool) == true
+            #else
+            return false
+            #endif
         }
         func visit(_ layer: CALayer) {
             guard !layer.isHidden, layer.opacity > 0 else { return }
             let kind = String(describing: Swift.type(of: layer))
             // A backdrop that only captures (a scroll edge effect's source) draws nothing.
             let backdrop = ["Backdrop", "Portal", "SDF", "Glass"].contains(where: kind.contains)
-                && !(kind.contains("Backdrop") && (layer.value(forKey: "captureOnly") as? Bool) == true)
+                && !(kind.contains("Backdrop") && onlyCaptures(layer))
             if backdrop || changes(layer, "filters") || changes(layer, "backgroundFilters") {
                 skipped.append(layer.convert(layer.bounds, to: window.layer).insetBy(dx: -12, dy: -12))
                 return

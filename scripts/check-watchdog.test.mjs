@@ -12,6 +12,12 @@ import { checkBound, CHECK_BOUND_MS } from '../js/bake/src/typescript.mjs';
 
 const ROOT = resolve(import.meta.dir, '..'), SUPERVISE = resolve(ROOT, 'scripts/check-supervise.mjs');
 const timed = { ...process.env, EXACT_TEST_TIMING: '1', EXACT_CHECK_BOUND_MS: '1500' };
+/** Resolves once the supervisor says it knows the builder's group (`check: TEST builder <pid>`, under EXACT_TEST_TIMING=1). */
+const knowsBuilder = supervisor => new Promise((known, no) => {
+  let said = '';
+  supervisor.stderr.on('data', d => { said += d; if (/^check: TEST builder \d+ /m.test(said)) known(); });
+  supervisor.once('exit', () => no(new Error(`the supervisor exited before it knew the builder: ${said}`)));
+});
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const scratch = () => mkdtempSync(join(tmpdir(), 'exact-check-watchdog-'));
 
@@ -81,10 +87,12 @@ test('the builder leads its own process group, so it cannot leave it (a group le
 
 test('the leader killed alone (SIGKILL): the supervisor fails the check and kills the builder group by the pid it was sent', async () => {
   const dir = scratch();
-  const supervisor = spawn(process.execPath, [SUPERVISE, String(process.pid), spinner(dir), 'app', '--check'], { stdio: 'ignore' });
+  // Set the test switch for the builder line but no EXACT_CHECK_BOUND_MS, so only the leader's death can fail the check
+  const supervisor = spawn(process.execPath, [SUPERVISE, String(process.pid), spinner(dir), 'app', '--check'], { stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, EXACT_TEST_TIMING: '1' } });
   const exited = new Promise(done => supervisor.on('exit', code => done(code)));
+  const known = knowsBuilder(supervisor);
   const pids = await pidsOf(dir), leader = ps('ppid', pids[0]);
-  await Bun.sleep(300); // (the builder's pid read by the supervisor)
+  await known;
   process.kill(leader, 'SIGKILL');
   expect(await exited).toBe(1);
   expect(await left(pids)).toEqual([]);
@@ -94,8 +102,9 @@ test('a stopped leader (SIGSTOP) does not hold the check past its bound: the cal
   const dir = scratch();
   const supervisor = spawn(process.execPath, [SUPERVISE, String(process.pid), spinner(dir), 'app', '--check'], { stdio: ['ignore', 'pipe', 'pipe'], env: timed });
   const answered = new Promise(done => supervisor.on('close', code => done(code)));
+  const known = knowsBuilder(supervisor);
   const pids = await pidsOf(dir), leader = ps('ppid', pids[0]);
-  await Bun.sleep(300); // (the builder's pid read by the supervisor)
+  await known;
   process.kill(leader, 'SIGSTOP');
   expect(await answered).toBe(1);
   expect(await left([leader, ...pids])).toEqual([]);

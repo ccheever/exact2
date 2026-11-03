@@ -6,7 +6,8 @@
 // wry does, with `-[WKPreferences _setDeveloperExtrasEnabled:]`
 // (`WKPreferencesPrivate.h`), without which the inspector never connects
 // (measured on macOS 27.2). A WebKit without them is refused by name. They
-// compile into production arms too (ruled 2026-10-31, LLP 1020.002 D11).
+// compile into production arms too (ruled 2026-10-31, LLP 1020.002 D11),
+// a named exception to the 2026-11-03 ruling that no private API ships.
 import Foundation
 import WebKit
 

@@ -105,7 +105,7 @@ export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
 export { op } from './tamber-op.mjs';
 import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './tamber-pairing.mjs';
 import { opsRefusal, overOps } from './tamber-ops-limit.mjs';
-import { earlyAnswer, probeTool, readBody, parseRequest as parse, tooDeep, upstream, viaDoor, waitForAnswer } from './tamber-request.mjs'; import { cursorOf, eventsQuery, LONG_POLL_PRESENT_MS } from './tamber-events-get.mjs'; import { TIMING } from './tamber-timing.mjs';
+import { earlyAnswer, probeTool, readBody, parseRequest as parse, tooDeep, upstream, viaDoor, waitForAnswer } from './tamber-request.mjs'; import { cursorOf, eventsQuery, LONG_POLL_PRESENT_MS } from './tamber-events-get.mjs'; import { REAL, TIMING } from './tamber-timing.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The server's own line limit, less room for the id this adds and an import's `recognised` digests (64, stage 10b).
@@ -1356,7 +1356,9 @@ export async function toolCommand(argv) {
   const there = await toolAnswers();
   // `--via`'s dev loop, waited for while it starts (its first build, then its design server), saying why (third pass #9).
   const WAITS = { listening: 'not listening yet (its first build can take minutes)', starting: 'its design server is starting' };
-  const reach = () => waitForAnswer(() => probeTool(target, 5), { capMs: TIMING.viaWait, say: why => console.error(`tamber tool: waiting for the dev loop at ${target}: ${WAITS[why]}; ctrl-c to stop`) });
+  // Say each ask under the test switch, for tamber-tool-via.test.mjs to count
+  const ask = () => { if (TIMING !== REAL) console.error(`tamber tool: TEST asking the dev loop at ${target} (EXACT_TAMBER_TEST_TIMING=1)`); return probeTool(target, 5); };
+  const reach = () => waitForAnswer(ask, { capMs: TIMING.viaWait, say: why => console.error(`tamber tool: waiting for the dev loop at ${target}: ${WAITS[why]}; ctrl-c to stop`) });
   const after = got => (got.waited == null ? '' : got.waited < 60_000 ? ` after ${Math.round(got.waited / 1000)} s` : ` after ${Math.round(got.waited / 60_000)} min`);
   if (there) {
     let same = false;

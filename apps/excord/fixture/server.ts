@@ -10,7 +10,8 @@
 // Either subscription opcode accepts either shape.
 // POST /control/hold-sends {on} holds the app's sends until released, in order.
 // POST /control/hold-media {on} holds full-size pictures (a /media/ GET with no query, as the viewer asks;
-// the transcript's resized ones carry `width`) until released.
+// the transcript's resized ones carry `width`) until released; POST /control/held-media {path} answers once a GET of
+// that path is held, or fails with the reason: 409 when the hold is off or ends first, 408 after 30 s.
 // POST /control/heartbeat-request asks every socket for op 1; POST /control/react-many
 // {channel_id, message_id, emoji, user_ids} adds reactions and flushes their batch immediately.
 // POST /control/vote {channel_id, message_id, user_id, answer_id, add} adds or takes back one vote on a poll.
@@ -298,8 +299,14 @@ export function startFixture(options: FixtureOptions = {}) {
   const heldSends: (() => void)[] = [];
   const releaseSends = () => { holdSends = false; for (const resume of heldSends.splice(0)) resume(); };
   let holdMedia = false;
-  const heldMedia: (() => void)[] = [];
-  const releaseMedia = () => { holdMedia = false; for (const resume of heldMedia.splice(0)) resume(); };
+  const heldMedia: { path: string, resume: () => void }[] = [];
+  // Each `held-media` waiting for its path to be held: told when it is, failed when the hold ends first or after 30 s
+  const onHeldMedia = new Set<{ path: string, told: () => void, fail: (status: number, why: string) => void }>();
+  const releaseMedia = () => {
+    holdMedia = false;
+    for (const held of heldMedia.splice(0)) held.resume();
+    for (const waiter of onHeldMedia) waiter.fail(409, `the hold on pictures ended (hold-media off, or a reset) before a GET of ${waiter.path} was held`);
+  };
   const injectionDispatches = new AsyncLocalStorage<InjectedDispatch[]>();
 
   function nextMessage(requested = nowMs()) {
@@ -827,6 +834,18 @@ export function startFixture(options: FixtureOptions = {}) {
         if (typeof body.on !== 'boolean') throw new HttpError(400, 'on must be a boolean');
         if (body.on) holdMedia = true; else releaseMedia();
         break;
+      case 'held-media': {
+        const path = textField(body, 'path');
+        if (!holdMedia) throw new HttpError(409, `no picture is held, since hold-media is off: post hold-media {"on": true} before the page asks for ${path}`);
+        if (heldMedia.some(held => held.path === path)) break;
+        const { promise, resolve, reject } = Promise.withResolvers<void>();
+        const waiter = { path, told: resolve, fail: (status: number, why: string) => reject(new HttpError(status, why)) };
+        const timer = setTimeout(() => waiter.fail(408, `no full-size GET of ${path} came within 30 s: a resized GET carries a`
+          + ' query and is not held, and the page asks for no picture it already has'), 30_000);
+        onHeldMedia.add(waiter);
+        try { await promise; } finally { onHeldMedia.delete(waiter); clearTimeout(timer); }
+        break;
+      }
       case 'clock':
         clockOffsetMs += integer(body.advance_ms, 0, 8640000000000000 - nowMs());
         await flushReactions();
@@ -1093,7 +1112,10 @@ export function startFixture(options: FixtureOptions = {}) {
         const sticker = /^\/stickers\/601\.png$/.test(url.pathname);
         const name = media?.[1] ?? (emoji ? emojiNames[Number(emoji[1]) - 500] : sticker ? emojiNames[1] : undefined);
         if (!name || !/^[a-z]+$/.test(name)) return json({ message: 'Unknown asset', code: 0 }, 404);
-        if (media && holdMedia && !url.search) await new Promise<void>(resume => heldMedia.push(resume));
+        if (media && holdMedia && !url.search) await new Promise<void>(resume => {
+          heldMedia.push({ path: url.pathname, resume });
+          for (const waiter of onHeldMedia) if (waiter.path === url.pathname) waiter.told();
+        });
         const file = Bun.file(`${import.meta.dir}/../assets/${media ? 'media' : 'emoji'}/${name}.png`);
         if (!await file.exists()) return json({ message: 'Unknown asset', code: 0 }, 404);
         headers.set('Content-Type', 'image/png');

@@ -42,7 +42,12 @@ if (orphaned(Number(caller))) process.exit(1);
 const bound = checkBound();
 if (bound !== CHECK_BOUND_MS) console.error(`check: TEST bound ${bound} ms (EXACT_TEST_TIMING=1)`);
 child = spawn(process.execPath, [fileURLToPath(new URL('check-leader.mjs', import.meta.url)), String(process.pid), builder, ...args], { stdio: ['inherit', 'inherit', 'inherit', 'pipe'], detached: true });
-child.stdio[3].on('data', (said) => { builderPid ||= parseInt(String(said), 10) || 0; });
+child.stdio[3].on('data', (said) => {
+  if (builderPid) return;
+  builderPid = parseInt(String(said), 10) || 0;
+  // Say the builder's pid once it is known, under the test switch, for the tests that kill or stop the leader to wait on
+  if (builderPid && process.env.EXACT_TEST_TIMING === '1') console.error(`check: TEST builder ${builderPid} (EXACT_TEST_TIMING=1)`);
+});
 const timer = setTimeout(() => end(1, `error: ${args[0]}: app.ts's type check did not finish in ${boundWords(bound)}, so it was stopped: bun ${[builder, ...args].join(' ')}`), bound);
 const watch = setInterval(() => { if (orphaned(Number(caller))) end(1); }, 250);
 child.on('error', (e) => end(1, `error: ${args[0]}: app.ts's type check could not start: ${e.message}`));
