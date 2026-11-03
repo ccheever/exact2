@@ -5,6 +5,7 @@ import { toolImages } from './tool-images';
 import { secretCard } from './secret-card';
 import { focusDiffFind } from '../diff/diff-find';
 import { threadFindAction, threadFindExpanded, threadFindView } from './thread-find-runtime';
+import { markdownProseDirection } from '../shared/text-direction';
 import { modelSwitchLabel } from './timeline-model-switch';
 // Message presentation adapted from T3 Code 9c161462c9 (MIT; see LICENSE-T3):
 // apps/web/src/components/chat/MessagesTimeline.tsx and packages/client-runtime/src/userMessage.ts.
@@ -622,7 +623,7 @@ function present(row: Row, context: PresentContext): Message {
       if ((automation || agent) && context.findEntry === row.id) view.open.add(foldKey);
       // A file with a chip in the prose needs no standalone row (images always show); an automation's prompt shows none.
       const shaped = userMessageShape(item, text, attached, chipped, automation || agent);
-      return { ...common, kind: 'user', title: automation ? 'Automation' : agent ? senderTitle : 'You', summary, body: text, revert: row.revert,
+      return { ...common, kind: 'user', title: automation ? 'Automation' : agent ? senderTitle : 'You', summary, body: text, dir: markdownProseDirection(text) ?? 'ltr', revert: row.revert,
         images: automation ? [] : attached.images, attachFiles: automation ? [] : shaped.files, audio: automation ? [] : attached.audio, chips, code: messageCodeBlocks(text, 'data', `message:${row.id}`), diagrams: messageDiagrams(text),
         shape: shaped.shape, mediaAbove: shaped.mediaAbove, mediaLayout: shaped.layout, copyable: sender.text !== '' || shaped.copy !== '',
         collapsible: !automation && !agent && shouldCollapseUserMessage(text),
@@ -674,7 +675,7 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
     // checkpointFileTotals: a huge checkpoint sends a prefix of its files with the totals of all of them.
     const totals = message.filesTotal ?? { count: files.length, additions: files.reduce((sum, file) => sum + file.additions, 0), deletions: files.reduce((sum, file) => sum + file.deletions, 0) };
     const hidden = message.kind === 'checkpoint' ? totals.count - files.length : 0;
-    return { id: message.id, kind: message.kind, title: message.title, body: message.body,
+    return { id: message.id, kind: message.kind, title: message.title, body: message.body, dir: message.dir ?? 'ltr',
       checkpointId: message.checkpointId ?? '', checkpointOrdinal: num(checkpoint?.appRunOrdinal, -1),
       additions: totals.additions, deletions: totals.deletions,
       filesLabel: message.kind === 'checkpoint' ? `${totals.count.toLocaleString('en-US')} changed file${totals.count === 1 ? '' : 's'}` : '',

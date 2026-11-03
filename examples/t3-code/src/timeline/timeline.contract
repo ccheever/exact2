@@ -261,7 +261,7 @@ component UserBody
     bubble: string
   derive grid = not message.mediaAbove and message.shape != "media"
   view
-    column width="100%" align-items=(message.shape == "" ? "stretch" : "flex-end")
+    column direction=(message.dir == "rtl" ? "rtl" : "ltr") text-align="start" width="100%" align-items=(message.shape == "" ? "stretch" : "flex-end")
       if message.shape == "media"
         StandaloneMedia(messageId=message.id, images=message.images, urls=attachments, local=local, layout=message.mediaLayout, topTight=message.groupedPrevious, bottomTight=message.groupedNext)
       if (grid and message.images.length > 0) or message.attachFiles.length > 0 or message.audio.length > 0

@@ -1,6 +1,6 @@
 // T3 Code 5d3d78ab93 apps/web/src/textDirection.test.ts (MIT, see LICENSE-T3).
 import { describe, expect, test } from 'bun:test';
-import { textDirection } from '../../src/shared/text-direction';
+import { markdownProseDirection, textDirection } from '../../src/shared/text-direction';
 
 describe('textDirection', () => {
   for (const [name, text, direction] of [
@@ -23,4 +23,11 @@ describe('textDirection', () => {
   test('leaves text without letters to its surroundings', () => {
     expect(textDirection('42 — 7 ✓')).toBeUndefined();
   });
+});
+
+test('user-message direction ignores code and URLs before counting prose', () => {
+  expect(markdownProseDirection('שלום עולם `one two three four` https://example.com/a')).toBe('rtl');
+  expect(markdownProseDirection('```js\nconst a = one + two + three;\n```\nمرحبا بكم')).toBe('rtl');
+  expect(markdownProseDirection('English prose `שלום עולם`')).toBe('ltr');
+  expect(markdownProseDirection('```js\nconst a = 1;\n```')).toBeUndefined();
 });

@@ -121,6 +121,7 @@ shape Message
   kind: string
   title: string
   body: string
+  dir: string
   checkpointId: string
   checkpointOrdinal: number
   additions: number

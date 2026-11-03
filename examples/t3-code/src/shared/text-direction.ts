@@ -42,3 +42,10 @@ export function textDirection(text: string): TextDirection | undefined {
     () => majority(text.split(/\s+/).map(wordDirection)),
   );
 }
+
+const MARKDOWN_CODE_OR_URL = /(`{3,}|~{3,})[\s\S]*?(?:\1|$)|(`{1,2})(?!`)[\s\S]*?(?<!`)\2(?!`)|https?:\/\/\S+/g;
+
+/** The user message's prose decides its wrapper direction; code and URLs do not vote. */
+export function markdownProseDirection(markdown: string): TextDirection | undefined {
+  return textDirection(markdown.replace(MARKDOWN_CODE_OR_URL, ' '));
+}

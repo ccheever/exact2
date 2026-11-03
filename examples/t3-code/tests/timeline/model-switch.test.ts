@@ -2,6 +2,8 @@
 import { describe, expect, test } from 'bun:test';
 import type { Obj } from '../../src/client/domain';
 import { modelSwitchLabel } from '../../src/timeline/timeline-model-switch';
+import { transcriptRows, timelineMessages } from '../../src/timeline/timeline-presentation';
+import { opened } from '../support/composer-controls-fixture';
 
 const instanceId = 'codex';
 const selection = (model: string, options?: Record<string, string>) => ({
@@ -34,4 +36,18 @@ describe('ModelSwitchRow (#28995)', () => {
     expect(modelSwitchLabel({ from: selection('gpt'), to: selection('gpt', { reasoningEffort: 'high' }) }, [])).toBe('');
     expect(modelSwitchLabel({ from: selection('gpt-a'), to: selection('gpt-b') }, [])).toBe('gpt-a → gpt-b');
   });
+});
+
+test('the transcript places the switch before its user message and gives prose its direction', async () => {
+  const { client } = await opened();
+  client.config.providers = providers;
+  const item = { id: 'm', type: 'user_message', text: 'שלום עולם `one two three four`', attachments: [],
+    createdAt: '2026-11-03T00:00:00Z', modelSwitch: { from: selection('gpt'), to: selection('mini') } };
+  client.projection.visibleTurnItems = [{ sourceThreadId: 't1', sourceItemId: 'm', position: 0, visibility: 'local', item }];
+  const rows = transcriptRows(client);
+  const index = rows.findIndex(row => row.kind === 'user');
+  expect(index).toBeGreaterThan(0);
+  expect(rows[index - 1]).toMatchObject({ kind: 'event', title: 'GPT → Mini', icon: '' });
+  expect(rows[index]).toMatchObject({ body: item.text, dir: 'rtl' });
+  expect(timelineMessages(client, rows, 0)[index]).toMatchObject({ dir: 'rtl' });
 });
