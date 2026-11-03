@@ -367,7 +367,7 @@ function stateCap(text, r, { full = false, name = null } = {}, head = '', sectio
   return [`${what} is ${size(bytes)}, over the ${size(STATE_CAP)} printed whole${head ? ` · ${head}` : ''}`,
     ...sized.filter(([k]) => shown.has(k)).map(([k, v]) => `${k} ${JSON.stringify(v)}`),
     sections ? `not shown: ${rest.map(([k, , n]) => `${k} ${size(n)}`).join(' · ')}` : `${r.length} items`,
-    `${one ? `${one}; ` : ''}all of it: "${what} --full", or --json`].join('\n');
+    `${one ? `${one}; ` : ''}all of it: "${what} --full", or the drive flag --json`].join('\n');
 }
 
 /** A section an app's `state` transcript leaves out (LLP 1012 §7; the JSON keeps every one): null, an empty list or an

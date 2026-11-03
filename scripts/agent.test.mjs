@@ -127,6 +127,9 @@ test('malformed input is labelled before delivery; a state refusal is not', asyn
   await assert.rejects(() => main(['web', 'screenshot x.png --scale 3 window'], { open: async () => ({ close() {} }) }),
     e => e.malformed === true && e.message.endsWith('screenshot: --scale is a flag of the drive, not of the step: write it before the steps, as `web --scale 3 "screenshot x.png window"`'));
   await assert.rejects(() => main(['web', 'screenshot x.png --json'], { open: async () => ({ close() {} }) }), e => e.malformed === true && e.message.endsWith('as `web --json "screenshot x.png"`'));
+  // `state thread --json` printed the capped summary again, the flag unread; `--full` is the step's own.
+  await assert.rejects(() => main(['web', 'state thread --json'], { open: async () => ({ close() {} }) }),
+    e => e.malformed === true && e.message.endsWith('state: --json is a flag of the drive, not of the step: write it before the steps, as `web --json "state thread"`'));
 });
 
 test('accepted pointer, wheel, media and zero-time forms still reach the carrier', async () => {
