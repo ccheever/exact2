@@ -152,33 +152,76 @@ enum T3LocalPidFile {
     }
 }
 
-/// Foundation `Process` as the manager's spawner: stdin carries the envelope and closes at once
-/// (the server waits 1 s for it, apps/server/src/bootstrap.ts); stdout and stderr are captured.
+/// The manager's spawner: `posix_spawn`, so the server gets its desktop telemetry descriptor (fd 4) besides
+/// the three standard ones, as `Process` cannot give it. stdin carries the envelope and closes at once (the
+/// server waits 1 s for it, apps/server/src/bootstrap.ts); stdout and stderr are captured. The child gets its
+/// own process group and default signal handling, as `Process` gives it, and no other descriptor.
 final class T3LocalProcessSpawner: T3LocalSpawner {
     final class Child: T3LocalChild {
-        let process: Process
-        var pid: Int32 { process.processIdentifier }
-        init(_ process: Process) { self.process = process }
+        let pid: Int32
+        /// stdout and stderr's read ends, held for their readability handlers.
+        let outputs: [FileHandle]
+        private let lock = NSLock()
+        private var exited = false
+        init(pid: Int32, outputs: [FileHandle]) { self.pid = pid; self.outputs = outputs }
+        var isRunning: Bool { lock.lock(); defer { lock.unlock() }; return !exited }
+        func reaped() { lock.lock(); exited = true; lock.unlock() }
         func close() {
-            guard process.isRunning else { return }
+            guard isRunning else { return }
             kill(pid, SIGTERM)
-            DispatchQueue.global().asyncAfter(deadline: .now() + 5) { [process] in
-                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 5) { [self] in
+                if isRunning { kill(pid, SIGKILL) }
             }
         }
     }
 
+    /// The shell snapshots each server receives on fd 4 (nil: hello alone).
+    let discovery: T3LocalShellDiscovery?
+    init(discovery: T3LocalShellDiscovery? = nil) { self.discovery = discovery }
+
     func spawn(_ config: T3LocalStartConfig, events: T3LocalChildEvents) throws -> T3LocalChild {
-        let process = Process(), input = Pipe(), stdout = Pipe(), stderr = Pipe()
-        process.executableURL = URL(fileURLWithPath: config.executablePath)
-        process.arguments = config.args
-        process.currentDirectoryURL = URL(fileURLWithPath: config.cwd, isDirectory: true)
-        process.environment = config.env
-        process.standardInput = input
-        process.standardOutput = stdout
-        process.standardError = stderr
-        for (pipe, stream) in [(stdout, T3LocalOutputStream.stdout), (stderr, .stderr)] {
-            pipe.fileHandleForReading.readabilityHandler = { handle in
+        var input: [Int32] = [-1, -1], stdout: [Int32] = [-1, -1], stderr: [Int32] = [-1, -1], telemetry: [Int32] = [-1, -1]
+        let telemetryFd = config.bootstrap.desktopTelemetryFd
+        defer { for fd in [input[0], stdout[1], stderr[1], telemetry[1]] where fd >= 0 { Darwin.close(fd) } }
+        guard pipe(&input) == 0, pipe(&stdout) == 0, pipe(&stderr) == 0,
+              telemetryFd == nil || socketpair(AF_UNIX, SOCK_STREAM, 0, &telemetry) == 0 else {
+            let failure = errno
+            for fd in [input[1], stdout[0], stderr[0], telemetry[0]] where fd >= 0 { Darwin.close(fd) }
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(failure))
+        }
+        for fd in [input[1], stdout[0], stderr[0], telemetry[0]] where fd >= 0 { _ = fcntl(fd, F_SETFD, FD_CLOEXEC) }
+        // A server that exits before reading its envelope fails the write with EPIPE, not SIGPIPE.
+        _ = fcntl(input[1], F_SETNOSIGPIPE, 1)
+        var actions: posix_spawn_file_actions_t?
+        posix_spawn_file_actions_init(&actions)
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        posix_spawn_file_actions_adddup2(&actions, input[0], 0)
+        posix_spawn_file_actions_adddup2(&actions, stdout[1], 1)
+        posix_spawn_file_actions_adddup2(&actions, stderr[1], 2)
+        if let telemetryFd { posix_spawn_file_actions_adddup2(&actions, telemetry[1], Int32(telemetryFd)) }
+        posix_spawn_file_actions_addchdir_np(&actions, config.cwd)
+        var attributes: posix_spawnattr_t?
+        posix_spawnattr_init(&attributes)
+        defer { posix_spawnattr_destroy(&attributes) }
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK))
+        posix_spawnattr_setpgroup(&attributes, 0)
+        var signals = sigset_t()
+        sigfillset(&signals); posix_spawnattr_setsigdefault(&attributes, &signals)
+        sigemptyset(&signals); posix_spawnattr_setsigmask(&attributes, &signals)
+        let argv = ([config.executablePath] + config.args).map { strdup($0) } + [nil]
+        let envp = config.env.map { strdup("\($0.key)=\($0.value)") } + [nil]
+        defer { (argv + envp).forEach { free($0) } }
+        var pid: pid_t = 0
+        let spawned = posix_spawn(&pid, config.executablePath, &actions, &attributes, argv, envp)
+        guard spawned == 0 else {
+            for fd in [input[1], stdout[0], stderr[0], telemetry[0]] where fd >= 0 { Darwin.close(fd) }
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(spawned))
+        }
+        let outputs = [stdout[0], stderr[0]].map { FileHandle(fileDescriptor: $0, closeOnDealloc: true) }
+        let child = Child(pid: pid, outputs: outputs)
+        let channel = telemetryFd == nil ? nil : T3LocalTelemetryChannel(fd: telemetry[0], discovery: discovery)
+        for (handle, stream) in zip(outputs, [T3LocalOutputStream.stdout, .stderr]) {
+            handle.readabilityHandler = { handle in
                 let data = handle.availableData
                 if data.isEmpty {
                     handle.readabilityHandler = nil
@@ -188,13 +231,80 @@ final class T3LocalProcessSpawner: T3LocalSpawner {
                 }
             }
         }
-        process.terminationHandler = { finished in
-            events.exited(finished.terminationReason == .exit ? T3LocalExit(code: finished.terminationStatus) : T3LocalExit(signal: finished.terminationStatus))
+        DispatchQueue.global().async {
+            var status: Int32 = 0
+            while waitpid(pid, &status, 0) == -1 && errno == EINTR {}
+            child.reaped()
+            channel?.close()
+            // WIFEXITED / WEXITSTATUS / WTERMSIG, which Swift does not import.
+            events.exited(status & 0x7f == 0 ? T3LocalExit(code: (status >> 8) & 0xff) : T3LocalExit(signal: status & 0x7f))
         }
-        try process.run()
-        try? input.fileHandleForWriting.write(contentsOf: config.bootstrap.jsonLine())
-        try? input.fileHandleForWriting.close()
-        return Child(process)
+        let envelope = FileHandle(fileDescriptor: input[1], closeOnDealloc: true)
+        try? envelope.write(contentsOf: config.bootstrap.jsonLine())
+        try? envelope.close()
+        return child
+    }
+}
+
+/// The desktop telemetry descriptor (`desktopTelemetryFd`, DesktopTelemetryPublisher.ts): NDJSON from the app to
+/// one server. It carries `desktopTelemetryHello`, then the shell snapshots (T3LocalShellDiscovery), the latest
+/// first. The app sends no host samples (the server's native monitor samples the processes), so the hello repeats
+/// every 30 s: the receiver marks a channel silent for 90 s degraded (DesktopTelemetryReceiver.ts
+/// `INITIAL_SAMPLE_DEADLINE_MS`), which the Diagnostics page shows.
+final class T3LocalTelemetryChannel {
+    static let helloIntervalSeconds = 30
+    private let fd: Int32
+    private let queue = DispatchQueue(label: "com.exact.t3code.local.telemetry")
+    private var timer: DispatchSourceTimer?
+    private var unsubscribe: (() -> Void)?
+    private var open = true
+
+    static func hello(pid: Int32 = getpid()) -> Data { Data(#"{"version":1,"type":"desktopTelemetryHello","electronPid":\#(pid)}"#.utf8 + [0x0A]) }
+
+    init(fd: Int32, discovery: T3LocalShellDiscovery?) {
+        self.fd = fd
+        // A server that exits closes its end; a write after that fails with EPIPE instead of raising SIGPIPE.
+        var on: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        queue.async { [self] in
+            write(Self.hello())
+            // Registered and replayed under the discovery's lock, so a newer snapshot cannot overtake the replay.
+            if let discovery {
+                let subscription = discovery.subscribe { [weak self] line in self?.send(line) }
+                unsubscribe = subscription.cancel
+                if let replay = subscription.replay { write(replay) }
+            }
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            timer.schedule(deadline: .now() + .seconds(Self.helloIntervalSeconds), repeating: .seconds(Self.helloIntervalSeconds))
+            timer.setEventHandler { [weak self] in self?.write(Self.hello()) }
+            timer.resume()
+            self.timer = timer
+        }
+    }
+
+    func send(_ line: Data) { queue.async { [self] in write(line) } }
+
+    func close() {
+        queue.async { [self] in
+            guard open else { return }
+            open = false
+            timer?.cancel(); unsubscribe?()
+            Darwin.close(fd)
+        }
+    }
+
+    /// On the queue. A failed write ends the channel: the server has gone, or stopped reading.
+    private func write(_ line: Data) {
+        guard open else { return }
+        let failed = line.withUnsafeBytes { raw -> Bool in
+            var offset = 0
+            while offset < raw.count {
+                let written = Darwin.write(fd, raw.baseAddress! + offset, raw.count - offset)
+                if written > 0 { offset += written } else if written < 0 && errno == EINTR { continue } else { return true }
+            }
+            return false
+        }
+        if failed { open = false; timer?.cancel(); unsubscribe?(); Darwin.close(fd) }
     }
 }
 
@@ -239,19 +349,32 @@ final class T3LocalBackend: @unchecked Sendable {
     private var readyWaiters: [(String?) -> Void] = []
     private var waitEpoch = 0
 
-    // Seams: the process environment, bundle resources/metadata, the child's environment, the spawner and
+    // Seams: the process environment, bundle resources/metadata, the login shell's runner, the spawner and
     // readiness prober, and the fatal startup alert (tests replace them; T3LocalFatal.swift).
     var environment: () -> [String: String] = { ProcessInfo.processInfo.environment }
     var resources: () -> URL? = { Bundle.main.resourceURL }
     var bundleInfo: () -> [String: Any] = { Bundle.main.infoDictionary ?? [:] }
-    var serverEnvironment: ([String: String]) -> (env: [String: String], prepared: Bool) = { T3LocalShellEnvironment.serverEnvironment(base: $0, run: T3LocalShellEnvironment.runCommand) }
-    var makeSpawner: () -> T3LocalSpawner = { T3LocalProcessSpawner() }
+    var shellRunner: T3LocalShellEnvironment.Runner = T3LocalShellEnvironment.runCommand
+    var makeSpawner: (T3LocalShellDiscovery) -> T3LocalSpawner = { T3LocalProcessSpawner(discovery: $0) }
     var makeProber: () -> T3LocalProber = { T3LocalHTTPProber() }
     var fatal: (String, String) -> Void = { T3LocalFatal.handle(stage: $0, message: $1) }
     var stateDirOwned: (String, String) -> Void = { T3LocalFatal.homeUnavailable(title: $0, message: $1) }
     var canListen: (Int, String) -> Bool = T3LocalPorts.canListen
     /// How long a switch-on waits for the server to answer.
     var startTimeout: TimeInterval = 60
+
+    private var discovery: T3LocalShellDiscovery?
+    /// The app run's shell discovery, started at its first use (the reference's at launch); its cache lives in the
+    /// first caller's T3 home.
+    func shellDiscovery(home: URL, env: [String: String]) -> T3LocalShellDiscovery {
+        lock.lock()
+        if let discovery { lock.unlock(); return discovery }
+        let made = T3LocalShellDiscovery(inherited: env, stateDir: home.appendingPathComponent("userdata", isDirectory: true), run: shellRunner)
+        discovery = made
+        lock.unlock()
+        made.start()
+        return made
+    }
 
     init(session: URLSession = URLSession(configuration: .ephemeral)) {
         self.session = session
@@ -459,31 +582,36 @@ final class T3LocalBackend: @unchecked Sendable {
         let launchExposure = T3LocalExposure.atLaunch(settings: settings.settings,
                                                       interfaces: (try? T3LocalNetwork.shared.interfaces()) ?? [:], lanHostOverride: T3LocalNetwork.shared.lanHostOverride)
         lock.lock(); exposure = launchExposure; lock.unlock()
-        let prepared = serverEnvironment(env)
-        var serverEnv = prepared.env
-        serverEnv["T3CODE_CLI_PATH"] = try? cliCommand().installLauncher()
-        let config = Self.startConfig(versionDir: versionDir, port: port, home: home, token: currentBootstrapToken, env: serverEnv, cwd: NSHomeDirectory(),
-                                      exposure: launchExposure, secret: bootstrapSecret, shellEnvironmentPrepared: prepared.prepared)
+        // The server starts without waiting for the login shell; each start takes the environment as it stands.
+        let discovery = shellDiscovery(home: home, env: env)
+        let cliPath = try? cliCommand().installLauncher()
+        let serverEnv = { () -> [String: String] in
+            var serverEnv = T3LocalShellEnvironment.serverEnvironment(discovery.environment())
+            serverEnv["T3CODE_CLI_PATH"] = cliPath
+            return serverEnv
+        }
+        let config = Self.startConfig(versionDir: versionDir, port: port, home: home, token: currentBootstrapToken, env: serverEnv(), cwd: NSHomeDirectory(),
+                                      exposure: launchExposure, secret: bootstrapSecret)
         let httpBaseUrl = config.httpBaseUrl
         let logDirectory = home.appendingPathComponent("userdata/logs", isDirectory: true)
         let manager = T3LocalBackendManager(
             executor: T3LocalQueueExecutor(queue: queue), clock: T3LocalQueueClock(queue: queue),
-            spawner: makeSpawner(), prober: makeProber(),
+            spawner: makeSpawner(discovery), prober: makeProber(),
             log: T3LocalFileOutputLog(logDirectory: logDirectory, runId: runId),
             spec: T3LocalBackendSpec(configResolve: { [weak self] in
                 guard let self else { return config }
                 // `t3 update` and a starting background service remove a runtime no process runs once it is
                 // an hour old (pinnedRuntime.ts `prunePinnedRuntimes`), so a stopped server's may be gone.
                 // The unpack runs here, synchronously on the supervisor's queue, before the spawn; it takes seconds.
-                if let bundled, !T3LocalRuntime.installed(T3LocalRuntime.paths(home: home, version: version), version: version) {
+                if let bundled, !T3LocalRuntime.installed(T3LocalRuntime.paths(home: home, version: version), version: version, archive: bundled.pin()?.sha256) {
                     switch bundled.ensure() {
                     case .ready: self.log("unpacked runtime \(version) again into \(versionDir.path)")
                     case let .missing(reason), let .failed(reason): throw T3Failure(kind: "Runtime", message: reason)
                     }
                 }
                 self.lock.lock(); let exposure = self.exposure; self.lock.unlock()
-                return Self.startConfig(versionDir: versionDir, port: port, home: home, token: self.currentBootstrapToken, env: serverEnv, cwd: NSHomeDirectory(), exposure: exposure,
-                                        secret: self.bootstrapSecret, shellEnvironmentPrepared: prepared.prepared)
+                return Self.startConfig(versionDir: versionDir, port: port, home: home, token: self.currentBootstrapToken, env: serverEnv(), cwd: NSHomeDirectory(), exposure: exposure,
+                                        secret: self.bootstrapSecret)
             }))
         manager.logger = { [weak self] in self?.log($0) }
         manager.spec.onStarted = { pid, config in T3LocalPidFile.write(pidFile, pid: pid, executable: config.executablePath) }
@@ -568,8 +696,9 @@ final class T3LocalBackend: @unchecked Sendable {
     /// `resolvePrimaryStartConfig` for the SEA: `t3 --bootstrap-fd 0` from the version folder, cwd the
     /// home folder (`backendCwd` of a packaged build), local-only (`127.0.0.1`), no Tailscale Serve
     /// (`exposure` adds it), the resource monitor when the tree has one.
-    static func startConfig(versionDir: URL, port: Int, home: URL, token: String, env: [String: String], cwd: String, exposure: T3LocalExposure = T3LocalExposure(), secret: String? = nil,
-                            shellEnvironmentPrepared: Bool = true) -> T3LocalStartConfig {
+    /// `resolvePrimaryStartConfig`.
+    static func startConfig(versionDir: URL, port: Int, home: URL, token: String, env: [String: String], cwd: String, exposure: T3LocalExposure = T3LocalExposure(),
+                            secret: String? = nil) -> T3LocalStartConfig {
         let monitor = versionDir.appendingPathComponent("resource-monitor/darwin-arm64/t3-resource-monitor")
         return T3LocalStartConfig(
             executablePath: versionDir.appendingPathComponent("t3").path,
@@ -577,8 +706,8 @@ final class T3LocalBackend: @unchecked Sendable {
             cwd: cwd,
             env: env,
             bootstrap: T3LocalBootstrap(port: port, t3Home: home.path, host: exposure.host, desktopBootstrapToken: token, desktopBootstrapSecret: secret,
-                                        shellEnvironmentPrepared: shellEnvironmentPrepared, tailscaleServeEnabled: exposure.tailscaleServeEnabled, tailscaleServePort: exposure.tailscaleServePort,
-                                        resourceMonitorPath: FileManager.default.isExecutableFile(atPath: monitor.path) ? monitor.path : nil),
+                                        tailscaleServeEnabled: exposure.tailscaleServeEnabled, tailscaleServePort: exposure.tailscaleServePort,
+                                        resourceMonitorPath: FileManager.default.isExecutableFile(atPath: monitor.path) ? monitor.path : nil, desktopTelemetryFd: 4),
             // The app always reaches its own server over loopback; network access only widens the bind host.
             httpBaseUrl: URL(string: "http://127.0.0.1:\(port)")!)
     }

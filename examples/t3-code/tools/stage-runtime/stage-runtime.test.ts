@@ -1,5 +1,6 @@
 // The embedded server's runtime: stage-runtime.mjs accepts the archive only when the pin, the
-// release's SHA256SUMS and the computed hash agree (cliRelease.ts parseChecksums for the file).
+// release's SHA256SUMS and the computed hash agree (cliRelease.ts parseChecksums for the file), or,
+// for a build pin, which has no SHA256SUMS, when the pin and the computed hash do.
 import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, symlinkSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -35,6 +36,12 @@ describe('stage-runtime', () => {
   test('refuses an archive SHA256SUMS does not list, and a wrong size', () => {
     expect(checkArchive(pin, { size: pin.size, sha256: pin.sha256, checksums: `${pin.sha256}  something-else.tar.gz\n` })).toContain('is not listed');
     expect(checkArchive(pin, { size: pin.size - 1, sha256: pin.sha256, checksums: sums(pin.sha256) })).toContain('size');
+  });
+
+  test('a build pin has no SHA256SUMS: the pinned hash alone decides', () => {
+    expect(checkArchive(pin, { size: pin.size, sha256: pin.sha256, checksums: null })).toBeNull();
+    expect(checkArchive(pin, { size: pin.size, sha256: 'd'.repeat(64), checksums: null })).toContain('the pin says');
+    expect(checkArchive(pin, { size: pin.size + 1, sha256: pin.sha256, checksums: null })).toContain('size');
   });
 
   test('the manifest records type, mode, size, hash and link targets', () => {

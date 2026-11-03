@@ -55,7 +55,7 @@ const TOOLS: Readonly<Record<string, T3ToolDefinition>> = {
   delegate_task: tool(['Delegate', 'Delegating', 'Delegated', 'a child task'], 'delegate'),
   task_status: tool(['Get', 'Getting', 'Got', 'delegated task status'], 'task-status'),
   task_cancel: tool(['Cancel', 'Canceling', 'Requested cancellation of', 'a delegated task'], 'task-cancel'),
-  schedule_task: tool(['Schedule', 'Scheduling', 'Scheduled', 'a recurring task'], 'schedule-create'),
+  schedule_task: tool(['Schedule', 'Scheduling', 'Scheduled', 'a task'], 'schedule-create'),
   list_scheduled_tasks: tool(['List', 'Listing', 'Listed', 'scheduled tasks'], 'schedule-list'),
   update_scheduled_task: tool(['Update', 'Updating', 'Updated', 'a scheduled task'], 'schedule-update'),
   delete_scheduled_task: tool(['Delete', 'Deleting', 'Requested deletion of', 'a scheduled task'], 'schedule-delete'),
@@ -131,7 +131,8 @@ const TOOLS: Readonly<Record<string, T3ToolDefinition>> = {
   t3_attachment_discard: tool(['Discard', 'Discarding', 'Discarded', 'a pending attachment'], 'attachment-discard'),
   t3_thread_send_attachments: tool(['Send', 'Sending', 'Sent', 'attachments'], 'attachment-send'),
 };
-const SERVER_ALIASES = new Set(['t3-code', 't3_code', 't3code']);
+// Codex registers "t3-code-direct" for T3 tools kept out of Code Mode.
+const SERVER_ALIASES = new Set(['t3-code', 't3_code', 't3code', 't3-code-direct', 't3_code_direct']);
 const own = (name: string) => Object.prototype.hasOwnProperty.call(TOOLS, name);
 
 /** resolveT3McpToolName: the loose provider prefixes, gated by the inventory. */
@@ -139,7 +140,7 @@ export function resolveName(value: string): string | null {
   const label = value.replace(/\s+(?:complete|completed)\s*$/i, '').trim();
   const mcp = /^mcp__(.+?)__(.+)$/i.exec(label);
   if (mcp) return SERVER_ALIASES.has(mcp[1]!.toLowerCase()) ? mcp[2]! : null;
-  const namespaced = /^(?:t3-code|t3_code|t3code)(?:[.:/]|\s*·\s*)(.+)$/i.exec(label);
+  const namespaced = /^(?:t3[-_]code[-_]direct|t3-code|t3_code|t3code)(?:[.:/]|\s*·\s*)(.+)$/i.exec(label);
   if (namespaced) return namespaced[1] ?? null;
   const prefixed = /^(?:mcp[-_]{1,2})?t3[-_ ]?code(?:__|[-_.:/ ])(.+)$/i.exec(label);
   const candidate = prefixed?.[1] ?? label;

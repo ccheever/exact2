@@ -236,7 +236,7 @@ final class LocalNetworkTests: XCTestCase {
         try! #"{"version":1,"serverExposureMode":"local-only"}"#.write(to: data.appendingPathComponent("t3-code.json"), atomically: true, encoding: .utf8)
         backend.environment = { ["T3_LOCAL_HOME": home.path, "T3_LOCAL_PORT": "16898", "T3_LOCAL_RUNTIME_DIR": runtime.path, "PATH": "/usr/bin:/bin"] }
         backend.resources = { nil }
-        backend.serverEnvironment = { ($0, true) }
+        backend.shellRunner = { _, _, _ in "" }
         backend.makeProber = { FakeProber() }
         backend.fatal = { stage, message in XCTFail("unexpected fatal \(stage): \(message)") }
         backend.attach(owner, dataRoot: data, changed: { _ in })

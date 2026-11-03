@@ -23,7 +23,7 @@ import { adoptSidebarPrefs } from '../sidebar/sidebar-state';
 import { PROVIDER_OPS } from '../providers/providers';
 import { CONNECTION_OPS } from '../connections/connections';
 import { READ_OPS, WRITE_OPS, runOps, type OpOut, type ProvidersRoute } from './client-ops';
-import { createProjectFromThread, forceStopThread, prepareTriage, setMaintainerEdits, stopLocalServer, type ForceStopResult } from './server-operations';
+import { createProjectFromThread, forceStopThread, getNativeChildWork, prepareTriage, setMaintainerEdits, stopLocalServer, type ForceStopResult, type NativeChildWork } from './server-operations';
 import { groupingModes, message, projectPath } from './client-shared';
 import { letGo } from './let-go';
 import { fleet } from '../connections/settings-b-fleet';
@@ -899,12 +899,13 @@ export class T3Client {
     // A pull request request reads or writes through the server the reader shares GitHub with (pages-pr-environments.ts).
     return method.startsWith('pullRequests.') ? routedPullRequestRequest(this, native, method, payload, write) : this.request(native, method, payload, this.generation, write);
   }
-  // The operations 0.1.5 and 0.1.6 servers add (server-operations.ts).
+  // The operations 0.1.5, 0.1.6 and 5d3d78ab93 servers add (server-operations.ts).
   stopLocalServer(native: Native, input: { pid: number; port: number }): Promise<void> { return stopLocalServer(this, native, input); }
   prepareTriage(native: Native): Promise<string> { return prepareTriage(this, native); }
   createProjectFromThread(native: Native, threadId: string): Promise<string> { return createProjectFromThread(this, native, threadId); }
   setMaintainerEdits(native: Native, reference: Obj, allowed: boolean): Promise<void> { return setMaintainerEdits(this, native, reference, allowed); }
   forceStopThread(native: Native, threadId: string, runId?: string): Promise<ForceStopResult> { return forceStopThread(this, native, threadId, runId); }
+  getNativeChildWork(native: Native, threadId: string): Promise<NativeChildWork[]> { return getNativeChildWork(this, native, threadId); }
   projectGroups() {
     const byKey = new Map<string, Obj[]>();
     for (const project of this.shell.projects) {

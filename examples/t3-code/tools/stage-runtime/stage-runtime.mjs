@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
-// Stages the embedded T3 server for the macOS bundle (app.json `commands.runtime`):
-// the official T3 Code CLI release archive named by server-runtime/runtime-pin.json.
+// Stages the embedded T3 server for the macOS bundle (app.json `commands.runtime`): the T3 Code CLI
+// archive named by server-runtime/runtime-pin.json. A release pin (`url`) names the official release
+// archive; a build pin (`build`) names one built from an unreleased commit, which only the cache holds.
 //
 //   bun examples/t3-code/tools/stage-runtime/stage-runtime.mjs            download (or reuse the cache), verify, smoke, stage
 //   bun examples/t3-code/tools/stage-runtime/stage-runtime.mjs --offline  the cache only; fails when it is missing or wrong
@@ -10,14 +11,17 @@
 // Verification, in order (T3 Code MIT, see LICENSE-T3; reference 1e2ecbd975: the release
 // checksums of packages/shared/src/cliRelease.ts `parseChecksums`, scripts/install.sh's
 // download-verify-extract, scripts/smoke-cli-archive.ts's start-and-probe):
-//   1. the archive's size and SHA-256 equal the pin's, and the release's SHA256SUMS lists the
-//      same hash for the asset. SHA256SUMS is unsigned, so the committed hash is the anchor;
+//   1. the archive's size and SHA-256 equal the pin's; for a release pin, the release's SHA256SUMS
+//      lists the same hash for the asset. SHA256SUMS is unsigned, so the committed hash is the anchor;
+//      a build has no SHA256SUMS, and the committed hash is all there is;
 //   2. the archive extracts into a scratch folder; every Mach-O file in it passes
-//      `codesign --verify --strict` (the release signs them, docs/operations/release.md);
+//      `codesign --verify --strict` (the release signs them with a Developer ID,
+//      docs/operations/release.md; a build without CSC_LINK signs `t3` and the native addons ad hoc,
+//      `signing: "adhoc"`, and `t3` must then carry an ad hoc signature);
 //   3. `t3 --version` with an empty environment prints the pinned version;
 //   4. `t3 --bootstrap-fd 0` starts on a scratch T3 home and a lane port (16000-16999), answers
 //      /.well-known/t3/environment with the pinned serverVersion, and exits on SIGTERM.
-// Then the archive (its own bytes: the release's signatures and entitlements stay intact; a
+// Then the archive (its own bytes: the signatures and entitlements stay intact; a
 // copied tree's Mach-O files would be re-signed by the bundle build) and runtime-manifest.json
 // (every path's type, mode, size, SHA-256 or link target) go beside the pin. The bundle carries
 // that folder as Contents/Resources/t3-runtime (app.json host.macos.resources, exact2 #103/#215).
@@ -53,10 +57,14 @@ export function sha256File(path) {
   return hash.digest("hex");
 }
 
-/** The three hashes must agree, and the size must be the pin's. Returns the failure text or null. */
+/**
+ * The hashes must agree, and the size must be the pin's. `checksums` is the release's SHA256SUMS, or null for a
+ * build pin, which has none. Returns the failure text or null.
+ */
 export function checkArchive(pin, { size, sha256, checksums }) {
-  const listed = parseChecksums(checksums).get(pin.asset);
   if (size !== pin.size) return `${pin.asset}: size ${size}, the pin says ${pin.size}`;
+  if (checksums === null) return sha256 === pin.sha256 ? null : `${pin.asset}: sha256 ${sha256}; the pin says ${pin.sha256}`;
+  const listed = parseChecksums(checksums).get(pin.asset);
   if (listed === undefined) return `${pin.asset} is not listed in SHA256SUMS`;
   if (listed !== pin.sha256) return `SHA256SUMS lists ${listed} for ${pin.asset}; the pin says ${pin.sha256}`;
   if (sha256 !== pin.sha256) return `${pin.asset}: sha256 ${sha256}; the pin and SHA256SUMS say ${pin.sha256}`;
@@ -155,12 +163,15 @@ async function smoke(tree, pin) {
 export async function stage({ offline = false, smokeTest = true, log = console.log } = {}) {
   const pin = JSON.parse(readFileSync(join(runtimeDir, "runtime-pin.json"), "utf8"));
   mkdirSync(cacheDir, { recursive: true });
-  const archive = join(cacheDir, pin.asset), sums = join(cacheDir, `SHA256SUMS-${pin.version}`);
-  const check = () => existsSync(archive) && existsSync(sums)
-    ? checkArchive(pin, { size: lstatSync(archive).size, sha256: sha256File(archive), checksums: readFileSync(sums, "utf8") })
-    : `no ${pin.asset} and SHA256SUMS in ${relative(process.cwd(), cacheDir) || "."}`;
+  const archive = join(cacheDir, pin.asset), sums = pin.url ? join(cacheDir, `SHA256SUMS-${pin.version}`) : null;
+  const cached = relative(process.cwd(), cacheDir) || ".";
+  const check = () => existsSync(archive) && (sums === null || existsSync(sums))
+    ? checkArchive(pin, { size: lstatSync(archive).size, sha256: sha256File(archive), checksums: sums === null ? null : readFileSync(sums, "utf8") })
+    : sums === null ? `no ${pin.asset} in ${cached}` : `no ${pin.asset} and SHA256SUMS in ${cached}`;
   let failure = check();
   if (failure && offline) throw new Error(`--offline: ${failure}`);
+  // A build pin has nothing to download: the archive is built from pin.commit as pin.build says.
+  if (failure && sums === null) throw new Error(`${failure}; build it from ${pin.repository} ${pin.commit} with runtime-pin.json's build steps, or copy it from another checkout's .runtime-cache`);
   if (failure) {
     log(`cache: ${failure}; downloading ${pin.url}`);
     await download(pin.checksumsUrl, sums);
@@ -168,7 +179,7 @@ export async function stage({ offline = false, smokeTest = true, log = console.l
     failure = check();
     if (failure) { rmSync(archive, { force: true }); throw new Error(failure); }
   } else log(`cached ${pin.asset}`);
-  log(`verified ${pin.asset} ${pin.size} bytes sha256 ${pin.sha256} (pin = SHA256SUMS = computed)`);
+  log(`verified ${pin.asset} ${pin.size} bytes sha256 ${pin.sha256} (${sums === null ? "pin = computed; a build has no SHA256SUMS" : "pin = SHA256SUMS = computed"})`);
 
   const scratch = mkdtempSync(join(tmpdir(), "t3-stage-"));
   try {
@@ -182,7 +193,12 @@ export async function stage({ offline = false, smokeTest = true, log = console.l
       const verify = spawnSync("codesign", ["--verify", "--strict", join(tree, entry.path)], { encoding: "utf8" });
       if (verify.status !== 0) throw new Error(`codesign --verify --strict ${entry.path}: ${verify.stderr.trim()}`);
     }
-    log(`codesign --verify --strict: ${machO.length} Mach-O files pass (${machO.map((entry) => entry.path).join(", ")})`);
+    // A build pin says how the archive build signed `t3`; `codesign -dv` prints `Signature=adhoc` for an ad hoc
+    // signature. Vendored binaries (cursorsandbox) keep their vendor's signature either way.
+    if (pin.signing === "adhoc" && !/^Signature=adhoc$/m.test(spawnSync("codesign", ["-dv", join(tree, "t3")], { encoding: "utf8" }).stderr)) {
+      throw new Error("the archive's t3 is not signed ad hoc, as the pin says");
+    }
+    log(`codesign --verify --strict${pin.signing === "adhoc" ? " (t3 signed ad hoc)" : ""}: ${machO.length} Mach-O files pass (${machO.map((entry) => entry.path).join(", ")})`);
     const t3 = manifest.find((entry) => entry.path === "t3");
     if (!t3 || t3.type !== "file" || (t3.mode & 0o777) !== 0o755) throw new Error("the archive's t3 is missing or not mode 0755");
     const version = spawnSync(join(tree, "t3"), ["--version"], { encoding: "utf8", env: {} });
