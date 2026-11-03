@@ -1711,7 +1711,7 @@
       "id": 285,
       "name": "appleInactiveSchedulingPolicy",
       "kind": "str",
-      "_comment": "@ref LLP 1020.002 §9: `apple.inactiveSchedulingPolicy=` on an `iframe`, `WKPreferences.inactiveSchedulingPolicy`: `suspend`, `throttle` or `none` (which also turns off WebKit's hidden-page timer throttling); inert elsewhere."
+      "_comment": "@ref LLP 1020.002 §9: `apple.inactiveSchedulingPolicy=` on an `iframe`, `WKPreferences.inactiveSchedulingPolicy`: `suspend`, `throttle` or `none` (none of which lifts WebKit's clamp of a hidden page's timers); inert elsewhere."
     },
     {
       "id": 286,
