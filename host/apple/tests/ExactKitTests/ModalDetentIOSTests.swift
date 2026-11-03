@@ -26,6 +26,12 @@ final class ModalDetentIOSTests: XCTestCase {
         init(_ maximum: CGFloat) { maximumDetentValue = maximum }
     }
 
+    func testFullscreenDatasetOwnsSystemBarVisibility() {
+        XCTAssertTrue(ModalSystemBars.hidden("hidden"))
+        XCTAssertFalse(ModalSystemBars.hidden("auto"))
+        XCTAssertFalse(ModalSystemBars.hidden(nil))
+    }
+
     func testTheWordsBecomeDetentsInOrder() {
         let detents = ModalHost.detents("300 500 large nonsense") { 120 }
         XCTAssertEqual(detents.map(\.identifier.rawValue), ["authored-0", "authored-1", UISheetPresentationController.Detent.Identifier.large.rawValue])
