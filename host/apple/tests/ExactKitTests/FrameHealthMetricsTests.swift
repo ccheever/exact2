@@ -1,5 +1,6 @@
 import Foundation
 import QuartzCore
+import SwiftUI
 import XCTest
 import CExact
 #if os(macOS)
@@ -14,6 +15,83 @@ final class FrameHealthMetricsTests: XCTestCase {
         _ = NSApplication.shared
         #endif
     }
+
+    func testTheContinuousOutlineLiesOnSwiftUIsContinuousRoundedRectangle() {
+        // Apple's curve: SwiftUI's continuous rounded rectangle has the elements of UIKit's
+        // `UIBezierPath(roundedRect:cornerRadius:)`
+        let rect = CGRect(x: 0, y: 0, width: 400, height: 400), radius: CGFloat = 100
+        let apple = polyline(RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: rect).cgPath)
+        let drawn = polyline(FrameHealthCardDrawing.continuous(rect, radius: radius))
+        let circular = polyline(CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil))
+        let apart = farthest(drawn, apple) / radius, circularApart = farthest(circular, apple) / radius
+        XCTAssertLessThan(apart, 0.001, "the drawn outline lies on Apple's curve: \(apart) radii from it at most")
+        XCTAssertGreaterThan(circularApart, 0.01, "a circular arc lies \(circularApart) radii from it, so the test tells the two apart")
+    }
+
+    func testTheFacesFillsTakeTheContinuousOutline() {
+        // The segmented control's top-left corner, its track's and its chosen chip's, drawn at 16 times its size in colors far apart
+        var p = Self.palette
+        (p.background, p.track, p.chip) = (CGColor(gray: 0, alpha: 1), CGColor(gray: 1, alpha: 1), CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        let layout = FrameHealthCardFace.Layout(width: FrameHealthCardFace.width), chip = layout.segments.0
+        let corner = CGRect(x: layout.track.minX, y: layout.track.minY, width: 11, height: 11), scale: CGFloat = 16
+        func picture(_ draw: (CGContext) -> Void) -> [UInt8] {
+            let side = Int(corner.width * scale)
+            var pixels = [UInt8](repeating: 0, count: side * side * 4)
+            pixels.withUnsafeMutableBytes { buffer in
+                guard let ctx = CGContext(data: buffer.baseAddress, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                                          space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+                ctx.scaleBy(x: scale, y: scale)
+                ctx.translateBy(x: -corner.minX, y: -corner.minY)
+                draw(ctx)
+            }
+            return pixels
+        }
+        func fills(_ outline: (CGRect, CGFloat) -> CGPath) -> [UInt8] {
+            picture { ctx in
+                for (color, path) in [(p.background, CGPath(rect: corner, transform: nil)), (p.track, outline(layout.track, 8)), (p.chip, outline(chip, 6))] {
+                    ctx.setFillColor(color)
+                    ctx.addPath(path)
+                    ctx.fillPath()
+                }
+            }
+        }
+        let face = picture { FrameHealthCardFace.draw($0, width: FrameHealthCardFace.width, compact: false, state: .init(), palette: p) }
+        let apart = { (a: [UInt8], b: [UInt8]) in zip(a, b).filter { abs(Int($0) - Int($1)) > 64 }.count }
+        XCTAssertEqual(apart(face, fills { FrameHealthCardDrawing.continuous($0, radius: $1) }), 0, "the track and the chip take the continuous outline")
+        XCTAssertGreaterThan(apart(face, fills { CGPath(roundedRect: $0, cornerWidth: $1, cornerHeight: $1, transform: nil) }), 100,
+                             "and circular corners would draw other pixels")
+    }
+
+    /// The outline `path` traces, its curves divided into 64 lines each
+    private func polyline(_ path: CGPath) -> [CGPoint] {
+        var points: [CGPoint] = []
+        path.applyWithBlock { element in
+            let p = element.pointee.points, from = points.last ?? .zero
+            func sample(_ at: (CGFloat) -> CGPoint) { points += (1...64).map { at(CGFloat($0) / 64) } }
+            switch element.pointee.type {
+            case .moveToPoint, .addLineToPoint: points.append(p[0])
+            case .addCurveToPoint:
+                sample { t in let u = 1 - t, (b0, b1, b2, b3) = (u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t)
+                    return CGPoint(x: b0 * from.x + b1 * p[0].x + b2 * p[1].x + b3 * p[2].x, y: b0 * from.y + b1 * p[0].y + b2 * p[1].y + b3 * p[2].y) }
+            case .closeSubpath: if let first = points.first { points.append(first) }
+            default: XCTFail("no outline here has a \(element.pointee.type)")
+            }
+        }
+        return points
+    }
+
+    /// The largest distance from a point of either outline to the other: zero when they trace one shape
+    private func farthest(_ a: [CGPoint], _ b: [CGPoint]) -> CGFloat {
+        func distance(_ p: CGPoint, to line: [CGPoint]) -> CGFloat {
+            zip(line, line.dropFirst()).map { s, e in
+                let d = CGPoint(x: e.x - s.x, y: e.y - s.y), length = d.x * d.x + d.y * d.y
+                let t = length == 0 ? 0 : min(1, max(0, ((p.x - s.x) * d.x + (p.y - s.y) * d.y) / length))
+                return hypot(p.x - s.x - t * d.x, p.y - s.y - t * d.y)
+            }.min() ?? .infinity
+        }
+        return max(a.map { distance($0, to: b) }.max() ?? 0, b.map { distance($0, to: a) }.max() ?? 0)
+    }
+
     func testMetricCursorsFinalizeWholeIntervalsAndKeepTheirOwnWorkWindow() throws {
         // Lateness is unknown on the simulator; this test reads the counts a device reports
         let simulator = FrameHealthAssessment.deadlinesObserved
