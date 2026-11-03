@@ -159,16 +159,18 @@ final class FrameHealthOverlay: UIView {
                 screen.health.setHUDVisible(true)
             } else { screen.stop() }
         }
-        // The screen's frames hold Exact's, so the charts take those only without them
+        // The screen's frames hold Exact's, so the charts take those only without them; measuring the screen, the charts
+        // glide with the time, which takes no update of the app's
         health.chart = observing ? nil : card.chart
+        card.chart.glides = observing
         sample(now: now, force: true)
         follow(true)
     }
 
-    /// Follow the time, or stop, as the card pauses or hides. Measuring the screen, the card reads twice a second and
-    /// moves the charts with the time in the same change of its own: an update of the app's that falls in the same refresh
-    /// as one of the card's is taken for the card's, so it makes as few as it can. Otherwise the charts follow the time on
-    /// their own.
+    /// Follow the time, or stop, as the card pauses or hides. Measuring the screen, the charts glide on their own, and the
+    /// card reads twice a second and draws what changed in the same change of its own: an update of the app's that falls
+    /// in the same refresh as one of the card's is taken for the card's, so it makes as few as it can. Otherwise the
+    /// charts follow the time on their own clock.
     private func follow(_ on: Bool) {
         reading?.invalidate()
         reading = nil

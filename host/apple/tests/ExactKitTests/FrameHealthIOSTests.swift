@@ -374,6 +374,12 @@ final class FrameHealthIOSTests: XCTestCase {
         }
         XCTAssertGreaterThanOrEqual(overlay.screenFrames, 4)
         XCTAssertLessThanOrEqual(overlay.screenFrames, 6, "the card's own changes are not counted")
+        // The charts glide with the time, Core Animation moving them; a pause stops them, and resuming starts them again
+        XCTAssertTrue(overlay.card.chart.gliding)
+        overlay.card.activate?(.status)
+        XCTAssertFalse(overlay.card.chart.gliding)
+        overlay.card.activate?(.status)
+        XCTAssertTrue(overlay.card.chart.gliding)
         overlay.setVisible(false)
     }
 
