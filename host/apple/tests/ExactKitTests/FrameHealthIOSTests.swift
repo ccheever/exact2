@@ -469,9 +469,12 @@ final class FrameHealthIOSTests: XCTestCase {
         let disabled = DevMenuController.frameHealth(off, container: true)
         XCTAssertEqual(disabled.title, "Frame Health Disabled", "the same one row, dimmed")
         XCTAssertEqual(disabled.unavailable?.title, "Frame Health Is Off")
-        XCTAssertTrue(disabled.unavailable?.message.hasPrefix("Production builds don't measure frame timings by default.") == true)
-        XCTAssertTrue(disabled.unavailable?.message.contains("\"frame_health\": { \"mode\": \"core\" }") == true, "it says how to turn collection on")
+        XCTAssertTrue(disabled.unavailable?.message.hasPrefix("This app turns frame health off") == true, "it says what turned it off")
         XCTAssertEqual(DevMenuController.frameHealth(on, container: false).unavailable?.title, "Frame Health Is Unavailable")
+        // A production build's collector, which collects only while the card shows, offers the row as available
+        let demand = FrameHealth(policy: .onDemand)
+        defer { demand.destroy() }
+        XCTAssertEqual(DevMenuController.frameHealth(demand, container: true).title, "Frame Health")
     }
 
     func testMenuUsesNativeRowsAndBuildDetailsHaveTheirOwnScreen() throws {

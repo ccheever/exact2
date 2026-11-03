@@ -126,8 +126,8 @@ final class FrameHealthOverlay: UIView {
         render()
     }
 
-    /// Each frame feeds the charts while the card reads and is not paused; a pause holds them, and
-    /// the first frame after it bounds no interval. A new generation during a pause clears them, as
+    /// Each frame feeds the charts while the card reads and is not paused, and they follow the time; a
+    /// pause holds them, and the first frame after it bounds no interval. A new generation during a pause clears them, as
     /// the reader's next sample clears it.
     private func feed(_ on: Bool) {
         guard let health else { return }
@@ -136,11 +136,13 @@ final class FrameHealthOverlay: UIView {
         chartGeneration = generation
         health.chart = on ? card.chart : nil
         card.chart.endRun()
+        card.chart.follow(on)
     }
 
     private var rates: FrameHealthCardText.Rates {
         frozen?.0 ?? FrameHealthCardText.Rates(requestedHz: Double(health?.requestedHertz ?? 0),
-            periodMs: Double(reader.samples.last?.periodNs ?? health?.snapshot().period_ns ?? 0) / 1e6)
+            periodMs: Double(reader.samples.last?.periodNs ?? health?.snapshot().period_ns ?? 0) / 1e6,
+            nativeScrolling: health?.nativeScrollActive ?? false)
     }
 
     private var display: FrameHealthCardText.Display { frozen?.1 ?? Self.display(window?.screen ?? UIScreen.main) }
@@ -148,7 +150,7 @@ final class FrameHealthOverlay: UIView {
     private func render() {
         guard let health else { return }
         card.update(FrameHealthCardPresentation(reader: reader, rates: rates, display: display,
-            status: paused ? .paused : health.snapshot().running != 0 ? .live : .idle,
+            status: paused ? .paused : health.snapshot().running != 0 || health.nativeScrollActive ? .live : .idle,
             unavailable: health.enabled ? reader.reading ? nil : FrameHealthReaders.full : health.unavailableReason, health: health,
             details: card.state.showsDetails))
     }

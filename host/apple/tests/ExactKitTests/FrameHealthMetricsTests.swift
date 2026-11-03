@@ -248,6 +248,29 @@ final class FrameHealthMetricsTests: XCTestCase {
         chart.frame(at: 106.5)
         chart.present()
         XCTAssertEqual(lines[0].position.x, 0, "past the five seconds it reaches, the layer is drawn whole again")
+        // Following the time, the plots move between frames, and stop once the newest frame has left them
+        chart.follow(true)
+        chart.tick(at: 106.55)
+        XCTAssertEqual(lines[0].position.x, 0, "not within a column of the newest frame, which moved them")
+        chart.tick(at: 107.5)
+        XCTAssertEqual(lines[0].position.x, -(width / 30 * 2).rounded(.down) / 2, "the layer moves with the time")
+        chart.tick(at: 136.5)
+        XCTAssertEqual(chart.head, 136.5)
+        XCTAssertNil(chart.clock, "flat once the newest frame has left the plots, and nothing moves them")
+        chart.frame(at: 140)
+        XCTAssertNotNil(chart.clock, "until the next frame")
+        // A native update, whose period is unknown, feeds the charts while Exact's own frames do not run
+        let owner = FrameHealth(enabled: true), native = FrameHealth(enabled: true)
+        defer { owner.destroy(); native.destroy() }
+        native.publicationOwner = owner
+        native.chart = chart
+        native.record(arrival: 141, target: 141.008, period: 0, finished: 141.004)
+        XCTAssertEqual(chart.newest, 141)
+        owner.record(arrival: 142, target: 142.008, period: 0.008, finished: 142.001)
+        native.record(arrival: 143, target: 143.008, period: 0, finished: 143.004)
+        XCTAssertEqual(chart.newest, 141, "Exact's frames run, and the charts take those instead")
+        chart.follow(false)
+        XCTAssertNil(chart.clock)
         // A dotted line's dashes keep their place in time as the plot moves on
         var earlier = plots[0].plot, later = earlier
         (earlier.now, later.now) = (100, 103.7)
@@ -796,12 +819,32 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertEqual([figures.fps, figures.missed, figures.late, figures.maxFrame], ["—", "—", "—", "—"])
     }
 
-    func testABuildThatCollectsNoFrameHealthSaysHowToTurnItOn() {
-        let on = FrameHealth(enabled: true), off = FrameHealth(enabled: false)
-        defer { on.destroy(); off.destroy() }
-        XCTAssertNil(on.unavailableExplanation)
+    func testAProductionBuildCollectsOnlyWhileTheCardShows() {
+        let off = FrameHealth(enabled: false), demand = FrameHealth(policy: .onDemand)
+        defer { off.destroy(); demand.destroy() }
         XCTAssertEqual(off.unavailableExplanation?.title, "Frame Health Is Off")
-        XCTAssertTrue(off.unavailableExplanation?.message.contains("in app.json and build the app again") == true)
+        XCTAssertTrue(off.unavailableExplanation?.message.contains("\"frame_health\": { \"mode\": \"off\" } in app.json") == true,
+                      "it names the setting that turns it off")
+        // Hidden, an on-demand collector can read but collects nothing, and has no collector yet
+        XCTAssertTrue(demand.available)
+        XCTAssertNil(demand.unavailableExplanation)
+        XCTAssertFalse(demand.enabled || demand.observesNativeScrolling)
+        XCTAssertEqual(demand.handle, 0)
+        demand.requestedRate(120)
+        // Seen, the card has it collect, under the rate requested before
+        demand.hudEffectiveVisible = true
+        XCTAssertTrue(demand.enabled && demand.observesNativeScrolling)
+        XCTAssertEqual(demand.requestedHertz, 120)
+        demand.record(arrival: 2, target: 2.008, period: 0.008, finished: 2.001)
+        XCTAssertEqual(demand.snapshot().callbacks, 1)
+        let generation = demand.snapshot().generation
+        demand.hudEffectiveVisible = false
+        XCTAssertFalse(demand.enabled || demand.observesNativeScrolling)
+        XCTAssertNotEqual(demand.handle, 0, "its collector stays for the next demand")
+        // Seen again, it collects in a new generation, which holds nothing collected before
+        demand.hudEffectiveVisible = true
+        XCTAssertGreaterThan(demand.snapshot().generation, generation)
+        XCTAssertEqual(demand.snapshot().callbacks, 0)
     }
 
     func testTheHeaderButtonsFitApartAtTheMinimumWidth() {

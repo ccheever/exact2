@@ -30,7 +30,7 @@ final class FrameHealthScrollObserver {
     }
 
     func begin(_ scrollView: UIScrollView) {
-        guard session?.clock == nil, scrollView.window?.windowScene != nil, FrameHealth.nativeObserverAllowed, health.enabled else { return }
+        guard session?.clock == nil, scrollView.window?.windowScene != nil, owner?.observesNativeScrolling == true, health.enabled else { return }
         if self.scrollView === scrollView, link != nil { return }
         stop()
         self.scrollView = scrollView
@@ -62,6 +62,8 @@ final class FrameHealthScrollObserver {
         // UIUpdateInfo gives a completion deadline, not a complete VRR schedule. Keep period unknown.
         health.record(arrival: began, target: deadline, period: 0, finished: finished,
             flags: owner?.frameFlags(session.frames, session: session) ?? 0)
+        // No frame hook follows a native update to show it on the card's charts
+        health.chart?.present()
         began = 0
     }
 
@@ -81,12 +83,13 @@ final class FrameHealthScrollObserver {
 
 extension FrameHealth {
     func prepareScrollObservation(session: ExactSession) {
-        guard enabled, !virtual, FrameHealth.nativeObserverAllowed else { return }
+        guard observesNativeScrolling, !virtual else { return }
         if #available(iOS 18.0, tvOS 18.0, *) {
             if scrollObserver == nil {
                 let observer = FrameHealthScrollObserver(owner: self, session: session)
                 scrollObserver = observer
                 nativeHealth = observer.health
+                nativeHealth?.chart = chart
                 nativeHealth?.setHUDVisible(hudVisible)
                 if liveCapture { _ = nativeHealth?.setAgentCapture("start", duration: min(120_000, max(1, (agentCaptureUntil - CACurrentMediaTime()) * 1000).rounded())) }
                 nativeCoverage = observer.health.enabled ? "passive native-scroll proxy; presentation/cadence unqualified" : "native-scroll collector capacity exhausted"

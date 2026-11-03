@@ -164,6 +164,8 @@ enum FrameHealthCardText {
     struct Rates {
         var requestedHz: Double
         var periodMs: Double
+        /// UIKit scrolls under observation, and its updates feed the charts while Exact's own frames do not
+        var nativeScrolling = false
         var scheduleHz: Double { periodMs > 0 ? 1000 / periodMs : 0 }
         var limited: Bool { requestedHz > 0 && scheduleHz > 0 && scheduleHz.rounded() < requestedHz.rounded() }
     }
@@ -258,7 +260,7 @@ enum FrameHealthCardText {
     }
 
     static func request(_ rates: Rates) -> (String, String) {
-        guard rates.requestedHz > 0 else { return ("No rate requested", "") }
+        guard rates.requestedHz > 0 else { return ("No rate requested", rates.nativeScrolling ? "UIKit scrolling" : "") }
         return ("Requested \(Int(rates.requestedHz.rounded())) FPS",
             rates.limited ? "system limit \(Int(rates.scheduleHz.rounded())) FPS" : "no limit")
     }
