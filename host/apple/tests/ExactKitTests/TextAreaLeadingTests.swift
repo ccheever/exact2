@@ -56,9 +56,14 @@ final class TextAreaLeadingMacTests: XCTestCase {
     }
     /// The top of the view's ink, in points.
     private func inkTop(_ view: NSView) throws -> CGFloat {
-        let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
-        view.cacheDisplay(in: view.bounds, to: rep)
-        let scale = CGFloat(rep.pixelsHigh) / view.bounds.height
+        // Capture whole points from the view's top (both views are
+        // flipped): for a height that is not whole pixels, AppKit rounds the
+        // bitmap up and draws the view against the bitmap's bottom, which can
+        // put the glyphs a row low
+        let rect = view.bounds.integral
+        let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: rect))
+        view.cacheDisplay(in: rect, to: rep)
+        let scale = CGFloat(rep.pixelsHigh) / rect.height
         for y in 0..<rep.pixelsHigh {
             for x in 0..<rep.pixelsWide {
                 guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), (1 - c.brightnessComponent) * c.alphaComponent > 0.5 else { continue }
