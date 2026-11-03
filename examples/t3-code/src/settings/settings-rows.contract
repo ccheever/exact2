@@ -332,7 +332,7 @@ component CoreRowView
     dialogOpener(`setting-${id}-configure`)
     change(id, target, "advanced")
   view
-    column hover=rowHover width="100%" padding-top="0.75rem" padding-bottom=(row.info.startsWith("preview-") or row.kind == "textarea" ? "0.25rem" : "0.75rem") padding-left="1rem" padding-right="1rem" gap=(row.info.startsWith("preview-") ? 0 : "0.75rem") box-sizing="border-box" border-top-width=(row.divider ? 1 : 0) border-top-style="solid" border-color=pal.divider position="relative" z-index=(menu.startsWith(`${section}/${row.id}`) ? 50 : 1) id=row.id tabindex=-1 testId=`setting-row-${row.id}` data-paint="border" data-pick="border"
+    column hover=rowHover width="100%" padding-top="0.75rem" padding-bottom=(row.info.startsWith("preview-") or row.kind == "textarea" or row.kind == "snooze" ? "0.25rem" : "0.75rem") padding-left="1rem" padding-right="1rem" gap=(row.info.startsWith("preview-") ? 0 : "0.75rem") box-sizing="border-box" border-top-width=(row.divider ? 1 : 0) border-top-style="solid" border-color=pal.divider position="relative" z-index=(menu.startsWith(`${section}/${row.id}`) ? 50 : 1) id=row.id tabindex=-1 testId=`setting-row-${row.id}` data-paint="border" data-pick="border"
       row width="100%" gap="2rem" align-items="center"
         column flex=1 min-width=0 gap="0.25rem"
           row min-height="1.25rem" align-items="center" gap="0.375rem"
@@ -381,23 +381,19 @@ component CoreRowView
               if row.kind == "items-menu"
                 ThreadDetailsItemsMenu(rowId=row.id, label=row.label, items=row.options, resetDisabled=(not row.resettable), pal=pal, disabled=(busy or row.inert), choose=change(row.id))
               if row.kind == "model"
-                // ProviderModelPicker: the composer's picker (model-picker.contract) opens under this trigger;
+                // ProviderModelPicker: the composer's picker (model-picker.contract) opens under this chevronless trigger;
                 // a Mixed value, and the Fallback model's "None" (no driver), show their neutral label without a provider mark.
                 box position="relative"
                   button press=change(row.id, "picker", "") class=SettingsPickerFace border-color=pal.input background-color=pal.field disabled=(busy or row.inert) aria-label=(row.id == "fallback-model" ? row.title : row.label) aria-haspopup="dialog" id=`setting-${row.id}` testId=`setting-${row.id}-model` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled page")
                     if not row.mixed and row.driver != ""
                       ComposerInstanceMark(driver=row.driver, icon=row.markIcon, size=16, color=pal.muted, badge=row.badge, accent=row.badgeColor)
                     text row.label font-size="0.875rem" line-height="1.25rem" color=pal.text line-clamp=1 id=`paint-CoreRowView-13-${row.id}` data-paint="text" data-pick="text"
-                    box opacity=0.7 flex-shrink=0
-                      CorePaintIcon(ownId=`paint-icon-CoreRowView-7-${row.id}`, paint="text", name="chevron-down", size=14, color=pal.text)
                 if row.label2 != ""
                   box position="relative"
                     button id=`setting-${section}-${row.id}-effort` popovertarget=`effort-${section}-${row.id}` key=traitsKey class=SettingsPickerFace border-color=pal.input background-color=pal.field disabled=(busy or row.inert) aria-label=row.label2 testId=`setting-${row.id}-effort` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled page")
-                      // TraitsPicker's trigger: the brain glyph before the label.
-                      CcIcon(name="brain", size=16, color=pal.muted, weight=1.75)
+                      // TraitsPicker's trigger: the gauge glyph before the label, and no chevron (the composer's control).
+                      CcIcon(name="gauge", size=16, color=pal.muted, weight=1.75)
                       text row.label2 font-size="0.875rem" line-height="1.25rem" color=pal.text id=`paint-CoreRowView-14-${row.id}` data-paint="text" data-pick="text"
-                      box opacity=0.7 flex-shrink=0
-                        CorePaintIcon(ownId=`paint-icon-CoreRowView-8-${row.id}`, paint="text", name="chevron-down", size=14, color=pal.text)
                     TraitsMenu(options=row.options2, pal=pal, menuId=`effort-${section}-${row.id}`, items=traitsItems, keyed=0, choose=change(row.id, "effort"), testId=`setting-${row.id}-effort-menu`)
               if row.kind == "text-only"
                 text row.label font-size="0.875rem" line-height="1.25rem" color=pal.muted id=`paint-CoreRowView-15-${row.id}` data-paint="mutedForeground" data-pick="mutedForeground"
@@ -480,8 +476,9 @@ component SnoozePresetsEditor
       text editor.menuLine font-size="0.75rem" line-height="1rem" color=pal.muted testId="snooze-options-menu"
       row align-items="center"
         button press=change(rowId, "add", "") class=SettingsGhost height="1.75rem" gap="0.25rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.375rem" disabled=(busy or inert or editor.full) opacity=(editor.full ? 0.64 : 1) id="snooze-add-option" testId="snooze-add-option" data-focus-stop=(busy or inert or editor.full ? "" : "enabled page")
-          CorePaintIcon(ownId="paint-icon-snooze-add-option", paint="mutedForeground", name="plus", size=14, color=pal.muted)
-          text "Add option" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.muted
+          // Button size="xs" is sm:text-sm with sm:size-4 icons on a wide window.
+          CorePaintIcon(ownId="paint-icon-snooze-add-option", paint="mutedForeground", name="plus", size=16, color=pal.muted)
+          text "Add option" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.muted
         if editor.full
           text editor.fullNote padding-left="0.5rem" font-size="0.75rem" line-height="1rem" color=pal.muted
 
@@ -697,6 +694,7 @@ component CoreSlider
         box position="absolute" left=(ratio * (trackWidth - rem)) top="0.25rem" width="1rem" height="1rem" border-radius="0.5rem" border-width=2 border-style="solid" border-color=pal.accent background-color=pal.canvas box-sizing="border-box" box-shadow="0 1px 2px #0000001f" id=`paint-CoreSlider-3-${row.id}` data-paint="accent canvas" data-pick="canvas"
         input type="range" min=row.min max=row.max step="any" value=`${shown}` input=track change=release key=navigate disabled=disabled aria-label=row.title position="absolute" left=0 top=0 width=trackWidth height="1.5rem" margin=0 opacity=0 id=`setting-${row.id}` testId=`setting-${row.id}` data-focus-stop=(disabled ? "" : "enabled page")
 
+fn termCell(size: number): number = round(size * 1.35)
 // TerminalFontPreview: the dev-server transcript, kept to its last lines as the terminal is.
 // Its colours are the terminal's ANSI palette (ThreadTerminalDrawer.tsx TERMINAL_PALETTES, terminal-host/src/entry.ts)
 // and its unfocused cursor (terminalThemeFromApp's fallback).
@@ -707,10 +705,10 @@ component FontTerminalPreview
     follows: bool
     pal: CorePalette
   view
-    // TerminalFontPreview: the box grows with the font to the transcript's 12 rows of Ghostty's cell (1.436em in the
-    // default monospace font), plus its border.
-    column width="100%" height=(12 * size * 1.436 + 2) margin-top=(follows ? 0 : "0.25rem") margin-bottom="0.5rem" overflow="hidden" justify-content="flex-end" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.canvas box-sizing="border-box" font-family=family aria-label="Terminal font preview" testId="terminal-font-preview" id="terminal-font-preview" data-paint="border canvas" data-pick="canvas"
-      column width="100%" height=(12 * size * 1.436) flex-shrink=0 overflow="hidden" justify-content="flex-end"
+    // TerminalFontPreview: the box grows with the font to the transcript's 12 rows of Ghostty's cell (renderer.ts
+    // measureGhosttyCell: round(1.35em) for these fonts) and the surface's 4pt content padding, plus its border.
+    column width="100%" height=(12 * termCell(size) + 10) margin-top=(follows ? 0 : "0.25rem") margin-bottom="0.5rem" overflow="hidden" justify-content="flex-end" padding="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.canvas box-sizing="border-box" font-family=family aria-label="Terminal font preview" testId="terminal-font-preview" id="terminal-font-preview" data-paint="border canvas" data-pick="canvas"
+      column width="100%" height=(12 * termCell(size)) flex-shrink=0 overflow="hidden" justify-content="flex-end"
         TermPrompt(tail="vpr dev", size=size, pal=pal)
         TermLine(rowId="line-1", a="", b="", c="", d="", size=size, pal=pal)
         TermLine(rowId="line-2", a="  VITE", b=" v7.1.1", c="  ready in", d=" 1.24s", size=size, pal=pal)
@@ -718,12 +716,12 @@ component FontTerminalPreview
         TermLink(label="  Local:    ", url="http://127.0.0.1:5173/", size=size, pal=pal)
         TermLink(label="  Network:  ", url="http://192.168.1.24:5173/", size=size, pal=pal)
         TermLine(rowId="line-4", a="", b="", c="", d="", size=size, pal=pal)
-        row height=(size * 1.436) flex-shrink=0 align-items="center"
+        row height=termCell(size) flex-shrink=0 align-items="center"
           text "  ✓ 85 passed   " font-size=size white-space="pre" color="light-dark(#107c10, #0dbc79)"
           text "△ 2 warnings   " font-size=size white-space="pre" color="light-dark(#949800, #e5e510)"
           text "✗ 0 failed" font-size=size white-space="pre" color="#cd3131"
         TermLine(rowId="line-5", a="", b="", c="", d="", size=size, pal=pal)
-        row height=(size * 1.436) flex-shrink=0 align-items="center"
+        row height=termCell(size) flex-shrink=0 align-items="center"
           text "  " font-size=size white-space="pre"
           text " READY " font-size=size white-space="pre" color="#000000" background-color="light-dark(#107c10, #0dbc79)"
           text " watching for changes, press " font-size=size white-space="pre" color=pal.muted id=`paint-FontTerminalPreview-2-${family}` data-paint="mutedForeground" data-pick="mutedForeground"
@@ -741,7 +739,7 @@ component TermLine
     size: number
     pal: CorePalette
   view
-    row height=(size * 1.436) flex-shrink=0 align-items="center"
+    row height=termCell(size) flex-shrink=0 align-items="center"
       text a font-size=size font-weight=700 white-space="pre" color="light-dark(#107c10, #0dbc79)"
       text b font-size=size white-space="pre" color="light-dark(#107c10, #0dbc79)"
       text c font-size=size white-space="pre" color=pal.muted id=`paint-TermLine-1-${rowId}` data-paint="mutedForeground" data-pick="mutedForeground"
@@ -753,7 +751,7 @@ component TermLink
     size: number
     pal: CorePalette
   view
-    row height=(size * 1.436) flex-shrink=0 align-items="center"
+    row height=termCell(size) flex-shrink=0 align-items="center"
       text "  →" font-size=size white-space="pre" color="light-dark(#107c10, #0dbc79)"
       text label font-size=size white-space="pre" color=pal.muted id=`paint-TermLink-1-${label}` data-paint="mutedForeground" data-pick="mutedForeground"
       text url font-size=size white-space="pre" color="light-dark(#0598bc, #11a8cd)" text-decoration-line="underline"
@@ -763,7 +761,7 @@ component TermPrompt
     size: number
     pal: CorePalette
   view
-    row height=(size * 1.436) flex-shrink=0 align-items="center"
+    row height=termCell(size) flex-shrink=0 align-items="center"
       text "→ " font-size=size font-weight=700 white-space="pre" color="light-dark(#107c10, #0dbc79)"
       text "t3code " font-size=size font-weight=700 white-space="pre" color="light-dark(#0598bc, #11a8cd)"
       text "git:(" font-size=size font-weight=700 color="light-dark(#0451a5, #2472c8)"

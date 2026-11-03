@@ -181,14 +181,18 @@ component StoragePanel
             SettingsRow(title=rule.label, description=rule.description, first=rule.first, rowId=`storage-row-${rule.key}`)
               StorageControl(scope=data.writeScope, rule=rule, busy=busy, rest=rest, restInput=restInput)
 
-      if view == "maintenance" and data.cleanupAvailable
-        SettingsSection(title="Cleanup", sectionId="storage-cleanup")
-          column width="100%" id="storage-delete-now" tabindex=-1
-            SettingsRow(title="Delete now", description=data.cleanupDescription, first=true, rowId="storage-cleanup-run-row")
-              button press=rest("storage-run", `scope=${encodeURIComponent(data.writeScope)}`) disabled=(busy or data.cleanupDisabled) testId="storage-cleanup-run" id="storage-cleanup-run" data-focus-stop=(busy or data.cleanupDisabled ? "" : "enabled page")
-                text (busy ? "Deleting…" : "Delete now")
-      if view == "maintenance" and data.cleanupReports.length > 0
-        CleanupLastRun(summary=data.cleanupSummary, reports=data.cleanupReports)
+      // The cleanup group (space-y-1): Delete now, then Last run 4pt under it.
+      if view == "maintenance" and (data.cleanupAvailable or data.cleanupReports.length > 0)
+        column width="100%" gap="0.25rem"
+          if data.cleanupAvailable
+            SettingsSection(title="Cleanup", sectionId="storage-cleanup")
+              column width="100%" id="storage-delete-now" tabindex=-1
+                SettingsRow(title="Delete now", description=data.cleanupDescription, first=true, rowId="storage-cleanup-run-row")
+                  // Button variant="outline" size="sm"; disabled:opacity-64.
+                  button press=rest("storage-run", `scope=${encodeURIComponent(data.writeScope)}`) disabled=(busy or data.cleanupDisabled) cursor="pointer" display="flex" flex-direction="row" align-items="center" justify-content="center" box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff09)" box-shadow="0 1px 2px #0000000d" opacity=(busy or data.cleanupDisabled ? 0.64 : 1) testId="storage-cleanup-run" id="storage-cleanup-run" data-focus-stop=(busy or data.cleanupDisabled ? "" : "enabled page")
+                    text (busy ? "Deleting…" : "Delete now") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+          if data.cleanupReports.length > 0
+            CleanupLastRun(summary=data.cleanupSummary, reports=data.cleanupReports)
       if view == "maintenance" and data.diagnostics.length > 0
         SettingsSection(title="Diagnostics", sectionId="diagnostics-section")
           for row in data.diagnostics key=row.id

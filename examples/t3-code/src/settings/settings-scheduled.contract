@@ -550,7 +550,7 @@ component ScheduledEditor
         if target != ""
           focus(target)
   view
-    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId="scheduled-task-overlay"
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" backdrop-filter="blur(4px)" testId="scheduled-task-overlay"
       DialogFinalFocus(open=confirmRotate, owner="webhook-rotate-dialog")
       column position="relative" width="100%" max-width="36rem" max-height="100%" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=(draft.id == "" ? "New task" : "Edit task") testId="scheduled-task-dialog" id="scheduled-task-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("scheduled-task-dialog") key=dialogFallback("scheduled-task-dialog", dialogTargets)
         // The focus trap (dialog-trap.contract): from Runs on (a new task's) or Name to the X.
@@ -649,7 +649,7 @@ component ScheduledEditor
             column gap="0.375rem"
               text "Prompt" class=TkLabel
               textarea value=prompt input=setText("prompt") autocorrect="off" placeholder="What should the agent do each time this runs?" aria-label="Prompt" class=TkField height="4.5rem" disabled=busy testId="task-prompt" id="field-task-prompt" data-editable="yes" data-focus-stop=(busy ? "" : "enabled") resize="vertical"
-            column gap="0.375rem" margin-bottom="0.375rem"
+            column gap="0.375rem"
               text "Model" class=TkLabel
               row
                 SettingsModelTrigger(stop="enabled", rowId="task-model", label=modelName, name=modelName, driver=markField(data.marks, modelKey, "driver"), badge=markField(data.marks, modelKey, "badge"), accent=markField(data.marks, modelKey, "accent"), disabled=(busy or not data.available), press=pickModel("task-model", `${encodeURIComponent(draft.environmentId)}|${encodeURIComponent(modelKey)}`))
@@ -834,7 +834,7 @@ component WebhookRotateDialog
     confirm: action
   derive targets = ["task-webhook-rotate-cancel", "task-webhook-rotate-confirm"]
   view
-    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=50 align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)"
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=50 align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" backdrop-filter="blur(4px)"
       column role="alertdialog" aria-label="Rotate this webhook URL?" id="webhook-rotate-dialog" testId="webhook-rotate-dialog" tabindex=-1 data-dialog-focus="open" data-confirmation="open" focusin=dialogEntered("webhook-rotate-dialog") key=dialogFallback("webhook-rotate-dialog", targets) gap="0.75rem" padding="1.5rem" max-width="24rem" border-radius="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6"
         FocusGuard(guardId="webhook-rotate-guard-start", targets=targets, popup="webhook-rotate-dialog")
         DialogOpenFocus(target="task-webhook-rotate-cancel")

@@ -296,7 +296,7 @@ component DeviceHostDialog
     optionsFlipped = not optionsFlipped
   derive dialogTargets = ["device-host-name", "device-host-options", "device-host-close"]
   view
-    column position="absolute" left=0 right=0 top=0 bottom=0 align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" z-index=30 testId="device-host-dialog-overlay"
+    column position="absolute" left=0 right=0 top=0 bottom=0 align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" backdrop-filter="blur(4px)" z-index=30 testId="device-host-dialog-overlay"
       column position="relative" width="100%" max-width="32rem" box-sizing="border-box" border-radius="1rem" border-width=1 border-style="solid" border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=editor.title testId="device-host-dialog" id="device-host-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("device-host-dialog") key=dialogFallback("device-host-dialog", dialogTargets)
         // The focus trap (dialog-trap.contract): from Name to the X (DialogPopup's last child).
         FocusGuard(guardId="device-host-guard-start", targets=dialogTargets, popup="device-host-dialog")

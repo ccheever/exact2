@@ -323,7 +323,7 @@ function serverState(context: ServerContext, key: string) {
   // The idle compaction row reads both of its keys (settingKeys idleCompaction, compactIdleThreads).
   const customized = key === 'idleCompaction' ? settings.idleCompaction !== undefined || !same(settings.compactIdleThreads ?? false, false)
     : !same(settings[key], SERVER_DEFAULTS[key]) && key in SERVER_DEFAULTS;
-  const inheritance = mixed ? ['mixed', 'Mixed across selected targets'] : project && source === 'project' ? ['overridden', 'Overridden for this project']
+  const inheritance = mixed ? ['mixed', MIXED_SUMMARY] : project && source === 'project' ? ['overridden', 'Overridden for this project']
     : project && source === 't3.json' ? ['inherited', "Inherited from the repository's t3.json"]
     : project && scoped ? ['inherited', `Inherited from ${context.environmentLabel}`]
     : customized ? ['environment', 'Set on the environment'] : ['default', 'Built-in default'];
@@ -404,6 +404,7 @@ export function inheritanceGroups(context: ServerContext, key: string, defaults:
   }
   return groups.map(({ view }) => ({ ...view, folded: multiple && groups.length > 1, sameEverywhere: multiple && groups.length === 1, overrideTargets: JSON.stringify(view.overrides.map(override => { const at = override.id.indexOf(':'); return { environmentId: override.id.slice(0, at), projectId: override.id.slice(at + 1) }; })) }));
 }
+const MIXED_SUMMARY = 'Mixed across selected environments';
 function serverRow(context: ServerContext, key: string, id: string, title: string, description: string, kind: string, extra: Partial<CoreRow> = {}, resetDefault?: boolean): CoreRow {
   const state = serverState(context, key);
   const project = context.scope.kind === 'project' || context.scope.kind === 'checkout';
@@ -559,7 +560,8 @@ export function generalSections(client: T3Client, context: ServerContext, route 
   const titleInstructions = value('threadTitleInstructions');
   const newThreads: CoreRow[] = [
     serverRow(context, 'defaultModelSelection', 'default-model', 'Model', project ? 'Model for new threads in this project.' : scope.connected && modelState.source !== 'project' && automaticModel ? 'Default model for new threads, selected automatically. Projects can override it.' : 'Default model for new threads. Projects can override it.', 'model',
-      { resetLabel: 'default model', ...modelRow,
+      // ProjectDefaultsSettings passes mixed={mixedModel}: automatic defaults that resolve differently are mixed too.
+      { resetLabel: 'default model', ...modelRow, ...(modelMixed ? { inheritance: 'mixed', inheritanceSummary: MIXED_SUMMARY } : {}),
         status: modelMixed ? `${automaticModel ? 'Automatic defaults differ.' : 'Defaults differ.'} Select one environment or choose a shared model to edit effort.` : effortReason,
         ...(modelRow.kind === 'text-only' ? modelMixed ? { label: 'Mixed' } : {}
           : modelMixed ? { label: automaticModel ? 'Automatic (mixed)' : 'Mixed', mixed: true, label2: '' } : effortReason ? { label2: '' } : {}) }, modelState.value !== null),

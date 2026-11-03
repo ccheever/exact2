@@ -172,7 +172,7 @@ describe('a chip\'s face is its pill', () => {
     const symbols = Object.fromEntries(['at-sign', 'file', 'folder', 'sparkles', 'film', 'quote', 'image', 'messages-square', 'square-terminal',
       'message-circle', 'mouse-pointer-2', 'git-merge', 'git-pull-request', 'git-pull-request-draft', 'git-pull-request-closed', 'circle-dashed', 'nope']
       .map(icon => [icon, fns.composerAtomSymbol(icon)]));
-    expect(symbols).toEqual({'at-sign': 'doc', file: 'doc', folder: 'folder', sparkles: 'sparkles', film: 'film', quote: 'quote.opening', image: 'photo',
+    expect(symbols).toEqual({'at-sign': 'doc', file: 'doc', folder: 'folder', sparkles: 'shippingbox', film: 'film', quote: 'quote.opening', image: 'photo',
       'messages-square': 'bubble.left.and.bubble.right', 'square-terminal': 'apple.terminal', 'message-circle': 'bubble.left', 'mouse-pointer-2': 'cursorarrow',
       'git-merge': 'arrow.triangle.merge', 'git-pull-request': 'arrow.triangle.pull', 'git-pull-request-draft': 'arrow.triangle.pull',
       'git-pull-request-closed': 'arrow.triangle.pull', 'circle-dashed': 'circle.dashed', nope: 'circle.dashed'});

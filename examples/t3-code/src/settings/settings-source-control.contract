@@ -101,6 +101,9 @@ shape DiscoveryRow
   badge: string
   dot: string
   summary: string
+  summaryCode: string
+  summaryTail: string
+  summaryDetail: string
   account: bool
   enabled: bool
   details: bool
@@ -280,10 +283,8 @@ component WriterTraitsPicker
   view
     box position="relative"
       button id=`scoped-${row.key}-effort` popovertarget=`effort-scoped-${row.key}` key=triggerKey class=SettingsPickerFace border-color=corePal.input background-color=corePal.field disabled=disabled aria-label=row.traitsLabel testId=`scoped-${row.key}-effort` data-focus-stop=(disabled ? "" : "enabled page")
-        CcIcon(name="brain", size=16, color=corePal.muted, weight=1.75)
+        CcIcon(name="gauge", size=16, color=corePal.muted, weight=1.75)
         text row.traitsLabel font-size="0.875rem" line-height="1.25rem" color=corePal.text
-        box opacity=0.7 flex-shrink=0
-          CcIcon(name="chevron-down", size=14, color=corePal.text, weight=1.75)
       TraitsMenu(options=row.traits, pal=corePal, menuId=`effort-scoped-${row.key}`, items=items, keyed=0, choose=restInput("scoped", `key=${row.key}&value=${encodeURIComponent(row.value)}#`), testId=`scoped-${row.key}-effort-menu`)
 
 // Inputs commit on blur, as the reference's onBlur writes do.
@@ -381,11 +382,20 @@ component DiscoveryItem
             if item.badge != ""
               text item.badge font-size="0.625rem" font-weight=500 line-height="0.875rem" padding-left="0.1875rem" padding-right="0.1875rem" border-radius="0.25rem" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#18181b, #f5f5f5)"
           row gap="0.25rem" align-items="center" flex-wrap="wrap"
-            text item.summary font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)"
+            if item.summaryCode != ""
+              // <code className="rounded bg-muted px-1 py-px text-2xs"> inside the sentence.
+              text font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)"
+                text item.summary
+                text ("\u{2005}" + item.summaryCode + "\u{2005}") font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" background-color="light-dark(#fafafa, #ffffff0a)"
+                text item.summaryTail
+            else
+              text item.summary font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)"
             if item.account
               text "as" font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)" aria-hidden=true
               // RedactedAccount (SourceControlSettings.tsx:160-168): each item reveals its own account.
               RedactedText(stop="enabled page", value=item.accountValue, placeholder=item.accountPlaceholder, label="Toggle source control account visibility", revealTip="Click to reveal account", hideTip="Click to hide account", testId=`reveal-account-${item.kind}`)
+            if item.summaryDetail != ""
+              text item.summaryDetail font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)"
         row flex-shrink=0 align-items="center" gap="0.5rem"
           if item.details
             button press=toggleOpen aria-expanded=open aria-label=`Toggle ${item.label} details` testId=`discovery-details-${item.kind}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" id=`discovery-details-${item.kind}` data-focus-stop="enabled page"

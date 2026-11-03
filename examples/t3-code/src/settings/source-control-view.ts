@@ -245,17 +245,22 @@ export function discoveryRows(result: Obj) {
   const option = (value: unknown) => { const v = obj(value); return typeof value === 'string' ? value : str(v.value); };
   const vcs = arr(result.versionControlSystems).map(item => {
     const ready = item.implemented === true, available = str(item.status) === 'available';
-    return { kind: str(item.kind), label: str(item.label), version: option(item.version), comingSoon: !ready, badge: '', dot: !ready ? 'muted' : available ? 'success' : 'warning',
+    return { kind: str(item.kind), label: str(item.label), version: option(item.version), comingSoon: !ready, summaryCode: '', summaryTail: '', summaryDetail: '', badge: '', dot: !ready ? 'muted' : available ? 'success' : 'warning',
       summary: !ready ? `Support for ${str(item.label)} is coming soon.` : !available ? `Not available on this server: ${str(item.installHint)}` : 'Available', account: false, enabled: ready && available, details: false,
       accountValue: '', accountPlaceholder: '' };
   });
   const providers = arr(result.sourceControlProviders).map(item => {
     const auth = obj(item.auth), available = str(item.status) === 'available', status = str(auth.status);
+    const hostsOff = arr(auth.accounts).some(entry => obj(entry).authenticated === true);
     const summary = !available ? `Not available on this server: ${str(item.installHint)}` : status === 'authenticated' ? 'Authenticated'
       : !item.executable && status === 'unauthenticated' ? `Available. ${str(item.installHint)}`
-      : status === 'unauthenticated' ? `${str(item.label)} is not authenticated on this server. Sign in or configure credentials using the ${str(item.executable)} tool on the server host to enable change request features.`
+      : status === 'unauthenticated' && hostsOff ? option(auth.detail) || `Every ${str(item.label)} host is turned off.`
+      : status === 'unauthenticated' ? `${str(item.label)} is not authenticated on this server. Sign in or configure credentials using the `
       : `Could not verify ${str(item.label)}. ${option(auth.detail) || str(item.installHint)}`;
-    return { kind: str(item.kind), label: str(item.label), version: option(item.version), comingSoon: false, badge: status === 'unauthenticated' && available ? 'Not authenticated' : '',
+    // The executable is a <code> span inside the sentence; `summaryCode` and `summaryTail` follow `summary`.
+    const coded = available && status === 'unauthenticated' && !!item.executable && !hostsOff;
+    return { kind: str(item.kind), label: str(item.label), version: option(item.version), comingSoon: false,
+      summaryCode: coded ? str(item.executable) : '', summaryTail: coded ? ' tool on the server host to enable change request features.' : '', summaryDetail: available && status === 'authenticated' && option(auth.detail) !== '' ? `· ${option(auth.detail)}` : '', badge: status === 'unauthenticated' && available ? 'Not authenticated' : '',
       dot: available && status === 'authenticated' ? 'success' : 'muted', summary, account: available && status === 'authenticated' && option(auth.account) !== '', enabled: available && status === 'authenticated', details: ['github', 'gitcafe', 'bitbucket'].includes(str(item.kind)),
       // RedactedAccount (SourceControlSettings.tsx:160-168): each item reveals its own account.
       ...(({ value, placeholder }) => ({ accountValue: value, accountPlaceholder: placeholder }))(redactedValue(available && status === 'authenticated' ? option(auth.account) : '')) };
@@ -298,7 +303,7 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
         const values = context.targets.map(target => str(target.settings.reviewGuideInstructions));
         row.mixed = values.some(value => value !== (values[0] ?? ''));
         row.disabled = !context.settingsWritable;
-        if (row.mixed) { row.value = ''; row.placeholder = 'Mixed. Enter instructions to apply to all selected targets.'; row.summary = 'Mixed across selected targets'; row.state = 'mixed'; row.reset = `key=${row.key}&value=${selectedProjectId ? '__inherit__' : '__default__'}`; }
+        if (row.mixed) { row.value = ''; row.placeholder = 'Mixed. Enter instructions to apply to all selected targets.'; row.summary = 'Mixed across selected environments'; row.state = 'mixed'; row.reset = `key=${row.key}&value=${selectedProjectId ? '__inherit__' : '__default__'}`; }
       }
     }
     // Discovery scans one machine's tools (server.discoverSourceControl); a rescan re-runs it.

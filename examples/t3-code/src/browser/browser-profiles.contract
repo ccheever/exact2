@@ -64,8 +64,9 @@ component BrowserProfilesSetting
         if target != ""
           focus(target)
   view
-    column width="100%" testId="browser-profiles-setting"
-      row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center"
+    // SettingsRow with children: pt-3 pb-1, the list right under the grid (mt-2 mb-2).
+    column width="100%" padding-bottom="0.25rem" testId="browser-profiles-setting"
+      row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center"
         column flex=1 min-width=0 gap="0.25rem"
           text "Browser profiles" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
           text "Profiles separate cookies and logins. Incognito data is cleared when the app closes." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)" max-width="36rem"
