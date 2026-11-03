@@ -10,8 +10,8 @@
 // not restarted: the instance stops wanting to run and reports it once (`onStateDirOwned`).
 // Effect's fibers become callbacks on one serial executor; its clock becomes `T3LocalClock`, so
 // the ported tests (macos/tests/local-backend) drive time by hand. Every method runs on the
-// executor. The WSL preflight states, telemetry fds and runtime pruning are not ported (no WSL,
-// telemetry excluded: spec).
+// executor. The WSL preflight states, the telemetry control, browser and host-sample channels, and
+// runtime pruning are not ported (no WSL, telemetry excluded: spec); fd 4 carries the shell snapshots.
 import Foundation
 
 protocol T3LocalExecutor: AnyObject { func run(_ block: @escaping () -> Void) }
@@ -46,10 +46,10 @@ final class T3LocalQueueClock: T3LocalClock {
     }
 }
 
-/// `DesktopBackendBootstrap` (packages/contracts/src/desktopBootstrap.ts), as this app sends it:
-/// no OTLP endpoints and no telemetry fds. `shellEnvironmentPrepared`: a login shell returned a PATH, whose
-/// values are already in the server's environment (T3LocalShellEnvironment.serverEnvironment), so the server
-/// does not ask the shell again (os-jank.ts `fixPath`); false after a timed-out or empty probe, so it repairs PATH.
+/// `DesktopBackendBootstrap` (packages/contracts/src/desktopBootstrap.ts), as this app sends it: no OTLP
+/// endpoints, and of the desktop's descriptors only the telemetry one (`desktopTelemetryFd`, 4), which carries the
+/// shell snapshots (T3LocalTelemetryChannel). `shellEnvironmentPrepared` is true, as the reference's has been
+/// since its shell probe stopped holding the start: the server never asks the shell itself (os-jank.ts `fixPath`).
 struct T3LocalBootstrap: Codable, Equatable {
     var mode = "desktop"
     var noBrowser = true
@@ -62,6 +62,7 @@ struct T3LocalBootstrap: Codable, Equatable {
     var tailscaleServeEnabled = false
     var tailscaleServePort = 443
     var resourceMonitorPath: String?
+    var desktopTelemetryFd: Int?
 
     func jsonLine() -> Data {
         let encoder = JSONEncoder()

@@ -147,7 +147,8 @@ export function serverExecutable(paths, version = null) {
   if (process.env.T3_FIXTURE_SERVER && !version) return process.env.T3_FIXTURE_SERVER;
   const pin = JSON.parse(readFileSync(join(example, "server-runtime/runtime-pin.json"), "utf8"));
   const other = version && version !== pin.version;
-  const tree = join(paths.runtime, version ?? pin.version), t3 = join(tree, "t3");
+  // The pinned tree is named by its archive: two archives can carry one version (a build of an unreleased commit).
+  const tree = join(paths.runtime, other ? version : pin.asset.replace(/\.tar\.gz$/, "")), t3 = join(tree, "t3");
   if (!existsSync(t3)) {
     const archive = other ? join(example, ".runtime-cache", `t3-${version}-darwin-arm64.tar.gz`) : join(example, "server-runtime", pin.asset);
     if (!existsSync(archive)) throw new Error(other ? `no ${archive}: copy the release archive there` : "no staged server: run `bun examples/t3-code/tools/stage-runtime/stage-runtime.mjs` first (or set T3_FIXTURE_SERVER)");
@@ -609,11 +610,13 @@ export function forgetKeychain(app, origins, environmentId) {
 /**
  * How long a drive waits for the welcome wizard before its first op (real ms). At its first start on a
  * home the app unpacks the pinned runtime into `<t3 home>/runtime/versions/<version>` (T3LocalRuntime.swift)
- * before "This machine" answers, which took longer than 5 s; with the runtime there 5 s is enough.
+ * before "This machine" answers, which took longer than 5 s; with the runtime there (its `.install-archive`
+ * naming the pinned archive) 5 s is enough.
  */
 export function welcomeWait(t3home) {
-  const { version } = JSON.parse(readFileSync(join(example, "server-runtime/runtime-pin.json"), "utf8"));
-  return existsSync(join(t3home, "runtime/versions", version)) ? 5000 : 20000;
+  const { version, sha256 } = JSON.parse(readFileSync(join(example, "server-runtime/runtime-pin.json"), "utf8"));
+  const marker = join(t3home, "runtime/versions", version, ".install-archive");
+  return existsSync(marker) && readFileSync(marker, "utf8").trim() === sha256 ? 5000 : 20000;
 }
 
 /** "This machine"'s home for a drive with `--local`: providers pinned as in a lane environment. */

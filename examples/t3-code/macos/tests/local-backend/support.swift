@@ -1,11 +1,17 @@
 import Foundation
 import XCTest
 
-// Ported from T3 Code (MIT, see LICENSE-T3), reference 2359643cff:
-// apps/desktop/src/shell/DesktopShellEnvironment.test.ts (its darwin cases, the mise and probe-failure cases) and
+// Ported from T3 Code (MIT, see LICENSE-T3), reference 5d3d78ab93:
+// apps/desktop/src/shell/DesktopShellEnvironment.test.ts (its darwin cases, the mise, probe-failure and cache cases) and
 // apps/desktop/src/app/DesktopObservability.test.ts (the backend child output cases).
 // Change from the reference: bun/vitest over Effect there; XCTest over the native ports
 // (T3LocalShellEnvironment.swift, T3LocalLog.swift) here, with the original names.
+
+private func scratchDirectory() -> URL {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("t3-shell-discovery-\(UUID().uuidString)", isDirectory: true)
+    try! FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    return url
+}
 
 private func envOutput(_ values: KeyValuePairs<String, String>) -> String {
     values.flatMap { ["__T3CODE_ENV_\($0.key)_START__", $0.value, "__T3CODE_ENV_\($0.key)_END__"] }.joined(separator: "\n")
@@ -96,13 +102,79 @@ final class LocalShellEnvironmentTests: XCTestCase {
     func test_leaves_macOS_preparation_incomplete_when_no_login_shell_returns_a_PATH() {
         var env = ["SHELL": "/bin/zsh", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
         XCTAssertFalse(T3LocalShellEnvironment.install(into: &env) { _, _, _ in "" })
-        // The envelope tells the server so, and it repairs PATH itself (os-jank.ts `fixPath`).
-        let start = T3LocalShellEnvironment.serverEnvironment(base: env) { _, _, _ in "" }
-        XCTAssertFalse(start.prepared)
-        let config = T3LocalBackend.startConfig(versionDir: URL(fileURLWithPath: "/v"), port: 16610, home: URL(fileURLWithPath: "/h"), token: "t", env: start.env, cwd: "/",
-                                                shellEnvironmentPrepared: start.prepared)
-        let line = try? JSONSerialization.jsonObject(with: config.bootstrap.jsonLine()) as? [String: Any]
-        XCTAssertEqual(line?["shellEnvironmentPrepared"] as? Bool, false)
+    }
+
+    func test_does_not_wait_for_discovery_when_the_cache_is_missing() {
+        let release = DispatchSemaphore(value: 0), started = DispatchSemaphore(value: 0)
+        let discovery = T3LocalShellDiscovery(inherited: ["SHELL": "/test-shell", "PATH": "/usr/bin", "HOME": "/test-home"], stateDir: scratchDirectory()) { _, _, _ in
+            started.signal(); release.wait(); return envOutput(["PATH": "/fresh/bin"])
+        }
+        discovery.start()
+        XCTAssertEqual(started.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(discovery.environment()["PATH"], "/usr/bin", "start() returned while the shell was still being asked")
+        release.signal()
+        XCTAssertEqual(discovery.probed.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(discovery.environment()["PATH"], "/fresh/bin:/usr/bin")
+    }
+
+    func test_reuses_cached_paths_immediately_and_streams_fresh_discovery_without_keeping_removed_paths() {
+        let stateDir = scratchDirectory()
+        let first = T3LocalShellDiscovery(inherited: ["SHELL": "/bin/zsh", "PATH": "/usr/bin", "HOME": "/test-home"], stateDir: stateDir) { _, _, _ in
+            envOutput(["PATH": "/old/bin:/usr/bin", "__MISE_DIFF": "old-mise", "SSH_AUTH_SOCK": "/old-session.sock", "JAVA_HOME": "/old/java", "SSL_CERT_FILE": "/old/cert.pem"])
+        }
+        first.start()
+        XCTAssertEqual(first.probed.wait(timeout: .now() + 5), .success)
+        let cache = (try? Data(contentsOf: stateDir.appendingPathComponent("shell-environment-cache.json"))).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let cached = cache?["environment"] as? [String: String]
+        XCTAssertEqual(cache?["key"] as? String, #"["darwin","/test-home","/bin/zsh",""]"#)
+        XCTAssertEqual(cached?["PATH"], "/old/bin:/usr/bin")
+        XCTAssertNil(cached?["SSH_AUTH_SOCK"])
+        XCTAssertEqual((try? FileManager.default.attributesOfItem(atPath: stateDir.appendingPathComponent("shell-environment-cache.json").path))?[.posixPermissions] as? Int, 0o600)
+
+        let release = DispatchSemaphore(value: 0)
+        var calls = 0
+        let second = T3LocalShellDiscovery(inherited: ["SHELL": "/bin/zsh", "PATH": "/launcher/bin", "SSH_AUTH_SOCK": "/current-session.sock", "HOME": "/test-home"],
+                                           stateDir: stateDir) { _, _, _ in
+            calls += 1; release.wait()
+            return envOutput(["PATH": "/fresh/bin:/launcher/bin", "__MISE_DIFF": "fresh-mise"])
+        }
+        second.start(); second.start()
+        XCTAssertEqual(second.environment()["PATH"], "/old/bin:/usr/bin:/launcher/bin")
+        XCTAssertEqual(second.environment()["SSH_AUTH_SOCK"], "/current-session.sock")
+        var lines: [[String: Any]] = []
+        let subscription = second.subscribe { lines.append(try! JSONSerialization.jsonObject(with: $0) as! [String: Any]) }
+        let replay = subscription.replay.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        XCTAssertEqual((replay?["environment"] as? [String: Any])?["__MISE_DIFF"] as? String, "old-mise")
+        XCTAssertEqual(replay?["discovered"] as? Bool, false)
+        release.signal()
+        XCTAssertEqual(second.probed.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(calls, 1)
+        let env = second.environment()
+        XCTAssertEqual(env["PATH"], "/fresh/bin:/launcher/bin")
+        XCTAssertEqual(env["__MISE_DIFF"], "fresh-mise")
+        XCTAssertNil(env["JAVA_HOME"]); XCTAssertNil(env["SSL_CERT_FILE"])
+        let fresh = lines.last?["environment"] as? [String: Any]
+        XCTAssertEqual(fresh?["PATH"] as? String, env["PATH"])
+        XCTAssertTrue(fresh?["JAVA_HOME"] is NSNull, "a removed value is sent as null")
+        XCTAssertEqual(fresh?["T3CODE_TELEMETRY_ENABLED"] as? String, "false")
+        XCTAssertEqual(lines.last?["discovered"] as? Bool, true)
+        XCTAssertEqual(lines.last?["platform"] as? String, "darwin")
+        subscription.cancel()
+    }
+
+    func test_ignores_a_cache_written_for_another_shell() {
+        let stateDir = scratchDirectory()
+        try! #"{"version":1,"key":"[\"darwin\",\"/test-home\",\"/bin/bash\",\"\"]","environment":{"PATH":"/old/bin"}}"#
+            .write(to: stateDir.appendingPathComponent("shell-environment-cache.json"), atomically: true, encoding: .utf8)
+        let release = DispatchSemaphore(value: 0)
+        let discovery = T3LocalShellDiscovery(inherited: ["SHELL": "/bin/zsh", "PATH": "/usr/bin", "HOME": "/test-home"], stateDir: stateDir) { _, _, _ in
+            release.wait(); release.signal(); return "" // the shell, then launchctl
+        }
+        discovery.start()
+        XCTAssertEqual(discovery.environment()["PATH"], "/usr/bin")
+        XCTAssertNil(discovery.subscribe { _ in }.replay)
+        release.signal()
+        XCTAssertEqual(discovery.probed.wait(timeout: .now() + 5), .success)
     }
 
     /// The reference runs this case on linux; the logic is the same on macOS: a probe that fails
