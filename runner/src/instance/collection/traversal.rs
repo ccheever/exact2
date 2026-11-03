@@ -299,14 +299,16 @@ impl Tree {
                 axis: c.axis,
                 parent: c.parent,
                 restored: c.restored,
-                seeking: c.target.is_some(),
+                seeking: c.target.is_some() && !c.request_waits(),
+                waiting: c.request_waits(),
+                request: c.request,
                 revision: c.revision,
                 scroll_sequence: c.geometry.as_ref().map_or(0, |g| g.scroll_sequence),
                 count: c.index.len(),
                 total_extent: c.index.total_height(),
                 rows,
                 correction: c.correction,
-                pending: c.pending || c.target.is_some(),
+                pending: c.asks_report(),
             });
             Ok(())
         })?;

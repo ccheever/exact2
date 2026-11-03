@@ -814,6 +814,191 @@ final class CollectionMacTests: XCTestCase {
         }
     }
 
+    /// LLP 1070.000 §2.6 on AppKit: the reader's live scroll (a gesture and
+    /// its momentum, which AppKit carries on through a programmatic scroll)
+    /// is reported until AppKit ends it, so the runner waits; a request's
+    /// landing lands whatever the reader scrolled since the report it was
+    /// planned on.
+    func testTheReadersLiveScrollIsReportedAndARequestsLandingLands() throws {
+        let (p, list) = fixture()
+        defer { p.collections.reset() }
+        let scroll = try XCTUnwrap(list.scroll), clip = scroll.contentView
+        var flags: [UInt32] = []
+        p.collections.onFeedback = { flags.append(Self.reportFlags($0)) }
+        report(p)
+        XCTAssertEqual(flags.last.map { $0 & 32 }, 0, "at rest")
+        NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: scroll)
+        report(p)
+        XCTAssertEqual(flags.last.map { $0 & 32 }, 32, "the reader's scroll is under way")
+        clip.scroll(to: NSPoint(x: 0, y: 400)); scroll.reflectScrolledClipView(clip)
+        p.collections.userIntent(1, travel: true)
+        var landing = snapshot(revision: 2, correction: ["scrollSequence": 0, "offset": 900])
+        landing["seeking"] = true; landing["request"] = 1
+        p.apply(batch([["op": "collections", "items": [landing]]]))
+        XCTAssertEqual(clip.bounds.minY, 920, "it lands, though the reader scrolled since the report it was planned on")
+        report(p)
+        XCTAssertEqual(flags.last.map { $0 & 32 }, 32, "and the scroll is still reported, which ends the request (§2.5)")
+        NotificationCenter.default.post(name: NSScrollView.didEndLiveScrollNotification, object: scroll)
+        report(p)
+        XCTAssertEqual(flags.last.map { $0 & 32 }, 0, "its end is reported")
+    }
+    /// AppKit carries a second gesture, a catch and a click on within the
+    /// live scroll still running, with no scroll event of their own: while a
+    /// request is under way the list's document takes the trackpad's touches,
+    /// and one beginning is reported as the reader's gesture, against that
+    /// request only.
+    func testAFingerComingDownDuringARequestIsTheReadersGesture() throws {
+        let (p, list) = fixture()
+        defer { p.collections.reset() }
+        let document = try XCTUnwrap(list.scroll?.documentView as? FlippedView)
+        XCTAssertFalse(document.allowedTouchTypes.contains(.indirect), "no touches outside a request")
+        var flags: [UInt32] = []
+        p.collections.onFeedback = { flags.append(Self.reportFlags($0)) }
+        var waiting = snapshot(revision: 2)
+        waiting["waiting"] = true; waiting["request"] = 1
+        p.apply(batch([["op": "collections", "items": [waiting]]]))
+        XCTAssertTrue(document.allowedTouchTypes.contains(.indirect))
+        report(p)
+        XCTAssertEqual(flags.last.map { $0 & 64 }, 0)
+        document.contactBegan?(ProcessInfo.processInfo.systemUptime - 1)
+        report(p)
+        XCTAssertEqual(flags.last.map { $0 & 64 }, 0, "a touch that began before the request is not against it")
+        document.contactBegan?(ProcessInfo.processInfo.systemUptime)
+        report(p)
+        XCTAssertEqual(flags.last.map { $0 & 64 }, 64, "the gesture is reported")
+        waiting["revision"] = 3; waiting["request"] = 2
+        p.apply(batch([["op": "collections", "items": [waiting]]]))
+        report(p)
+        XCTAssertEqual(flags.last.map { $0 & 64 }, 0, "not against the next request")
+        p.apply(batch([["op": "collections", "items": [snapshot(revision: 4)]]]))
+        XCTAssertFalse(document.allowedTouchTypes.contains(.indirect), "off once no request is under way")
+    }
+    /// A wheel's notch or a key outside AppKit's live scroll keeps the
+    /// reader's scroll under way until 0.3 s after the last, as the web
+    /// glue's quiet interval; the report after it says it ended.
+    func testANotchOrAKeyKeepsTheReadersScrollUnderWayUntilItIsQuiet() throws {
+        let (p, _) = fixture()
+        defer { p.collections.reset() }
+        var flags: [UInt32] = []
+        let ended = expectation(description: "a report says the scroll ended")
+        p.collections.onFeedback = { bytes in
+            let f = Self.reportFlags(bytes)
+            if flags.last.map({ $0 & 32 }) == 32, f & 32 == 0 { ended.fulfill() }
+            flags.append(f)
+        }
+        p.collections.userIntent(1, travel: true)
+        report(p)
+        XCTAssertEqual(flags.last.map { $0 & 32 }, 32, "under way after a notch")
+        wait(for: [ended], timeout: 2)
+    }
+    /// A scroll event that begins a gesture, or a wheel's notch, over a list
+    /// is the reader's gesture, heard as the application dispatches it, before
+    /// any view or the app's handlers: the scroll view, which hears the event
+    /// after them, reports only travel, so a request a handler made in answer
+    /// to the event is not cancelled by it.
+    func testAWheelOverAListIsHeardAsAGestureBeforeAnyHandler() throws {
+        let (p, list) = fixture()
+        defer { p.collections.reset() }
+        let window = NSWindow(contentRect: p.viewport.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = p.viewport
+        defer { window.contentView = nil }
+        var flags: [UInt32] = []
+        p.collections.onFeedback = { flags.append(Self.reportFlags($0)) }
+        var waiting = snapshot(revision: 2)
+        waiting["waiting"] = true; waiting["request"] = 1
+        p.apply(batch([["op": "collections", "items": [waiting]]]))
+        try XCTUnwrap(list.scroll as? ChainingScrollView).collectionWillScroll?()
+        report(p)
+        XCTAssertEqual(flags.last.map { $0 & 64 }, 0, "the scroll view's own report is travel")
+        XCTAssertTrue(Agent.wheel([(0, 0, 40)], gesture: false, at: list.convert(NSPoint(x: 50, y: 50), to: nil), in: window, flags: []))
+        report(p)
+        XCTAssertEqual(flags.last.map { $0 & 64 }, 64, "a notch over the list is the reader's gesture")
+    }
+    /// While a request's corrections are the app's, a report carries no
+    /// velocity: neither their moves nor what the host sampled before the
+    /// request are the reader's travel (LLP 1070.000 §2.5). Once the reader
+    /// begins a gesture, the travel is reported again.
+    func testARequestUnderWayReportsNoTravelSampledBeforeIt() throws {
+        let (p, _) = fixture()
+        defer { p.collections.reset() }
+        var velocities: [Double] = []
+        p.collections.onFeedback = { bytes in velocities.append(Double(bitPattern: (0..<8).reduce(UInt64(0)) { $0 | UInt64(bytes[80 + $1]) << ($1 * 8) })) }
+        p.collections.motion = { _ in 40 }
+        var seeking = snapshot(revision: 2)
+        seeking["seeking"] = true; seeking["request"] = 1
+        p.apply(batch([["op": "collections", "items": [seeking]]]))
+        report(p)
+        XCTAssertEqual(velocities.last, 0, "a sample from before the request")
+        p.collections.gestureBegan(1)
+        report(p)
+        XCTAssertEqual(velocities.last, 40, "the reader's own, once a gesture began")
+    }
+    /// A move of the port the host did not make, outside a live scroll (the
+    /// momentum AppKit carries on after one ends, a key's animated page), keeps
+    /// the reader's scroll under way until 0.3 s after it.
+    func testAMoveTheHostDidNotMakeKeepsTheReadersScrollUnderWay() throws {
+        let (p, _) = fixture()
+        defer { p.collections.reset() }
+        XCTAssertFalse(p.collections.readerScrolling(1))
+        p.collections.changed(1, user: true)
+        XCTAssertTrue(p.collections.readerScrolling(1))
+    }
+    /// A trackpad contact counts against the request under way when it
+    /// began: fingers resting before the request (`mayBegin`) that start to
+    /// move after it (`began`) are not a gesture against it; fingers that
+    /// come down after it are.
+    func testATrackpadContactCountsFromWhenItBegan() throws {
+        let (p, list) = fixture()
+        defer { p.collections.reset() }
+        let window = NSWindow(contentRect: p.viewport.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = p.viewport
+        defer { window.contentView = nil }
+        var flags: [UInt32] = []
+        p.collections.onFeedback = { flags.append(Self.reportFlags($0)) }
+        let at = list.convert(NSPoint(x: 50, y: 50), to: nil)
+        // A trackpad's scroll event of `phase` (CGScrollPhase), stamped now, through the application
+        func wheel(_ phase: Int64, _ dy: Int32) throws {
+            let cg = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -dy, wheel2: 0, wheel3: 0))
+            cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+            cg.timestamp = CGEventTimestamp(ProcessInfo.processInfo.systemUptime * 1e9)
+            NSApp.sendEvent(try XCTUnwrap(Agent.windowEvent(cg, at: at, in: window, flags: [])))
+        }
+        let mayBegin: Int64 = 128, began: Int64 = 1, changed: Int64 = 2, ended: Int64 = 4
+        try wheel(mayBegin, 0)
+        var waiting = snapshot(revision: 2)
+        waiting["waiting"] = true; waiting["request"] = 1
+        p.apply(batch([["op": "collections", "items": [waiting]]]))
+        try wheel(began, 10); try wheel(changed, 10); try wheel(ended, 0)
+        report(p)
+        XCTAssertEqual(flags.last.map { $0 & 64 }, 0, "resting before the request, moving after it")
+        try wheel(began, 10); try wheel(ended, 0)
+        report(p)
+        XCTAssertEqual(flags.last.map { $0 & 64 }, 64, "a contact begun after the request")
+    }
+    /// A request that has moved the port is the reader's once the reader
+    /// moves it, by whatever input (a key's step here): its corrections no
+    /// longer land whatever the port did, and the next report ends it.
+    func testTheReadersMoveMakesAMovedRequestTheReaders() throws {
+        let (p, _) = fixture()
+        defer { p.collections.reset() }
+        p.apply(batch([["op": "collections", "items": [snapshot(revision: 2).merging(["seeking": true, "request": 1]) { $1 }]]]))
+        XCTAssertEqual(p.collections.entries[1]?.authored, true)
+        p.collections.changed(1, user: true)
+        XCTAssertEqual(p.collections.entries[1]?.gesture, true)
+        XCTAssertEqual(p.collections.entries[1]?.authored, false)
+    }
+    /// A report's flags word (`CollectionFacts.encode`).
+    private static func reportFlags(_ bytes: Data) -> UInt32 {
+        (0..<4).reduce(UInt32(0)) { $0 | UInt32(bytes[92 + $1]) << ($1 * 8) }
+    }
+    /// A report on a new turn, so the turn's passes are not spent.
+    private func report(_ p: Presenter) {
+        let turned = expectation(description: "a new turn")
+        DispatchQueue.main.async { turned.fulfill() }
+        wait(for: [turned], timeout: 2)
+        p.collections.flush()
+    }
 }
 
 private final class MountObservedView: NSView {

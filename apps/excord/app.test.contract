@@ -987,6 +987,7 @@ test "a send while the list is still moving lands at the live end (re-check: Gro
   expect state anchor == ""
   expect state away == false
   expect tree has "message-1562888267366400000"
+  expect state endGap == 0
 
 test "a send after a wheel scroll away lands at the live end (the Mac's twin; no fling)" on macos
   clock settle

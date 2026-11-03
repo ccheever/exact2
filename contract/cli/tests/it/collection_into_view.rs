@@ -11,6 +11,7 @@ const APP: &str = r#"shape Post
   cards: number[]
 component App
   state shown = 0
+  state bare = -1
   resource posts = posts() as shape Post[]
   action go(n: number)
     shown = n
@@ -21,12 +22,14 @@ component App
   action card(post: number, n: number)
     shown = n
     scrollIntoView("strip", n, row=post, inline="center", block="start")
+  action strip(post: number)
+    bare = post
   view
     list id="feed" virtualized=true height=600 width=400 overflow-x="hidden" estimated-item-height=100 testId="feed"
       for p in posts key=p.id
         column width="100%" testId=`post-${p.id}`
           text `${p.id}` height=40
-          if p.id % 10 == 0
+          if p.id % 10 == 0 and p.id != bare
             list id="strip" virtualized=true display="flex" height=120 overflow-x="scroll" overflow-y="hidden" estimated-item-width=100
               for t in p.cards key=t
                 text `${t}` width=60 height=100
@@ -140,6 +143,29 @@ fn boot() -> Runner<Data> {
     )
     .unwrap()
 }
+/// A report of the feed at `offset` (a 600 px port), its rows at their real
+/// size, with `fill`.
+fn feed_report(r: &mut Runner<Data>, offset: f64, fill: exact_runner::CollectionFill) {
+    let c = list(r, false).unwrap();
+    report(
+        r,
+        &c,
+        c.scroll_sequence + 1,
+        offset,
+        600.0,
+        [0.0; 2],
+        &feed_size,
+        fill,
+    );
+}
+/// The reader's fling at `velocity`.
+fn fling(velocity: f64) -> exact_runner::CollectionFill {
+    exact_runner::CollectionFill {
+        velocity,
+        scrolling: true,
+        ..Default::default()
+    }
+}
 fn list(r: &Runner<Data>, horizontal: bool) -> Option<CollectionSnapshot> {
     r.collections().into_iter().find(|c| {
         (c.axis == exact_runner::ListAxis::Horizontal) == horizontal
@@ -178,29 +204,16 @@ fn host_padded(
             offset = correction.offset;
         }
         sequence = sequence.max(c.scroll_sequence);
-        let changed = r
-            .collection_feedback(CollectionFeedback {
-                view,
-                revision: c.revision,
-                scroll_sequence: sequence,
-                offset,
-                port_main: port,
-                port_cross: 400.0,
-                cross: 400.0,
-                padding,
-                measurements: c
-                    .rows
-                    .iter()
-                    .map(|row| RowMeasurement {
-                        view: row.view,
-                        epoch: row.epoch,
-                        size: size(row.index),
-                    })
-                    .collect(),
-                focus_view: None,
-                interaction_view: None,
-            })
-            .unwrap();
+        let changed = report(
+            r,
+            &c,
+            sequence,
+            offset,
+            port,
+            padding,
+            &size,
+            Default::default(),
+        );
         let after = r
             .collections()
             .into_iter()
@@ -211,6 +224,45 @@ fn host_padded(
         }
     }
     offset
+}
+/// One report of list `c` from the port at `offset`, every mounted row at
+/// its real `size`.
+#[allow(clippy::too_many_arguments)]
+fn report(
+    r: &mut Runner<Data>,
+    c: &CollectionSnapshot,
+    sequence: u64,
+    offset: f64,
+    port: f64,
+    padding: [f64; 2],
+    size: &impl Fn(usize) -> f64,
+    fill: exact_runner::CollectionFill,
+) -> exact_runner::Advanced {
+    r.collection_feedback_filled(
+        CollectionFeedback {
+            view: c.view,
+            revision: c.revision,
+            scroll_sequence: sequence,
+            offset,
+            port_main: port,
+            port_cross: 400.0,
+            cross: 400.0,
+            padding,
+            measurements: c
+                .rows
+                .iter()
+                .map(|row| RowMeasurement {
+                    view: row.view,
+                    epoch: row.epoch,
+                    size: size(row.index),
+                })
+                .collect(),
+            focus_view: None,
+            interaction_view: None,
+        },
+        fill,
+    )
+    .unwrap()
 }
 fn feed_size(i: usize) -> f64 {
     if i.is_multiple_of(10) {
@@ -318,8 +370,8 @@ fn a_reader_who_scrolls_cancels_the_request() {
     let feed = list(&r, false).unwrap().view;
     host(&mut r, feed, 0.0, 600.0, feed_size);
     r.act("go", vec![Value::Number(400.0)]).unwrap();
-    // The reader drags somewhere else before the correction lands: two
-    // reports of travel (one could be the browser clamping the port).
+    // The reader drags somewhere else before the correction lands, which
+    // the host reports as a gesture (LLP 1070.000 §2.5)
     for offset in [1234.0, 1300.0] {
         let c = list(&r, false).unwrap();
         r.collection_feedback_filled(
@@ -338,6 +390,7 @@ fn a_reader_who_scrolls_cancels_the_request() {
             },
             exact_runner::CollectionFill {
                 velocity: -2400.0,
+                gesture: true,
                 ..Default::default()
             },
         )
@@ -387,6 +440,333 @@ fn a_card_in_a_strip_in_a_row_far_away_brings_both_into_view() {
         "centred inline: {} vs {offset}",
         card.start
     );
+}
+
+/// LLP 1070.000 §2.6 with §3: the feed waits for the reader's scroll, and
+/// the card's request waits with it, then begins in the strip of the row the
+/// feed's landing built.
+#[test]
+fn a_card_whose_feed_is_scrolling_waits_with_it_and_lands_with_its_row() {
+    let mut r = boot();
+    let feed = list(&r, false).unwrap().view;
+    host(&mut r, feed, 0.0, 600.0, feed_size);
+    let fling = fling(3000.0);
+    let fling_to = |r: &mut Runner<Data>, offset: f64| {
+        let c = list(r, false).unwrap();
+        report(
+            r,
+            &c,
+            c.scroll_sequence + 1,
+            offset,
+            600.0,
+            [0.0; 2],
+            &feed_size,
+            fling,
+        );
+    };
+    fling_to(&mut r, 800.0);
+    r.act("card", vec![Value::Number(500.0), Value::Number(150.0)])
+        .unwrap();
+    let c = list(&r, false).unwrap();
+    assert!(c.waiting && c.correction.is_none(), "the feed waits: {c:?}");
+    assert!(
+        !c.rows.iter().any(|row| row.index == 500),
+        "the row is not built while it waits"
+    );
+    assert!(
+        state(&r).contains("\"status\":\"pending\""),
+        "{}",
+        state(&r)
+    );
+    fling_to(&mut r, 900.0);
+    let offset = host(&mut r, feed, 900.0, 600.0, feed_size);
+    let row = list(&r, false)
+        .unwrap()
+        .rows
+        .into_iter()
+        .find(|row| row.index == 500)
+        .expect("the row lands");
+    assert!(
+        (row.start - offset).abs() <= 0.5,
+        "{} vs {offset}",
+        row.start
+    );
+    let strip = r
+        .collections()
+        .into_iter()
+        .find(|c| c.parent == Some(feed) && c.rows.iter().any(|x| x.index == 150))
+        .expect("its strip, at card 150");
+    let offset = host(&mut r, strip.view, 0.0, 400.0, |_| 60.0);
+    let card = r
+        .collections()
+        .into_iter()
+        .find(|c| c.view == strip.view)
+        .unwrap()
+        .rows
+        .into_iter()
+        .find(|x| x.index == 150)
+        .unwrap();
+    assert!(
+        (card.start + card.size / 2.0 - 200.0 - offset).abs() <= 0.5,
+        "centred inline: {} vs {offset}",
+        card.start
+    );
+}
+
+/// A nested request made while the feed's host animates waits with the feed
+/// for the next report, and keeps its inner part across that wait.
+#[test]
+fn a_card_whose_feed_animates_waits_with_it_and_lands_with_its_row() {
+    let mut r = boot();
+    let feed = list(&r, false).unwrap().view;
+    host(&mut r, feed, 0.0, 600.0, feed_size);
+    let c = list(&r, false).unwrap();
+    let animating = exact_runner::CollectionFill {
+        animating: true,
+        ..Default::default()
+    };
+    report(
+        &mut r,
+        &c,
+        c.scroll_sequence + 1,
+        800.0,
+        600.0,
+        [0.0; 2],
+        &feed_size,
+        animating,
+    );
+    r.act("card", vec![Value::Number(500.0), Value::Number(150.0)])
+        .unwrap();
+    let c = list(&r, false).unwrap();
+    assert!(c.waiting && c.correction.is_none(), "the feed waits: {c:?}");
+    let offset = host(&mut r, feed, 800.0, 600.0, feed_size);
+    let row = list(&r, false)
+        .unwrap()
+        .rows
+        .into_iter()
+        .find(|row| row.index == 500)
+        .expect("the row lands");
+    assert!(
+        (row.start - offset).abs() <= 0.5,
+        "{} vs {offset}",
+        row.start
+    );
+    assert!(
+        r.collections()
+            .into_iter()
+            .any(|c| c.parent == Some(feed) && c.rows.iter().any(|x| x.index == 150)),
+        "its strip begins at card 150"
+    );
+}
+
+/// A nested request made during the reader's scroll whose outer row already
+/// stands where it asks at the first report after it is done there for its
+/// outer list, which moves nothing, and its inner part begins in that report,
+/// as at rest: the feed is not taken back to the row when the scroll ends.
+#[test]
+fn a_card_whose_row_already_shows_begins_at_once_and_the_feed_stays() {
+    let mut r = boot();
+    let feed = list(&r, false).unwrap().view;
+    host(&mut r, feed, 0.0, 600.0, feed_size);
+    let fling = fling(3000.0);
+    // Row 20 starts at 1040 (rows 0 and 10 are 160 tall, the rest 40)
+    let mut sequence = list(&r, false).unwrap().scroll_sequence;
+    let mut fling_at = |r: &mut exact_runner::Runner<Data>, offset: f64| {
+        let c = list(r, false).unwrap();
+        sequence += 1;
+        report(r, &c, sequence, offset, 600.0, [0.0; 2], &feed_size, fling);
+    };
+    fling_at(&mut r, 1040.0);
+    fling_at(&mut r, 1040.0);
+    r.act("card", vec![Value::Number(20.0), Value::Number(150.0)])
+        .unwrap();
+    fling_at(&mut r, 1040.0);
+    assert!(
+        r.collections()
+            .into_iter()
+            .any(|c| c.parent == Some(feed) && c.rows.iter().any(|x| x.index == 150)),
+        "its strip begins at card 150"
+    );
+    assert!(
+        list(&r, false)
+            .unwrap()
+            .correction
+            .is_none_or(|c| c.from.is_some()),
+        "the feed moves nothing"
+    );
+    fling_at(&mut r, 3000.0);
+    // Where the feed rests, its rows' measurements anchor it; no request
+    // takes it back to row 20
+    let rest = host(&mut r, feed, 4400.0, 600.0, feed_size);
+    assert!(
+        rest > 2000.0,
+        "the feed rests where the reader left it: {rest}"
+    );
+    assert!(
+        state(&r).contains(r#""key":"n:20","status":"done""#),
+        "the feed's request is done"
+    );
+}
+
+/// What the command refuses for a nested request's inner part it refuses
+/// before either list moves, and the feed takes no request: the row holds no
+/// strip, or the strip no such card.
+#[test]
+fn a_card_refused_at_rest_moves_its_feed_nothing() {
+    for (post, card, why) in [
+        (501.0, 150.0, "refused: the row holds no list with id strip"),
+        (500.0, 500.0, "refused: no row keyed n:500"),
+    ] {
+        let mut r = boot();
+        let feed = list(&r, false).unwrap().view;
+        host(&mut r, feed, 0.0, 600.0, feed_size);
+        let before = list(&r, false).unwrap().request;
+        r.act("card", vec![Value::Number(post), Value::Number(card)])
+            .unwrap();
+        assert!(state(&r).contains(why), "{}", state(&r));
+        let c = list(&r, false).unwrap();
+        assert_eq!(c.request, before, "the host never learns of the request");
+        assert!(
+            c.correction.is_none_or(|c| c.from.is_some()),
+            "no move: {:?}",
+            c.correction
+        );
+        assert!(
+            !c.rows.iter().any(|row| row.index == post as usize)
+                && c.rows.iter().any(|row| row.index == 0),
+            "the window stays at the port: {:?}",
+            c.rows.iter().map(|row| row.index).collect::<Vec<_>>()
+        );
+        assert_eq!(host(&mut r, feed, 0.0, 600.0, feed_size), 0.0);
+    }
+}
+
+/// A refused nested request changes nothing: a feed still opening at its
+/// end goes on opening there, and comes to rest where it would have.
+#[test]
+fn a_card_refused_while_its_feed_opens_at_its_end_leaves_it_opening() {
+    let rest = |refuse: bool| {
+        let mut r = Runner::boot(
+            contract::compile(&APP.replace(
+                "list id=\"feed\" ",
+                "list id=\"feed\" scroll-start=\"end\" ",
+            ))
+            .unwrap(),
+            Data,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let feed = list(&r, false).unwrap().view;
+        if refuse {
+            r.act("card", vec![Value::Number(501.0), Value::Number(150.0)])
+                .unwrap();
+            assert!(state(&r).contains("refused"), "{}", state(&r));
+        }
+        let at = host(&mut r, feed, 0.0, 600.0, feed_size);
+        (at, list(&r, false).unwrap().total_extent)
+    };
+    let (at, extent) = rest(false);
+    assert_eq!(at, extent - 600.0, "opened at its end");
+    assert_eq!(rest(true), (at, extent));
+}
+
+/// A nested request that waits with its feed is looked up again where the
+/// wait ends, before the feed moves: its row lost its strip meanwhile, so it
+/// is refused whole, and the feed stays where the reader left it (§2.6).
+#[test]
+fn a_card_whose_strip_goes_during_the_wait_is_refused_where_the_wait_ends() {
+    let mut r = boot();
+    let feed = list(&r, false).unwrap().view;
+    host(&mut r, feed, 0.0, 600.0, feed_size);
+    let c = list(&r, false).unwrap();
+    let fling = fling(3000.0);
+    report(
+        &mut r,
+        &c,
+        c.scroll_sequence + 1,
+        800.0,
+        600.0,
+        [0.0; 2],
+        &feed_size,
+        fling,
+    );
+    r.act("card", vec![Value::Number(500.0), Value::Number(150.0)])
+        .unwrap();
+    assert!(
+        state(&r).contains("\"status\":\"pending\""),
+        "{}",
+        state(&r)
+    );
+    r.act("strip", vec![Value::Number(500.0)]).unwrap();
+    feed_report(&mut r, 800.0, Default::default());
+    assert!(
+        state(&r).contains("refused: the row holds no list with id strip"),
+        "{}",
+        state(&r)
+    );
+    let c = list(&r, false).unwrap();
+    assert!(
+        c.correction.is_none_or(|c| c.from.is_some()),
+        "no move: {:?}",
+        c.correction
+    );
+    assert_eq!(host(&mut r, feed, 800.0, 600.0, feed_size), 800.0);
+    // The refusal is an entry of its own, kept past the feed's next request
+    let entry = r#""list":"strip","status":"refused: the row holds no list with id strip""#;
+    assert!(state(&r).contains(entry), "{}", state(&r));
+    r.act("go", vec![Value::Number(3.0)]).unwrap();
+    assert!(state(&r).contains(entry), "{}", state(&r));
+}
+
+/// A nested request whose inner part is refused reads the same in `state` at
+/// rest and during the reader's scroll: refused before either list moves, so
+/// the feed takes no request, and the refusal an entry of its own, kept as
+/// the command's refusals are when the feed makes its next request.
+#[test]
+fn a_refused_inner_part_reads_the_same_at_rest_and_during_the_readers_scroll() {
+    let outcome = |wait: bool| {
+        let mut r = boot();
+        let feed = list(&r, false).unwrap().view;
+        host(&mut r, feed, 0.0, 600.0, feed_size);
+        let fling = exact_runner::CollectionFill {
+            velocity: 2000.0,
+            scrolling: true,
+            ..Default::default()
+        };
+        let scroll = |r: &mut Runner<Data>| {
+            let c = list(r, false).unwrap();
+            report(
+                r,
+                &c,
+                c.scroll_sequence + 1,
+                0.0,
+                600.0,
+                [0.0; 2],
+                &feed_size,
+                fling,
+            );
+        };
+        if wait {
+            scroll(&mut r);
+        }
+        r.act("card", vec![Value::Number(0.0), Value::Number(500.0)])
+            .unwrap();
+        if wait {
+            scroll(&mut r);
+        }
+        let refused = r#""list":"strip","status":"refused: no row keyed n:500"#;
+        let s = state(&r);
+        let read = (
+            s.contains(r#""key":"n:0","status":"done""#),
+            s.contains(refused),
+        );
+        r.act("go", vec![Value::Number(3.0)]).unwrap();
+        (read, state(&r).contains(refused))
+    };
+    assert_eq!(outcome(false), ((false, true), true), "at rest");
+    assert_eq!(outcome(true), ((false, true), true), "during a scroll");
 }
 
 #[test]

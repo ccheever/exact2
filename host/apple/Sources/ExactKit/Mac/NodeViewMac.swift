@@ -1148,10 +1148,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             sv.pointerOwner = self
             sv.collectionWillScroll = { [weak self] in
                 guard let self else { return }
-                // The reader's own scroll ends a smooth correction's animation.
-                if presenter?.collections.animating.contains(id) == true, let clip = scroll?.contentView {
-                    NSAnimationContext.runAnimationGroup({ c in c.duration = 0; clip.animator().setBoundsOrigin(clip.bounds.origin) })
-                }
+                // The reader's own scroll ends a smooth correction's animation (`stopAnimation`).
                 presenter?.collections.animationEnded(id, dragging: true)
                 presenter?.collections.userIntent(id, travel: true)
             }

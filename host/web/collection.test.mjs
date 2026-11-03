@@ -125,20 +125,20 @@ test('observer baseline: commit to feedback to real observer reads each row once
       f.views.get(2).style.height='40.5px';f.views.get(4).style.height='60.25px';
       f.controller.commit([f.snapshot('7')]);commit=[...reads.counts];
     } finally { globalThis.ResizeObserver=NativeObserver; }
-    f.port.scrollTop=110;f.views.get(3).focus({preventScroll:true});
+    const ended=new Promise(r=>f.port.addEventListener('scrollend',r,{once:true}));f.port.scrollTop=110;f.views.get(3).focus({preventScroll:true}); // the reader's move, which the browser's scrollend ends: the one report owed after the deliveries says so
     f.views.get(5).dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:7}));
     f.flush();const feedback=[...reads.counts], wire=f.wires.at(-1);
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-    const observed=[...reads.counts], queued=f.frames.size;f.flush();
+    await ended;const observed=[...reads.counts];f.flush();
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-    return {commit,feedback,observed,deliveries,queued,pending:f.frames.size,reports:f.reports.length,wire,width:f.port.clientWidth};
+    return {commit,feedback,observed,deliveries,pending:f.frames.size,reports:f.reports.length,flags:new DataView(new Uint8Array(f.wires.at(-1)).buffer).getUint32(92,true),wire,width:f.port.clientWidth};
   })()`);
   expect(result.wire).toEqual([...collectionBytes({view:1,revision:'7',scroll_sequence:'1',offset:50,
     port_cross:result.width,port_main:180,cross:result.width-24,padding:[10,10],focus_view:3,interaction_view:5,
-    measurements:[{view:2,epoch:'9007199254740993',size:40.5},{view:4,epoch:'2',size:60.25}]},{limit:1})]);
+    measurements:[{view:2,epoch:'9007199254740993',size:40.5},{view:4,epoch:'2',size:60.25}]},{limit:1,scrolling:true})]);
   expect(result.deliveries.flat().filter(v=>v==='2')).toHaveLength(1);
   expect(result.deliveries.flat().filter(v=>v==='4')).toHaveLength(1);
-  expect([result.reports,result.queued,result.pending]).toEqual([1,0,0]);
+  expect([result.reports,result.flags,result.pending]).toEqual([2,0,0]);
   console.log('observer baseline commit/feedback/observer',JSON.stringify(result));
   expect(result.commit).toEqual([1,1,0,0]);
   expect(result.feedback.slice(2)).toEqual([1,1]);
@@ -258,7 +258,7 @@ test('collection read reuse: one row sample preserves fractional wire, epochs an
     return {beforeReport,wire:f.wires.at(-1),width:f.port.clientWidth,pending:f.frames.size};})()`);
   expect(result.wire).toEqual([...collectionBytes({view:1,revision:'7',scroll_sequence:'1',offset:50,
     port_cross:result.width,port_main:180,cross:result.width-24,padding:[10,10],focus_view:3,interaction_view:5,
-    measurements:[{view:2,epoch:'9007199254740993',size:40.5},{view:4,epoch:'2',size:60.25}]},{limit:1})]);
+    measurements:[{view:2,epoch:'9007199254740993',size:40.5},{view:4,epoch:'2',size:60.25}]},{limit:1,scrolling:true})]);
   expect(result.pending).toBe(0);
   expect(result.beforeReport.slice(2)).toEqual([1,1]);
 });
@@ -562,8 +562,8 @@ test('an anchor correction after the extent shrank under the port moves from whe
   expect(result.top).toBe(1000);
 });
 test('a scrollIntoView correction applies across the browser\'s own moves until the reader\'s input', async () => {
-  const result = await evaluate(`(() => { const f=(${jumpFixture})();
-    f.list.scrollTop=300; f.list.dispatchEvent(new Event('scroll')); f.frames.splice(0).forEach(fn=>fn());
+  const result = await evaluate(`(() => { const f=(${jumpFixture})(); // the reader's scroll to 300 ends before the request lands (LLP 1070.000 §2.6)
+    f.list.scrollTop=300; f.list.dispatchEvent(new Event('scroll')); f.frames.splice(0).forEach(fn=>fn()); f.list.dispatchEvent(new Event('scrollend'));
     f.controller.commit([f.snapshot('2',{seeking:true,correction:{scrollSequence:'0',offset:900}})]); const authored=f.list.scrollTop;
     f.list.dispatchEvent(new WheelEvent('wheel')); f.list.scrollTop=700; f.list.dispatchEvent(new Event('scroll'));
     f.controller.commit([f.snapshot('3',{seeking:true,correction:{scrollSequence:'0',offset:950}})]);
@@ -1438,7 +1438,7 @@ test('a row list reports scrollLeft, the port width and height, its rows\' heigh
   expect(result.overflowAnchor).toBe('none');
   expect(result.wire).toEqual([...collectionBytes({ view: 1, revision: '1', scroll_sequence: '1', offset: 40, port_main: result.w,
     port_cross: result.h, cross: result.h - 12, padding: [0, 0], focus_view: null, interaction_view: null,
-    measurements: [{ view: 2, epoch: '1', size: 100 }, { view: 4, epoch: '1', size: 150.5 }] }, { limit: 1 })]);
+    measurements: [{ view: 2, epoch: '1', size: 100 }, { view: 4, epoch: '1', size: 150.5 }] }, { limit: 1, scrolling: true })]);
 });
 test('a correction on x moves scrollLeft; not while the strip moves, and a column list keeps correcting', async () => {
   const run = axis => evaluate(`(() => { const f=(${axisFixture})('${axis}'), l=f.list, n=f.name;

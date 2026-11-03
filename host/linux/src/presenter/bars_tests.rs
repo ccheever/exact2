@@ -824,3 +824,126 @@ component App
     touch(&mut p, TOP, Some("more"));
     assert_eq!(text(&p, "at"), "0,0");
 }
+
+/// Two tabs; Home's content scroller is a list of 50 rows 100 tall, and
+/// Home's press asks for row `target` at the start, or for nothing at -1.
+/// "unload" takes the list away and "name-aside" names another list the
+/// screen's; Home's press makes the list again and names it the screen's.
+const REQUESTING_TABS: &str = r#"routes nav
+  tab home "/"
+  tab other "/other"
+component App
+  state ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]
+  state target = 30
+  state loaded = true
+  state scroller = "feed"
+  action pick(name: string)
+    nav = select(nav, name)
+  action home
+    nav = select(nav, "home")
+    loaded = true
+    scroller = "feed"
+    if target >= 0
+      scrollIntoView("feed", target, block="start")
+  action aim(n: number)
+    target = n
+  action unload
+    loaded = false
+  action aside
+    scroller = "aside"
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%" display="flex" flex-direction="column"
+      column flex=1 min-height=0 position="relative"
+        for t in nav.tabs key = t.name
+          column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
+            for e in t.stack key = e.id
+              if e.name == "home"
+                column navigationKey=`${e.id}` navigationScroll=scroller position="absolute" inset=0 display="flex" flex-direction="column"
+                  header display="flex" padding="8px 16px"
+                    text "Home" role="heading" aria-level=1 flex=1
+                  list id="aside" testId="aside" flex=1 min-height=0
+                    for i in ids key=i
+                      box height=40
+                  if loaded
+                    list id="feed" virtualized=true testId="feed" flex=1 min-height=0 estimated-item-height=100
+                      for i in ids key=i
+                        box height=100
+                  button press=aim(-1) testId="aim-nothing" height=1
+                    text "aim"
+                  button press=aim(30) testId="aim-row" height=1
+                    text "aim row"
+                  button press=unload testId="unload" height=1
+                    text "unload"
+                  button press=aside testId="name-aside" height=1
+                    text "aside"
+              if e.name == "other"
+                column navigationKey=`${e.id}` position="absolute" inset=0
+                  header
+                    text "Other" role="heading" aria-level=1
+      row role="tablist"
+        button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=home testId="tab-home" flex=1
+          text "Home"
+        button role="tab" aria-controls="panel-other" aria-selected=(nav.tab == "other") press=pick("other") testId="tab-other" flex=1
+          text "Other"
+"#;
+
+fn settle(p: &mut Presenter<Nothing>) {
+    for _ in 0..16 {
+        let now = p.host().now();
+        assert!(p.pump(now).is_none());
+        if p.dirty() {
+            let _ = p.frame();
+        }
+        p.run_commands(|| Nothing);
+    }
+}
+
+/// LLP 1070.000 §2.6: the selected tab tapped again scrolls its screen's
+/// list to the top, unless the tab's press asked for a row there: the
+/// author's `scrollIntoView` wins over the platform's scroll, whether it
+/// lands or the port already shows its row, and whether or not the list
+/// was the screen's before the press.
+#[test]
+fn a_reselected_tabs_scroll_to_the_top_gives_way_to_a_request_its_press_made() {
+    let (mut p, _) = barred(REQUESTING_TABS);
+    settle(&mut p);
+    let feed = id(&p, "feed");
+    assert_eq!(p.scroll_to(feed, (0.0, 300.0)), Some((0.0, 300.0)));
+    settle(&mut p);
+    touch(&mut p, BOTTOM, Some("tab-home"));
+    settle(&mut p);
+    assert_eq!(p.scroll_of(feed).1, 3000.0, "the request lands");
+    touch(&mut p, BOTTOM, Some("tab-home"));
+    settle(&mut p);
+    assert_eq!(p.scroll_of(feed).1, 3000.0, "done at once, it still wins");
+    tap(&mut p, "aim-nothing").unwrap();
+    touch(&mut p, BOTTOM, Some("tab-home"));
+    settle(&mut p);
+    assert_eq!(
+        p.scroll_of(feed).1,
+        0.0,
+        "a press that asks for nothing: to the top"
+    );
+    // The press makes the screen's list and asks for a row in it
+    tap(&mut p, "unload").unwrap();
+    settle(&mut p);
+    tap(&mut p, "aim-row").unwrap();
+    touch(&mut p, BOTTOM, Some("tab-home"));
+    settle(&mut p);
+    let feed = id(&p, "feed");
+    assert_eq!(p.scroll_of(feed).1, 3000.0, "a list the press made");
+    // The press makes a list already shown the screen's, which took a
+    // request before the tap, and asks for nothing
+    tap(&mut p, "aim-nothing").unwrap();
+    tap(&mut p, "name-aside").unwrap();
+    settle(&mut p);
+    assert_eq!(p.scroll_to(feed, (0.0, 600.0)), Some((0.0, 600.0)));
+    settle(&mut p);
+    touch(&mut p, BOTTOM, Some("tab-home"));
+    settle(&mut p);
+    assert_eq!(
+        p.scroll_of(feed).1,
+        0.0,
+        "a list the press made the screen's, which asked for nothing there"
+    );
+}
