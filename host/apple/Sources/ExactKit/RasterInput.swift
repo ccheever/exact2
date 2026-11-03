@@ -41,8 +41,22 @@ final class RasterInput: @unchecked Sendable {
     /// A package's picture, already decoded (PackagePictures.swift): no
     /// bytes, its size the image's own, drawn into the plan's storage.
     private(set) var decoded: CGImage?
-    private init(url: URL, encodedBytes: Int, temporary: Bool, catalog: String? = nil) {
+    /// A download's status when it was not 2xx, and the URL it came from: a
+    /// browser draws such a body when it is an image (HTML's "update the
+    /// image data" ignores the status), so only one that is not fails, as
+    /// that status (`failure(_:)`).
+    private var status: (code: RasterHTTPStatus, from: URL)?
+    private init(url: URL, encodedBytes: Int, temporary: Bool, catalog: String? = nil, status: (RasterHTTPStatus, URL)? = nil) {
         self.url = url; self.encodedBytes = encodedBytes; self.temporary = temporary; self.catalog = catalog
+        self.status = status.map { (code: $0.0, from: $0.1) }
+    }
+    /// Why the source fails when reading its header failed with `error`: a
+    /// body that came with a status that is not 2xx fails as that status,
+    /// whose `Retry-After` is then kept for the URL as a bodiless one's is.
+    func failure(_ error: Error) -> Error {
+        guard let status else { return error }
+        if let at = status.code.retryAfter { RasterDownloads.shared.cool(status.from, until: at, status.code) }
+        return status.code
     }
     static func picture(_ image: CGImage) -> RasterInput {
         let bytes = min(RasterMetadata.encodedLimit, max(1, image.bytesPerRow * image.height))
@@ -82,8 +96,8 @@ final class RasterInput: @unchecked Sendable {
         if let url = URL(string: name), let scheme = url.scheme {
             guard scheme == "https" || scheme == "http" else { throw RasterFailure.unresolved }
             let download = try RasterDownload(url: url)
-            let (file, count) = try download.run(cancellation)
-            return RasterInput(url: file, encodedBytes: count, temporary: true)
+            let (file, count, status) = try download.run(cancellation)
+            return RasterInput(url: file, encodedBytes: count, temporary: true, status: status.map { ($0, url) })
         }
         guard let url = resolver.url(name, maximumBytes: RasterMetadata.encodedLimit) else { throw RasterFailure.unresolved }
         let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
@@ -106,7 +120,7 @@ final class RasterInput: @unchecked Sendable {
     static func fetch(_ url: URL, urgent: (() -> Bool)? = nil, cancellation: RasterCancellation, done: @escaping (Result<RasterInput, Error>) -> Void) {
         do {
             try RasterDownload(url: url, urgency: urgent).start(cancellation) { result in
-                done(result.map { RasterInput(url: $0.0, encodedBytes: $0.1, temporary: true) })
+                done(result.map { RasterInput(url: $0.0, encodedBytes: $0.1, temporary: true, status: $0.2.map { ($0, url) }) })
             }
         } catch { done(.failure(error)) }
     }
@@ -165,7 +179,8 @@ final class RasterInput: @unchecked Sendable {
     }
 }
 
-/// A response that is not 2xx: its status is the image's `error` (LLP 1011 §4).
+/// A response that is not 2xx: its status is the image's `error` when it
+/// has no body that is an image (LLP 1011 §4).
 /// `retryAfter`: not asked again before this, a 429's or 503's `Retry-After`,
 /// on the monotonic clock (a wall clock's step never shortens it).
 struct RasterHTTPStatus: Error, CustomStringConvertible {
@@ -189,8 +204,10 @@ private final class RasterDownload: NSObject, @unchecked Sendable {
     private let file: FileHandle
     private var count = 0
     private var failure: Error?
+    /// A response that was not 2xx, whose body is downloaded all the same.
+    private var status: RasterHTTPStatus?
     private var cancellation: RasterCancellation?
-    private var done: ((Result<(URL, Int), Error>) -> Void)?
+    private var done: ((Result<(URL, Int, RasterHTTPStatus?), Error>) -> Void)?
     private let policy: URLRequest.CachePolicy
     /// A picture that fills the screen: its task goes first and its whole
     /// load has the longer bound, from when it was asked for (`promote`).
@@ -214,16 +231,16 @@ private final class RasterDownload: NSObject, @unchecked Sendable {
         super.init()
     }
     /// Waits for `start`'s answer.
-    func run(_ cancellation: RasterCancellation) throws -> (URL, Int) {
+    func run(_ cancellation: RasterCancellation) throws -> (URL, Int, RasterHTTPStatus?) {
         let finished = DispatchSemaphore(value: 0)
-        var outcome: Result<(URL, Int), Error> = .failure(RasterFailure.decode)
+        var outcome: Result<(URL, Int, RasterHTTPStatus?), Error> = .failure(RasterFailure.decode)
         start(cancellation) { outcome = $0; finished.signal() }
         finished.wait() // bounded by URLSession's resource timeout
         return try outcome.get()
     }
     /// Downloads into the spool file and answers once, on the sessions'
     /// queue, or at once for a stored response it may show.
-    func start(_ cancellation: RasterCancellation, done: @escaping (Result<(URL, Int), Error>) -> Void) {
+    func start(_ cancellation: RasterCancellation, done: @escaping (Result<(URL, Int, RasterHTTPStatus?), Error>) -> Void) {
         // Show a stored response that is stale but within its
         // `stale-while-revalidate` window now and refresh it behind, as a
         // browser does (RFC 5861): URLCache knows only freshness, so it would
@@ -234,7 +251,7 @@ private final class RasterDownload: NSObject, @unchecked Sendable {
             }
             count = data.count
             Self.revalidate(url)
-            return done(.success((destination, count)))
+            return done(.success((destination, count, nil)))
         }
         // A server that said when to ask again is not asked sooner, by any
         // source of the URL (LLP 1011 §4).
@@ -286,8 +303,12 @@ private final class RasterDownload: NSObject, @unchecked Sendable {
             if let status = failure as? RasterHTTPStatus, let at = status.retryAfter { RasterDownloads.shared.cool(url, until: at, status) }
             try? FileManager.default.removeItem(at: destination); answer?(.failure(failure)); return
         }
-        guard count > 0 else { try? FileManager.default.removeItem(at: destination); answer?(.failure(RasterEmptyResponse())); return }
-        answer?(.success((destination, count)))
+        guard count > 0 else {
+            // A status with no body is that status, its `Retry-After` kept.
+            if let status, let at = status.retryAfter { RasterDownloads.shared.cool(url, until: at, status) }
+            try? FileManager.default.removeItem(at: destination); answer?(.failure(status ?? RasterEmptyResponse())); return
+        }
+        answer?(.success((destination, count, status)))
     }
     /// The stored body for `url` when it is stale but may still be shown:
     /// its age past `max-age` and within `stale-while-revalidate`, no
@@ -327,7 +348,7 @@ private final class RasterDownload: NSObject, @unchecked Sendable {
         guard revalidatingLock.withLock({ revalidating.insert(url).inserted }) else { return }
         refreshes.addOperation {
             defer { revalidatingLock.withLock { _ = revalidating.remove(url) } }
-            guard let (file, _) = try? RasterDownload(url: url, policy: .reloadRevalidatingCacheData).run(RasterCancellation()) else { return }
+            guard let (file, _, _) = try? RasterDownload(url: url, policy: .reloadRevalidatingCacheData).run(RasterCancellation()) else { return }
             try? FileManager.default.removeItem(at: file)
         }
     }
@@ -341,19 +362,21 @@ private final class RasterDownload: NSObject, @unchecked Sendable {
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard let http = response as? HTTPURLResponse else { failure = failure ?? RasterHTTPStatus(code: 0); completionHandler(.cancel); return }
+        if !(200..<300).contains(http.statusCode) {
+            let code = http.statusCode
             // Discord's CDN, and the person's own account: a 429's or 503's
             // wait is kept, an unreadable one an hour (`RasterRetry`).
-            let after = [429, 503].contains(code) ? (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Retry-After") : nil
+            let after = [429, 503].contains(code) ? http.value(forHTTPHeaderField: "Retry-After") : nil
             let status = RasterHTTPStatus(code: code, retryAfter: after.map {
                 DispatchTime.now() + (RasterRetry.retryAfter($0, now: Date()) ?? RasterRetry.unreadable)
             })
             // One after the whole load's bound cancelled it keeps that failure,
             // though its server's wait is kept for the URL still.
             if failure != nil, let at = status.retryAfter { RasterDownloads.shared.cool(url, until: at, status) }
-            failure = failure ?? status
-            completionHandler(.cancel); return
+            // Its body is read as a 2xx's is: a browser draws it when it is
+            // an image (HTML's "update the image data" ignores the status).
+            self.status = status
         }
         // An answer after the whole load's bound cancelled it keeps that failure.
         guard failure == nil else { completionHandler(.cancel); return }
@@ -375,6 +398,8 @@ private final class RasterDownload: NSObject, @unchecked Sendable {
     /// not keep and the stale check needs
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, willCacheResponse proposed: CachedURLResponse,
                     completionHandler: @escaping (CachedURLResponse?) -> Void) {
+        // Only a 2xx is stored, as before a status that is not was read.
+        guard status == nil else { return completionHandler(nil) }
         guard let generated else { return completionHandler(proposed) }
         completionHandler(CachedURLResponse(response: proposed.response, data: proposed.data,
             userInfo: [Self.generatedKey: generated.timeIntervalSinceReferenceDate], storagePolicy: proposed.storagePolicy))

@@ -16,6 +16,8 @@ enum Answer {
     Body(Vec<u8>),
     /// A status with no body.
     Status(u16),
+    /// A status with this body and its length.
+    StatusBody(u16, Vec<u8>),
     /// A status with no body that says when to ask again (`Retry-After`).
     RetryAfter(u16, String),
     /// A status that declares a body of this length and sends none.
@@ -74,6 +76,12 @@ fn respond(mut stream: TcpStream, answer: &dyn Fn(&str, &str) -> Answer) {
         Answer::Body(body) => stream
             .write_all(&head(
                 "200 OK",
+                &format!("Content-Length: {}\r\n", body.len()),
+            ))
+            .and_then(|()| stream.write_all(&body)),
+        Answer::StatusBody(status, body) => stream
+            .write_all(&head(
+                &format!("{status} Nope"),
                 &format!("Content-Length: {}\r\n", body.len()),
             ))
             .and_then(|()| stream.write_all(&body)),
@@ -283,6 +291,60 @@ fn a_status_other_than_2xx_is_its_error_whatever_its_length() {
         let failure = fetched(&downloads, &format!("{origin}{path}")).unwrap_err();
         assert_eq!(failure.message, "HTTP 404", "{path}");
         assert_eq!(failure.refusal, Refusal::DecodeFailed, "{path}");
+    }
+}
+
+/// A body is read whatever its status, as HTML's "update the image data"
+/// reads it; the status is what one that is not an image fails as.
+#[test]
+fn a_status_other_than_2xx_brings_its_body_and_is_not_kept() {
+    let picture = png(6, 4, [0, 0, 200, 255]);
+    let origin = serve(move |_, _| Answer::StatusBody(404, picture.clone()));
+    let downloads = bounded();
+    let url = format!("{origin}/default.png");
+    let body = fetched(&downloads, &url).unwrap();
+    assert_eq!(bytes(&body), png(6, 4, [0, 0, 200, 255]));
+    let status = body.status.as_ref().expect("its status");
+    assert_eq!(
+        (status.message.as_str(), status.transient),
+        ("HTTP 404", false)
+    );
+    assert!(!downloads.holds(&url), "only a 2xx is kept");
+}
+
+#[test]
+fn an_image_that_comes_with_a_404_is_drawn_and_a_page_fails_as_its_status() {
+    let origin = serve(|path, _| match path {
+        "/default.png" => Answer::StatusBody(404, png(6, 4, [0, 0, 200, 255])),
+        "/busy" => Answer::StatusBody(503, b"<p>busy</p>".to_vec()),
+        _ => Answer::StatusBody(404, b"<p>not found</p>".to_vec()),
+    });
+    let url = format!("{origin}/default.png");
+    let k = kernel(&url);
+    let mut images = images();
+    images.sync(&k, &k.roots());
+    turns_until(&mut images, &k, |images| shown(images).is_some());
+    assert_eq!(shown(&images), Some((url, (6, 4))));
+    assert_eq!(
+        images.load_events.last().map(|e| e.error.clone()),
+        Some(None)
+    );
+
+    for (path, retries) in [("/gone", 0), ("/busy", crate::image::RETRY_AFTER.len())] {
+        let k = kernel(&format!("{origin}{path}"));
+        let mut images = self::images();
+        images.sync(&k, &k.roots());
+        turns_until(&mut images, &k, |images| images.views[&1].errored);
+        let error = images.load_events.last().and_then(|e| e.error.clone());
+        assert_eq!(
+            error.as_deref(),
+            Some(
+                &path
+                    .replace("/gone", "HTTP 404")
+                    .replace("/busy", "HTTP 503")[..]
+            )
+        );
+        assert_eq!(images.views[&1].retries, retries, "{path}");
     }
 }
 
