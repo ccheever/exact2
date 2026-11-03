@@ -76,9 +76,8 @@ final class NodePaintExtras {
 }
 
 final class NodeExtras {
-    /// The tint its authored `accent-color` gives its subtree (`applyAccentTint`), and its shares
-    var authoredAccentTint: UIColor? { didSet { accentShares = [:] } }
-    var accentShares: [Double: UIColor] = [:]
+    /// The tint its authored `accent-color` gives its subtree (`applyAccentTint`)
+    var authoredAccentTint: UIColor?
     var pressContact: PressContact?
     var inlinePressed: UInt32?
     /// A Markdown link pressed in this text: its target, followed on release over it.
@@ -285,15 +284,6 @@ extension NodeView {
     var layoutOffset: CGPoint { get { extras?.layoutOffset ?? .zero } set { if newValue != .zero || extras != nil { more.layoutOffset = newValue } } }
     var stickyOffset: CGPoint { get { extras?.stickyOffset ?? .zero } set { if newValue != .zero || extras != nil { more.stickyOffset = newValue } } }
     var authoredAccentTint: UIColor? { get { extras?.authoredAccentTint } set { if newValue != nil || extras != nil { more.authoredAccentTint = newValue } } }
-    /// `authoredAccentTint` at `share` (`Highlight`), one object per share until the accent changes
-    func authoredAccentTint(at share: Double) -> UIColor? {
-        guard let accent = authoredAccentTint else { return nil }
-        guard share < 1 else { return accent }
-        if let made = extras?.accentShares[share] { return made }
-        let made = accent.withAlphaComponent(share)
-        more.accentShares[share] = made
-        return made
-    }
     /// How far a keyboard toolbar rides up with the keyboard (KeyboardToolbarIOS).
     var keyboardLift: CGFloat { get { extras?.keyboardLift ?? 0 } set { if newValue != 0 || extras != nil { more.keyboardLift = newValue } } }
     var layoutResize: CGSize { get { extras?.layoutResize ?? .zero } set { if newValue != .zero || extras != nil { more.layoutResize = newValue } } }

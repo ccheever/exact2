@@ -225,8 +225,8 @@ final class BarReadoutIOSTests: XCTestCase {
         XCTAssertEqual(symbol.tintAdjustmentMode, .dimmed, "UIKit greys the symbol")
     }
 
-    /// A readout's words in the tint under the readout's own `accent-color` are that accent, which
-    /// UIKit does not carry to the bar: a colour of its own there
+    /// A readout's words in the tint under the readout's own `accent-color` are UIKit's tint in their
+    /// view, whose own tint is that accent: the accent, grey while UIKit dims it
     func testAReadoutsPartsUnderItsOwnAccentAreThatAccent() throws {
         let green: [Double] = [52, 199, 89, 255]
         let inked: [String: Any] = ["text_color": ["sys": "@tint", "c": [0, 122, 255, 255]], "written": ["text_color"]]
@@ -238,9 +238,17 @@ final class BarReadoutIOSTests: XCTestCase {
         window.addSubview(view)
         p.navigation.showReadouts(shape, in: route)
         let words = try XCTUnwrap(view.stack.arrangedSubviews.compactMap { $0 as? UILabel }.first, "the readout shows its words")
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        XCTAssertTrue(try XCTUnwrap(words.textColor).resolvedColor(with: words.traitCollection).getRed(&r, green: &g, blue: &b, alpha: &a))
-        for (got, want) in zip([r, g, b, a].map { Double($0) * 255 }, green) { XCTAssertEqual(got, want, accuracy: 2, "the readout's own green") }
+        XCTAssertEqual(words.textColor, UIColor.tintColor, "UIKit's tint")
+        func drawn() throws -> [Double] {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            XCTAssertTrue(try XCTUnwrap(words.textColor).resolvedColor(with: words.traitCollection).getRed(&r, green: &g, blue: &b, alpha: &a))
+            return [r, g, b, a].map { Double($0) * 255 }
+        }
+        for (got, want) in zip(try drawn(), green) { XCTAssertEqual(got, want, accuracy: 2, "the readout's own green") }
+        view.tintAdjustmentMode = .dimmed
+        defer { view.tintAdjustmentMode = .automatic }
+        let grey = try drawn()
+        XCTAssertLessThanOrEqual((grey.prefix(3).max() ?? 0) - (grey.prefix(3).min() ?? 0), 3, "grey while dimmed: \(grey)")
     }
 
     /// The bar item's view: the author's direction with padding kept on

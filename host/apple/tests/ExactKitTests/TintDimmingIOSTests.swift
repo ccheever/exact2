@@ -210,9 +210,8 @@ final class TintDimmingIOSTests: XCTestCase {
         dim(p, false)
     }
 
-    /// A route's backdrop in the tint is UIKit's tint where the controller's view draws it, grey
-    /// while dimmed; under the route's own `accent-color`, which UIKit does not carry to that view,
-    /// that accent
+    /// A route's backdrop in the tint is the tint of the controller's view, which takes the route's own
+    /// `accent-color` where it has one: UIKit's tint, or that accent, grey while dimmed
     func testARoutesBackdropInTheTintIsTheTintItDrawsIn() throws {
         let p = presenter([
             ["op": "create", "id": 9, "kind": "view"],
@@ -235,7 +234,15 @@ final class TintDimmingIOSTests: XCTestCase {
         assertChannels(try backdrop(away), green, "the route's own accent")
         dim(p, true)
         assertChannels(try backdrop(home), uikitGrey(red, uikitAlpha: true), "UIKit's grey while dimmed")
+        assertChannels(try backdrop(away), uikitGrey(green, uikitAlpha: true), "the route's own accent greys while dimmed")
         dim(p, false)
+        // Its accent gone while the route's view still holds it, the node's tint, which it inherits from
+        // that view, resolves without resolving itself, and the backdrop painted again is the tint above
+        let node = try XCTUnwrap(p.views[2])
+        node.applyStyle(["background_color": .object(["sys": .string("@tint"), "c": [0, 122, 255, 255]]), "written": ["background_color"]])
+        _ = node.tintColor.resolvedColor(with: node.traitCollection)
+        away.paintBackdrop()
+        assertChannels(try backdrop(away), red, "the tint above once the accent is gone")
     }
 
     /// The tint as a value for what UIKit keeps (`carriedTint`) is the node's own tint, undimmed while

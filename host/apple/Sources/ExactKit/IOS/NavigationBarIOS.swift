@@ -64,7 +64,7 @@ struct HeaderShape: Equatable {
         /// (UIKit's tint, the platform default) for a colour the button
         /// only inherits or the compiler implied.
         let tint: [[Double]]?
-        /// Whether that colour is the tint itself and its node has no `ownAccent`: UIKit's tint then
+        /// Whether that colour is the tint itself: the item's tint then, its node's `ownAccent` or the bar's
         let followsTint: Bool
         /// A native button's title font where its face's rows give a size or
         /// a weight (LLP 1069.011.001 D4), as its in-page control draws it:
@@ -156,7 +156,7 @@ struct HeaderShape: Equatable {
             // One the button only inherits, or a sheet wrote, is unsaid.
             // Read from the node it is written on, the tint in it as a value (`carriedTint`)
             let source = ink.flatMap { $0.0.kind == "image" && $0.0.ownColor("text_color") != nil ? $0.0 : nil } ?? (button.ownColor("text_color") != nil ? button : nil)
-            followsTint = source?.style["text_color"]?.tintAlpha == 1 && source?.ownAccent == nil
+            followsTint = source?.style["text_color"]?.tintAlpha == 1
             if !followsTint, let source, let light = source.carriedChannels("text_color", dark: false), let dark = source.carriedChannels("text_color", dark: true) {
                 tint = [light, dark]
             } else {
@@ -355,7 +355,7 @@ final class HeaderSearch: NSObject, UISearchBarDelegate, UISearchControllerDeleg
         #if !os(tvOS)
         guard let field else { return }
         let text = controller.searchBar.searchTextField
-        // The node's own accent, which UIKit does not carry to the bar: its text, placeholder and caret in the tint resolve by it
+        // The field's own tint is its node's accent: its text, placeholder and caret in the tint resolve by it
         text.tintColor = field.ownAccent
         // Any `backgroundColor`, nil too, replaces UIKit's capsule (iOS 26, measured): written only where a design names a Field, cleared (unfilled) only where one was.
         if let ground = field.fieldGroundColor { text.backgroundColor = ground; paintsGround = true }
@@ -585,9 +585,10 @@ final class BarPress: NSObject {
     }
 }
 
-/// One stack Exact built: its delegate, whether its routes may show the bar
-/// (they may unless the app's `navigation` hatch says no; which of them
-/// shows it is each route's, LLP 1115.000 D5.3), and its last written controllers.
+/// One stack Exact built: its delegate, whether its routes may show the bar (they may unless the
+/// app's `navigation` hatch says no; which of them shows it is each route's, LLP 1115.000 D5.3), its
+/// last written controllers, the tint it last gave the bar, its top route's accent (nil: none), and
+/// whether a hatch tinted the bar, which Exact then leaves alone.
 final class NavigationStack {
     let proxy = NavigationDelegateProxy()
     var showsBar: Bool
@@ -595,11 +596,8 @@ final class NavigationStack {
     let label: String
     var hatched = false
     var written: [ObjectIdentifier] = []
-    init(showsBar: Bool, order: Int) {
-        self.showsBar = showsBar
-        self.order = order
-        label = "#\(order)"
-    }
+    var barTint: UIColor?, hatchTintsBar = false
+    init(showsBar: Bool, order: Int) { (self.showsBar, self.order, label) = (showsBar, order, "#\(order)") }
 }
 
 extension NavigationHost {
@@ -721,7 +719,7 @@ extension NavigationHost {
         titleInk(nav)
         publish(nav)
         if presenter.session?.natives.hatchesConnected == true {
-            stack.showsBar = presenter.session?.natives.navigationHatch(nav, built: true, showsBar: stack.showsBar, label: stack.label) ?? stack.showsBar
+            stack.showsBar = hatching(nav) { presenter.session?.natives.navigationHatch(nav, built: true, showsBar: stack.showsBar, label: stack.label) } ?? stack.showsBar
             stack.hatched = true
         }
         // Hidden for a first route that shows none, before UIKit shows it;
@@ -738,7 +736,7 @@ extension NavigationHost {
         guard let natives = presenter.session?.natives, natives.hatchesConnected,
               let stack = stacks[ObjectIdentifier(nav)], !stack.hatched else { return }
         let before = barShows(nav)
-        stack.showsBar = natives.navigationHatch(nav, built: true, showsBar: stack.showsBar, label: stack.label)
+        stack.showsBar = hatching(nav) { natives.navigationHatch(nav, built: true, showsBar: stack.showsBar, label: stack.label) }
         stack.hatched = true
         guard barShows(nav) != before else { return }
         showBar(nav, animated: false)
@@ -807,12 +805,12 @@ extension NavigationHost {
             searchField(shows ? shape?.search : nil, in: c, covered: index < routes.count - 1)
             segmentedTitle(shows ? shape?.segments : nil, in: c)
             richTitle(shows ? shape : nil, in: c)
-            c.titleInk.update(shows ? shape?.heading?.ownUIColor("text_color", outside: true) : nil, item: c.navigationItem, bar: nav?.navigationBar, transparent: transparent)
+            c.titleInk.update(shows ? shape?.heading?.ownUIColor("text_color") : nil, item: c.navigationItem, bar: nav?.navigationBar, transparent: transparent)
             guard c.projected != signature || !c.hatched else { continue }
             c.projected = signature
             guard presenter.session?.natives.hatchesConnected == true else { continue }
-            presenter.session?.natives.routeHatch(c.hatched ? .changed : .built, controller: c, navigation: nav, scroll: scroll,
-                                                 key: c.key, dataset: dataset)
+            hatching(nav) { presenter.session?.natives.routeHatch(c.hatched ? .changed : .built, controller: c, navigation: nav, scroll: scroll,
+                                                                  key: c.key, dataset: dataset) }
             c.hatched = true
             if scroll != nil { c.ownedScroll = scroller }
         }
@@ -1399,7 +1397,7 @@ extension NavigationHost {
         // The authored `color` of a plain item's face; a prominent item's
         // tint is its fill, which `color` is not.
         let plain = !i.prominent && i.badge == nil && i.chip == nil
-        item.tintColor = !plain ? nil : i.followsTint ? SystemColor.tint(1) : i.tint.map { tint in UIColor { TextEngine.color(tint[$0.userInterfaceStyle == .dark ? 1 : 0]) } }
+        item.tintColor = !plain ? nil : i.followsTint ? presenter.views[i.id]?.ownAccent ?? SystemColor.tint(1) : i.tint.map { tint in UIColor { TextEngine.color(tint[$0.userInterfaceStyle == .dark ? 1 : 0]) } }
         // UIKit's font where none is written, also once a kept item's author removes theirs.
         let font = image == nil ? i.font : nil
         if item.titleTextAttributes(for: .normal)?[.font] as? UIFont != font {
