@@ -737,7 +737,7 @@ component ScheduledEditor
                 row align-items="center" gap="0.5rem"
                   text "Run on" class=TkLabel
                   // The host's date and time picker (an NSDatePicker on the Mac) where the reference has Chromium's editor.
-                  input type="datetime-local" value=runAt input=setText("runAt") aria-label="Run on" width="14rem" disabled=busy testId="task-run-at" id="field-task-run-at" data-focus-stop=(busy ? "" : "enabled")
+                  input type="datetime-local" data-editable="yes" value=runAt input=setText("runAt") aria-label="Run on" width="14rem" disabled=busy testId="task-run-at" id="field-task-run-at" data-focus-stop=(busy ? "" : "enabled")
               if scheduleMode == "fixed"
                 row align-items="center" gap="0.75rem" flex-wrap="wrap"
                   row align-items="center" gap="0.5rem"

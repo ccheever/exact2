@@ -521,6 +521,8 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
     const label = `${str(obj(config.environment).label, 'Environment')} server`;
     const selfUpdate = str(obj(obj(config.environment).capabilities).serverSelfUpdate);
     try {
+      const denial = managedUpdatesDenial(managedPolicySummary(config));
+      if (denial) throw new ClientError(denial);
       if (!versionMismatch(str(obj(config.environment).serverVersion))) throw new ClientError('This server is already up to date.');
       if (!selfUpdate) {
         // ServerUpdateAction's manual path: copy the command that matches the install; no remote call.

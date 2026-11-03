@@ -162,6 +162,11 @@ describe('general rows', () => {
     await applyCoreSetting(as(client), native, 'fallback-model:effort|||', 'reasoningEffort=high');
     expect(client.writes.at(-1)).toEqual({ patch: { fallbackModelSelection: { instanceId: 'fixture', model: 'luna', options: [{ id: 'reasoningEffort', value: 'high' }] } } });
     expect(rowOf()).toMatchObject({ label2: 'High', value2: 'high' });
+    client.config.providers[0]!.enabled = false;
+    expect(rowOf()).toMatchObject({ value: 'fixture|luna', label2: 'High' });
+    await applyCoreSetting(as(client), native, 'fallback-model:effort|||', 'reasoningEffort=medium');
+    expect(client.writes.at(-1)).toEqual({ patch: { fallbackModelSelection: { instanceId: 'fixture', model: 'luna', options: [{ id: 'reasoningEffort', value: 'medium' }] } } });
+    client.config.providers[0]!.enabled = true;
     await expect(applyCoreSetting(as(client), native, 'fallback-model:|||', 'gone|x')).rejects.toThrow('unavailable');
     await applyCoreSetting(as(client), native, 'fallback-model:reset|||', '');
     expect(client.writes.at(-1)).toEqual({ patch: { fallbackModelSelection: null } });

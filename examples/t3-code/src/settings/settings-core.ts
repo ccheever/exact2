@@ -481,7 +481,9 @@ export function defaultModelsMixed(context: ServerContext): boolean {
 function fallbackControl(context: ServerContext, defaultSelection: Json): Partial<CoreRow> {
   const state = serverState(context, 'fallbackModelSelection');
   const saved = state.value === null || state.value === undefined ? null : obj(state.value);
-  const control = modelControl(context, saved ?? (defaultSelection === null ? null : obj(defaultSelection)), false);
+  const entry = saved && providerEntries(context.providers).find(candidate => candidate.instanceId === str(saved.instanceId));
+  const control = entry ? traitsControl(context, entry.snapshot, entry.models.find(model => model.slug === saved!.model) ?? { slug: str(saved!.model) }, arr(saved!.options))
+    : modelControl(context, saved ?? (defaultSelection === null ? null : obj(defaultSelection)), false);
   if (control.kind === 'text-only') return control;
   const shown = state.mixed ? 'Mixed' : saved === null ? 'None' : '';
   const traits = saved !== null && !state.mixed && str(control.value).split('|')[0] === str(saved.instanceId);
@@ -824,7 +826,8 @@ function modelValue(raw: string, part: string, key: string, context: ServerConte
   const current = serverState(context, key).value;
   const providers = context.providers.filter(provider => providerAvailable(provider) && (key !== 'textGenerationModelSelection' || provider.supportsTextGeneration !== false));
   if (part === 'effort') {
-    const control = modelControl(context, current === null ? null : obj(current), key === 'textGenerationModelSelection');
+    const control = key === 'fallbackModelSelection' ? fallbackControl(context, serverState(context, 'defaultModelSelection').value)
+      : modelControl(context, current === null ? null : obj(current), key === 'textGenerationModelSelection');
     const [instanceId, model] = str(control.value).split('|');
     // A bare value is a reasoning effort (older ids); "<descriptor>=<option>" picks one trait and keeps the others.
     const pick = raw.includes('=') ? raw : str(control.options2?.find(entry => /^(reasoningEffort|effort)=/.test(entry.value) && entry.value.endsWith(`=${raw}`))?.value);

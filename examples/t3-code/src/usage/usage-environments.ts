@@ -18,6 +18,7 @@ import { requireRpcPermissions } from '../connections/command-permissions';
 //   so a slow environment never holds the window or the other environments.
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { usageModelFilter, usageSummaryInput } from '../client/server-fields';
 import { ClientError, bridgeReply, type Native } from '../client/protocol';
 import { fleet as appFleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { startDetached, type DetachedReply } from '../composer/composer-replies';
@@ -153,21 +154,11 @@ function windowPayload(window: UsageWindowInput): Obj {
   if (window.sinceTime) { payload.sinceTime = window.sinceTime; payload.untilTime = window.untilTime; }
   return payload;
 }
-/**
- * usageModelFilterAtom: the environment's `settings.usageModelFilter` (hand-edited in its settings.json), absent on
- * servers that predate it.
- */
-export function usageModelFilter(config: Obj | null): Obj | undefined {
-  const filter = obj(config?.settings).usageModelFilter;
-  return filter && typeof filter === 'object' && !Array.isArray(filter) ? filter as Obj : undefined;
-}
-/** usageSummaryInput: each environment is asked with its own model filter. */
-export function usageSummaryInput(payload: Obj, modelFilter: Obj | undefined): Obj {
-  return modelFilter === undefined ? payload : { ...payload, modelFilter };
-}
+/** usageModelFilterAtom: the environment's `settings.usageModelFilter`, absent on servers that predate it. */
+const filterOf = (state: UsageState, id: string) => usageModelFilter(obj(state.envs.find(env => env.id === id)?.config?.settings));
 /** A summary's key: the window and, as the reference's query input carries it, the environment's model filter. */
 function summaryKey(state: UsageState, id: string): string {
-  const filter = usageModelFilter(state.envs.find(env => env.id === id)?.config ?? null);
+  const filter = filterOf(state, id);
   return state.window ? windowKeyOf(state.window) + (filter === undefined ? '' : JSON.stringify(filter)) : '';
 }
 function summaryEntry(state: UsageState, id: string): Summary | null {
@@ -187,7 +178,7 @@ function summaryEntry(state: UsageState, id: string): Summary | null {
 function readSummary(state: UsageState, id: string): Promise<void> {
   const entry = summaryEntry(state, id);
   if (!entry || !state.window) return Promise.resolve();
-  const token = ++entry.token, payload = usageSummaryInput(windowPayload(state.window), usageModelFilter(state.envs.find(env => env.id === id)?.config ?? null));
+  const token = ++entry.token, payload: Obj = usageSummaryInput(windowPayload(state.window), filterOf(state, id)) as Obj;
   entry.pending = true; entry.stale = false;
   entry.generation = state.envs.find(env => env.id === id)?.generation ?? -1;
   const current = () => entry.token === token && state.summaries.get(id) === entry;

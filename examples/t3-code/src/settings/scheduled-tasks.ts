@@ -7,6 +7,7 @@
 // provider snapshots (`deriveProviderInstanceEntries` read inline); a scope is the plain
 // record below instead of ResolvedSettingsScope.
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { oneTimeSchedules } from '../client/server-fields';
 import { webhookDraft } from './scheduled-webhook';
 import { relativeTimeLabel } from './settings-data';
 import { RUNTIME_LOCALE } from '../shared/timestamp-format';
@@ -139,7 +140,7 @@ const onceInputValue = (runAt: string) => { const date = new Date(runAt); return
 
 /** Older servers reject one-time schedules, so Once is offered only where it can save, or for a task that has it. */
 export function offersOnceSchedules(config: Obj, task: Obj | undefined): boolean {
-  return obj(obj(config.environment).capabilities).oneTimeSchedules === true || obj(task?.schedule).type === 'once';
+  return oneTimeSchedules(config) || obj(task?.schedule).type === 'once';
 }
 
 /**

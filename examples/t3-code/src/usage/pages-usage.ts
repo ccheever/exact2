@@ -5,6 +5,7 @@
 // apps/web/src/state/usage.ts (withoutProviders, the last answered usage useUsage keeps on
 // screen) and packages/shared/src/{usageFormat,usageMerge,usageLimits}.ts (usageMerge's claimSources at 5d3d78ab93).
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { sameUsageModelFilter } from '../client/server-fields';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { pagesPrefs, type UsagePrefs } from '../pages/pages-prefs';
@@ -187,7 +188,7 @@ export function mergeUsage(environments: { id: string; label: string; summary: O
     const key = fingerprintKey(obj(source.fingerprint)), scan = ownerScan.get(key);
     // A scan under another model filter counts different records, so its cells are not missing ones.
     if (scan?.source.status !== 'ok' || Date.parse(str(environment.summary.readAt)) <= Date.parse(str(scan.environment.summary.readAt))
-      || JSON.stringify(environment.summary.modelFilter) !== JSON.stringify(scan.environment.summary.modelFilter)) continue;
+      || !sameUsageModelFilter(obj(environment.summary), obj(scan.environment.summary))) continue;
     let seen = seenCells.get(key);
     if (!seen) seenCells.set(key, seen = new Set(bucketsForSource(scan.environment.summary, scan.source).map(bucketKey)));
     const extra = supplemental.get(environment.id) ?? new Set<Obj>();
