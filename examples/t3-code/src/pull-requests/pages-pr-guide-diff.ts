@@ -44,7 +44,7 @@ export function presentGuideDiff(ctx: { client: T3Client; reference: GuideRefere
       const expansionPrefix = `${id}::${path}`;
       const draft = code.draft?.path === path && state.activeCard === id ? code.draft : null;
       const rendered = codeRows({ files: [file], layout: 'stacked', foldOverride: 'expanded', toggled: new Set(), viewedMark: () => '', omitted: new Map(),
-        annotations: () => ({ threads: [], pending: pending.filter(item => item.path === path).map(item => ({ id: item.id, body: item.body, position: item.position as PullRequestReviewPosition })), draft: draft ? { position: draft.position, label: `${path}:${reviewPositionAnchor(draft.position).line}` } : null }),
+        annotations: () => ({ threads: [], pending: pending.filter(item => item.path === path).map(item => ({ id: item.id, body: item.body, position: item.position as PullRequestReviewPosition })), draft: draft ? { position: draft.position, label: `${path}:${reviewPositionAnchor(draft.position).line}`, dir: draft.dir } : null }),
         selection: draft ? { path, range: draft.range } : code.selection, contents: loaded ? { [expansionPrefix]: loaded } : {}, contentsKey: () => expansionPrefix, expansions: state.expansions });
       card.items = markDiffRows(rendered.items, code.find).items.filter(item => item.kind !== 'pr-file' && item.kind !== 'pad' && (full || card.expandable || item.kind !== 'gap')).map(item => ({ ...item, id: `${id}:${item.id}` }));
       if (!full) {

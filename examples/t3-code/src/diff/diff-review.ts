@@ -20,6 +20,7 @@ import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
 import { noteCommitsMenu, refreshBranchCommits } from './diff-commits';
 import { openLink } from '../browser/browser-links';
+import { textDirection } from '../shared/text-direction';
 
 /** After a preview answers: read the per-file patches it asked for (the first four, then whatever was requested since),
  *  and the branch's commits for the Commits submenu, which DiffPanel's query keeps while the panel shows. */
@@ -122,6 +123,8 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
   }
   if (action === 'cite') return citeSelection(client, native, op.slice('cite:'.length), value);
   if (action === 'partial') return ''; // DiffFileStatus: the partial mark only explains itself
+  // The draft's text as typed: DiffCommentAnnotation's textarea reads in its textDirection.
+  if (action === 'draft-text') { if (state.draft) state.draft.dir = textDirection(value); return ''; }
   if (action === 'cancel') { state.draft = null; state.selection = null; noteDraftFocus(client, false); return ''; }
   if (action === 'save') {
     const draft = state.draft, target = draft ? file(draft.path) : undefined;

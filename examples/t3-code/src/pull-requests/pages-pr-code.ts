@@ -42,11 +42,12 @@ import { startFleetDetached } from '../usage/usage-replies';
 import { environmentCall, environmentTarget, pullRequestServer, routedPullRequestRequest, routerHost } from './pages-pr-environments';
 import { pullRequestRouter } from './pages-pr-routing';
 import { emptyThreadState, presentThreads, threadBodies, threadCommand, type PrThreadCard, type ThreadState } from './pages-pr-threads';
+import { textDirection, type TextDirection } from '../shared/text-direction';
 
 /** Commits per press of "Show more" in the scope menu. */
 export const COMMIT_PAGE_SIZE = 10;
 
-type Draft = { fileKey: string; path: string; oldPath: string | null; position: PullRequestReviewPosition; startPosition?: PullRequestReviewPosition; range: SelectedLineRange };
+type Draft = { fileKey: string; path: string; oldPath: string | null; position: PullRequestReviewPosition; startPosition?: PullRequestReviewPosition; range: SelectedLineRange; dir?: TextDirection };
 export type CodeState = {
   find: DiffFind;
   key: string; mounted: boolean; commit: string | null; refresh: number;
@@ -313,7 +314,7 @@ export function presentCode(ctx: CodeContext & { now: number }): { view: PrCodeV
     annotations: path => ({
       threads: threads.filter(thread => placed.has(str(thread.id)) && str(thread.path) === path).map(thread => ({ id: str(thread.id), side: (thread.side === 'left' ? 'left' : 'right') as PrDiffSide, line: num(thread.line) })),
       pending: pending.filter(comment => comment.path === path).map(comment => ({ id: comment.id, body: comment.body, position: comment.position as PullRequestReviewPosition })),
-      draft: draft && canSelectLines && draft.path === path ? { position: draft.position, label: `${draft.path}:${reviewPositionAnchor(draft.position).line}` } : null,
+      draft: draft && canSelectLines && draft.path === path ? { position: draft.position, label: `${draft.path}:${reviewPositionAnchor(draft.position).line}`, dir: draft.dir } : null,
     }),
     selection: draft ? { path: draft.path, range: draft.range } : code.selection, contents: code.contents, contentsKey: path => contentsKeyOf(code, path), expansions: code.expansions,
   });
@@ -437,6 +438,8 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
       return '';
     }
     case 'begin': return beginComment(ctx, code, value);
+    // The draft's text as typed: DiffCommentAnnotation's textarea reads in its textDirection.
+    case 'text': if (code.draft) code.draft.dir = textDirection(value); return '';
     case 'cancel': code.draft = null; code.selection = null; return '';
     case 'add': {
       // "Add to review": the comment joins the pending review (pages-pr-writes-logic.ts PullRequestReviewStore).

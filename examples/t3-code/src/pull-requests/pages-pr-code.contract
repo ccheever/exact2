@@ -179,6 +179,7 @@ component PrdCode
     local("pr-code-cancel", ref, "")
   action editDraft(text: string)
     draftText = text
+    local("pr-code-text", ref, text)
   action add
     if draftText.trim() != ""
       local("pr-code-add", ref, draftText)
@@ -480,7 +481,7 @@ component PrdCodeRow
           if item.kind == "pr-pending"
             PrdPendingCard(id=item.entry, body=item.text, discard=press("discard", item.entry))
           if item.kind == "pr-draft"
-            PrdCodeDraft(rangeLabel=item.label, text=draftText, selected=item.selected, reviewable=code.reviewable, edit=editDraft, cancel=cancel, add=add, agent=agent, local=local)
+            PrdCodeDraft(rangeLabel=item.label, text=draftText, dir=item.textDir, selected=item.selected, reviewable=code.reviewable, edit=editDraft, cancel=cancel, add=add, agent=agent, local=local)
           if item.selected
             box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffSel("bar")
       if item.kind == "pr-footer"

@@ -8,6 +8,7 @@
 import { hunkRows, plain, ROW_LIMIT, type Row, type Segment } from '../diff/diff';
 import { diffReviewLines, type ReviewLine, type SelectedLineRange } from '../diff/diff-comments';
 import { utilityPlacement } from '../diff/diff-line-drag';
+import type { TextDirection } from '../shared/text-direction';
 import { changeType, type FileContents, type Expansion } from '../diff/diff-lazy';
 import { isFileDiffCollapsed, reviewPositionAnchor, type DiffFoldOverride, type PrDiffFile, type PrDiffSide, type PullRequestReviewPosition } from './pages-pr-code-logic';
 
@@ -18,19 +19,21 @@ export type CodeItem = {
   /** The "+" pinned to the selection's bottom line (diff-line-drag.ts utilityPlacement), as the Diff panel's rows. */
   pinned: boolean; pin: boolean; leftPin: boolean; rightPin: boolean;
   error: boolean; partial: boolean; unavailable: boolean; expandable: boolean; entry: string; text: string;
+  /** The open draft's reading direction (textDirection of its text as typed): "rtl" or "ltr". */
+  textDir: string;
   /** The Diff panel's header counts (diff.ts headerStat); the Code tab draws its own header. */
   statAligned: boolean; addText: string; delText: string;
 };
 export const BASE: CodeItem = { id: '', kind: '', path: '', name: '', status: '', letter: '', additions: 0, deletions: 0, expanded: false, markdown: false, tone: '', number: '', segments: [],
   leftTone: '', leftNumber: '', leftSegments: [], rightTone: '', rightNumber: '', rightSegments: [], label: '', gutter: 33.3, side: '', line: 0, selected: false, leftLine: 0, rightLine: 0,
-  leftSelected: false, rightSelected: false, pinned: false, pin: false, leftPin: false, rightPin: false, error: false, partial: false, unavailable: false, expandable: false, entry: '', text: '', statAligned: false, addText: '', delText: '' };
+  leftSelected: false, rightSelected: false, pinned: false, pin: false, leftPin: false, rightPin: false, error: false, partial: false, unavailable: false, expandable: false, entry: '', text: '', textDir: 'ltr', statAligned: false, addText: '', delText: '' };
 const LETTER: Record<string, string> = { modified: 'M', added: 'A', deleted: 'D', renamed: 'R' };
 
 /** What one file's rows read beside the file itself. */
 export type FileAnnotations = {
   threads: { id: string; side: PrDiffSide; line: number }[];
   pending: { id: string; body: string; position: PullRequestReviewPosition }[];
-  draft: { position: PullRequestReviewPosition; label: string } | null;
+  draft: { position: PullRequestReviewPosition; label: string; dir?: TextDirection } | null;
 };
 export type RowsInput = {
   finding?: boolean;
@@ -93,7 +96,7 @@ export function codeRows(input: RowsInput): { items: CodeItem[]; truncated: bool
     const group = (side: PrDiffSide, line: number) => { const key = sideKey(side, line); let list = groups.get(key); if (!list) { list = []; groups.set(key, list); } return list; };
     for (const thread of notes.threads) group(thread.side, thread.line).push({ ...BASE, id: `thread:${thread.id}`, kind: 'pr-thread', path: file.path, expanded, entry: thread.id });
     for (const comment of notes.pending) { const anchor = reviewPositionAnchor(comment.position); group(anchor.side, anchor.line).push({ ...BASE, id: `pending:${comment.id}`, kind: 'pr-pending', path: file.path, expanded, entry: comment.id, text: comment.body }); }
-    if (notes.draft) { const anchor = reviewPositionAnchor(notes.draft.position); group(anchor.side, anchor.line).push({ ...BASE, id: `draft:${file.path}`, kind: 'pr-draft', path: file.path, expanded, label: notes.draft.label }); }
+    if (notes.draft) { const anchor = reviewPositionAnchor(notes.draft.position); group(anchor.side, anchor.line).push({ ...BASE, id: `draft:${file.path}`, kind: 'pr-draft', path: file.path, expanded, label: notes.draft.label, textDir: notes.draft.dir ?? 'ltr' }); }
     // What sits under a selected line is painted as selected (Pierre's renderSelection marks the annotation that
     // follows a selected line).
     const annotate = (oldLine: number, newLine: number) => {

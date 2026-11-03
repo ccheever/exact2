@@ -351,6 +351,7 @@ component FilePreview
   state draftText = ""
   action editDraft(text: string)
     draftText = text
+    local("surface-files-comment-text", files.path, text)
   action beginComment(line: number)
     draftText = ""
     local("surface-files-comment-begin", files.path, `${line}`)
@@ -459,11 +460,11 @@ component FilePreview
               if line.kind == "line"
                 FilesCodeRow(family=family, line=line, gutter=files.gutter, wrap=files.wrap, path=files.path, open=(files.commentOpen or editing), local=local, begin=beginComment)
               if line.kind == "note"
-                DiffCommentCard(text=line.text, remove=local("surface-files-comment-delete", files.path, line.entry))
+                DiffCommentCard(text=line.text, dir=line.textDir, remove=local("surface-files-comment-delete", files.path, line.entry))
               if line.kind == "draft"
                 // The focus ops are the Diff panel's ⌘↩ hand-off (diff-review.ts): while the draft holds the focus the composer's Send
                 // declares no chord, so ⌘↩ reaches DiffDraftCard's `keys` (diff-file-comments.ts).
-                DiffDraftCard(rangeLabel=line.label, text=draftText, selected=false, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=local("surface-files-comment-focus", files.path, ""), focusOut=local("surface-files-comment-blur", files.path, ""))
+                DiffDraftCard(rangeLabel=line.label, text=draftText, dir=line.textDir, selected=false, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=local("surface-files-comment-focus", files.path, ""), focusOut=local("surface-files-comment-blur", files.path, ""))
           // Editing keeps the coloured, numbered lines: the editor's own text is clear over them, its caret and selection visible.
           if editing
             // A change from outside replaces the text: the editor mounts again on it (EditableFileSurface's externalFile).

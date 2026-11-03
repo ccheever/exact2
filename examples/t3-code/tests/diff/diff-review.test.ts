@@ -145,6 +145,22 @@ describe('orphaned drafts (AnnotatableCodeView)', () => {
   });
 });
 
+test('the draft reads in its text\'s direction as typed, and a saved Arabic comment right to left', async () => {
+  const { client, command, calls } = harness(false);
+  await command('diff'); await command('diffreview', 'reveal', 'a.ts');
+  await command('diffreview', 'comment:additions', 'a.ts', 4);
+  const draftDir = () => snapshot(client).diffItems.find(item => item.kind === 'draft')?.textDir;
+  expect(draftDir()).toBe('ltr');
+  await command('diffreview', 'draft-text', 'لماذا هذا الترتيب؟');
+  expect(draftDir()).toBe('rtl');
+  await command('diffreview', 'draft-text', '');
+  expect(draftDir()).toBe('ltr');
+  await command('diffreview', 'save', 'لماذا هذا الترتيب؟');
+  const insert = calls.filter(call => call.op === 'editorInsert').at(-1)!;
+  client.local.drafts[client.draftKey] = String(insert.text); observeComposer(client, client.draft);
+  expect(snapshot(client).diffItems.find(item => item.kind === 'note')).toMatchObject({ text: 'لماذا هذا الترتيب؟', textDir: 'rtl' });
+});
+
 test('a draft whose file came back as another change (modified, now added) is released too', async () => {
   const preview = { patch: smallPatch, path: 'a.ts' };
   const { client, command } = harness(false, preview);

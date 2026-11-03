@@ -322,6 +322,8 @@ shape DiffItem
   expandable: bool
   entry: string
   text: string
+  // A comment's or the open draft's reading direction (textDirection): "rtl" or "ltr".
+  textDir: string
   // A file header's counts (diff.ts headerStat): Pierre's "-d +a", or DiffStatLabel's aligned "+a -d" for a large source.
   statAligned: bool
   addText: string

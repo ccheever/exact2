@@ -206,8 +206,9 @@ export function taskStatus(task: Obj, now: number): string {
   return `${scheduleLabel(obj(task.schedule))} · ${task.enabled === true ? (obj(task.schedule).type === 'webhook' ? 'Listening' : task.nextRunAt ? `Next run ${relativeLabel(task.nextRunAt, now)}` : 'Not scheduled') : 'Paused'}`;
 }
 
-/** ThreadAutomationsPanel's line: the schedule, then " · next …" or " · paused". */
+/** ThreadAutomationsPanel's line: the schedule, then why a managed policy blocks the task, " · next …" or " · paused". */
 export function automationLine(task: Obj, now: number): string {
+  if (typeof task.blockedByPolicy === 'string') return `${scheduleLabel(obj(task.schedule))} · ${task.blockedByPolicy}`;
   const enabled = task.enabled === true;
   return `${scheduleLabel(obj(task.schedule))}${enabled && task.nextRunAt ? ` · next ${relativeLabel(task.nextRunAt, now)}` : enabled ? '' : ' · paused'}`;
 }

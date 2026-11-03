@@ -352,6 +352,18 @@ describe('line comments into the review (PullRequestCodeTab beginComment, Add to
     expect([sent.verdict, sent.body, (sent.comments as Obj[]).length, (sent.comments as Obj[])[3]]).toEqual(['comment', 'Notes inline.', 4, { path: 'src/strings.js', oldPath: 'src/text.js', position: { kind: 'added', newLine: 2 }, body: 'Locale-aware now.' }]);
     expect(pullRequestReviewStore(f.client).pending(key)).toHaveLength(0);
   });
+  test('the draft reads in its text\'s direction as typed', async () => {
+    const f = fixture();
+    await walk(f);
+    await f.press('fold', 'src/catalog.js');
+    await f.press('begin', 'additions|2|src/catalog.js');
+    const draftDir = async () => (await f.settle()).codeTab.items.find(item => item.kind === 'pr-draft')?.textDir;
+    expect(await draftDir()).toBe('ltr');
+    await f.press('text', 'שלום עולם');
+    expect(await draftDir()).toBe('rtl');
+    await f.press('text', '42');
+    expect(await draftDir()).toBe('ltr');
+  });
   test('Escape (cancel) drops the draft; a pending comment is discarded', async () => {
     const f = fixture();
     await walk(f);

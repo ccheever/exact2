@@ -25,6 +25,7 @@ import { wordAltMarks } from '../appearance/settings-font-previews'; // Pierre's
 import type { Token } from '../highlight/timeline-highlight';
 import type { HighlightView } from '../highlight/highlights';
 import { utilityPlacement, type LineDrag } from './diff-line-drag';
+import { textDirection, type TextDirection } from '../shared/text-direction';
 import { hideTestFiles, setHideTestFiles, shownDiffFiles, testFileCount } from './hide-test-files';
 import { diffTreeWidth, setDiffTreeWidth } from './diff-tree-width';
 import { resolveToolCallDiffTarget, toolCallDiff, toolCallTarget, type ToolCallDiffTarget, type ToolCallPreview } from './tool-call-diff';
@@ -71,7 +72,7 @@ export class DiffState {
   /** The gutter's drag in progress (diff-line-drag.ts), in the selection's scope. */
   drag: LineDrag | null = null;
   /** `previous` and `status`: the file's old path and change type as the draft opened, which name its file (AnnotatableCodeView's fileKey). */
-  draft: { scope: string; path: string; previous: string; status: string; id: string; range: SelectedLineRange; rangeLabel: string } | null = null;
+  draft: { scope: string; path: string; previous: string; status: string; id: string; range: SelectedLineRange; rangeLabel: string; dir?: TextDirection } | null = null;
   saved: { contextId: string; scope: string; path: string; range: SelectedLineRange; rangeLabel: string; text: string }[] = [];
   /** The thread whose open draft's textarea took the focus ('' when it let go): the composer's send chords then leave ⌘↩ to it
    * (composer-presentation.ts). The host sends no blur when a focused view leaves the tree (LLP 1008), so it counts only
@@ -363,7 +364,7 @@ type DiffItemView = { id: string; kind: string; path: string; name: string; stat
   /** File headers: Retry, the partial mark, a header whose patch is not there (chevron off). Gaps: a press opens hidden lines. */
   error: boolean; partial: boolean; unavailable: boolean; expandable: boolean;
   /** Comment items (`note`, `draft`): the entry's id (a saved one's context id) and text. */
-  entry: string; text: string;
+  entry: string; text: string; textDir: string;
   /** File headers' counts: Pierre's own ("-d" then "+a", each shown when it is not zero or the other is) or, for a
    * large source read file by file, DiffPanel's DiffStatLabel (additions first, both always, compact, 4ch columns). */
   statAligned: boolean; addText: string; delText: string };
@@ -444,7 +445,7 @@ export function diffSnapshot(client: T3Client, now: number) {
   let rows = 0;
   const base = { tone: '', number: '', segments: [] as Segment[], leftTone: '', leftNumber: '', leftSegments: [] as Segment[], rightTone: '', rightNumber: '', rightSegments: [] as Segment[],
     label: '', gutter: 33.3, name: '', status: '', letter: '', additions: 0, deletions: 0, expanded: false, markdown: false, side: '', line: 0, selected: false, leftLine: 0, rightLine: 0,
-    leftSelected: false, rightSelected: false, pinned: false, pin: false, leftPin: false, rightPin: false, error: false, partial: false, unavailable: false, expandable: false, entry: '', text: '',
+    leftSelected: false, rightSelected: false, pinned: false, pin: false, leftPin: false, rightPin: false, error: false, partial: false, unavailable: false, expandable: false, entry: '', text: '', textDir: 'ltr',
     statAligned: false, addText: '', delText: '' };
   // A draft or the selected lines belong to the scope they were made in; saved comments stay while their chip is in the prompt.
   const draft = state.draft?.scope === scope ? state.draft : null, picked = state.selection?.scope === scope ? state.selection : null;
@@ -474,8 +475,8 @@ export function diffSnapshot(client: T3Client, now: number) {
     const isSelected = (side: string, line: number) => { const index = line > 0 ? at.get(sideKey(side, line)) : undefined; return !!chosen && index !== undefined && index >= chosen[0] && index <= chosen[1]; };
     const utility = utilityPlacement(range ?? null, point => at.get(sideKey(point.side, point.line)) ?? null);
     // Comments sit under the range's end line, on its side; one card per line, entries stacked (AnnotatableCodeView).
-    const notes = [...saved.filter(entry => entry.path === file.path).map(entry => ({ kind: 'note', id: entry.contextId, range: entry.range, label: entry.rangeLabel, text: entry.text })),
-      ...(draft?.path === file.path ? [{ kind: 'draft', id: draft.id, range: draft.range, label: draft.rangeLabel, text: '' }] : [])];
+    const notes = [...saved.filter(entry => entry.path === file.path).map(entry => ({ kind: 'note', id: entry.contextId, range: entry.range, label: entry.rangeLabel, text: entry.text, dir: textDirection(entry.text) })),
+      ...(draft?.path === file.path ? [{ kind: 'draft', id: draft.id, range: draft.range, label: draft.rangeLabel, text: '', dir: draft.dir }] : [])];
     const placed = new Set<string>();
     const annotate = (oldLine: number, newLine: number) => {
       for (const note of notes) {
@@ -484,7 +485,7 @@ export function diffSnapshot(client: T3Client, now: number) {
         if (!anchored) continue;
         placed.add(note.id);
         // Painted as selected under a selected line (Pierre's renderSelection).
-        items.push({ ...base, id: `${note.kind}:${file.path}:${note.id}`, kind: note.kind, path: file.path, expanded, entry: note.id, label: note.label, text: note.text,
+        items.push({ ...base, id: `${note.kind}:${file.path}:${note.id}`, kind: note.kind, path: file.path, expanded, entry: note.id, label: note.label, text: note.text, textDir: note.dir ?? 'ltr',
           selected: isSelected(note.range.endSide, note.range.end) });
       }
     };

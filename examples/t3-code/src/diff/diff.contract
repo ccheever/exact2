@@ -87,6 +87,7 @@ component DiffPanelBody
       scrollIntoView("diff-list", data.diffRevealTarget, block="start")
   action editDraft(text: string)
     draftText = text
+    command("diffreview", "draft-text", text, 0)
   action beginComment(path: string, side: string, line: number)
     draftText = ""
     command("diffreview", `comment:${side}`, path, line)

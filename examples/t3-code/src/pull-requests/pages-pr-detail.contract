@@ -200,6 +200,10 @@ component PrPanel
       escapeField = value == "true" ? id : (escapeField == id ? "" : escapeField)
       escapeRef = detail.ref
     else
+      // A code comment draft's edit, sent for its direction, holds Escape as the draft's field has the focus.
+      if op == "pr-code-text" or op == "pr-guide-text"
+        escapeField = "pr-code-draft"
+        escapeRef = detail.ref
       local(op, id, value)
   view
     column width=width height="100%" flex-shrink=0 box-sizing="border-box" border-left-width=1 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#fcfcfc, #000000)" testId="pull-request-panel"

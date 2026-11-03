@@ -178,6 +178,7 @@ describe('labels (ScheduledTasksSettings.tsx, ThreadAutomationsPanel.tsx)', () =
     expect(automationLine(task, now)).toBe('Every 1 min · next in under a minute');
     expect(automationLine({ ...task, enabled: false }, now)).toBe('Every 1 min · paused');
     expect(automationLine({ ...task, nextRunAt: null }, now)).toBe('Every 1 min');
+    expect(automationLine({ ...task, blockedByPolicy: 'Blocked by your organization' }, now)).toBe('Every 1 min · Blocked by your organization');
     expect(taskStatus({ ...task, enabled: false }, now)).toBe('Every 1 min · Paused');
   });
   test('validateScheduledTasksSearch keeps only non-blank ids', () => {
