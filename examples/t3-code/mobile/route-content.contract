@@ -418,7 +418,7 @@ component MobileRouteContent
           else if not threadData.queued
             column id=`thread-dock-${routeId}` position="absolute" left=0 right=threadTrailingReservation bottom=0 pointer-events="none"
               view id=`thread-dock-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(threadGeometryKey)
-              MobileWorkingControl(data=workingControl, colors=threadLook, dark=(appearance.scheme == "dark"), glassTint=previewLook.glassTint, maxWidth=min(threadContentWidth, workspace.chatContentMaxWidth), showScrollToEnd=threadScrollToEndVisible, openAgents=workingAgents, openBrowser=workingBrowser, openDevices=workingDevices, openQueue=workingQueue, scrollToEnd=threadScrollToEnd, reconnect=workingReconnect)
+              MobileWorkingControl(data=workingControl, colors=threadLook, dark=(appearance.scheme == "dark"), glassTint=previewLook.glassTint, maxWidth=min(threadContentWidth, workspace.chatContentMaxWidth), reducedMotion=viewport.prefersReducedMotion, showScrollToEnd=threadScrollToEndVisible, openAgents=workingAgents, openBrowser=workingBrowser, openDevices=workingDevices, openQueue=workingQueue, scrollToEnd=threadScrollToEnd, reconnect=workingReconnect)
               column pointer-events="auto"
                 column width="100%" max-width=workspace.chatContentMaxWidth align-self="center"
                   ThreadApprovals(data=threadData, action=threadAction, colors=threadLook)
