@@ -31,6 +31,9 @@ test('a failure is known, new or unknown against the nearest note that ran its k
   expect(report(sorted)[0]).toMatch(/^3 failed: 1 known on origin\/main at c2 \(lane, .*\), 2 new$/);
   expect(classify(['local: x'], 'cargo', history).rows[0].verdict).toBe('unknown');
   expect(report(classify(['local: x'], 'cargo', history))[0]).toContain('unknown on origin/main');
+  // A note keeps the part a check ran when it ran only a part
+  const part = { ios: { command: 'bun host/apple/build.mjs --test --ios --only Iframe', status: 0, covers: ['xctest:ios:Iframe'] } };
+  expect(noteOf(result('c4', [], part), 1).checks.ios.covers).toEqual(['xctest:ios:Iframe']);
 });
 
 test('the lane publishes a note to origin and another checkout reads it', () => {

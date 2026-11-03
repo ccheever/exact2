@@ -134,8 +134,11 @@ export function laneSelection(changed, { root = WT, full = false, repo } = {}) {
   const glue = glueTests(root), dists = new Set([...glue, ...WEB_AX]);
   const graphs = new Map(), graph = step => graphs.get(step) ?? graphs.set(step, new Graph(repo, { env: step ? stepEnv(step) : {} })).get(step);
   const step = suite => suite.kind === 'cargo' ? 'test' : suite.kind === 'bun' && dists.has(`./${suite.file}`) ? 'glue' : null;
-  const chosen = suites(repo).filter(suite => select(graph(step(suite)), changed, [suite]).length);
-  const ids = new Set(chosen.map(s => s.id));
+  const hits = suites(repo).flatMap(suite => select(graph(step(suite)), changed, [suite]));
+  const chosen = hits.map(hit => hit.suite), ids = new Set(chosen.map(s => s.id));
+  const ios = hits.find(hit => hit.suite.id === 'xctest:ios'), build = resolve(root, 'host/apple/build.mjs');
+  // Run alone the iOS classes a commit's test files reach, unless its build.mjs predates `--only` (#1371)
+  const iosOnly = ios?.only && existsSync(build) && readFileSync(build, 'utf8').includes("'--only'") ? ios.only : null;
   const cargo = manifest => chosen.filter(s => s.kind === 'cargo' && s.manifest === manifest).map(s => s.name);
   return {
     full, ids: [...ids].sort(),
@@ -146,26 +149,28 @@ export function laneSelection(changed, { root = WT, full = false, repo } = {}) {
     webBuild: ids.has('bun:host/web/tests/document.test.mjs'),
     webAx: WEB_AX.some(file => ids.has(`bun:${file.slice(2)}`)),
     conform: WEB_APPS.filter(app => ids.has(`conform:${app}`)),
-    ios: ids.has('xctest:ios'), touch: ids.has('touch:ios'), tvos: ids.has('compile:tvos'), watchos: ids.has('compile:watchos'),
+    ios: ids.has('xctest:ios'), iosOnly, touch: ids.has('touch:ios'), tvos: ids.has('compile:tvos'), watchos: ids.has('compile:watchos'),
   };
 }
 const WEB_AX = ['./host/web/tests/accessibility-tree.test.mjs', './host/web/tests/presence-preload.test.mjs', './host/web/tests/zero-viewport.test.mjs'];
 /** Every suite (a full run), as `laneSelection` gives it; `glue` is computed when it is not given. */
 export function everything(root = WT, glue) {
-  return { full: true, ids: [], cargo: [], game: true, harmony: true, glue: glue ?? glueTests(root), webBuild: true, webAx: true, conform: WEB_APPS, ios: true, touch: true, tvos: true, watchos: true };
+  return { full: true, ids: [], cargo: [], game: true, harmony: true, glue: glue ?? glueTests(root), webBuild: true, webAx: true, conform: WEB_APPS, ios: true, iosOnly: null, touch: true, tvos: true, watchos: true };
 }
 /** No suite: what runs whatever changed. */
-export const nothing = () => ({ full: false, ids: [], cargo: [], game: false, harmony: false, glue: [], webBuild: false, webAx: false, conform: [], ios: false, touch: false, tvos: false, watchos: false, lane: [] });
+export const nothing = () => ({ full: false, ids: [], cargo: [], game: false, harmony: false, glue: [], webBuild: false, webAx: false, conform: [], ios: false, iosOnly: null, touch: false, tvos: false, watchos: false, lane: [] });
 /** The checks a selection can leave out: a full run's that no suite's selection runs. */
 export const gated = () => {
   const names = selection => new Set(checks('', null, selection).map(([name]) => name));
   const always = names(nothing());
   return new Set([...names({ ...everything(WT, ['./x.test.mjs']), lane: ['x'] })].filter(name => !always.has(name)));
 };
-/** The suites a check that runs only some of its suites runs (`laneSelection`'s ids); null when it runs whole. */
+/** The suites a check that runs only some of its suites runs (`laneSelection`'s ids), or the iOS XCTest classes
+ * (`xctest:ios:<Class>`); null when it runs whole. */
 export function covers(name, selection) {
   if (!selection || selection.full) return null;
   if (name === 'test' || name === 'lane') return selection.cargo.map(n => `cargo:${n}`);
+  if (name === 'ios') return selection.iosOnly?.map(c => `xctest:ios:${c}`) ?? null;
   if (name === 'glue') return selection.glue.map(f => `bun:${f.slice(2)}`);
   if (name.startsWith('conform')) return selection.conform.map(a => `conform:${a}`);
   return null;
@@ -241,7 +246,7 @@ export function checks(sha, since, selection = {}) {
     // These remain async-only; a missing Playwright browser is a named failure
     // whose log gives the exact outside-the-repo install command.
     ...when(conform.length, ['firefox', 'webkit'].map(browser => [`conform-${browser}`, 'bun', ['host/web-js/conform.mjs', ...conform, '--synthetic', '--browser', browser, '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--js-from', resolve(STATE_DIR, 'conform'), '--out', resolve(STATE_DIR, `conform-${browser}`)]])),
-    ...when(selection.ios, [['ios', 'bun', ['host/apple/build.mjs', '--test', '--ios']]]),
+    ...when(selection.ios, [['ios', 'bun', ['host/apple/build.mjs', '--test', '--ios', ...(selection.iosOnly ? ['--only', selection.iosOnly.join(',')] : [])]]]),
     // Real touches through the XCTest runner on a simulator (LLP 1080.000 §6):
     // a runner that does not start fails here, never skips.
     ...when(selection.touch, [['ios-touch', 'bun', ['scripts/smoke-touch.mjs', '--build']]]),
@@ -346,7 +351,8 @@ export function retainSkippedFailures(previous, result, owners = {}, steps = TIE
 
 /** The suites each failure a check found belongs to, where its log says (scripts/affected.mjs's ids): a Cargo package's
  * (its rerun hint or the crate that did not compile), a glue file's (the file Bun names before its results; one name
- * can be several files'), a conformance app's (after the browser, in a cross-browser step). */
+ * can be several files'), a conformance app's (after the browser, in a cross-browser step), an iOS XCTest class's
+ * (`xctest:ios:<Class>`, which `covers` names). */
 export function owners(name, log, found) {
   const out = {};
   const own = (f, id) => { if (!(out[f] ??= []).includes(id)) out[f].push(id); };
@@ -357,6 +363,8 @@ export function owners(name, log, found) {
     if (app) own(f, `conform:${app}`);
     const errored = /^\S+: (\S+\.test\.\w+): an error between tests$/.exec(f)?.[1];
     if (errored) own(f, `bun:${errored}`);
+    const xctest = /^ios: ExactKitTests\.(\w+) \w+ failed$/.exec(f)?.[1];
+    if (xctest) own(f, `xctest:ios:${xctest}`);
   }
   if (name !== 'glue') return out;
   let file = null;

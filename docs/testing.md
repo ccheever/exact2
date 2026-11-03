@@ -127,8 +127,14 @@ its time counts too.
   FrameHealthMetricsTests,FrameHealthMacTests` builds as a full run does and runs
   only the classes named, on macOS; `--test --ios --only
   FrameHealthMetricsTests,FrameHealthIOSTests` runs iOS classes on a simulator
-  (`--sim` picks one). After the push, the async lane runs every iOS class, and no
-  macOS one.
+  (`--sim` picks one). When a branch changes no input of the XCTests but Swift
+  files in `tests/ExactKitTests`, `bun scripts/affected.mjs` names, for each
+  platform, the classes those files declare or extend and the classes of any
+  file that names one of them (a subclass, a caller of a helper), and after the
+  push the async lane runs those iOS classes alone. A change to a file of shared
+  helpers (one that declares a function, a type or an extension other files can
+  use) or to anything else the XCTests read (the host, a fixture, a resource)
+  runs every class. The lane runs no macOS class.
 - **A Bun file that mocks a module runs in a global of its own.** Bun's
   `mock.module` replaces a module for the whole process and does not relink a
   module already loaded, so files that mock or import the same module

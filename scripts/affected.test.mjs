@@ -4,6 +4,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { GLOBAL, Graph, Repo, auditProfile, cargoTests, commands, jsSources, rustLiterals, rustSource, select, suites } from './affected.mjs';
+import { classesReached } from '../host/apple/xctest.mjs';
 
 /** A repository of `files` (path → text) and Cargo packages (`{ name, dir, deps }`), with its metadata given. */
 function fixture(files, packages) {
@@ -229,17 +230,55 @@ test('an environment variable a suite reads stands for the build it names', () =
   } finally { done(); }
 });
 
+test("a change to Swift test files alone reaches their classes and those of the files that name them, per platform", () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'affected-xctest-'));
+  const files = {
+    'A.swift': 'import XCTest\n\nfinal class ATests: XCTestCase {\n    static let shared = 1\n}\n',
+    'Uses.swift': 'final class UsesTests: XCTestCase {\n    func testIt() { XCTAssertEqual(ATests.shared, 1) }\n}\n',
+    'Hidden.swift': 'private extension BTests {\n    func testHidden() {}\n}\n',
+    'AMore.swift': 'extension ATests {\n    func more() {}\n}\n',
+    'Base.swift': 'class BaseFixture: XCTestCase {\n    func helper() {}\n}\n',
+    'B.swift': '@MainActor\nfinal class BTests: BaseFixture {}\n',
+    'Mac.swift': '#if os(macOS)\nfinal class MacTests: XCTestCase {}\n#endif\n',
+    'Private.swift': 'final class PTests: XCTestCase {}\nprivate final class Probe: NSObject {}\nprivate func probe() {}\n',
+    'Waits.swift': 'extension XCTestCase {\n    func wait() {}\n}\n',
+    'Table.swift': 'enum Table {\n    static let rows = [1]\n}\nfinal class TTests: XCTestCase {}\n',
+    'Presenter.swift': 'final class Presenter: UIViewController {}\nfinal class UTests: XCTestCase {}\n',
+  };
+  for (const [name, text] of Object.entries(files)) writeFileSync(resolve(dir, name), text);
+  try {
+    const reached = (platform, ...changed) => classesReached(dir, platform, changed);
+    // A class reaches the classes of each file that names it: one that uses its members, a subclass, an extension
+    expect(reached('iOS', 'A.swift')).toEqual(['ATests', 'UsesTests']);
+    expect(reached('iOS', 'Uses.swift')).toEqual(['UsesTests']);
+    expect(reached('iOS', 'AMore.swift')).toEqual(['ATests', 'UsesTests']);
+    expect(reached('iOS', 'Base.swift')).toEqual(['BTests']);
+    expect(reached('iOS', 'Mac.swift', 'B.swift')).toEqual(['BTests']);
+    expect(reached('macOS', 'Mac.swift')).toEqual(['MacTests']);
+    expect(reached('iOS', 'Mac.swift')).toEqual([]);
+    // What a file keeps private reaches nothing else; what other files can use (an extension of XCTestCase, a type
+    // that is no test class), or a file that is gone, can reach any class
+    expect(reached('iOS', 'Private.swift')).toEqual(['PTests']);
+    for (const changed of ['Waits.swift', 'Table.swift', 'Presenter.swift', 'Gone.swift']) expect(reached('iOS', 'A.swift', changed)).toBe(null);
+    // A file that compiles something yet reaches no class runs every class, whose build shows its error
+    expect(reached('iOS', 'Hidden.swift')).toBe(null);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('the commands run each workspace once, the Bun files together and every app test file', () => {
   const run = commands([
     { suite: { kind: 'cargo', name: 'a', manifest: 'Cargo.toml' } }, { suite: { kind: 'cargo', name: 'b', manifest: 'Cargo.toml' } },
     { suite: { kind: 'cargo', name: 'g', manifest: 'game/Cargo.toml' } }, { suite: { kind: 'bun', file: 'x.test.mjs' } },
     { suite: { kind: 'app', app: 'excord', host: 'web', files: ['apps/excord/app.test.contract'] } }, { suite: { kind: 'conform', app: 'caltrain' } },
+    { suite: { kind: 'xctest', host: 'macos' } }, { suite: { kind: 'xctest', host: 'ios' }, only: ['ATests', 'BTests'] },
   ]);
   expect(run).toEqual([
     ['cargo', 'test', '--tests', '--no-fail-fast', '-p', 'a', '-p', 'b'],
     ['cargo', 'test', '--manifest-path', 'game/Cargo.toml', '--tests', '--no-fail-fast', '-p', 'g'],
     ['bun', 'test', '--isolate', './x.test.mjs'],
     ['bun', 'scripts/agent.mjs', 'web', '--app', 'excord', '--test', 'apps/excord/app.test.contract'],
+    ['bun', 'host/apple/build.mjs', '--test'],
+    ['bun', 'host/apple/build.mjs', '--test', '--ios', '--only', 'ATests,BTests'],
     ['bun', 'host/web-js/conform.mjs', 'caltrain', '--synthetic', '--build', '--linux'],
   ]);
 });
@@ -266,15 +305,32 @@ test("the lane's steps read the dists they are given by variable, and no other s
   } finally { done(); }
 });
 
+test("the lane runs the iOS classes a commit's test files reach, and every class before `--only`", async () => {
+  const { laneSelection } = await import('./async.mjs');
+  const test = 'host/apple/tests/ExactKitTests/A.swift';
+  for (const [build, only] of [["if (args.includes('--only')) {}\n", ['ATests']], ['// (no --only yet)\n', null]]) {
+    const { root, repo, done } = fixture({ [test]: 'import XCTest\n\nfinal class ATests: XCTestCase {}\n', 'host/apple/build.mjs': build }, []);
+    try {
+      const picked = laneSelection([test], { root, repo });
+      expect([picked.ios, picked.iosOnly, picked.touch]).toEqual([true, only, false]);
+    } finally { done(); }
+  }
+});
+
 // The checkout itself: a change to one app runs that app's suites, not another's, nor the hosts' own.
 test("this checkout's selection keeps an app's change to that app's suites", () => {
   const repo = new Repo(), graph = new Graph(repo);
-  const watched = ['app:excord:web', 'app:excord:ios', 'app:caltrain:web', 'xctest:ios', 'conform:caltrain', 'cargo:exact-kernel'];
+  const watched = ['app:excord:web', 'app:excord:ios', 'app:caltrain:web', 'xctest:ios', 'xctest:macos', 'touch:ios', 'conform:caltrain', 'cargo:exact-kernel'];
   const catalogue = suites(repo).filter(s => watched.includes(s.id));
   expect(catalogue.map(s => s.id).sort()).toEqual([...watched].sort());
   const picked = changed => select(graph, changed, catalogue).map(s => s.suite.id).sort();
   expect(picked(['apps/excord/render.ts'])).toEqual(['app:excord:ios', 'app:excord:web']);
-  expect(picked(['host/apple/Sources/ExactKit/Mac/CaptureMac.swift'])).toEqual(['app:excord:ios', 'xctest:ios']);
+  expect(picked(['host/apple/Sources/ExactKit/Mac/CaptureMac.swift'])).toEqual(['app:excord:ios', 'touch:ios', 'xctest:ios', 'xctest:macos']);
+  // A change to an XCTest file runs the classes it reaches, each on its platform, and no Apple build
+  // that does not run them
+  const only = changed => Object.fromEntries(select(graph, changed, catalogue).map(s => [s.suite.id, s.only ?? 'every class']));
+  expect(only(['host/apple/tests/ExactKitTests/AgentStickyRevealIOSTests.swift'])).toEqual({ 'xctest:ios': ['AgentStickyRevealIOSTests'] });
+  expect(only(['host/apple/tests/ExactKitTests/EventWaits.swift'])).toEqual({ 'xctest:ios': 'every class', 'xctest:macos': 'every class' });
   expect(picked(['docs/testing.md'])).toEqual([]);
   expect(picked(['kernel/src/lib.rs'])).toEqual([...watched].sort());
 }, 120_000);
