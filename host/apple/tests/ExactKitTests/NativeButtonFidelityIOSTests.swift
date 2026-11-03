@@ -113,7 +113,7 @@ final class NativeButtonFidelityIOSTests: XCTestCase {
         let node = NodeView(id: 1, kind: "control", presenter: Presenter())
         func given(_ row: BatchValue) -> UIColor? {
             node.applyStyle(["accent_color": row])
-            return ControlHost.platformAccent(node, node.channels("accent_color").map { TextEngine.color($0) }, in: node.traitCollection)
+            return ControlHost.platformAccent(node, node.channels("accent_color").map { TextEngine.color($0) })
         }
         let pair: BatchValue = .array([.array([.number(0), .number(195), .number(208), .number(255)]), .array([.number(0), .number(210), .number(224), .number(255)])])
         XCTAssertEqual(given(.object(["sys": .string("systemTealColor"), "c": pair])), UIColor.systemTeal)

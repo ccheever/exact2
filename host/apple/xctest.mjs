@@ -33,6 +33,7 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   contract([resolve(root, 'host/apple/tests/fixtures/reset-gate-admission.contract'), '-o', env[`${prefix}_RESET_GATE_ADMISSION_PLAN`] = resolve(dir, 'reset-gate-admission.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/native-retry.contract'), '-o', env[`${prefix}_NATIVE_RETRY_PLAN`] = resolve(dir, 'native-retry.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/dimmed-pixels.contract'), '-o', env[`${prefix}_DIMMED_PIXELS_PLAN`] = resolve(dir, 'dimmed-pixels.plan')]);
+  contract([resolve(root, 'host/apple/tests/fixtures/glass-title.contract'), '-o', env[`${prefix}_GLASS_TITLE_PLAN`] = resolve(dir, 'glass-title.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/reset-hold.contract'), '-o', env[`${prefix}_RESET_HOLD_PLAN`] = resolve(dir, 'reset-hold.plan')]);
   // NavigationBarIOSTests': a header whose controls share and add a control.
   contract([resolve(root, 'host/apple/tests/fixtures/bar-share.contract'), '-o', env[`${prefix}_BAR_SHARE_PLAN`] = resolve(dir, 'bar-share.plan')]);
