@@ -375,9 +375,10 @@ describe('owned HTML document routes', () => {
   test('share signs a fresh validated source and cannot publish after an owner change', async () => {
     const f = documentFixture(), data = await f.read(), first = data.uri;
     const event = JSON.stringify({ identifier: data.identifier, operation: 'share' });
-    expect((await mobileHtmlRenderDocumentAction(f.client, f.route.context, f.key, 'owned-html', event, data, f.native)).message).toBe('');
+    expect((await mobileHtmlRenderDocumentAction(f.client, f.route.context, f.key, 'owned-html', event, data, f.native, 'preview')).message).toBe('');
     const share = f.calls.find(call => call.op === 'mobileMediaShare');
     expect(JSON.parse(String(share?.sourceJSON))).toMatchObject({ id: 'owned-html', name: 'Revenue.html' });
+    expect(share?.routeKey).toBe('preview');
     expect(JSON.parse(String(share?.sourceJSON)).url).not.toBe(first);
     expect((await f.read()).uri).toBe(first);
     const original = f.native.later;

@@ -529,8 +529,8 @@ const sources: Sources = {
   attachmentDocumentAction: (args, _store, storage, nativeInput) => {
     const native = sourceNative('attachmentDocumentAction', args, nativeInput);
     if (args[1] === 'html-render') return mobileHtmlRenderDocumentAction(mobileClient, str(args[7]), str(args[8]), str(args[2]),
-      str(args[0]), args[4] as AttachmentDocumentSnapshot, native);
-    return mobileAttachmentDocumentAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), args[4] as AttachmentDocumentSnapshot, native, storage!);
+      str(args[0]), args[4] as AttachmentDocumentSnapshot, native, str(args[9]));
+    return mobileAttachmentDocumentAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), args[4] as AttachmentDocumentSnapshot, native, storage!, mobileClient, str(args[9]));
   },
   mediaPreview: (args, _store, storage, nativeInput) => {
     if (newTaskGuard('mediaPreview', args)?.() === false) return { identifier: '', name: '', kind: '', sourceJSON: '', ready: false, error: '' };
