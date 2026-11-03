@@ -68,6 +68,11 @@ package enum SystemColor {
     /// Counts `invalidate`s, for a cache of something resolved from these.
     static var generation: Int { lock.lock(); defer { lock.unlock() }; return resolutions }
 
+    /// The share of the tint a tint's name says (`@tint` 1, `@tint/0.2` 0.2)
+    static func tintShare(_ name: String) -> Double {
+        name.contains("/") ? Double(name.split(separator: "/").last ?? "") ?? 1 : 1
+    }
+
     /// The four channels (0–255) `name` shows in `dark`, else `fallback`.
     /// `contrast` is the requesting view's Increased Contrast (the system's
     /// when nil); `elevated` is iOS's user-interface level: a sheet's or a
@@ -84,7 +89,7 @@ package enum SystemColor {
            var c = rgba(.alternateSelectedControlTextColor, dark: dark, contrast: contrast) { c[3] *= share; return c }
         #endif
         if name.hasPrefix("@tint") {
-            let alpha = name.contains("/") ? Double(name.split(separator: "/").last ?? "") ?? 1 : 1
+            let alpha = tintShare(name)
             if var c = resolvedTint, c.count == 4 { c[3] *= alpha; return c }
             if let tintColor, var c = rgba(tintColor, dark: dark, contrast: contrast, elevated: elevated) { c[3] *= alpha; return c }
             return tint(alpha: alpha, dark: dark, contrast: contrast, fallback: fallback)
@@ -246,7 +251,53 @@ extension BatchValue {
         default: return false
         }
     }
+
+    /// The share of the tint a colour is when it is the tint (`AccentColor` 1, `Highlight` 0.2);
+    /// nil for any other value
+    var tintAlpha: Double? {
+        guard case .object(let o) = self, let name = o["sys"]?.string, name.hasPrefix("@tint") else { return nil }
+        return SystemColor.tintShare(name)
+    }
 }
+
+#if os(iOS) || os(tvOS)
+extension BatchValue {
+    /// The colour as a dynamic colour resolves it in `traits`, which carry the tint of the view UIKit
+    /// draws it in
+    package func channels(in traits: UITraitCollection, contrast: Bool?, elevated: Bool = false) -> [Double]? {
+        channels(dark: traits.userInterfaceStyle == .dark, contrast: contrast, elevated: elevated,
+                 tint: namesTint ? UIColor.tintColor.resolvedColor(with: traits) : nil)
+    }
+}
+
+extension UIView.TintAdjustmentMode {
+    /// A node's `-exact-tint-adjustment` (LLP 1077 D19) as UIKit's mode for its views, or a list row's
+    /// cell: `normal` keeps the tint as it is behind a sheet or an alert; `auto`, or none, is
+    /// `.automatic`, the superview's, as UIKit carries a mode down
+    package init(_ row: BatchValue?) {
+        switch row?.string {
+        case "normal": self = .normal
+        case "dimmed": self = .dimmed
+        default: self = .automatic
+        }
+    }
+}
+
+extension SystemColor {
+    nonisolated(unsafe) private static var tints: [Double: UIColor] = [:]
+    /// The tint at `alpha` as UIKit draws it (`UIColor.tintColor`): resolved by the tint of the view
+    /// it is drawn in, so it follows that tint and dims with it. One object per alpha, so writing it
+    /// again changes nothing.
+    static func tint(_ alpha: Double) -> UIColor {
+        if alpha >= 1 { return .tintColor }
+        lock.lock(); defer { lock.unlock() }
+        if let made = tints[alpha] { return made }
+        let made = UIColor.tintColor.withAlphaComponent(alpha)
+        tints[alpha] = made
+        return made
+    }
+}
+#endif
 
 extension NodeView {
     /// The tint `row` resolves `@tint` by: this view's inherited
@@ -258,23 +309,34 @@ extension NodeView {
     }
     var viewTint: PlatformColor? {
         #if os(iOS) || os(tvOS)
-        return paintedTint
+        return tintColor
         #else
         return nearestAccent
         #endif
     }
     #if os(iOS) || os(tvOS)
-    /// A window or ancestor tint changed: the rows naming it apply again.
+    /// A window or ancestor tint changed, or UIKit dimmed it or brought it back: the rows naming it
+    /// apply again, as UIKit asks of a view that draws in its tint.
     package override func tintColorDidChange() {
         super.tintColorDidChange()
         tintPadBar()
         // An `svg`'s paints are resolved into its scene's layers.
         if kind == "svg" { presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint) }
-        // A symbol counts: hierarchical and palette glyphs bake the tint in. In a control, every
-        // colour greys with the tint (TintDimmingIOS.swift).
-        guard style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) || symbolView != nil || insideControl else { return }
-        repaintWithTint()
+        guard style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) else { return }
+        paragraphOwner.invalidateText(); paragraphOwner.setNeedsDisplay()
+        applyStyle(style)
+        // The picture of a filtered box above it shows its colours
+        presenter?.boxFilters.changed(self)
+        // The canvas, which shows the first root's background
+        if superview === presenter?.root { presenter?.paintCanvas() }
         presenter?.controls.tintChanged(self)
+    }
+
+    /// The node's tint rows, applied where they changed from `old`: its accent (`applyAccentTint`) and
+    /// its `-exact-tint-adjustment`, UIKit's `tintAdjustmentMode` (LLP 1077 D19), which UIKit carries down
+    func applyTint(from old: NodeStyle) {
+        if old["accent_color"] != style["accent_color"] { applyAccentTint() }
+        if old["tint_adjustment"] != style["tint_adjustment"] { tintAdjustmentMode = .init(style["tint_adjustment"]) }
     }
 
     /// An authored `accent-color` is its subtree's tint (LLP 1116.001 D2),
@@ -282,16 +344,108 @@ extension NodeView {
     /// down, and every row beneath that names the tint (`AccentColor`,
     /// `LinkText`, a symbol's default) resolves by it (`ownTint`). `auto`, or
     /// an accent that names the tint itself, leaves the inherited one.
-    /// Called when the row changes; nothing else sets a node view's tint.
-    func applyAccentTint() { tintColor = authoredAccentTint }
+    /// Called when the row changes; nothing else sets a node view's tint. The tint is made once
+    /// (`authoredAccentTint`), in each appearance as the row resolves: one object for every view
+    /// handed it, so writing it again changes nothing.
+    func applyAccentTint() {
+        // The colour reads the row as it is when UIKit resolves it, so a view holding it (a bar) follows
+        // a new accent; not one that names the tint, nor one gone, which a view under one holding this
+        // colour would resolve by this colour itself: the window's then, until the view holding it is
+        // given its new tint, at its site's next write in the same batch
+        authoredAccentTint = style["accent_color"]?.namesTint != true && channels("accent_color", dark: false) != nil ? UIColor { [weak self] traits in
+            guard let self, let row = style["accent_color"], !row.namesTint else { return self?.window?.tintColor ?? .systemBlue }
+            return row.channels(dark: traits.userInterfaceStyle == .dark, contrast: drawsHighContrast, elevated: drawsElevated).map { TextEngine.color($0) } ?? .systemBlue
+        } : nil
+        tintColor = authoredAccentTint
+    }
 
-    /// The tint this node's authored `accent-color` gives its subtree, in each appearance as the
-    /// row resolves; nil for none, `auto`, or an accent that names the tint itself
-    var authoredAccentTint: UIColor? {
-        guard style["accent_color"]?.namesTint != true, channels("accent_color", dark: false) != nil else { return nil }
-        return UIColor { [weak self] traits in
-            self?.channels("accent_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .systemBlue
+    /// The nearest node at or above this one in the authored tree (`Presenter.authoredParent`: a
+    /// route under its tabpanel, a sheet under its invoker) whose authored `accent-color` is its
+    /// subtree's tint
+    private var accentAuthor: NodeView? {
+        sequence(first: self as UIView, next: { [weak presenter] in presenter?.authoredParent(of: $0) ?? $0.superview })
+            .lazy.compactMap { $0 as? NodeView }.first { $0.authoredAccentTint != nil }
+    }
+
+    /// The tint a view UIKit draws for this node outside the node's views takes as its own (a bar, a
+    /// bar item, a readout, a tab bar, a list row's switch, a route's view, a spinner), as
+    /// `applyAccentTint` gives the node's views theirs: the nearest authored `accent-color` at or
+    /// above it in the authored tree, unless that is the roots', which their window takes
+    /// (`AppAccent`); nil where the node's tint is theirs, which such a view inherits.
+    package var ownAccent: UIColor? { ownAccentAuthor?.authoredAccentTint }
+    /// The node whose accent `ownAccent` is
+    private var ownAccentAuthor: NodeView? {
+        accentAuthor.flatMap { $0.style["accent_color"]?.key == presenter?.accent.said ? nil : $0 }
+    }
+
+    /// The tint this node draws in, as a value for what Exact resolves or bakes for UIKit to keep (a
+    /// view's own tint made from it, a face baked into an image, a native button's configuration):
+    /// its `tintColor`, but undimmed where UIKit dims it (the nearest authored `accent-color` at or
+    /// above it, else the theme's `AccentColor`, else the session's viewport's as UIKit last gave it
+    /// undimmed, else its window's, which UIKit never dims), and out of a window with only UIKit's
+    /// default, the roots' accent, which the window will take (`AppAccent`), else the app's.
+    var carriedTint: UIColor {
+        if tintAdjustmentMode == .dimmed {
+            return accentAuthor?.authoredAccentTint ?? ThemeRoles.color("AccentColor", in: self) ?? (presenter?.viewport as? Viewport)?.restingTint
+                ?? window?.tintColor ?? tintColor
         }
+        guard window == nil, tintColor == SystemColor.defaultTint else { return tintColor }
+        return presenter?.accent.tint ?? SystemColor.appTint ?? tintColor
+    }
+
+    /// The colour of row `key` by `carriedTint`
+    func carriedChannels(_ key: String, dark: Bool) -> [Double]? {
+        style[key].flatMap { $0.channels(dark: dark, contrast: drawsHighContrast, elevated: drawsElevated, tint: $0.namesTint ? carriedTint : nil) }
+    }
+
+    /// The colour of row `key` by `carriedTint`, in its own space
+    func carriedColor(_ key: String) -> UIColor? {
+        style[key].flatMap { $0.cgColor(dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: $0.namesTint ? carriedTint : nil) }.map { UIColor(cgColor: $0) }
+    }
+
+    /// The node's `accent-color` by `carriedTint`, for a native button's configuration, which draws
+    /// colours made from its value (`ButtonConfigurationIOS`)
+    var carriedAccent: UIColor? { carriedChannels("accent_color", dark: drawsDark).map { TextEngine.color($0) } }
+
+    /// The colour of row `key` for UIKit to draw, nil where it is unset: where it names the tint
+    /// (`AccentColor`, `Highlight`), the tint as UIKit draws it (`SystemColor.tint`), which follows
+    /// the tint of the view it is drawn in and dims with it; else the colour as written.
+    package func uiColor(_ key: String) -> UIColor? {
+        guard let row = style[key] else { return nil }
+        guard let share = row.tintAlpha else { return cgColor(key).map { UIColor(cgColor: $0) } }
+        return SystemColor.tint(share)
+    }
+
+    /// `uiColor` of the colour this node's author wrote for row `key`; nil where the author wrote none
+    func ownUIColor(_ key: String) -> UIColor? { ownColor(key) == nil ? nil : uiColor(key) }
+
+    /// The node's `accent-color` for UIKit to draw, nil where it has none (or `auto`): the tint as
+    /// UIKit draws it at the accent's share, since an authored accent is the node's tint
+    /// (`applyAccentTint`)
+    package func accentUIColor() -> UIColor? {
+        guard let row = style["accent_color"], row.tintAlpha != nil || channels("accent_color", dark: false) != nil else { return nil }
+        return SystemColor.tint(row.tintAlpha ?? 1)
+    }
+
+    /// The node's `accent-color` for a view in its views that draws in its tint (a progress bar, a
+    /// checkbox): nil, so the view draws in the tint, which the accent is (`applyAccentTint`), but a
+    /// share of the tint (`Highlight`) as UIKit's tint at that share, since UIKit follows no view's
+    /// own tint made from the one above it
+    var accentShare: UIColor? {
+        style["accent_color"]?.tintAlpha.flatMap { $0 < 1 ? SystemColor.tint($0) : nil }
+    }
+
+    /// The colour of row `key` as a UIKit view's own tint, nil where it is unset or the tint itself,
+    /// which the view inherits; else as written, the tint in it by `carriedTint`, since UIKit follows
+    /// no view's own tint made from the one above it
+    func ownTintColor(_ key: String) -> UIColor? {
+        guard let row = style[key], row.tintAlpha != 1 else { return nil }
+        return row.cgColor(dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: row.namesTint ? carriedTint : nil).map { UIColor(cgColor: $0) }
+    }
+
+    /// The colour of row `key` as a dynamic colour resolves it in `traits`, the tint they carry included
+    func channels(_ key: String, in traits: UITraitCollection) -> [Double]? {
+        style[key]?.channels(in: traits, contrast: drawsHighContrast, elevated: drawsElevated)
     }
     #endif
 

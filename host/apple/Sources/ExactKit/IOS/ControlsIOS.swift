@@ -78,14 +78,18 @@ class ExactCheckbox: UIControl {
         accessibilityTraits = isEnabled && !ariaUnavailable ? [.button, .toggleButton] : [.button, .toggleButton, .notEnabled]
         accessibilityValue = isOn ? "1" : "0"
     }
+    /// Drawn again when its tint changes, which it draws in
+    override func tintColorDidChange() { super.tintColorDidChange(); setNeedsDisplay() }
     override func draw(_ rect: CGRect) {
         let side = min(bounds.width, bounds.height)
-        let fill = accent ?? tintColor ?? .systemBlue
         let alpha: CGFloat = isEnabled ? 1 : 0.4
+        // At its own alpha (a share of the tint's), dimmed while disabled
+        let resolved = (accent ?? tintColor ?? .systemBlue).resolvedColor(with: traitCollection)
+        let fill = resolved.withAlphaComponent(resolved.cgColor.alpha * alpha)
         #if os(tvOS)
         let box = CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
         if isOn {
-            fill.withAlphaComponent(alpha).setFill()
+            fill.setFill()
             UIBezierPath(roundedRect: box, cornerRadius: side * 0.25).fill()
             let check = UIBezierPath()
             check.move(to: CGPoint(x: box.minX + side * 0.25, y: box.minY + side * 0.52))
@@ -107,7 +111,7 @@ class ExactCheckbox: UIControl {
         // The ring in the tertiary label colour, the fill in the accent;
         // dimmed while disabled. Fitted to the box when the author made it
         // smaller than the mark.
-        let tint = isOn ? fill.withAlphaComponent(alpha) : (isEnabled ? UIColor.tertiaryLabel : .quaternaryLabel)
+        let tint = isOn ? fill : (isEnabled ? UIColor.tertiaryLabel : .quaternaryLabel)
         guard let image = mark(on: isOn, tint: tint) else { return }
         let scale = min(side, self.side) / max(image.size.width, image.size.height)
         let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
@@ -269,11 +273,11 @@ final class ControlHost: NSObject {
     /// Asks for every face again at its next read.
     func facesChanged() { faces.removeAll() }
 
-    /// Configures again a control whose accent follows the tint
-    /// (`AccentColor`), which `sync` resolved by the tint its owner had then:
-    /// UIKit's default for one configured out of the window. Not while UIKit
-    /// dims the tint, which it shows unchanged after, nor for a control still
-    /// leaving after its owner went.
+    /// Configures again a control whose accent follows the tint (`AccentColor`,
+    /// `Highlight`) when the tint changes: a native button's configuration draws
+    /// colours made from its value (`carriedAccent`), and a share of it is a value
+    /// control's own tint (`ownTintColor`). Not while UIKit dims the tint, which it
+    /// shows unchanged after, nor for a control still leaving after its owner went.
     func tintChanged(_ owner: NodeView) {
         guard owner.tintAdjustmentMode != .dimmed, presenter.views[owner.id] === owner,
               owner.style["accent_color"]?.namesTint == true, let control = controls[owner.id] else { return }
@@ -386,30 +390,31 @@ final class ControlHost: NSObject {
         syncProgress()
     }
 
-    /// Configures `control` from its owner, its accent by the owner's tint
-    /// now; a nil `on` leaves a switch's or checkbox's checked state alone.
+    /// Configures `control` from its owner: its accent as UIKit's tint
+    /// (`accentUIColor`), the tint a checkbox draws in (`accentShare`), a native
+    /// button's as a value (`carriedAccent`); a nil `on` leaves a switch's or
+    /// checkbox's checked state alone.
     private func configure(_ control: UIControl, _ owner: NodeView, on: Bool?) {
-        let accent = owner.channels("accent_color").map { TextEngine.color($0) }
         #if os(tvOS)
         if let b = control as? NativeButtonIOS {
-            configureNative(b, owner, accent: accent)
+            configureNative(b, owner, accent: owner.carriedAccent)
         } else if let c = control as? ExactCheckbox {
             if let on { c.isOn = on }
-            assign(c, \.accent, accent)
+            assign(c, \.accent, owner.accentShare)
         } else {
-            configureValue(control, owner, accent: accent)
+            configureValue(control, owner)
         }
         #else
         if let b = control as? NativeButtonIOS {
-            configureNative(b, owner, accent: accent)
+            configureNative(b, owner, accent: owner.carriedAccent)
         } else if let s = control as? UISwitch {
             if let on, s.isOn != on { s.setOn(on, animated: s.window != nil) }
-            assign(s, \.onTintColor, accent)
+            assign(s, \.onTintColor, owner.accentUIColor())
         } else if let c = control as? ExactCheckbox {
             if let on { c.isOn = on }
-            assign(c, \.accent, accent)
+            assign(c, \.accent, owner.accentShare)
         } else {
-            configureValue(control, owner, accent: accent)
+            configureValue(control, owner)
         }
         #endif
     }

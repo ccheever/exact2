@@ -21,8 +21,6 @@ final class RestartListIOSTests: XCTestCase {
         super.tearDown()
     }
 
-    private func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
-
     private func until(_ what: String, _ seconds: Double = 5, _ done: () -> Bool) {
         let deadline = Date().addingTimeInterval(seconds)
         while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
@@ -55,8 +53,9 @@ final class RestartListIOSTests: XCTestCase {
         XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
-        until("the list mounts its rows") { ((try? rows(session))?.mounted.count ?? 0) > 4 }
-        spin(0.5)
+        until("the list shows the rows it mounts, under the route's bar") {
+            (try? rows(session)).map { $0.mounted.count > 4 && $0.shown == $0.mounted } == true && !session.presenter.navigation.covers.isEmpty
+        }
         let before = try rows(session)
         XCTAssertGreaterThan(before.mounted.count, 4, "the list mounts the rows its port shows")
         XCTAssertEqual(before.shown, before.mounted, "before the restart, every mounted row is shown")
@@ -93,8 +92,9 @@ final class RestartListIOSTests: XCTestCase {
         XCTAssertGreaterThan(clears, 0, "the reset cleared the old tree's covers")
         XCTAssertEqual(clearsInReset, clears, "and said so inside the reset")
         XCTAssertEqual(appliedInClears, 0, "the old tree's covers went to the new runtime, and its batch applied, inside the reset")
-        until("the new tree mounts its rows") { ((try? rows(session))?.mounted.count ?? 0) > 4 }
-        spin(1.0)
+        until("the new tree's rows are shown, its bar's covers reach the new runtime, and no fill is in flight") {
+            (try? rows(session)).map { $0.mounted.count > 4 && $0.mounted.isSubset(of: $0.shown) } == true && coversAfter > 0 && !session.fillInFlight
+        }
         let after = try rows(session)
         XCTAssertGreaterThan(after.mounted.count, 4)
         XCTAssertEqual(after.mounted.subtracting(after.shown), [], "a row the new tree mounts with no view: its place blank")

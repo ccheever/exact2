@@ -83,7 +83,10 @@ its time counts too.
   - Swift: an expectation fulfilled by the callback, or a run-loop pass that
     returns once work has run: `RunLoop.main.run(mode: .default, before:)`.
     `RunLoop.main.run(until:)` waits out its whole slice; on a loaded Mac a
-    10 ms slice takes about 80 ms.
+    10 ms slice takes about 80 ms. The XCTests share three waits, in
+    `host/apple/tests/ExactKitTests/EventWaits.swift`: `waitFor` waits for a
+    condition, `waitForMainQueue` for the blocks already queued on the main
+    queue, and `waitForActivation` for what follows a session's first pixel.
   - Browsers: an event or a promise, or the agent's `clock settle` and virtual
     time.
   - A drive or an authored test: `clock settle` or `clock data` for what the
@@ -120,6 +123,12 @@ its time counts too.
   cannot rely on an earlier class. Install what it uses in `class func setUp`
   (`ExactSurfaces.install()` for a canvas) and create what it reads
   (`NSApplication.shared` before `NSApp`).
+- **Run the classes a change touches.** `bun host/apple/build.mjs --test --only
+  FrameHealthMetricsTests,FrameHealthMacTests` builds as a full run does and runs
+  only the classes named, on macOS; `--test --ios --only
+  FrameHealthMetricsTests,FrameHealthIOSTests` runs iOS classes on a simulator
+  (`--sim` picks one). After the push, the async lane runs every iOS class, and no
+  macOS one.
 - **A Bun file that mocks a module runs in a global of its own.** Bun's
   `mock.module` replaces a module for the whole process and does not relink a
   module already loaded, so files that mock or import the same module

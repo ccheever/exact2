@@ -598,8 +598,7 @@ final class GroupedListIOSTests: GroupedListFixture {
     /// appearance, and a row whose tint changes is configured again.
     func testASymbolTakesItsAuthoredTintForEachAppearance() throws {
         let p = presenter { self.model() }
-        let before = try XCTUnwrap(try cell(p, 10).contentConfiguration as? UIListContentConfiguration)
-        XCTAssertNil(before.imageProperties.tintColor, "no tint authored: UIKit's")
+        XCTAssertNil(try XCTUnwrap(try cell(p, 10) as? GroupedCell).imageInk, "no tint authored: UIKit's")
         // A hidden image first, then the symbol (the model's), the title, then the chevron.
         p.apply(wireBatch([
             ["op": "create", "id": 30, "kind": "image", "props": ["imageSource": "symbol:sf/xmark"], "style": ["display": "none", "tint_color": [255, 0, 0, 255]]],
@@ -610,17 +609,33 @@ final class GroupedListIOSTests: GroupedListFixture {
             ["op": "children", "id": 10, "ids": [30, 31, 33, 32]],
         ]))
         func rgb(_ style: UIUserInterfaceStyle) throws -> [CGFloat] {
-            let tint = try XCTUnwrap((try cell(p, 10).contentConfiguration as? UIListContentConfiguration)?.imageProperties.tintColor)
+            let tint = try XCTUnwrap((try cell(p, 10) as? GroupedCell)?.imageInk)
             var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
             tint.resolvedColor(with: UITraitCollection(userInterfaceStyle: style)).getRed(&r, green: &g, blue: &b, alpha: &a)
             return [r, g, b, a]
         }
         XCTAssertEqual(try rgb(.light), [0, 0, 0, 1], "the shown symbol's light side, not the hidden image's red")
         XCTAssertEqual(try rgb(.dark), [1, 1, 1, 1], "and its dark side, with no batch")
+        // A colour of its own is drawn in the image, which UIKit draws as it is behind a sheet or an
+        // alert, where a tint it gave the image would grey
+        XCTAssertEqual((try cell(p, 10).contentConfiguration as? UIListContentConfiguration)?.image?.renderingMode, .alwaysOriginal)
         // A style-only change to the symbol's tint configures the row again.
         p.apply(wireBatch([["op": "style", "id": 31, "style": ["tint_color": [[0, 0, 255, 255], [255, 0, 0, 255]]]]]))
         XCTAssertEqual(try rgb(.light), [0, 0, 1, 1])
         XCTAssertEqual(try rgb(.dark), [1, 0, 0, 1])
+    }
+
+    /// A row's `-exact-tint-adjustment` is its cell's (LLP 1077 D19), and a change to it alone configures
+    /// the row again: under a dimmed list, `normal` keeps the cell's tint and `auto` dims it with the list
+    func testARowsTintAdjustmentIsItsCellsAndFollowsAChange() throws {
+        let p = presenter { self.model() }
+        p.apply(wireBatch([["op": "style", "id": 10, "style": ["tint_adjustment": "normal"]]]))
+        let list = try list(p).collection
+        list.tintAdjustmentMode = .dimmed
+        defer { list.tintAdjustmentMode = .automatic }
+        XCTAssertEqual(try cell(p, 10).tintAdjustmentMode, .normal, "normal: the cell keeps its tint")
+        p.apply(wireBatch([["op": "style", "id": 10, "style": ["tint_adjustment": "auto"]]]))
+        XCTAssertEqual(try cell(p, 10).tintAdjustmentMode, .dimmed, "auto: the cell dims with its list")
     }
 
     /// LLP 1116.005 D2: the cell is the field. A touch in a custom row's
@@ -677,7 +692,8 @@ final class GroupedListIOSTests: GroupedListFixture {
             ["op": "children", "id": 10, "ids": [31, 33]],
         ]))
         let c = try XCTUnwrap(try cell(p, 10).contentConfiguration as? UIListContentConfiguration)
-        XCTAssertNil(c.imageProperties.tintColor, "the accent is the cell's tint, not a colour of its own")
+        XCTAssertNil((try cell(p, 10) as? GroupedCell)?.imageInk, "the accent is the cell's tint, not a colour of its own")
+        XCTAssertNotEqual(c.image?.renderingMode, .alwaysOriginal, "drawn by UIKit in the cell's tint")
         window.tintColor = .systemTeal
         let light = UITraitCollection(userInterfaceStyle: .light)
         XCTAssertEqual(try cell(p, 10).tintColor.resolvedColor(with: light), UIColor.systemTeal.resolvedColor(with: light), "which the app's accent sets")

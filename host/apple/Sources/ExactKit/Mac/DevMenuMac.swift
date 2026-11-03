@@ -108,6 +108,8 @@ public enum DevMenu {
         "substitutions": .init("exact.menu.substitutions"), "transformations": .init("exact.menu.transformations"),
         "develop": .init("exact.menu.develop"),
     ]
+    /// Edit's Speech, which leads the group Find to Transformations while an app removes all of them (`ShortcutMenu`).
+    static let speechIdentifier = NSUserInterfaceItemIdentifier("exact.menu.speech")
     /// View's hidden ⌘= Zoom In beside the ⌘+ one, and the zoom group's separator.
     static let zoomAlternate = NSUserInterfaceItemIdentifier("exact.menu.zoom-in-equals")
     static let zoomSeparator = NSUserInterfaceItemIdentifier("exact.menu.zoom-separator")
@@ -239,7 +241,9 @@ public enum DevMenu {
         let speech = NSMenu(title: "Speech")
         speech.addItem(withTitle: "Start Speaking", action: #selector(NSTextView.startSpeaking(_:)), keyEquivalent: "")
         speech.addItem(withTitle: "Stop Speaking", action: #selector(NSTextView.stopSpeaking(_:)), keyEquivalent: "")
-        edit.addItem(withTitle: "Speech", action: nil, keyEquivalent: "").submenu = speech
+        let speechItem = edit.addItem(withTitle: "Speech", action: nil, keyEquivalent: "")
+        speechItem.submenu = speech
+        speechItem.identifier = speechIdentifier
         editItem.submenu = edit
         let view = ShortcutMenu(title: "View")
         // Actual Size, Zoom In and Zoom Out, as Safari's and Preview's View

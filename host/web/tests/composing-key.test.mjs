@@ -52,7 +52,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a keyCo
         if (ev.keyCode !== init.keyCode) throw new Error(`this engine's KeyboardEvent drops keyCode ${init.keyCode}`);
         heard.wire.push(window.chords.map(chord => chord(ev).split('\n')[3]));
         field.dispatchEvent(ev);
-        await new Promise(r => setTimeout(r, 20)); // onSubmit's own setTimeout runs the submit
+        await new Promise(r => setTimeout(r)); // wait for onSubmit's own setTimeout, queued before this one, to run the submit
       }
       return heard;
     });
@@ -77,7 +77,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a keyCo
       const press = async (id, init) => {
         const el = document.getElementById(id), ev = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', ...init });
         el.focus(); el.dispatchEvent(ev);
-        await new Promise(r => setTimeout(r, 20)); // the prompt's Return runs on its own setTimeout
+        await new Promise(r => setTimeout(r)); // wait for the prompt's own setTimeout, queued before this one, to run its Return
       };
       const seen = [];
       for (const keyCode of [229, 13]) { // the input method's Enter, then the Enter after it

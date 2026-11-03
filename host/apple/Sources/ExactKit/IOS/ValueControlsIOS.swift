@@ -63,7 +63,8 @@ extension ControlHost {
         return button
     }
 
-    func configureValue(_ control: UIControl, _ owner: NodeView, accent: UIColor?) {
+    func configureValue(_ control: UIControl, _ owner: NodeView) {
+        let accent = owner.ownTintColor("accent_color")
         #if !os(tvOS)
         if let slider = control as? RangeSlider {
             // The accent is the slider's tint, which draws its filled track as a default slider's: grey behind a modal
@@ -71,7 +72,7 @@ extension ControlHost {
             configureRange(slider, owner)
             return
         }
-        if let picker = control as? UIDatePicker { configureDate(picker, owner, accent: accent); return }
+        if let picker = control as? UIDatePicker { configureDate(picker, owner); return }
         #endif
         guard let button = control as? UIButton else { return }
         assign(button, \.tintColor, accent)
@@ -204,7 +205,7 @@ extension ControlHost {
         picked.removeValue(forKey: id)
         menus.removeValue(forKey: id)
         if let owner = presenter.views[id], let control = controls[id] {
-            configureValue(control, owner, accent: owner.channels("accent_color").map { TextEngine.color($0) })
+            configureValue(control, owner)
         }
     }
 

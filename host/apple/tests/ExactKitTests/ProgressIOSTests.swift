@@ -46,13 +46,13 @@ final class ProgressIOSTests: XCTestCase {
         let p = presenter(ops + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]])
         XCTAssertEqual(try XCTUnwrap(p.controls.spinners[2]).color, ControlHost.platformInk)
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        try XCTUnwrap(p.controls.spinners[3]).color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        try XCTUnwrap(p.controls.spinners[3]).colorInItsTraits.getRed(&r, green: &g, blue: &b, alpha: &a)
         XCTAssertEqual([r, g, b, a], [1, 0, 0, 1], "equal to its parent's, and written")
         // A platform colour its author wrote: UIKit's red for these traits.
         var want: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
         let spinner = try XCTUnwrap(p.controls.spinners[4])
         UIColor.systemRed.resolvedColor(with: spinner.traitCollection).getRed(&want.0, green: &want.1, blue: &want.2, alpha: &want.3)
-        spinner.color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        spinner.colorInItsTraits.getRed(&r, green: &g, blue: &b, alpha: &a)
         for (got, want) in zip([r, g, b, a], [want.0, want.1, want.2, want.3]) { XCTAssertEqual(got, want, accuracy: 0.01, "\([r, g, b, a])") }
     }
 
@@ -87,9 +87,9 @@ final class ProgressIOSTests: XCTestCase {
         let p = presenter(ops + [["op": "children", "id": 1, "ids": [5]], ["op": "children", "id": 5, "ids": [2]],
                                  ["op": "children", "id": 6, "ids": [3]], ["op": "roots", "ids": [1, 6]]])
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        try XCTUnwrap(p.controls.spinners[2]).color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        try XCTUnwrap(p.controls.spinners[2]).colorInItsTraits.getRed(&r, green: &g, blue: &b, alpha: &a)
         XCTAssertEqual([r, g, b, a].map { ($0 * 255).rounded() }, [0, 200, 0, 255], "the authored accent, kept through the role")
-        try XCTUnwrap(p.controls.spinners[3]).color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        try XCTUnwrap(p.controls.spinners[3]).colorInItsTraits.getRed(&r, green: &g, blue: &b, alpha: &a)
         XCTAssertNotEqual([r, g, b, a].map { ($0 * 255).rounded() }, [0, 200, 0, 255], "none authored above: the role's own")
     }
 
@@ -106,7 +106,7 @@ final class ProgressIOSTests: XCTestCase {
         let spinner = try XCTUnwrap(p.controls.spinners[2])
         var want: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0), r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         UIColor.systemRed.resolvedColor(with: spinner.traitCollection).getRed(&want.0, green: &want.1, blue: &want.2, alpha: &want.3)
-        spinner.color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        spinner.colorInItsTraits.getRed(&r, green: &g, blue: &b, alpha: &a)
         for (got, want) in zip([r, g, b, a], [want.0, want.1, want.2, want.3]) { XCTAssertEqual(got, want, accuracy: 0.02, "\([r, g, b, a])") }
     }
 
@@ -125,12 +125,14 @@ final class ProgressIOSTests: XCTestCase {
         p.controls.syncProgress()
         XCTAssertFalse(try XCTUnwrap(p.views[1]).drawsDark)
         XCTAssertTrue(try XCTUnwrap(p.views[2]).drawsDark)
-        let color = try XCTUnwrap(p.controls.spinners[2]?.color)
+        let color = try XCTUnwrap(p.controls.spinners[2]?.colorInItsTraits)
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         color.getRed(&r, green: &g, blue: &b, alpha: &a)
         XCTAssertEqual([r, g, b, a].map { ($0 * 255).rounded() }, [0, 200, 0, 255])
     }
 
+    /// `accent-color: AccentColor` under an authored `Highlight` is that share of the tint the
+    /// spinner inherits from the authoring view
     func testHighlightUnderTheRoleUsesTheAuthoringViewsTint() throws {
         let tint: [String: Any] = ["sys": "@tint", "c": [[0, 136, 255, 255], [0, 145, 255, 255]]]
         let highlight: [String: Any] = ["sys": "@tint/0.2", "c": [[0, 136, 255, 51], [0, 145, 255, 51]]]
@@ -140,12 +142,11 @@ final class ProgressIOSTests: XCTestCase {
         ops[4]["style"] = ["accent_color": tint]
         let p = presenter(ops + [["op": "children", "id": 1, "ids": [5]], ["op": "children", "id": 5, "ids": [2]], ["op": "roots", "ids": [1]]])
         p.views[1]?.tintColor = .systemRed
-        p.views[2]?.tintColor = .systemBlue
         p.controls.syncProgress()
         let owner = try XCTUnwrap(p.views[1]), requestor = try XCTUnwrap(p.views[2]), spinner = try XCTUnwrap(p.controls.spinners[2])
         let expected = try XCTUnwrap(owner.style["accent_color"]?.channels(dark: requestor.drawsDark, tint: owner.tintColor))
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        spinner.color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        spinner.colorInItsTraits.getRed(&r, green: &g, blue: &b, alpha: &a)
         for (got, want) in zip([r, g, b, a].map { Double($0) * 255 }, expected) { XCTAssertEqual(got, want, accuracy: 0.01) }
     }
 
@@ -216,12 +217,16 @@ final class ProgressIOSTests: XCTestCase {
         XCTAssertEqual(water.accessibilityLabel, "Water")
         XCTAssertEqual(water.accessibilityIdentifier, "water")
         XCTAssertEqual(water.accessibilityValue, "25%")
+        // Its accent is the tint it inherits (LLP 1116.001 D2), which UIKit draws and
+        // greys behind an alert
+        XCTAssertNil(water.progressTintColor)
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        try XCTUnwrap(water.progressTintColor).getRed(&r, green: &g, blue: &b, alpha: &a)
+        water.tintColor.resolvedColor(with: water.traitCollection).getRed(&r, green: &g, blue: &b, alpha: &a)
         XCTAssertEqual([r, g, b, a], [1, 0, 0, 1], "its accent")
         XCTAssertEqual(try XCTUnwrap(p.controls.bars[3]).progress, 0.375)
         let seen = try XCTUnwrap(p.controls.observation(try XCTUnwrap(p.views[2])))
         XCTAssertEqual(seen["view"] as? String, "UIProgressView")
+        XCTAssertEqual(seen["tinted"] as? Bool, true, "it has an accent")
         p.apply(wireBatch([["op": "props", "id": 2, "set": ["value": "2", "accessibilityValueText": "All of it"]]]))
         XCTAssertEqual(water.progress, 1, "past max: full")
         XCTAssertEqual(water.accessibilityValue, "All of it")
@@ -244,5 +249,10 @@ final class ProgressIOSTests: XCTestCase {
         XCTAssertNil(p.controls.spinners[2], "removed with its node")
         XCTAssertNil(spinner.superview)
     }
+}
+
+private extension UIActivityIndicatorView {
+    /// Its colour as it draws it: UIKit's tint resolves by the traits of the view it is drawn in
+    var colorInItsTraits: UIColor { color.resolvedColor(with: traitCollection) }
 }
 #endif

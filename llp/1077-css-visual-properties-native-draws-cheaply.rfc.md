@@ -171,11 +171,13 @@ Admitted: `perspective` (on the parent) with `perspective-origin`; the individua
 | D16 | `scroll-edge-effect: automatic \| soft \| hard \| none`, per axis edge on a scroll container | `UIScrollEdgeEffect` (iOS 26) | a `mask-image` fade (D2) for `soft`; a hairline for `hard` | the same as the web |
 | D17 | `hover-effect: auto \| highlight \| lift \| hover \| none` (iPad pointer) | `UIPointerInteraction` with `UIPointerEffect` | `:hover`-style tint for `highlight`, nothing else (declared) | nothing |
 | D18 | `smart-invert: auto \| ignore`. `ignore` is the default on `image`, `video` and `canvas` | `accessibilityIgnoresInvertColors` | nothing (Safari has only the `inverted-colors` media query) | nothing |
+| D19 | `-exact-tint-adjustment: auto \| normal \| dimmed` on any element (2026-11-03) | `UIView.tintAdjustmentMode` (`.automatic`, `.normal`, `.dimmed`) on the node's views; a list row's on its cell | nothing (no dimmed tint) | nothing |
 
 - **D14 is the only one with an action.** A haptic on press must fire on touch-down with no runner round trip, as `press-scale` does. A haptic on a state change (a swipe passing its threshold, a save succeeding) belongs to app logic.
 - **D15 is the most work.** UIKit has no public numeric content transition, so iOS builds it from per-digit layers. Its look is matched to SwiftUI's by eye, with no parity oracle; the RFC says so.
 - **D17 overlaps LLP 1075.003**, which can already attach a `UIPointerInteraction` through a hook. The declared row is the common case without native code; the hook stays the escape hatch.
 - **D18's default** (`ignore` on media) is what Apple's own apps do, so it is verified with Smart Invert on in the simulator.
+- **D19 (2026-11-03).** A colour that names the tint is UIKit's tint, which UIKit greys behind a sheet or an alert to say the screen under it is inert, and a colour of its own never greys (#1333). James wanted "some items to be .normal ... even though they take a tint or accent color" and approved UIKit's three values ("Those tint adjustment values sound fine"); the name has no `apple` (LLP 1081 D4). It is UIKit's `tintAdjustmentMode` on the node's views, which UIKit carries down through `.automatic`, so the kernel does not inherit it. Outside the node's views it reaches only a list row's cell, which Exact gives the row's value, so the row's image in the tint, its checkmark and its switch follow it (on a standard row's image itself it does nothing); a bar, its items and a tab bar keep the mode of the views UIKit holds them in. A colour of its own needs nothing, as it never greys.
 
 ## 6. Verification
 

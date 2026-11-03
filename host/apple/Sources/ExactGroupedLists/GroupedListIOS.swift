@@ -92,8 +92,7 @@ struct GroupedListModel: Equatable {
             if let color {
                 // Each appearance's side, a platform colour resolved by UIKit.
                 text.color = UIColor { traits in
-                    color.channels(dark: traits.userInterfaceStyle == .dark, contrast: traits.accessibilityContrast == .high)
-                        .map(TextEngine.color) ?? .label
+                    color.channels(in: traits, contrast: traits.accessibilityContrast == .high).map(TextEngine.color) ?? .label
                 }
             }
             if let font {
@@ -712,9 +711,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         // Changed native parts configure the cell again. A custom row keeps
         // its own live views; mount carries their current box into the cell.
-        // A standard row whose symbol's authored tint or written colour, or
-        // whose authored `min-height`, changed is too (D7).
-        let looking: [UInt32: BatchValue?] = Dictionary(uniqueKeysWithValues: snapshot.itemIdentifiers.map { ($0, .array([tint(of: $0) ?? .null, minimum(of: $0).map { .number(Double($0)) } ?? .null])) })
+        // A standard row whose symbol's authored tint or written colour, whose
+        // authored `min-height` (D7) or whose `-exact-tint-adjustment` changed is too.
+        let looking: [UInt32: BatchValue?] = Dictionary(uniqueKeysWithValues: snapshot.itemIdentifiers.map { ($0, .array([tint(of: $0) ?? .null, minimum(of: $0).map { .number(Double($0)) } ?? .null,
+                                                                                                                       host.presenter.views[$0]?.style["tint_adjustment"] ?? .null])) })
         // A row whose card changed (its section gained or lost one, or the
         // row moved between sections) is configured again.
         let wasCarded = Dictionary(previous.sections.flatMap { s in s.rows.map { ($0.view, s.card) } }, uniquingKeysWith: { a, _ in a })
@@ -1046,6 +1046,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private func configure(_ cell: GroupedCell, _ id: UInt32) {
         cell.row = id
         cell.target = rows[id]?.target
+        // The row's `-exact-tint-adjustment` is its cell's, as a hand-built app sets the cell's
+        cell.tintAdjustmentMode = .init(host.presenter.views[id]?.style["tint_adjustment"])
         guard let row = rows[id] else { return }
         interact(cell, id)
         // A card-less section's rows sit on the list's background; a
@@ -1101,12 +1103,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // One that follows the accent leaves the image the cell's tint (nil here, on purpose).
         let followsAccent = symbolNode.map { $0.style[key] != nil && $0.followsTint(key) } ?? false
         // A destructive or disabled row's colour still goes over it (below).
-        if let symbol = symbolNode {
-            if let value = symbol.style[key], !symbol.followsTint(key) {
-                c.imageProperties.tintColor = UIColor { traits in
-                    value.channels(dark: traits.userInterfaceStyle == .dark).map(TextEngine.color) ?? .tintColor
-                }
-            }
+        var ink: UIColor?
+        if let symbol = symbolNode, let value = symbol.style[key], !symbol.followsTint(key) {
+            ink = UIColor { traits in value.channels(dark: traits.userInterfaceStyle == .dark).map(TextEngine.color) ?? .tintColor }
         }
         c.text = row.title
         c.secondaryText = row.secondary
@@ -1125,21 +1124,25 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         if row.destructive {
             let red = ThemeRoles.color("system-red", in: host.presenter.root, or: .systemRed)
             if row.titleLook.color == nil { c.textProperties.color = red }
-            c.imageProperties.tintColor = red
+            ink = red
         }
         if row.disabled {
             let gray = ThemeRoles.color("tertiary-label", in: host.presenter.root, or: .tertiaryLabel)
             c.textProperties.color = gray
             c.secondaryTextProperties.color = gray
-            c.imageProperties.tintColor = gray
+            ink = gray
         }
         // An untinted symbol is the label colour; a path image takes it as
         // set, as the title takes it where its author gave none (not an
         // action row's accent title). One that follows the accent keeps the
         // cell's tint, which an image with no tint of its own is drawn in.
-        if path != nil, c.imageProperties.tintColor == nil, !followsAccent {
-            c.imageProperties.tintColor = ThemeRoles.color("label", in: host.presenter.root, or: .label)
+        if path != nil, ink == nil, !followsAccent {
+            ink = ThemeRoles.color("label", in: host.presenter.root, or: .label)
         }
+        // A colour of its own is the image's, which UIKit draws as it is, as it keeps a title's colour
+        // behind a sheet or an alert; a tint it gave the image would grey there (`GroupedCell.inked`)
+        cell.imageInk = ink
+        c.image = cell.inked(c.image)
         cell.show(c)
         cell.marginsIgnoreSafeArea()
         cell.accessories = accessories(row, cell: cell)
@@ -1208,7 +1211,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         assign(toggle, \.isEnabled, node != nil && rows[id]?.disabled == false && node?.disabled == false && node?.inert == false)
         if !toggle.isEnabled || node?.ariaUnavailable == true { toggle.accessibilityTraits.insert(.notEnabled) }
         else { toggle.accessibilityTraits.remove(.notEnabled) }
-        assign(toggle, \.onTintColor, node?.channels("accent_color").map { TextEngine.color($0) })
+        // The switch's own tint is the node's own accent, as a hand-built switch is tinted, so it draws
+        // that accent wherever it is written, on the row or the control too, and greys behind an alert
+        assign(toggle, \.tintColor, node?.ownAccent)
+        assign(toggle, \.onTintColor, node?.accentUIColor())
         assign(toggle, \.accessibilityIdentifier, node?.props["testId"])
     }
 

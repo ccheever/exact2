@@ -146,7 +146,7 @@ final class PageEdgesIOSTests: XCTestCase {
         list.isHidden = true
         p.reachPageEdges()
         XCTAssertEqual(list.pageBand, .zero, "a hidden scroller has no band")
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05)) // a frame shows it hidden
+        waitFor("a frame shows it hidden") { list.layer.presentation()?.isHidden == true }
         var open = false
         UIView.animate(withDuration: 0.5) {
             open = UIView.inheritedAnimationDuration > 0
@@ -170,13 +170,13 @@ final class PageEdgesIOSTests: XCTestCase {
         let list = try node(session, "list")
         until("UIKit draws the list") { list.scrollView is UICollectionView && list.pageBand.top + list.pageBand.bottom > 0 }
         let cv = try XCTUnwrap(list.scrollView as? UICollectionView)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05)) // a frame shows the list
+        waitFor("a frame shows the list") { session.presenter.showed(list) }
         let rest = cv.contentOffset
         UIView.animate(withDuration: 0.5) { cv.contentOffset.y = rest.y + 20 }
         XCTAssertNotNil(cv.layer.animation(forKey: "bounds.origin") ?? cv.layer.animation(forKey: "bounds"), "a list that showed moves with the animation")
         cv.layer.removeAllAnimations()
         list.isHidden = true
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05)) // a frame shows it hidden
+        waitFor("a frame shows it hidden") { list.layer.presentation()?.isHidden == true }
         list.isHidden = false
         UIView.animate(withDuration: 0.5) { cv.contentOffset.y = rest.y }
         XCTAssertEqual(cv.layer.animationKeys() ?? [], [], "one shown again since the last frame is at its offset at once")

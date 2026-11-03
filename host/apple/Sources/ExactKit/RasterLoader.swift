@@ -252,11 +252,13 @@ private final class RasterBackend: @unchecked Sendable {
             input = try fetched?.get() ?? RasterInput.open(source.name, resolver: resolver, cancellation: cancellation)
             metadata = try input!.metadata()
         } catch {
+            // A body that came with a status that is not 2xx and is not an image fails as that status.
+            let error = input?.failure(error) ?? error
             // (A link the reason quotes loses its query: a CDN's signature.)
             failure = RasterRetry.redacted(error is RasterFailure || error is RasterHTTPStatus || error is RasterEmptyResponse
                 ? String(describing: error) : error.localizedDescription, source: source.name)
-            // A download's only: a header that fails to read fails again.
-            if RasterInput.remote(source.name) != nil, input == nil, RasterRetry.transient(error) {
+            // A download's failure, or its status's: a header that fails to read fails again.
+            if RasterInput.remote(source.name) != nil, input == nil || error is RasterHTTPStatus, RasterRetry.transient(error) {
                 transient = (error as? RasterHTTPStatus)?.retryAfter ?? .now()
             }
         }

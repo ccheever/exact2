@@ -51,9 +51,13 @@ extension ControlHost {
             // `accent-color: AccentColor` under an authored accent keeps that one, as the web's
             // `var(--exact-accent, AccentColor)` does (LLP 1121 D9, stage 9 F1).
             // (Resolved in the spinner's appearance, as the painters resolve it.)
-            let kept = written || owner.style["accent_color"]?.namesTint != true ? nil
-                : authoredAbove(owner).flatMap { above in above.style["accent_color"].flatMap { $0.channels(dark: owner.drawsDark, contrast: owner.drawsHighContrast, elevated: owner.drawsElevated, tint: above.ownTint(for: $0)) } }.map { TextEngine.color($0) }
-            let accent = (written ? owner.channels("accent_color").map { TextEngine.color($0) } : nil) ?? kept ?? ThemeRoles.color("AccentColor", in: spinner)
+            let above = written || owner.style["accent_color"]?.namesTint != true ? nil : authoredAbove(owner)
+            // The spinner's own tint is the accent at or above that one (`ownAccent`), whose view its own need
+            // not be beneath (a sheet's or a menu's logical parent), and its colour UIKit's tint at that
+            // accent's share, which UIKit draws and dims
+            assign(spinner, \.tintColor, above?.ownAccent)
+            let kept = above.map { SystemColor.tint($0.style["accent_color"]?.tintAlpha ?? 1) }
+            let accent = (written ? owner.accentUIColor() : nil) ?? kept ?? ThemeRoles.color("AccentColor", in: spinner)
             assign(spinner, \.color, own ?? accent ?? Self.platformInk)
             assign(spinner, \.isHidden, owner.cssVisibilityHidden)
             assign(spinner, \.accessibilityIdentifier, owner.props["testId"])
@@ -77,24 +81,10 @@ extension ControlHost {
         if case .object(let o) = accent, let sys = o["sys"]?.string { return sys != "@tint" }
         return !accent.namesTint
     }
-    /// The nearest view above `view` that authors an accent, if one does, by
-    /// the authored tree: a dialog's sheet, a lifted popover, a route (any,
-    /// presented or pushed) and a grouped list's carried row to their authored
-    /// parent, else the superview.
+    /// The nearest view above `view` that authors an accent, if one does, by the authored tree
+    /// (`Presenter.authoredParent`)
     func authoredAbove(_ view: NodeView) -> NodeView? {
-        func parent(_ v: UIView) -> UIView? {
-            if let node = v as? NodeView {
-                if let p = presenter.menus.sheets.authoredParent(of: node) { return p }
-                if presenter.navigation.controllers[node.id]?.node === node, let p = presenter.navigation.logicalParent(of: node) ?? presenter.navigation.container { return p }
-            }
-            return presenter.menus.logicalParent(of: v) ?? presenter.groupedLists?.logicalParent(of: v) ?? v.superview
-        }
-        var at = parent(view)
-        while let current = at {
-            if let node = current as? NodeView, Self.authorsAccent(node) { return node }
-            at = parent(current)
-        }
-        return nil
+        sequence(first: view as UIView, next: presenter.authoredParent).dropFirst().lazy.compactMap { $0 as? NodeView }.first(where: Self.authorsAccent)
     }
 
     /// The determinate bars (LLP 1116 D8). A change of value eases, as
@@ -119,7 +109,8 @@ extension ControlHost {
             let box = owner.contentBox()
             let height = bar.intrinsicContentSize.height
             assign(bar, \.frame, CGRect(x: box.minX, y: box.midY - height / 2, width: box.width, height: height))
-            assign(bar, \.progressTintColor, owner.channels("accent_color").map { TextEngine.color($0) })
+            // UIKit draws the progress in the bar's tint and dims it; a share of it is the progress's colour
+            assign(bar, \.progressTintColor, owner.accentShare)
             assign(bar, \.isHidden, owner.cssVisibilityHidden)
             assign(bar, \.accessibilityIdentifier, owner.props["testId"])
             assign(bar, \.accessibilityLabel, owner.props["accessibilityLabel"])
@@ -144,7 +135,7 @@ extension ControlHost {
     /// The agent's `native.control` for a progress.
     func progressObservation(_ node: NodeView) -> [String: Any]? {
         if let bar = bars[node.id] {
-            return ["view": "UIProgressView", "progress": Double(bar.progress), "tinted": bar.progressTintColor != nil,
+            return ["view": "UIProgressView", "progress": Double(bar.progress), "tinted": node.channels("accent_color") != nil,
                     "size": [Agent.r2(bar.bounds.width), Agent.r2(bar.bounds.height)]]
         }
         guard let s = spinners[node.id] else { return nil }

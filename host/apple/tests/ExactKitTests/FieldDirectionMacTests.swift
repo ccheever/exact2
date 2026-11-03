@@ -277,8 +277,7 @@ final class FieldDirectionMacTests: XCTestCase {
                 // The field itself takes the new side once its editing ends.
                 XCTAssertTrue(window?.makeFirstResponder(nil) ?? false)
                 XCTAssertNil(node.field?.currentEditor())
-                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-                XCTAssertEqual(node.field?.alignment, .left, "the field, after its editing")
+                waitFor("the field, after its editing, aligns left") { node.field?.alignment == .left }
                 XCTAssertEqual(node.field?.baseWritingDirection, .leftToRight)
             }
             window?.close()

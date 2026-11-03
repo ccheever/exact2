@@ -1,0 +1,52 @@
+// DimmedPixelsIOSTests: the colours of a status screen, each 200 points left of the hand-built UIKit
+// twin the test places beside it, read pixel for pixel before, behind and after an alert.
+component DimmedPixels
+  state on = true
+  state level = 5
+  action setOn(value: bool)
+    on = value
+  action setLevel(value: number)
+    level = value
+  action go
+    level = level
+  view
+    main accent-color="-exact-system-red" testId="app" width="100%" height="100%"
+      // A mark in a colour of its own (a card's thermometer) and one in the tint
+      image "symbol:sf/square.fill" color="-exact-system-indigo" font-size=24 testId="own-symbol" position="absolute" left=10 top=10 width=24 height=24
+      image "symbol:sf/square.fill" color="AccentColor" font-size=24 testId="tint-symbol" position="absolute" left=10 top=44 width=24 height=24
+      // A status in a colour of its own ("Locked") and words in the tint
+      text "Locked" color="-exact-system-green" font-size=28 font-weight=900 testId="own-text" position="absolute" left=10 top=76
+      text "Locked" color="AccentColor" font-size=28 font-weight=900 testId="tint-text" position="absolute" left=10 top=116
+      // A pressable row's badge: a wash and a symbol in a colour of their own
+      button press=go aria-label="More controls" testId="badge" position="absolute" left=10 top=160 width=36 height=36 border-radius=18 background-color="light-dark(#D9EBFF, #0A2A4D)" display="flex" align-items="center" justify-content="center"
+        image "symbol:sf/square.fill" color="-exact-system-blue" font-size=16 width=16 height=16
+      // A switch whose accent is UIKit's, and a slider in the tint
+      input type="checkbox" switch checked=on change=setOn accent-color="auto" aria-label="Climate" testId="switch" position="absolute" left=10 top=204
+      input type="range" min=0 max=10 step=1 value=level change=setLevel aria-label="Level" testId="slider" position="absolute" left=10 top=240 width=150 height=28
+      // A remote control: a filled button whose symbol has a colour of its own
+      button appearance="auto" buttonStyle="filled" accent-color="-exact-quaternary-fill" press=go testId="native" position="absolute" left=10 top=276
+        image "symbol:sf/lock.fill" -exact-tint-color="-exact-system-green"
+        text "Lock" color="-exact-label"
+      // Settings-style rows: a symbol in a colour of its own and one in the tint
+      list appearance="auto" testId="list" position="absolute" left=0 top=334 width=200 height=124
+        section
+          row testId="own-row"
+            image "symbol:sf/square.fill" color="-exact-system-indigo"
+            text "Locked"
+          row testId="tint-row"
+            image "symbol:sf/square.fill" color="AccentColor"
+            text "Locked"
+      // An accent written below the roots' on controls: a switch, a slider and a list row's switch
+      column accent-color="-exact-system-teal" testId="teal" position="absolute" left=0 top=466 width=200 height=190
+        input type="checkbox" switch checked=on change=setOn aria-label="Defrost" testId="teal-switch" position="absolute" left=10 top=0
+        // Kept from greying (`-exact-tint-adjustment`): a mark in the tint, and below a list row
+        image "symbol:sf/square.fill" color="AccentColor" font-size=24 -exact-tint-adjustment="normal" testId="kept-symbol" position="absolute" left=120 top=2 width=24 height=24
+        input type="range" min=0 max=10 step=1 value=level change=setLevel aria-label="Fan" testId="teal-slider" position="absolute" left=10 top=34 width=150 height=28
+        list appearance="auto" testId="teal-list" position="absolute" left=0 top=66 width=200 height=124
+          section
+            row testId="teal-row"
+              text "Climate"
+              input type="checkbox" switch checked=on change=setOn aria-label="Climate" testId="teal-row-switch"
+            row -exact-tint-adjustment="normal" testId="kept-row"
+              image "symbol:sf/square.fill" color="AccentColor"
+              text "Kept"
