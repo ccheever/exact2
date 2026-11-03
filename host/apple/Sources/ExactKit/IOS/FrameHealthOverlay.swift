@@ -648,14 +648,24 @@ final class FrameHealthCardView: UIView {
         weak var card: FrameHealthCardView?
         override class var layerClass: AnyClass { Picture.self }
 
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            // A view that draws nothing of its own keeps its layer's scale at 1, so the face follows the display's
+            registerForTraitChanges([UITraitDisplayScale.self]) { (face: Face, _: UITraitCollection) in face.layer.setNeedsDisplay() }
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
         /// It renders the face as an image, which Core Animation commits in the update that asks for it; drawn into a
         /// backing store by `draw(_:)`, the face would take UIKit another update a refresh later to show each drawing
         /// (LLP 1079.000 §7.4).
         final class Picture: CALayer {
             override func display() {
                 guard let face = delegate as? Face, let card = face.card, bounds.width > 0, bounds.height > 0 else { return }
+                // At the display's scale, which the layer then takes too
                 let format = UIGraphicsImageRendererFormat(for: face.traitCollection)
-                (format.scale, format.opaque) = (contentsScale, true)
+                format.opaque = true
+                contentsScale = format.scale
                 contents = UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in card.drawFace() }.cgImage
             }
         }

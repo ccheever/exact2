@@ -577,6 +577,14 @@ final class FrameHealthIOSTests: XCTestCase {
         }
         XCTAssertGreaterThan(inked(layout.title), 30, "the title shows")
         XCTAssertGreaterThan(inked(layout.close), 5, "Close shows its symbol")
+        // At the display's scale, so its text is as sharp as UIKit's
+        func picture(in view: UIView) -> CALayer? {
+            "\(type(of: view.layer))".hasSuffix("Picture") ? view.layer : view.subviews.lazy.compactMap(picture).first
+        }
+        let face = try XCTUnwrap(picture(in: card))
+        let image = try XCTUnwrap(face.contents as! CGImage?)
+        XCTAssertEqual(face.contentsScale, card.traitCollection.displayScale)
+        XCTAssertEqual(CGFloat(image.width), face.bounds.width * card.traitCollection.displayScale, accuracy: 1)
         overlay.setVisible(false)
     }
 
