@@ -6,6 +6,7 @@
 // models are codex-setup.ts and chatgpt-plan.ts; every command is `op("setup:codex-<what>",
 // instance, token, value)`, queued through the root's providerAuthChanged (codex-setup-ops.ts).
 use PvField from "../settings/providers-kit.contract"
+use ManagedControl from "../settings/managed-policy.contract"
 use PvOutline from "../settings/providers-kit.contract"
 use PvPrimary from "../settings/providers-kit.contract"
 use PvIcon from "./provider-icons.contract"
@@ -49,6 +50,7 @@ shape CodexSetup
   flowId: string
   pasteDisabled: bool
   error: string
+  chatgptManaged: string
 shape CodexRuntimeFields
   key: string
   binaryPath: string
@@ -305,7 +307,8 @@ component CodexWelcomeCard
             button press=op("setup:codex-open", setup.target, setup.token, "", true) class=PvOutline min-width="11rem" disabled=setup.controlDisabled opacity=(setup.controlDisabled ? 0.64 : 1) testId=`welcome-codex-open-${setup.instanceId}` id=`welcome-codex-open-${setup.instanceId}` data-focus-stop=(setup.controlDisabled ? "" : "enabled")
               text setup.controlLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
           if setup.control == "connect" and setup.kind == "existing"
-            ChatGptButton(stop="enabled", label="Continue with ChatGPT", disabled=(setup.controlDisabled or pending), target="", testId=`welcome-codex-chatgpt-${setup.instanceId}`, press=op("setup:codex-mode", setup.target, setup.token, "managed", true))
+            ManagedControl(reason=setup.chatgptManaged, controlId=`welcome-codex-chatgpt-${setup.instanceId}-inert`, offset=36)
+              ChatGptButton(stop="enabled", label="Continue with ChatGPT", disabled=(setup.controlDisabled or pending), target="", testId=`welcome-codex-chatgpt-${setup.instanceId}`, press=op("setup:codex-mode", setup.target, setup.token, "managed", true))
           if setup.control == "connect" and setup.kind == "managed"
             if setup.savedAccount
               ChatGptButton(stop="enabled", label=setup.controlLabel, disabled=(setup.controlDisabled or pending), target=`codex-account-${setup.instanceId}`, testId=`welcome-codex-chatgpt-${setup.instanceId}`, press=ui("codex-picker", setup.target))

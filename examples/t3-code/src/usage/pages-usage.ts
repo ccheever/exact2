@@ -3,8 +3,9 @@
 // apps/web/src/components/usage/{UsagePage,UsageProviderChart,usageProviders,
 // usageShortcuts,usagePagePreferences,UsageLimits,UsageLimitsPooled}.tsx,
 // apps/web/src/state/usage.ts (withoutProviders, the last answered usage useUsage keeps on
-// screen) and packages/shared/src/{usageFormat,usageMerge,usageLimits}.ts.
+// screen) and packages/shared/src/{usageFormat,usageMerge,usageLimits}.ts (usageMerge's claimSources at 5d3d78ab93).
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { sameUsageModelFilter } from '../client/server-fields';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { pagesPrefs, type UsagePrefs } from '../pages/pages-prefs';
@@ -156,6 +157,14 @@ export type Merged = {
   categoryCost: CategoryCost; speedCost: SpeedCost;
 };
 const fingerprintKey = (fingerprint: Obj) => [str(fingerprint.hostId), str(fingerprint.provider), str(fingerprint.resolvedHomePath), str(fingerprint.volumeId)].join(' ');
+/** bucketsForSource: a source's cells, by its home path, or all of its provider's when it is that provider's only source. */
+function bucketsForSource(summary: Obj, source: Obj): Obj[] {
+  const fingerprint = obj(source.fingerprint), provider = str(fingerprint.provider);
+  const providerSources = arr(summary.sources).filter(entry => str(obj(entry.fingerprint).provider) === provider);
+  return arr(summary.buckets).filter(bucket => str(bucket.provider) === provider
+    && (bucket.sourcePath === fingerprint.resolvedHomePath || (bucket.sourcePath === undefined && providerSources.length === 1)));
+}
+const bucketKey = (bucket: Obj) => JSON.stringify([bucket.day, bucket.hourStart ?? null, bucket.provider, bucket.model]);
 const bucketTokens = (bucket: Obj) => { const totals = obj(bucket.totals); return num(totals.uncachedInputTokens) + num(totals.cachedInputTokens) + num(totals.cacheCreationTokens) + num(totals.outputTokens); };
 
 /** mergeUsage for the environments this client reads: duplicate transcript directories count once. */
@@ -165,11 +174,33 @@ export function mergeUsage(environments: { id: string; label: string; summary: O
     .map(environment => ({ environment: environment.label, direction: num(environment.summary.contractVersion) < USAGE_CONTRACT_VERSION ? 'serverBehind' : 'clientBehind' }));
   const ordered = [...current].sort((a, b) => (Date.parse(str(b.summary.readAt)) || 0) - (Date.parse(str(a.summary.readAt)) || 0) || a.id.localeCompare(b.id));
   const owner = new Map<string, string>(), sessionsByFingerprint = new Map<string, number>(), duplicates: string[] = [];
+  const ownerScan = new Map<string, { environment: typeof ordered[number]; source: Obj }>();
   for (const status of ['ok', 'partial', 'failed']) for (const environment of ordered) for (const source of arr(environment.summary.sources)) {
     if (source.status !== status) continue;
     const key = fingerprintKey(obj(source.fingerprint));
     if (owner.has(key)) { duplicates.push(`${environment.label}: ${str(obj(source.fingerprint).resolvedHomePath)}`); continue; }
-    owner.set(key, environment.id); sessionsByFingerprint.set(key, num(source.distinctSessions));
+    owner.set(key, environment.id); ownerScan.set(key, { environment, source }); sessionsByFingerprint.set(key, num(source.distinctSessions));
+  }
+  // Keep cells unique to newer partial scans; aggregates cannot reconcile overlapping records without double-counting.
+  const supplemental = new Map<string, Set<Obj>>(), seenCells = new Map<string, Set<string>>();
+  for (const environment of ordered) for (const source of arr(environment.summary.sources)) {
+    if (source.status !== 'partial') continue;
+    const key = fingerprintKey(obj(source.fingerprint)), scan = ownerScan.get(key);
+    // A scan under another model filter counts different records, so its cells are not missing ones.
+    if (scan?.source.status !== 'ok' || Date.parse(str(environment.summary.readAt)) <= Date.parse(str(scan.environment.summary.readAt))
+      || !sameUsageModelFilter(obj(environment.summary), obj(scan.environment.summary))) continue;
+    let seen = seenCells.get(key);
+    if (!seen) seenCells.set(key, seen = new Set(bucketsForSource(scan.environment.summary, scan.source).map(bucketKey)));
+    const extra = supplemental.get(environment.id) ?? new Set<Obj>();
+    let added = false;
+    for (const bucket of bucketsForSource(environment.summary, source)) {
+      const cell = bucketKey(bucket);
+      if (seen.has(cell)) continue;
+      seen.add(cell); extra.add(bucket); added = true;
+    }
+    if (!added) continue;
+    supplemental.set(environment.id, extra);
+    sessionsByFingerprint.set(key, Math.max(sessionsByFingerprint.get(key) ?? 0, num(source.distinctSessions)));
   }
   let costUsd = 0, uncached = 0, cached = 0, creation = 0, output = 0, records = 0, sessions = 0, savings = 0, unpriced = 0;
   const category = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 }, speed = { fast: 0, ultrafast: 0, premium: 0 };
@@ -196,7 +227,8 @@ export function mergeUsage(environments: { id: string; label: string; summary: O
     }
     for (const bucket of arr(environment.summary.buckets)) {
       const provider = str(bucket.provider);
-      const owned = bucket.sourcePath === undefined ? ownedProviders.has(provider) : ownedSources.has(`${provider}\u0000${str(bucket.sourcePath)}`);
+      const owned = supplemental.get(environment.id)?.has(bucket)
+        || (bucket.sourcePath === undefined ? ownedProviders.has(provider) : ownedSources.has(`${provider}\u0000${str(bucket.sourcePath)}`));
       if (!owned) continue;
       const tokens = bucketTokens(bucket), totals = obj(bucket.totals);
       costUsd += num(bucket.costUsd); savings += num(bucket.cacheSavingsUsd);

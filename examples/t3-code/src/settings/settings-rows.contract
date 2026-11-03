@@ -2,6 +2,7 @@
 // SettingsGroup, SettingsRow, ui/switch, ui/select (trigger + popup), DraftInput,
 // NumberField, the composer model/traits pickers and the scope sentence menus.
 use TimeField from "../shared/time-field.contract"
+use resolvePastedPath from "../shared/pasted-path.contract"
 use TraitsMenu from "./settings-traits.contract"
 use CoreIcon, CorePaintIcon from "./settings-core.contract"
 use CoreMark from "./settings-core.contract"
@@ -17,6 +18,7 @@ use ComposerInstanceMark from "../composer/instance-mark.contract"
 use CcIcon from "../composer/composer-controls.contract"
 use CnMachineIcon from "./settings-b-kit.contract"
 use PolicyTip from "./settings-kit.contract"
+use ManagedControl from "./managed-policy.contract"
 use AboutUpdateButton from "./settings-a-about.contract"
 use AboutVersionTitle from "./settings-a-about.contract"
 use MobileAppControl from "./settings-mobile-beta.contract"
@@ -362,58 +364,65 @@ component CoreRowView
             text row.status font-size="0.75rem" line-height="1rem" color=pal.muted padding-top="0.125rem" testId=`setting-status-${row.id}` id=`setting-status-${row.id}` data-paint="mutedForeground" data-pick="mutedForeground"
         if row.kind == "version"
           row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end"
-            AboutUpdateButton(row=row, pal=pal, busy=busy, change=change)
+            ManagedControl(reason=(row.inert ? row.note : ""), controlId="setting-version-update-inert", offset=32)
+              AboutUpdateButton(row=row, pal=pal, busy=busy, change=change)
         if row.kind != "version" and row.kind != "none" and row.kind != "textarea" and row.kind != "snooze"
-          row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem" opacity=(row.inert ? 0.5 : 1) position="relative"
-            if row.kind == "switch"
-              // D15: a mixed switch turns the setting on for every selected target.
-              ScopedSwitch(checked=row.checked, mixed=row.mixed, label=row.title, disabled=(busy or row.inert or row.disabled), faded=row.disabled, on=pal.accent, off=pal.switchOff, thumb=pal.thumb, thumbOff=pal.thumbOff, reduced=reduced, switchId=`setting-${row.id}`, press=change(row.id, row.target, row.mixed or not row.checked ? "true" : "false"))
-            if row.kind == "select"
-              CoreSelect(stop="enabled page", rowId=row.id, section=section, value=row.label, icon=row.icon, width=row.width, menuWidth=row.menuWidth, options=row.options, pal=pal, disabled=(busy or row.inert or row.disabled), dim=(row.inert or row.disabled), menu=menu, openMenu=openMenu, choose=change(row.id, row.target))
-              if row.value2 == "configure"
-                button press=configure(row.id, row.target) disabled=(busy or row.inert) aria-label="Configure advanced background activity" class=SettingsGhost width="1.75rem" height="1.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId=`setting-${row.id}-configure` title="" id=`setting-${row.id}-configure` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled page")
-                  CorePaintIcon(ownId=`paint-icon-CoreRowView-6-${row.id}`, paint="text", name="settings", size=16, color=pal.text)
-            if row.kind == "items-menu"
-              ThreadDetailsItemsMenu(rowId=row.id, label=row.label, items=row.options, resetDisabled=(not row.resettable), pal=pal, disabled=(busy or row.inert), choose=change(row.id))
-            if row.kind == "model"
-              // ProviderModelPicker: the composer's picker (model-picker.contract) opens under this trigger;
-              // a Mixed value, and the Fallback model's "None" (no driver), show their neutral label without a provider mark.
-              box position="relative"
-                button press=change(row.id, "picker", "") class=SettingsPickerFace border-color=pal.input background-color=pal.field disabled=(busy or row.inert) aria-label=(row.id == "fallback-model" ? row.title : row.label) aria-haspopup="dialog" id=`setting-${row.id}` testId=`setting-${row.id}-model` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled page")
-                  if not row.mixed and row.driver != ""
-                    ComposerInstanceMark(driver=row.driver, icon=row.markIcon, size=16, color=pal.muted, badge=row.badge, accent=row.badgeColor)
-                  text row.label font-size="0.875rem" line-height="1.25rem" color=pal.text line-clamp=1 id=`paint-CoreRowView-13-${row.id}` data-paint="text" data-pick="text"
-                  box opacity=0.7 flex-shrink=0
-                    CorePaintIcon(ownId=`paint-icon-CoreRowView-7-${row.id}`, paint="text", name="chevron-down", size=14, color=pal.text)
-              if row.label2 != ""
+          // settingsLayout inertControl: an inert control with a reason says it on hover and keyboard focus.
+          ManagedControl(reason=(row.inert ? row.note : ""), controlId=`setting-${row.id}-inert`, offset=(row.kind == "switch" ? 22 : 32))
+            row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem" opacity=(row.inert and row.note == "" ? 0.5 : 1) position="relative"
+              if row.kind == "switch"
+                // D15: a mixed switch turns the setting on for every selected target.
+                ScopedSwitch(checked=row.checked, mixed=row.mixed, label=row.title, disabled=(busy or row.inert or row.disabled), faded=row.disabled, on=pal.accent, off=pal.switchOff, thumb=pal.thumb, thumbOff=pal.thumbOff, reduced=reduced, switchId=`setting-${row.id}`, press=change(row.id, row.target, row.mixed or not row.checked ? "true" : "false"))
+              if row.kind == "select"
+                CoreSelect(stop="enabled page", rowId=row.id, section=section, value=row.label, icon=row.icon, width=row.width, menuWidth=row.menuWidth, options=row.options, pal=pal, disabled=(busy or row.inert or row.disabled), dim=(row.inert or row.disabled), menu=menu, openMenu=openMenu, choose=change(row.id, row.target))
+                if row.value2 == "configure"
+                  button press=configure(row.id, row.target) disabled=(busy or row.inert) aria-label="Configure advanced background activity" class=SettingsGhost width="1.75rem" height="1.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId=`setting-${row.id}-configure` title="" id=`setting-${row.id}-configure` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled page")
+                    CorePaintIcon(ownId=`paint-icon-CoreRowView-6-${row.id}`, paint="text", name="settings", size=16, color=pal.text)
+              if row.kind == "items-menu"
+                ThreadDetailsItemsMenu(rowId=row.id, label=row.label, items=row.options, resetDisabled=(not row.resettable), pal=pal, disabled=(busy or row.inert), choose=change(row.id))
+              if row.kind == "model"
+                // ProviderModelPicker: the composer's picker (model-picker.contract) opens under this trigger;
+                // a Mixed value, and the Fallback model's "None" (no driver), show their neutral label without a provider mark.
                 box position="relative"
-                  button id=`setting-${section}-${row.id}-effort` popovertarget=`effort-${section}-${row.id}` key=traitsKey class=SettingsPickerFace border-color=pal.input background-color=pal.field disabled=(busy or row.inert) aria-label=row.label2 testId=`setting-${row.id}-effort` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled page")
-                    // TraitsPicker's trigger: the brain glyph before the label.
-                    CcIcon(name="brain", size=16, color=pal.muted, weight=1.75)
-                    text row.label2 font-size="0.875rem" line-height="1.25rem" color=pal.text id=`paint-CoreRowView-14-${row.id}` data-paint="text" data-pick="text"
+                  button press=change(row.id, "picker", "") class=SettingsPickerFace border-color=pal.input background-color=pal.field disabled=(busy or row.inert) aria-label=(row.id == "fallback-model" ? row.title : row.label) aria-haspopup="dialog" id=`setting-${row.id}` testId=`setting-${row.id}-model` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled page")
+                    if not row.mixed and row.driver != ""
+                      ComposerInstanceMark(driver=row.driver, icon=row.markIcon, size=16, color=pal.muted, badge=row.badge, accent=row.badgeColor)
+                    text row.label font-size="0.875rem" line-height="1.25rem" color=pal.text line-clamp=1 id=`paint-CoreRowView-13-${row.id}` data-paint="text" data-pick="text"
                     box opacity=0.7 flex-shrink=0
-                      CorePaintIcon(ownId=`paint-icon-CoreRowView-8-${row.id}`, paint="text", name="chevron-down", size=14, color=pal.text)
-                  TraitsMenu(options=row.options2, pal=pal, menuId=`effort-${section}-${row.id}`, items=traitsItems, keyed=0, choose=change(row.id, "effort"), testId=`setting-${row.id}-effort-menu`)
-            if row.kind == "text-only"
-              text row.label font-size="0.875rem" line-height="1.25rem" color=pal.muted id=`paint-CoreRowView-15-${row.id}` data-paint="mutedForeground" data-pick="mutedForeground"
-            if row.kind == "mobile-app"
-              MobileAppControl(row=row, pal=pal, busy=busy)
-            if row.kind == "number" or row.kind == "text"
-              CoreField(value=row.value, rowId=row.id, width=row.width, placeholder=row.placeholder, numeric=(row.kind == "number"), label=row.title, pal=pal, disabled=(busy or row.inert), commit=change(row.id, row.target))
-            if row.kind == "action"
-              button press=change(row.id, "", row.value) disabled=(busy or row.inert or row.disabled) class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" id=`setting-${row.id}` testId=`setting-${row.id}` data-focus-stop=(busy or row.inert or row.disabled ? "" : "enabled page")
-                text row.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text
-            if row.kind == "link"
-              button press=navigate(row.target) class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" id=`setting-${row.id}` testId=`setting-${row.id}-link` data-paint="input canvas" data-pick="canvas" data-focus-stop="enabled page"
-                text row.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text id=`paint-CoreRowView-17-${row.id}` data-paint="text" data-pick="text"
-            if row.kind == "slider"
-              if row.info == "preview"
-                PanelPreview(duration=row.amount, pal=pal)
-              CoreSlider(row=row, pal=pal, disabled=busy, commit=slide(row.id, row.target))
-            if row.kind == "font"
-              FontFamilyPicker(rowId=row.id, label=`${row.title} family`, value=row.label, families=row.options, pal=pal, choose=change(row.id, row.target))
-              // Neither control is disabled while the write runs (settings-a-fonts.contract says why).
-              CoreSelect(stop="enabled page", rowId=`${row.id}-size`, section=section, value=row.label2, icon="", width=144, menuWidth=0, options=row.options2, pal=pal, disabled=false, dim=false, menu=menu, openMenu=openMenu, choose=change(row.id, row.suffix))
+                      CorePaintIcon(ownId=`paint-icon-CoreRowView-7-${row.id}`, paint="text", name="chevron-down", size=14, color=pal.text)
+                if row.label2 != ""
+                  box position="relative"
+                    button id=`setting-${section}-${row.id}-effort` popovertarget=`effort-${section}-${row.id}` key=traitsKey class=SettingsPickerFace border-color=pal.input background-color=pal.field disabled=(busy or row.inert) aria-label=row.label2 testId=`setting-${row.id}-effort` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled page")
+                      // TraitsPicker's trigger: the brain glyph before the label.
+                      CcIcon(name="brain", size=16, color=pal.muted, weight=1.75)
+                      text row.label2 font-size="0.875rem" line-height="1.25rem" color=pal.text id=`paint-CoreRowView-14-${row.id}` data-paint="text" data-pick="text"
+                      box opacity=0.7 flex-shrink=0
+                        CorePaintIcon(ownId=`paint-icon-CoreRowView-8-${row.id}`, paint="text", name="chevron-down", size=14, color=pal.text)
+                    TraitsMenu(options=row.options2, pal=pal, menuId=`effort-${section}-${row.id}`, items=traitsItems, keyed=0, choose=change(row.id, "effort"), testId=`setting-${row.id}-effort-menu`)
+              if row.kind == "text-only"
+                text row.label font-size="0.875rem" line-height="1.25rem" color=pal.muted id=`paint-CoreRowView-15-${row.id}` data-paint="mutedForeground" data-pick="mutedForeground"
+              if row.kind == "mobile-app"
+                MobileAppControl(row=row, pal=pal, busy=busy)
+              if row.kind == "number" or row.kind == "text"
+                CoreField(value=row.value, rowId=row.id, width=row.width, placeholder=row.placeholder, numeric=(row.kind == "number"), label=row.title, pal=pal, disabled=(busy or row.inert), pastePath=(row.id == "add-project-starts-in"), commit=change(row.id, row.target))
+              if row.kind == "action"
+                button press=change(row.id, "", row.value) disabled=(busy or row.inert or row.disabled) class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" id=`setting-${row.id}` testId=`setting-${row.id}` data-focus-stop=(busy or row.inert or row.disabled ? "" : "enabled page")
+                  text row.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text
+              if row.kind == "external-link"
+                // A Button rendering an <a target="_blank">: the About Organization row's Get help.
+                link cursor="pointer" href=row.target class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" text-decoration-line="none" id=`setting-${row.id}` testId=`setting-${row.id}-link` data-paint="input canvas" data-pick="canvas" data-focus-stop="enabled page"
+                  text row.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text data-paint="text" data-pick="text"
+              if row.kind == "link"
+                button press=navigate(row.target) class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" id=`setting-${row.id}` testId=`setting-${row.id}-link` data-paint="input canvas" data-pick="canvas" data-focus-stop="enabled page"
+                  text row.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text id=`paint-CoreRowView-17-${row.id}` data-paint="text" data-pick="text"
+              if row.kind == "slider"
+                if row.info == "preview"
+                  PanelPreview(duration=row.amount, pal=pal)
+                CoreSlider(row=row, pal=pal, disabled=busy, commit=slide(row.id, row.target))
+              if row.kind == "font"
+                FontFamilyPicker(rowId=row.id, label=`${row.title} family`, value=row.label, families=row.options, pal=pal, choose=change(row.id, row.target))
+                // Neither control is disabled while the write runs (settings-a-fonts.contract says why).
+                CoreSelect(stop="enabled page", rowId=`${row.id}-size`, section=section, value=row.label2, icon="", width=144, menuWidth=0, options=row.options2, pal=pal, disabled=false, dim=false, menu=menu, openMenu=openMenu, choose=change(row.id, row.suffix))
       if row.kind == "textarea"
         for key in [`${row.mixed}:${row.value}`] key=key
           CoreTextArea(rowId=row.id, value=row.value, mixed=row.mixed, placeholder=row.placeholder, label=row.title, pal=pal, disabled=(busy or row.inert), commit=change(row.id, row.target))
@@ -603,10 +612,12 @@ component CoreField
     label: string
     pal: CorePalette
     disabled: bool
+    // A folder field: a path pasted from Finder or Explorer replaces what it held (DraftInput's normalizeDraft).
+    pastePath: bool
     commit: action
   state draft = value
   action edit(next: string)
-    draft = next
+    draft = pastePath ? resolvePastedPath(draft, next) : next
   view
     input value=draft input=edit change=commit placeholder=placeholder aria-label=label disabled=disabled inputmode=(numeric ? "numeric" : "text") spellcheck="false" width=`${width / 16}rem` height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.1875rem" padding-bottom="0.1875rem" line-height="1.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field font-size="0.875rem" color=pal.text box-shadow="0 1px 2px #0000000d" id=`setting-${rowId}` testId=`setting-${rowId}` autocorrect="off" data-paint="input canvas text" data-pick="canvas" data-editable="yes" data-focus-stop=(disabled ? "" : "enabled page")
       ::placeholder

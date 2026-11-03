@@ -7,7 +7,7 @@ import type { ProviderUpdateMachine } from '../../src/providers/providers-upkeep
 const target = (id: string): ServerUpdateTarget => ({ environmentId: id, environmentKey: `https://${id}\n${id}`, serverLabel: id,
   selfUpdate: 'boot-service', targetVersion: '0.0.50', fromVersion: '0.0.40' });
 const provider = (id: string): ProviderUpdateMachine => ({ key: id, environmentId: id, label: id, candidates: [{ instanceId: 'codex', driver: 'codex' }],
-  target: { key: id, label: id, providers: [], request: async () => ({}) } });
+  target: { key: id, label: id, providers: [], manageable: true, request: async () => ({}) } });
 const deferred = <T>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; };
 // Explicit promise barriers model the installer and remote server; no elapsed-time waits.
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); };

@@ -1,19 +1,21 @@
-// Reference settingsSearch.ts SETTINGS_SEARCH_ITEMS (6d450a4284), one row per item:
+// Reference settingsSearch.ts SETTINGS_SEARCH_ITEMS (5d3d78ab93), one row per item:
 // [id, title, route, targetId, searchTerms, scope, availability flags]. Keybinding command items are
 // derived from the connected server's keybindings at search time (settings-search.ts). The host
 // rows are sourceControlHostSearchItems expanded: GitHub, GitCafe, then Bitbucket, the hosts with a
 // settings form, in registry order (GitHub, GitLab, GitCafe, Forgejo, Bitbucket, Azure DevOps), whose
 // labels and keywords the source-control terms list. Privacy policy and OpenTelemetry export are left
-// out: this client has no telemetry rows. Guest links needs T3 Connect, which this client does not have.
+// out: this client has no telemetry rows. Guest links needs T3 Connect, which this client does not have. Secret
+// providers are behind T3CODE_FEATURE_SECRETS, off in the Beta build.
 export const CATALOG: readonly (readonly [string, string, string, string, string, string, string])[] = [
   ["storage-worktree-keep-when", "Keep worktrees with local changes", "worktrees", "storage-worktrees", "any local files uncommitted changes edited tracked files ignored env build output cleanup", "project-defaults", ""],
   ["storage-delete-now", "Delete now", "maintenance", "", "storage cleanup run now results report removed kept failed", "environment-defaults", ""],
-  ["storage-worktrees", "Worktree cleanup", "worktrees", "", "disk storage delete deleted archived threads old inactive merged unchanged worktrees retention days project inherit off custom", "project-defaults", ""],
+  ["storage-worktrees", "Worktree cleanup", "worktrees", "", "disk storage automatic delete deleted archived threads old inactive merged settled unchanged worktrees retention days project inherit off custom", "project-defaults", ""],
   ["storage-worktrees-location", "Worktree location", "worktrees", "", "worktree location folder directory path drive external disk", "environment-defaults", ""],
-  ["storage-artifacts", "Artifacts and logs", "maintenance", "", "disk storage browser screenshots captures rotated logs cleanup retention", "environment-defaults", ""],
+  ["storage-artifacts", "Artifacts and logs", "maintenance", "", "disk storage delete old browser artifacts screenshots captures rotated logs cleanup retention", "environment-defaults", ""],
   ["project-defaults", "Project defaults and overrides", "threads", "", "model workspace environments projects inheritance checkout", "project-defaults", ""],
   ["project-overview", "Project overview", "projects", "", "name icon emoji image checkout remove delete", "", ""],
   ["default-model", "Default model", "threads", "", "new thread project provider reasoning effort", "project-defaults", ""],
+  ["fallback-model", "Fallback model", "threads", "", "fallback agent provider out of usage new threads", "environment-defaults", "environment"],
   ["default-permissions", "Permissions", "threads", "", "new thread default runtime mode supervised approvals auto accept edits full access", "project-defaults", ""],
   ["color-scheme", "Color scheme", "appearance", "appearance", "appearance light dark system mode", "", ""],
   ["theme", "Themes", "appearance", "appearance", "appearance colors palette custom import", "", ""],
@@ -51,12 +53,12 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["hide-whitespace-changes", "Hide whitespace changes", "diffs", "", "diff ignore spaces edits default", "", ""],
   ["default-diff-file-state", "Default diff file state", "diffs", "", "collapsed expanded collapse expand files pull request pr code tab", "", ""],
   ["diff-layout", "Diff layout", "diffs", "", "stacked split side by side unified inline view", "", ""],
-  ["proactive-panels", "Proactive panels", "diffs", "", "automatically open diff pull request pr right panel agent completion", "", ""],
+  ["proactive-panels", "Open pull requests and changes panels proactively", "diffs", "", "proactive automatically open diff pull request pr right panel agent completion", "", ""],
   ["skills-in-slash-menu", "Show skills in slash menu", "chat", "", "command menu dollar $ slash /", "", ""],
   ["composer-rich-text", "Rich text composer", "chat", "", "composer rich text tiptap bold italic markdown styled wysiwyg", "", ""],
   ["send-shortcut", "Send shortcut", "chat", "", "enter return command ctrl multiline prompt new line composer", "", ""],
   ["follow-up-behavior", "Follow-up behavior", "chat", "", "queue steer running turn send default behavior composer", "", ""],
-  ["provider-update-checks", "Provider update checks", "maintenance", "", "installed cli versions newer available codex claude cursor grok fx opencode", "environment-defaults", ""],
+  ["provider-update-checks", "Provider update checks", "maintenance", "", "installed cli versions newer available codex claude cursor grok fx kiro opencode", "environment-defaults", ""],
   ["continue-threads-after-server-update", "Continue threads after restarts", "maintenance", "", "resume running active interrupted work restart reboot machine crash desktop update automatically", "project-defaults", ""],
   ["background-activity", "Background activity", "maintenance", "", "balanced performance battery saver advanced git fetch provider health refresh host power monitor idle policy", "environment-defaults", ""],
   ["new-threads", "New threads", "threads", "", "default workspace mode draft local worktree", "project-defaults", ""],
@@ -85,7 +87,7 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["snap-shot-sound", "Capture sound", "snap-shot", "snap-shot-enabled", "", "", ""],
   ["snap-shot-flash", "Capture flash", "snap-shot", "snap-shot-enabled", "", "", ""],
   ["snap-shot-animations", "Capture animations", "snap-shot", "snap-shot-enabled", "", "", ""],
-  ["providers", "Providers", "providers", "", "agents cli codex claude cursor grok fx opencode antigravity google sign in sign out install subscription instances authentication api key models configuration binary path config directory endpoint arguments environment variables display name accent color custom favorite hidden auto compact", "", ""],
+  ["providers", "Providers", "providers", "", "agents cli codex claude cursor grok fx kiro opencode antigravity google sign in sign out install subscription instances authentication api key models configuration binary path config directory codex_home shadow home endpoint arguments environment variables display name accent color custom favorite hidden auto compact native sessions import resume", "", ""],
   ["usage-providers", "Usage providers", "providers", "", "usage sources CLIProxyAPI CLI proxy hub quota subscription limits management key add remove", "", "providerSettings"],
   ["cursor-keychain-usage", "Cursor account usage", "providers", "", "cursor macOS keychain usage tokens cost limits permission", "", "providerSettings,macProviderSettings"],
   ["provider-health-check-interval", "Health check interval", "providers", "", "refresh availability versions auth state models background probes seconds off", "", "providerSettings"],
@@ -103,8 +105,8 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["browser-recording-key-presses", "Show key presses in recordings", "browser", "", "browser preview keyboard shortcuts keystrokes overlay capture", "", ""],
   ["browser-recording-mouse-presses", "Show mouse presses in recordings", "browser", "", "browser preview clicks buttons drag overlay capture", "", ""],
   ["browser-link-target", "Open links in", "browser", "", "links default browser in-app browser external open", "", ""],
-  ["browser-search-engine", "Search engine", "browser", "", "address bar duckduckgo google bing brave kagi ecosia custom", "", ""],
-  ["pull-request-links-open-in-app", "Open pull requests in T3 Code", "diffs", "", "pr links GitHub GitLab GitCafe Forgejo Bitbucket Azure DevOps browser external click default pull request view panel", "", ""],
+  ["browser-search-engine", "Search engine", "browser", "", "address bar duckduckgo google bing brave kagi ecosia custom url", "", ""],
+  ["pull-request-links-open-in-app", "Open pull requests in T3 Code", "diffs", "", "pr commit links GitHub GitLab GitCafe Forgejo Bitbucket Azure DevOps browser external click default pull request view panel", "", ""],
   ["browser-auto-show-floating-preview", "Auto-show floating preview", "browser", "", "agent opens browser device simulator pop into view hide", "", ""],
   ["automatic-pull", "Automatically pull", "source-control", "", "auto pull default branch current checkout fast forward upstream", "project-defaults", ""],
   ["remove-agent-credits-on-merge", "Remove agent credits when merging", "source-control", "", "pull request GitHub GitLab GitCafe Forgejo Bitbucket Azure DevOps squash co-authored-by attribution claude codex generated", "project-defaults", ""],
@@ -126,7 +128,7 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["local-environment", "Local environment", "connections", "", "turn off on disable enable local server agents remote only restart", "", "desktop"],
   ["network-access", "Network access", "access", "connections-environment", "expose backend remote pairing local machine interfaces host restart", "", "localBackend"],
   ["tailscale-https", "Tailscale HTTPS", "access", "connections-environment", "serve magicdns endpoint remote secure network", "", "desktop,localBackend"],
-  ["wsl-backend", "WSL backend", "access", "", "windows subsystem linux distro second server projects stop windows backend restart", "", "desktop,windows,localBackend,wsl"],
+  ["wsl-backend", "WSL backend", "access", "", "windows subsystem linux distro second server projects stop windows backend restart wsl only", "", "desktop,windows,localBackend,wsl"],
   ["t3-connect", "T3 Connect", "access", "connections-environment", "managed tunnel cloud other devices remote", "", "localEnvironment,desktop,cloud"],
   ["hold-webhooks-while-offline", "Hold webhooks while offline", "access", "connections-environment", "webhook automations offline queue mailbox t3 connect", "", "localEnvironment,cloud,managedTunnel"],
   ["publish-agent-activity", "Publish agent activity", "access", "connections-environment", "mobile push notifications live activities cloud tunnel", "", "localEnvironment,cloud"],

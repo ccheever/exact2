@@ -993,6 +993,8 @@ component T3Window
   state titleMenuY = 0
   state renaming = false
   state renameText = ""
+  // The title as the rename began (ChatHeader renaming.title), which an untouched rename ends against.
+  state renameFrom = ""
   // A maximized right panel lays out inline whatever the window's width; only an unmaximized one in a window of 980 pt
   // or less is the sheet (ChatView shouldUsePlanSidebarSheet).
   derive rightMaximized = shell.panel.maximized and (rightPanel or shell.panel.open)
@@ -1013,6 +1015,7 @@ component T3Window
       titleMenuOpen = false
       renaming = true
       renameText = data.threadTitle
+      renameFrom = data.threadTitle
       focus("header-rename")
     if what == "edit"
       renameText = value
@@ -1020,12 +1023,15 @@ component T3Window
       renaming = false
     if (what == "commit" and renaming) or (what == "new-thread" and data.projectId != "")
       renaming = false
-      titleSend(what, typed)
+      // An untouched rename ends without a write, so a title that changed meanwhile (a generated one) stays.
+      if what == "new-thread" or typed.trim() != renameFrom
+        titleSend(what, typed)
   action titleMenuPick(op: string, target: string, value: string, askTitle: string, askBody: string, destructive: bool)
     titleMenuOpen = op == "ui:submenu" and titleMenuOpen
     if op == "ui:rename"
       renaming = true
       renameText = data.threadTitle
+      renameFrom = data.threadTitle
       focus("header-rename")
     titleMenuPickRoot(op, target, value, askTitle, askBody, destructive)
   action panelUi(what: string, id: string)

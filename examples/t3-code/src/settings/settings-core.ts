@@ -1,7 +1,8 @@
 // Settings shell + General route data.
 // Reference: T3 Code 6d450a4284 apps/web/src/components/settings/{SettingsPanels,ProjectDefaultsSettings,
 // WorktreesSettings,AdvancedSettings,settingsLayout,SettingsScopeSentence,settingsScope,scopedSettings}.tsx,
-// apps/web/src/modelSelection.ts and packages/shared/src/projectSettings.ts. Server rows read and write the connected
+// apps/web/src/modelSelection.ts and packages/shared/src/projectSettings.ts; the Threads copy and the Model and Fallback
+// model rows (ProjectDefaultsSettings, defaultModelSelectionsAreMixed) at 5d3d78ab93. Server rows read and write the connected
 // environment's ServerSettings (server.updateSettings); device rows are the
 // reference ClientSettings, saved in this app's own preferences file.
 import { changeCliCommand } from './cli-command';
@@ -13,7 +14,9 @@ import { projectIdentity, providerBadge } from '../client/presentation';
 import { traitsDisplay } from '../composer/composer-controls-model';
 import { acpInstanceIcon } from '../composer/acp-instance-icon';
 import { resolveTextGenerationSelection } from './text-generation-model';
-import { providerEntries, resolveAppModelSelectionForInstance, resolveSelectableProviderInstanceEntry } from '../composer/composer-provider-selection';
+import { DEFAULT_MODEL_BY_PROVIDER, applyProviderInstanceSettings, providerEntries, resolveAppModelSelectionForInstance, resolveSelectableProviderInstanceEntry,
+  type ProviderEntry } from '../composer/composer-provider-selection';
+import { projectProviderEnabled } from '../providers/project-provider-overrides';
 import type { T3Client } from '../client/client';
 import { duplicateTheme, parseThemeFile, type CustomTheme } from '../appearance/settings-themes';
 import { themeRoles } from '../appearance/settings-appearance';
@@ -40,6 +43,8 @@ import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { changedBrowserSettingLabels, restoreBrowserTabDefaults } from '../browser/browser-defaults'; // Restore defaults' browser rows
 import { threadDetailsItemsLocal } from '../details/thread-details-items';
 import { BROWSER_CUSTOM_SEARCH_URL_MAX_LENGTH, BROWSER_SEARCH_ENGINES } from '../browser/browser-url';
+import { managedPolicySummary, managedRuntimeModeDenial, type ManagedPolicySummary } from '../client/managed-policy';
+import { firstManagedDenial, managedSettingReason } from './managed-policy';
 
 export type CoreOption = { id: string; value: string; label: string; detail: string; icon: string; selected: boolean; disabled: boolean };
 export type CoreRow = {
@@ -295,7 +300,9 @@ export type ServerContext = { settings: Obj; scope: CoreScope; files: Map<string
   /** Each known environment's advertised providers: a model choice must exist on every target (useScopedModelDisabledReason). */
   catalogs: Map<string, Obj[]>;
   /** This device's preferences: models it hides, and a model a hidden default falls back to (resolveEffectiveDefaultModelSelection). */
-  local?: object };
+  local?: object;
+  /** Each connected selected environment's managed policy (ServerConfig.managedPolicy); undefined where it is unmanaged. */
+  policies?: readonly (ManagedPolicySummary | undefined)[] };
 /** A target's value for a key: its effective value, a file-backed key's built-in when nothing set it (effectiveSetting). */
 function targetValue(target: ScopedSettingsTarget, key: string): Json {
   // scopedIdleCompaction: targets compare by the mode each resolves to, whichever field its server keeps it in.
@@ -320,7 +327,9 @@ function serverState(context: ServerContext, key: string) {
     : project && source === 't3.json' ? ['inherited', "Inherited from the repository's t3.json"]
     : project && scoped ? ['inherited', `Inherited from ${context.environmentLabel}`]
     : customized ? ['environment', 'Set on the environment'] : ['default', 'Built-in default'];
-  const note = !context.settingsWritable ? 'This connection requires settings:write.' : !scope.connected ? 'Reconnect the selected environment to change this setting.' : environmentWide ? 'Environment-wide setting. Select an environment to change it.' : '';
+  // SettingsRow managedBy: an administrator's lock on any target wins over every other reason a control is inert.
+  const managed = managedSettingReason(context.policies ?? [], [key]);
+  const note = managed ?? (!context.settingsWritable ? 'This connection requires settings:write.' : !scope.connected ? 'Reconnect the selected environment to change this setting.' : environmentWide ? 'Environment-wide setting. Select an environment to change it.' : '');
   return { value: first, mixed, source, inheritance, note, inert: note !== '', resettableProject: project && scoped && (source === 'project' || source === 'mixed') };
 }
 const MERGE_METHOD_LABELS: Record<string, string> = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' };
@@ -417,28 +426,68 @@ function modelControl(context: ServerContext, selection: Obj | null, textGenerat
     const resolved = resolveTextGenerationSelection(selection, providers);
     return resolved ? traitsControl(context, resolved.provider, resolved.model, resolved.options) : { kind: 'text-only', label: 'No text generation providers available.' };
   }
-  // resolveDefaultProviderModelSelection: the saved instance while it is selectable, else a ready one at its default model.
-  const entry = resolveSelectableProviderInstanceEntry(providerEntries(providers), selection ? str(selection.instanceId) : undefined);
-  if (!entry) return { kind: 'text-only', label: 'No providers available' };
-  const stored = selection && str(selection.instanceId) === entry.instanceId;
-  const storedModel = stored ? str(selection!.model) : str(entry.models.find(model => model.isDefault === true)?.slug, str(entry.models[0]?.slug));
+  const resolved = defaultProviderSelection(providers, context.settings, context.targets[0]?.projectId ?? null, selection);
+  const entry = resolved && providerEntries(providers).find(candidate => candidate.instanceId === resolved.instanceId);
+  if (!resolved || !entry) return { kind: 'text-only', label: 'No providers available' };
   // resolveEffectiveDefaultModelSelection: a saved model this device hides shows the model new drafts fall back to,
   // with the saved options, as the new-thread composer resolves them.
-  const effective = resolveAppModelSelectionForInstance(context.local ?? {}, context.settings, providers, entry.instanceId, storedModel, true) ?? storedModel;
+  const effective = resolveAppModelSelectionForInstance(context.local ?? {}, context.settings, providers, entry.instanceId, resolved.model, true) ?? resolved.model;
   const model = entry.models.find(candidate => candidate.slug === effective) ?? (effective ? { slug: effective, name: effective } : undefined);
-  return traitsControl(context, entry.snapshot, model, stored ? arr(selection!.options) : []);
+  return traitsControl(context, entry.snapshot, model, arr(resolved.options));
+}
+/** getDefaultProviderInstanceModel: the instance's default built-in model, else its first built-in, else any, else the driver's. */
+const instanceDefaultModel = (entry: ProviderEntry) => str(entry.models.find(model => model.isDefault === true && model.isCustom !== true)?.slug)
+  || str(entry.models.find(model => model.isCustom !== true)?.slug) || str(entry.models[0]?.slug) || DEFAULT_MODEL_BY_PROVIDER[entry.driverKind] || '';
+/**
+ * The selection new threads on one target start from. A saved one is resolveDefaultProviderModelSelection's: the saved instance
+ * while it is selectable, else a ready one at its default model. An automatic one is resolveProjectDefaultProviderModelSelection's:
+ * the instances the target's settings and project enable, the first driver group before any other.
+ */
+function defaultProviderSelection(providers: Obj[], settings: Obj, projectId: string | null, stored: Obj | null): { instanceId: string; model: string; options?: unknown } | null {
+  if (stored === null) {
+    const entries = applyProviderInstanceSettings(providerEntries(providers), settings)
+      .map(entry => ({ ...entry, enabled: projectProviderEnabled(settings, projectId ?? '', entry.instanceId, entry.enabled) }));
+    const entry = resolveSelectableProviderInstanceEntry(entries.filter(candidate => candidate.driverKind === entries[0]?.driverKind), undefined)
+      ?? resolveSelectableProviderInstanceEntry(entries, undefined);
+    const model = entry ? instanceDefaultModel(entry) : '';
+    return entry && model ? { instanceId: entry.instanceId, model } : null;
+  }
+  const entry = resolveSelectableProviderInstanceEntry(providerEntries(providers), str(stored.instanceId));
+  if (!entry) return null;
+  if (entry.instanceId === str(stored.instanceId)) return { ...stored, instanceId: entry.instanceId, model: str(stored.model) };
+  const model = instanceDefaultModel(entry);
+  return model ? { instanceId: entry.instanceId, model } : null;
 }
 /**
- * ProjectDefaultsSettings' Fallback model: a ProviderModelPicker with no TraitsPicker, over the saved fallback or else the
- * default model; "None" while no fallback is saved and "Mixed" when the targets differ, with no provider mark.
+ * defaultModelSelectionsAreMixed: the targets disagree on the default they store or on the model and options it resolves
+ * to with each target's own providers, so equal automatic defaults on environments with different providers are mixed.
+ */
+export function defaultModelsMixed(context: ServerContext): boolean {
+  const selections = context.targets.map(target => {
+    const providers = context.catalogs.get(target.environmentId) ?? [];
+    const raw = targetValue(target, 'defaultModelSelection');
+    const stored = raw === null || raw === undefined ? null : obj(raw);
+    const selection = defaultProviderSelection(providers, target.settings, target.projectId, stored);
+    const model = selection && resolveAppModelSelectionForInstance(context.local ?? {}, target.settings, providers, selection.instanceId, selection.model, true);
+    return { stored, effective: selection && (model === null || model === selection.model ? selection : { ...selection, model }) };
+  });
+  return selections.some(selection => !same(selection, selections[0]));
+}
+/**
+ * ProjectDefaultsSettings' Fallback model: a ProviderModelPicker over the saved fallback or else the default model, "None" while
+ * no fallback is saved and "Mixed" when the targets differ, with no provider mark; its TraitsPicker shows only for a saved,
+ * shared fallback whose instance this environment lists.
  */
 function fallbackControl(context: ServerContext, defaultSelection: Json): Partial<CoreRow> {
   const state = serverState(context, 'fallbackModelSelection');
   const saved = state.value === null || state.value === undefined ? null : obj(state.value);
-  const control = modelControl(context, saved ?? (defaultSelection === null ? null : obj(defaultSelection)), false);
+  const entry = saved && providerEntries(context.providers).find(candidate => candidate.instanceId === str(saved.instanceId));
+  const control = entry ? traitsControl(context, entry.snapshot, entry.models.find(model => model.slug === saved!.model) ?? { slug: str(saved!.model) }, arr(saved!.options))
+    : modelControl(context, saved ?? (defaultSelection === null ? null : obj(defaultSelection)), false);
   if (control.kind === 'text-only') return control;
   const shown = state.mixed ? 'Mixed' : saved === null ? 'None' : '';
-  return { ...control, label2: '', options2: [], ...(shown ? { label: shown, driver: '', badge: '' } : {}) };
+  const traits = saved !== null && !state.mixed && str(control.value).split('|')[0] === str(saved.instanceId);
+  return { ...control, ...(traits ? {} : { label2: '', options2: [] }), ...(shown ? { label: shown, driver: '', badge: '' } : {}) };
 }
 /** The model trigger and its TraitsPicker for one resolved instance, model and saved options. */
 export function traitsControl(context: { providers: Obj[]; settings?: Obj }, provider: Obj, model: Obj | undefined, selections: Obj[]): Partial<CoreRow> {
@@ -486,8 +535,13 @@ export function generalSections(client: T3Client, context: ServerContext, route 
     options: choices.map(([value, label]) => option(value, label, value === current)) });
   const value = (key: string) => serverState(context, key);
   const modelState = value('defaultModelSelection');
-  // ProjectDefaultsSettings: a Mixed model shows a neutral trigger and no Traits picker.
   const modelRow = modelControl(context, modelState.value === null ? null : obj(modelState.value), false);
+  // ProjectDefaultsSettings: a Mixed model shows a neutral trigger and no Traits picker; so does a model some target cannot
+  // run, with the reason as the row's status.
+  const modelMixed = defaultModelsMixed(context);
+  const automaticModel = context.targets.length > 0 && context.targets.every(target => targetValue(target, 'defaultModelSelection') === null);
+  const [modelInstance = '', modelSlug = ''] = modelRow.kind === 'text-only' ? [] : str(modelRow.value).split('|');
+  const effortReason = modelRow.kind === 'text-only' ? '' : scopedModelReason(context, modelInstance, modelSlug);
   const runtime = value('defaultRuntimeMode'), workspace = value('defaultThreadEnvMode'), submodules = value('worktreeSubmodules');
   const runtimeEntry = RUNTIME.find(entry => entry[0] === runtime.value) ?? RUNTIME[3];
   const autoSettle = capabilities.threadAutoSettlement === true && scope.connected;
@@ -504,14 +558,20 @@ export function generalSections(client: T3Client, context: ServerContext, route 
   const textControl = modelControl(context, textSelection, true); // a Mixed text generation model keeps its Traits picker
   const titleInstructions = value('threadTitleInstructions');
   const newThreads: CoreRow[] = [
-    serverRow(context, 'defaultModelSelection', 'default-model', 'Model', project ? 'Model for new threads in this project.' : scope.connected && !modelState.mixed && modelState.source !== 'project' && modelState.value === null ? 'Default model for new threads, selected automatically. Projects can override it.' : 'Default model for new threads. Projects can override it.', 'model',
-      { status: '', resetLabel: 'default model',
-        ...modelRow, ...(modelState.mixed && modelRow.kind !== 'text-only' ? { label: 'Mixed', mixed: true, label2: '' } : {}) }, modelState.value !== null),
+    serverRow(context, 'defaultModelSelection', 'default-model', 'Model', project ? 'Model for new threads in this project.' : scope.connected && modelState.source !== 'project' && automaticModel ? 'Default model for new threads, selected automatically. Projects can override it.' : 'Default model for new threads. Projects can override it.', 'model',
+      { resetLabel: 'default model', ...modelRow,
+        status: modelMixed ? `${automaticModel ? 'Automatic defaults differ.' : 'Defaults differ.'} Select one environment or choose a shared model to edit effort.` : effortReason,
+        ...(modelRow.kind === 'text-only' ? modelMixed ? { label: 'Mixed' } : {}
+          : modelMixed ? { label: automaticModel ? 'Automatic (mixed)' : 'Mixed', mixed: true, label2: '' } : effortReason ? { label2: '' } : {}) }, modelState.value !== null),
     ...(project ? [] : [serverRow(context, 'fallbackModelSelection', 'fallback-model', 'Fallback model', "Used for new threads when the default model's provider is out of usage.", 'model',
       { resetLabel: 'fallback model', ...fallbackControl(context, modelState.value) }, value('fallbackModelSelection').mixed || value('fallbackModelSelection').value !== null)]),
     serverRow(context, 'defaultRuntimeMode', 'default-permissions', 'Permissions', project ? 'Permissions for new threads in this project.' : 'Default permissions for new threads. Projects can override them.', 'select',
       { value: str(runtime.value), label: runtime.mixed ? 'Mixed' : runtimeEntry[1], icon: runtime.mixed ? '' : runtimeEntry[3], resetLabel: 'default permissions', menuWidth: 372,
-        options: RUNTIME.map(([id, label, detail, icon]) => option(id, label, id === runtime.value, { detail, icon })) }),
+        options: RUNTIME.map(([id, label, detail, icon]) => {
+          // ProjectDefaultsSettings: a mode above any target's ceiling stays listed, disabled, with the policy's reason.
+          const managedReason = firstManagedDenial(context.policies ?? [], policy => managedRuntimeModeDenial(policy, id));
+          return option(id, label, id === runtime.value, { detail: managedReason ?? detail, icon, disabled: managedReason !== undefined });
+        }) }),
     serverRow(context, 'defaultThreadEnvMode', 'new-threads', 'Workspace', project ? 'Where new threads in this project start.' : 'Where new threads start. Projects and their t3.json can override it.', 'select',
       { ...select(str(workspace.value), [['local', 'Current checkout'], ['worktree', 'New worktree']]), ...(workspace.mixed ? { label: scope.connected ? 'Mixed' : 'Unavailable' } : {}), resetLabel: 'default workspace' },
       !project && settings.defaultThreadEnvMode !== null && settings.defaultThreadEnvMode !== undefined),
@@ -529,8 +589,8 @@ export function generalSections(client: T3Client, context: ServerContext, route 
     // c5a929e1: Project order (client setting sidebarProjectSortOrder), w-full sm:w-44.
     deviceRow('sidebarProjectSortOrder', 'project-order', 'Project order', 'Order of projects in the sidebar project picker and command palette.', 'select',
       { ...select(prefs.sidebarProjectSortOrder, [['updated_at', 'Last user message'], ['created_at', 'Created at'], ['manual', 'Manual']]), width: 176, resetLabel: 'project order' }),
-    serverRow(context, 'autoResumeLimitedThreads', 'auto-resume-limited-threads', 'Resume after usage limits', 'Resume usage-limit stops at the reported reset time. Each thread can cancel its scheduled continuation.', 'switch', {}, false),
-    serverRow(context, 'snoozeLimitedThreads', 'snooze-limited-threads', 'Snooze until limits reset', 'Snooze usage-limit stops until reset. Pair with resume to continue on wake.', 'switch', {}, false),
+    serverRow(context, 'autoResumeLimitedThreads', 'auto-resume-limited-threads', 'Resume after usage limits', 'Automatically resume threads when their usage limits reset. You can cancel auto-resume in each thread.', 'switch', {}, false),
+    serverRow(context, 'snoozeLimitedThreads', 'snooze-limited-threads', 'Snooze until limits reset', 'Snooze threads until their usage limits reset. Enable auto-resume to continue the agent after the reset.', 'switch', {}, false),
     deviceRow('sidebarWorkingShelfEnabled', 'working-shelf', 'Working section', 'Fold working and monitoring threads into a Working section. They return to the top of the inbox when they need you.', 'switch'),
     ...(autoSettle ? [
       serverRow(context, 'sidebarAutoSettleOnMerge', 'auto-settle-merged-threads', 'Auto-settle merged threads', 'Settle a thread when its pull request merges. Closed pull requests still settle automatically.', 'switch', { resetLabel: 'auto-settle on merge' }),
@@ -555,7 +615,7 @@ export function generalSections(client: T3Client, context: ServerContext, route 
     deviceRow('diffColorScheme', 'diff-color-scheme', 'Diff colors', 'Choose colors for additions and deletions, including change counts.', 'select',
       { ...select(prefs.diffColorScheme, [['red-green', 'Red & green (default)'], ['blue-orange', 'Blue & orange']]), label: prefs.diffColorScheme === 'blue-orange' ? 'Blue & orange' : 'Red & green',
         icon: prefs.diffColorScheme === 'blue-orange' ? 'dots-blue-orange' : 'dots-red-green', resetLabel: 'diff colors' }),
-    deviceRow('proactivePanelsEnabled', 'proactive-panels', 'Proactive panels', 'Open linked pull requests first. Otherwise, open Changes for edits to at least 3 files or 50 lines.', 'switch'),
+    deviceRow('proactivePanelsEnabled', 'proactive-panels', 'Open pull requests and changes panels proactively', 'Open linked pull requests first. Otherwise, open Changes for edits to at least 3 files or 50 lines.', 'switch'),
     deviceRow('pullRequestLinksOpenInApp', 'pull-request-links-open-in-app', 'Open pull requests in T3 Code', 'Clicking a pull request link opens it in T3 Code. Turn off to open pull request links like any other link, on your git host.', 'switch',
       { resetLabel: 'open pull requests in T3 Code' }),
     deviceRow('showSkillsInSlashMenu', 'skills-in-slash-menu', 'Show skills in slash menu', 'Also include skills in the / command menu. Skills always appear when you type $.', 'switch'),
@@ -676,7 +736,8 @@ export function serverContext(client: T3Client, scope: CoreScope, files: Map<str
   return { settings: raw, scope, files, capabilities: obj(environment.capabilities), providers: arr(config.providers), environmentLabel: representative?.label || str(environment.label, 'environment'),
     targets: resolveScopedSettingsTargets(scope.resolved, connectedOf(client, scope, settings), files), restartEverywhere, autoSettlementScopeEverywhere,
     settingsWritable: connected.length > 0 && connected.every(entry => entry.scopes?.includes('settings:write') === true),
-    catalogs: new Map(scope.environments.map(entry => [entry.environmentId, arr((entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config).providers)])), local: client.local };
+    catalogs: new Map(scope.environments.map(entry => [entry.environmentId, arr((entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config).providers)])), local: client.local,
+    policies: connected.map(entry => managedPolicySummary(entry.fleetKey ? obj(fleetConfig(entry.fleetKey)) : client.config)) };
 }
 /**
  * useScopedModelDisabledReason / ProjectDefaultsSettings modelDisabledReason: a model choice fans
@@ -765,7 +826,8 @@ function modelValue(raw: string, part: string, key: string, context: ServerConte
   const current = serverState(context, key).value;
   const providers = context.providers.filter(provider => providerAvailable(provider) && (key !== 'textGenerationModelSelection' || provider.supportsTextGeneration !== false));
   if (part === 'effort') {
-    const control = modelControl(context, current === null ? null : obj(current), key === 'textGenerationModelSelection');
+    const control = key === 'fallbackModelSelection' ? fallbackControl(context, serverState(context, 'defaultModelSelection').value)
+      : modelControl(context, current === null ? null : obj(current), key === 'textGenerationModelSelection');
     const [instanceId, model] = str(control.value).split('|');
     // A bare value is a reasoning effort (older ids); "<descriptor>=<option>" picks one trait and keeps the others.
     const pick = raw.includes('=') ? raw : str(control.options2?.find(entry => /^(reasoningEffort|effort)=/.test(entry.value) && entry.value.endsWith(`=${raw}`))?.value);
@@ -827,7 +889,7 @@ const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser',
   ['Interface font', 'device', ['fontFamilySans', 'fontSizeInterface']], ['Prompt font', 'device', ['fontFamilyComposer', 'fontSizePrompt']],
   ['Code font', 'device', ['fontFamilyCode', 'fontSizeCode']], ['Terminal font', 'device', ['fontFamilyTerminal', 'fontSizeTerminal']],
   ['Default diff file state', 'device', ['diffFilesCollapsed']], ['Diff whitespace changes', 'device', ['diffIgnoreWhitespace']], ['Diff layout', 'device', ['diffLayout']],
-  ['Proactive panels', 'device', ['proactivePanelsEnabled']], ['Show skills in slash menu', 'device', ['showSkillsInSlashMenu']],
+  ['Open pull requests and changes panels proactively', 'device', ['proactivePanelsEnabled']], ['Show skills in slash menu', 'device', ['showSkillsInSlashMenu']],
   ['Rich text composer', 'device', ['composerRichTextEnabled']], ['Send shortcut', 'device', ['sendShortcut']],
   ['Follow-up behavior', 'device', ['followUpBehavior']], ['Context window indicator', 'device', ['contextWindowMeterEnabled']],
   ['Response streaming', 'server', ['responseStreamingMode']], ['Provider update checks', 'server', ['enableProviderUpdateChecks']],

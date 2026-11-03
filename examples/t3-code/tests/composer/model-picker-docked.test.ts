@@ -1,4 +1,4 @@
-// The composer's model control at 2359643cff (MIT, see LICENSE-T3): the model and its effort in one trigger, and the
+// The composer's model control at 5d3d78ab93 (MIT, see LICENSE-T3): the model and its effort in one trigger, and the
 // picker docking the effort column and a footer (ComposerModelEffort.tsx, ProviderModelPicker.tsx,
 // ModelPickerContent.tsx); with the composer's notices, Compact chip and context strip as v0.1.6 draws them.
 import { describe, expect, test } from 'bun:test';
@@ -13,10 +13,25 @@ const input = (descriptors: object[], selections: object[], extra: Partial<Effor
 
 describe('the effort column', () => {
   test('a model pick focuses the checked level, composer.effort falls back to the other options', () => {
-    const levels = effortColumn(input([effort, fast], [{ id: 'reasoningEffort', value: 'high' }])).rows;
+    const levels = effortColumn(input([effort, fast], [{ id: 'reasoningEffort', value: 'high' }]));
     expect([effortFocus(levels, 'levels'), effortFocus(levels, 'any')]).toEqual([2, 2]);
-    const toggles = effortColumn(input([{ id: 'webSearch', label: 'Web search', type: 'boolean', currentValue: true }], [])).rows;
+    const toggles = effortColumn(input([{ id: 'webSearch', label: 'Web search', type: 'boolean', currentValue: true }], []));
     expect([effortFocus(toggles, 'levels'), effortFocus(toggles, 'any')]).toEqual([-1, 0]);
+  });
+  test("an agent's own reasoning select (role \"reasoning\") is the levels; its other options are one row each under them", () => {
+    const thought = { id: 'thought_level', label: 'Thinking', type: 'select', role: 'reasoning', options: [{ id: 'low', label: 'Low' }, { id: 'high', label: 'High', isDefault: true }] };
+    const mode = { id: 'mode', label: 'Mode', type: 'select', options: [{ id: 'ask', label: 'Ask', description: 'Asks first' }, { id: 'code', label: 'Code', isDefault: true }] };
+    const web = { id: 'webSearch', label: 'Web search', type: 'boolean', currentValue: false };
+    const column = effortColumn(input([mode, thought, web], [{ id: 'mode', value: 'ask' }]));
+    expect(column.header).toBe('Thinking');
+    expect(column.groups.map(group => [group.kind, group.label, group.value, group.toggle, group.divider, group.tabStop, group.index])).toEqual([
+      ['control', 'Thinking', '', false, false, false, -1], ['option', 'Mode', 'Ask', false, true, false, 2], ['option', 'Web search', 'Off', true, false, false, 3]]);
+    expect(column.groups[0]!.options.map(row => [row.label, row.selected, row.tabStop])).toEqual([['Low', false, false], ['High', true, true]]);
+    expect(column.groups[1]!.options.map(row => [row.label, row.description, row.selected, row.isDefault, row.index])).toEqual([['Ask', 'Asks first', true, false, 0], ['Code', '', false, true, 1]]);
+    expect(column.order).toEqual([0, 1, 2, 3]);
+    // With only other options the header reads "Options", and the first row holds the tab stop.
+    const others = effortColumn(input([mode], []));
+    expect([others.header, others.groups[0]!.tabStop, others.groups[0]!.divider]).toEqual(['Options', true, false]);
   });
   test("an unavailable model's options read as values, and the column names it in its header", () => {
     const column = effortColumn(input([effort], [], { unavailable: true }));
@@ -27,15 +42,21 @@ describe('the effort column', () => {
 
 describe('the docked picker', () => {
   const picker = contractComponent('src/composer/model-picker.contract', 'ModelPicker');
-  const scope = (extra: object = {}) => ({ data: { running: false, composer: { toolbarTop: 600, effortHeight: 193, effortFocusAny: 1, effortGroups: [] } },
+  const scope = (extra: object = {}) => ({ data: { running: false, composer: { toolbarTop: 600, effortFocusAny: 1, effortGroups: [], effortOrder: [] } },
     catalog: { providers: [], models: [], count: 1, legacyCount: 0, searching: false, firstEnabled: 0, tallest: 0, setup: [], updateRequired: [], chatgptSharing: false,
       restCount: 1, restLegacyCount: 0, twoLineCount: 0, legacyTwoLineCount: 0, restTwoLineCount: 0, restLegacyTwoLineCount: 0, legacyDefault: false, selectedIndex: 0, selectedLegacy: false },
     viewport: { width: 1280, height: 840 }, query: '', left: 300, bottom: 260, session: 1, anchor: { id: '', top: 0, bottom: 0, left: 0 },
     modelAnchorX: 763, modelAnchorWidth: 143, modelOpenTarget: '', rem: 16, max: Math.max, min: Math.min, ...extra });
-  test('beside the list the column and under both the footer: 554 wide, end-aligned to its trigger when the start would overflow', () => {
+  test('one fixed height above the trigger, its footer under the row, end-aligned to the trigger and kept in the window', () => {
     const derived = picker.derives(picker.state(), scope());
-    expect([derived.docked, derived.width, derived.rowHeight, derived.natural]).toEqual([true, 554, 193, 193 + 45]);
+    expect([derived.docked, derived.width, derived.rowHeight, derived.natural, derived.height]).toEqual([true, 554, 346, 346 + 45, 346 + 45 + 2]);
     expect(derived.x).toBe(763 + 143 - 554);
+    expect(derived.y).toBe(840 - 260 + 4 - 4 - derived.height);
+    // A short window gets its full height: the popup slides over the composer and the row gives way to the footer.
+    const short = picker.derives(picker.state(), scope({ viewport: { width: 1280, height: 300 }, bottom: 120 }));
+    expect([short.height, short.y, short.rowHeight]).toEqual([290, 5, 290 - 2 - 45]);
+    // A trigger near the window's end shifts the popup back inside it.
+    expect(picker.derives(picker.state(), scope({ modelAnchorX: 1200, modelAnchorWidth: 140 })).x).toBe(1280 - 5 - 554);
     // A Settings row's picker keeps the list alone.
     expect(picker.derives(picker.state(), scope({ anchor: { id: 'row', top: 100, bottom: 128, left: 40 } })).width).toBe(362);
   });
@@ -43,15 +64,6 @@ describe('the docked picker', () => {
     const modelRow = contractComponent('src/composer/model-picker.contract', 'ModelRow');
     const fill = (highlighted: boolean) => modelRow.attribute('id=`model-row-${row.key}`', 'background-color', { over: false }, { highlighted, row: { kind: 'model', key: 'k', reason: '' } });
     expect([fill(true), fill(false)]).toEqual(['light-dark(#18181b17, #f5f5f517)', '#00000000']);
-  });
-  test('a locked note counts at its laid-out height, not three lines', () => {
-    const state = picker.state();
-    const locked = scope({ data: { running: false, composer: { toolbarTop: 600, effortHeight: 300, effortFocusAny: 1, effortGroups: [{ note: 'Your prompt contains…', options: [] }] } } });
-    expect(picker.derives(state, locked).rowHeight).toBe(300);
-    picker.call('noteSized', state, locked, [159, 70]);
-    expect(picker.derives(state, locked).rowHeight).toBe(300 + 70 - 54);
-    // The height a note measured no longer counts once the note is gone.
-    expect(picker.derives(state, scope()).rowHeight).toBe(193);
   });
   test('Return that confirms an input method\'s candidate picks nothing', () => {
     const picks: unknown[] = [];

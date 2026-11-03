@@ -1,5 +1,6 @@
 // T3 Code 74541bab17 (MIT, LICENSE-T3), ComposerPromptEditorTiptap saveCitationDraft and
 // ChatComposer saveCitationDraftToPrompt: retain a comment when a question replaces its editor.
+import { textDirection } from '../shared/text-direction';
 import type { T3Client } from '../client/client';
 import { str, type Obj } from '../client/domain';
 import { requestPresentation } from '../composer/requests';
@@ -28,6 +29,13 @@ export function noteCitationDraft(client: T3Client, seq: number, comment: string
   if (!draft || draft.seq !== seq || draft.key !== client.draftKey) return;
   draft.comment = comment;
   preserveCitationDraft(client);
+}
+
+/** The active comment, including unsaved typing; a different chip starts from its saved text. */
+export function citationCommentDirection(client: T3Client, seq: number, saved: string): string {
+  const draft = drafts.get(client);
+  const text = draft?.seq === seq && draft.key === client.draftKey ? draft.comment ?? saved : saved;
+  return textDirection(text) ?? 'ltr';
 }
 
 export function clearCitationDraft(client: T3Client, seq: number): void {

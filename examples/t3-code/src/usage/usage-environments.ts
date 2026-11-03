@@ -18,6 +18,7 @@ import { requireRpcPermissions } from '../connections/command-permissions';
 //   so a slow environment never holds the window or the other environments.
 import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { usageModelFilter, usageSummaryInput } from '../client/server-fields';
 import { ClientError, bridgeReply, type Native } from '../client/protocol';
 import { fleet as appFleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { startDetached, type DetachedReply } from '../composer/composer-replies';
@@ -153,9 +154,16 @@ function windowPayload(window: UsageWindowInput): Obj {
   if (window.sinceTime) { payload.sinceTime = window.sinceTime; payload.untilTime = window.untilTime; }
   return payload;
 }
+/** usageModelFilterAtom: the environment's `settings.usageModelFilter`, absent on servers that predate it. */
+const filterOf = (state: UsageState, id: string) => usageModelFilter(obj(state.envs.find(env => env.id === id)?.config?.settings));
+/** A summary's key: the window and, as the reference's query input carries it, the environment's model filter. */
+function summaryKey(state: UsageState, id: string): string {
+  const filter = filterOf(state, id);
+  return state.window ? windowKeyOf(state.window) + (filter === undefined ? '' : JSON.stringify(filter)) : '';
+}
 function summaryEntry(state: UsageState, id: string): Summary | null {
   if (!state.window) return null;
-  const windowKey = windowKeyOf(state.window);
+  const windowKey = summaryKey(state, id);
   let entry = state.summaries.get(id);
   if (!entry || entry.windowKey !== windowKey) state.summaries.set(id, entry = { windowKey, summary: null, error: '', pending: false, stale: true, token: 0, generation: -1, readAt: 0 });
   return entry;
@@ -170,7 +178,7 @@ function summaryEntry(state: UsageState, id: string): Summary | null {
 function readSummary(state: UsageState, id: string): Promise<void> {
   const entry = summaryEntry(state, id);
   if (!entry || !state.window) return Promise.resolve();
-  const token = ++entry.token, payload = windowPayload(state.window);
+  const token = ++entry.token, payload: Obj = usageSummaryInput(windowPayload(state.window), filterOf(state, id)) as Obj;
   entry.pending = true; entry.stale = false;
   entry.generation = state.envs.find(env => env.id === id)?.generation ?? -1;
   const current = () => entry.token === token && state.summaries.get(id) === entry;
@@ -213,10 +221,9 @@ export function forgetSummaries(state: UsageState): void {
 /** EnvironmentUsageStatus for each listed environment with what it reported for the current window. */
 export type EnvironmentUsageStatus = { environmentId: string; label: string; isPending: boolean; error: string | null; summary: Obj | null; needsCursorKeychainAccess: boolean; connected: boolean; phase: string };
 export function environmentStatuses(state: UsageState): EnvironmentUsageStatus[] {
-  const windowKey = state.window ? windowKeyOf(state.window) : '';
   return state.envs.map(env => {
     const entry = state.summaries.get(env.id);
-    const current = entry && entry.windowKey === windowKey && env.connected ? entry : null;
+    const current = entry && state.window && entry.windowKey === summaryKey(state, env.id) && env.connected ? entry : null;
     return { environmentId: env.id, label: env.label, connected: env.connected, phase: env.phase,
       isPending: !current || current.pending || current.stale, error: current?.error || null, summary: current?.summary ?? null,
       needsCursorKeychainAccess: needsCursorKeychainAccess(current?.summary ?? null, env.config ? arr(env.config.providers) : null) };

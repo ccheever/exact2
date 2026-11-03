@@ -82,3 +82,21 @@ describe('thread error banner message', () => {
       .toMatchObject({ errorSummary: 'Short error', errorExpandable: false });
   });
 });
+
+describe('usage-limit retry notice (#23029)', () => {
+  // 23:00 UTC on July 1 is 7 PM on July 1 in New York, whatever this machine's zone.
+  const now = Date.parse('2026-07-01T23:00:00.000Z'), zone = 'America/New_York';
+  test('relative days come from the calendar in the given zone', async () => {
+    const { formatUpcomingTimestamp } = await import('../../src/shared/timestamp-format');
+    expect(formatUpcomingTimestamp('2026-07-02T00:30:00.000Z', '12-hour', now, zone)).toBe('8:30 PM');
+    expect(formatUpcomingTimestamp('2026-07-02T05:30:00.000Z', '12-hour', now, zone)).toBe('tomorrow at 1:30 AM');
+    expect(formatUpcomingTimestamp('2026-06-30T05:30:00.000Z', '12-hour', now, zone)).toBe('yesterday at 1:30 AM');
+    expect(formatUpcomingTimestamp('2026-07-05T05:30:00.000Z', '24-hour', now, zone)).toBe('7/5 01:30');
+  });
+  test('the label names the reset time and the viewer\'s zone, or only the limit when there is none', async () => {
+    const { usageLimitLabel } = await import('../../src/timeline/timeline-presentation');
+    const viewer = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+    expect(usageLimitLabel('2026-07-01T23:30:00.000Z', '12-hour', now)).toMatch(new RegExp(`^Usage limit reached\\. Retry after .+ \\(${viewer.replace('+', '\\+')}\\)\\.$`));
+    expect(usageLimitLabel('', '12-hour', now)).toBe('Usage limit reached.');
+  });
+});

@@ -38,6 +38,26 @@ describe('workspace provider discovery', () => {
     const second = again.state('env', 1, stale, '/repo', wake, true, now + 10_000);
     expect((await again.refresh(second.key, async () => ({ providers: [fresh] }))).retry).toBe(false);
   });
+  test('reports skills loading while a missing or pending snapshot is scanned, never after a failure or once complete (isProviderWorkspaceSnapshotScanning)', async () => {
+    const discovery = new WorkspaceDiscovery(), now = Date.parse('2026-11-01T00:00:00Z');
+    const absent = { instanceId: 'p', skills: [], slashCommands: [], workspaceSnapshots: [] };
+    const first = discovery.state('env', 1, absent, '/repo', { prompt: '', config: absent }, true, now);
+    expect(discovery.scanning(absent, '/repo')).toBe(false);
+    let answer = (_value: Obj) => {};
+    const flight = discovery.refresh(first.key, () => new Promise<Obj>(resolve => { answer = resolve; }));
+    expect(discovery.scanning(absent, '/repo')).toBe(true);
+    expect(discovery.scanning(absent, '/elsewhere')).toBe(false);
+    answer({ providers: [partial] });
+    await flight;
+    // The server is still discovering: a pending snapshot keeps it loading.
+    discovery.state('env', 1, partial, '/repo', { prompt: '', config: partial }, true, now + 1);
+    expect(discovery.scanning(partial, '/repo')).toBe(true);
+    discovery.state('env', 1, complete, '/repo', { prompt: '', config: complete }, true, now + 2);
+    expect(discovery.scanning(complete, '/repo')).toBe(false);
+    const failing = new WorkspaceDiscovery(), state = failing.state('env', 1, absent, '/gone', { prompt: '', config: absent }, true, now);
+    await failing.refresh(state.key, async () => { throw new Error('no such directory'); });
+    expect(failing.scanning(absent, '/gone')).toBe(false);
+  });
   test('uses partial workspace skills and commands while keeping discovery retryable', () => {
     expect(hasCompleteProviderWorkspaceSnapshot(partial, '/repo')).toBe(false);
     expect(workspaceValues(partial, '/repo', 'skills')).toEqual([{ name: 'repo-skill' }]);

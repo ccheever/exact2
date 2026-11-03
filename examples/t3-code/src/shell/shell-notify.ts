@@ -1,5 +1,5 @@
 // Thread notifications (MIT reference: components/
-// ThreadNotificationCoordinator.tsx and ThreadNotificationCoordinator.logic.ts at 2359643cff, threadNotifications.ts; the tag filter at 5d3d78ab93).
+// ThreadNotificationCoordinator.tsx and ThreadNotificationCoordinator.logic.ts at 5d3d78ab93, threadNotifications.ts).
 // Provider updates raise no toast at launch: the sidebar's pill and Settings ›
 // Providers offer them. The window's focus is the page's
 // (`exactPage().hasFocus`, document.hasFocus(): exact2 #219), and so is the permission
@@ -45,33 +45,25 @@ export type NotifyStatus = { active: boolean; authorization: string; opened: str
 /** ThreadNotificationObservation: the attention key, and whether the thread is idle with its latest run completed (when). */
 type Memory = { attention: string | null; settled: boolean; completedAt: number | null };
 /**
- * threadInbox.ts WORKING_EXIT_GRACE_MS, which sidebar/thread-inbox.ts reads too: the Working shelf keeps a thread that
- * stopped working for 2 s, as an orchestrator run can end moments before its continuation starts; "Thread completed"
- * waits as long.
+ * threadInbox.ts WORKING_EXIT_GRACE_MS, which sidebar/thread-inbox.ts reads: the Working shelf keeps a thread that
+ * stopped working for 2 s, as an orchestrator run can end moments before its continuation starts. Notifications do not
+ * wait for it.
  */
 export const WORKING_EXIT_GRACE_MS = 2_000;
-/**
- * createThreadNotificationGate on the shell's clock: a completion waits WORKING_EXIT_GRACE_MS from the first tick after
- * it was seen (`seen` is that answer's reading, `due` 0 until the tick; the clock reads the time only when it ticks).
- */
-export type NotifyGate = { pending: Map<string, { at: number; seen: number; due: number }>; handled: Map<string, number>; lastSettled: Map<string, number> };
-export const notifyGate = (): NotifyGate => ({ pending: new Map(), handled: new Map(), lastSettled: new Map() });
-/** Each environment's EnvironmentNotifications memory and gate, by environment id, and those whose shell was not live
- *  since they were last observed (WatchedEnvironment.reconnecting). */
+/** createThreadNotificationGate: the newest completion of each thread already notified, or deliberately skipped. */
+export type NotifyGate = { handled: Map<string, number> };
+export const notifyGate = (): NotifyGate => ({ handled: new Map() });
+/** Each environment's EnvironmentNotifications memory and gate, by environment id. */
 type NotifyState = {
-  previous: Map<string, Map<string, Memory>>; gates: Map<string, NotifyGate>; reconnecting: Set<string>; mode: string;
+  previous: Map<string, Map<string, Memory>>; gates: Map<string, NotifyGate>; mode: string;
   /** The open "Open thread" toasts and the pending notifications' tags, by thread key, so hiding a thread can close them. */
   openToasts: Map<string, number[]>; notified: Map<string, string>;
 };
 const states = new WeakMap<T3Client, NotifyState>();
 function notifyState(client: T3Client): NotifyState {
   let state = states.get(client);
-  if (!state) { state = { previous: new Map(), gates: new Map(), reconnecting: new Set(), mode: '', openToasts: new Map(), notified: new Map() }; states.set(client, state); }
+  if (!state) { state = { previous: new Map(), gates: new Map(), mode: '', openToasts: new Map(), notified: new Map() }; states.set(client, state); }
   return state;
-}
-/** A completion waits out its grace: the shell's clock must keep ticking until it notifies or is cancelled. */
-export function notificationsWaiting(client: T3Client): boolean {
-  return [...notifyState(client).gates.values()].some(gate => gate.pending.size > 0);
 }
 
 export const hasNotificationSound = (mode: string) => mode === 'sound' || mode === 'notifications-and-sound';
@@ -195,17 +187,13 @@ type Transition = { threadId: string; kind: 'completion' | 'input'; status: stri
 
 /**
  * EnvironmentNotifications: each root thread's observation against the previous shell of the same environment (the
- * focused client's or a background one's). The first live shell only records. Attention notifies at once and replaces
- * the completion before it; a completion waits out the grace in `gate` and notifies once, and an observation that is
- * not settled meanwhile cancels it. Archived threads and stopped runs (latestRunStopRequested) notify no completion.
- * `now` is the shell's clock; a caller without one gets completions at once. After a reconnect (`reobserve`) every thread
- * is observed again, as the reference's changed threads are, so a completion whose wait the disconnect cancelled waits
- * again.
+ * focused client's or a background one's). The first live shell only records. Attention and a completion notify at
+ * once, a completion once (`gate`). The first sighting, archived threads and stopped runs (latestRunStopRequested)
+ * notify no completion.
  */
-export function threadTransitions(environment: { shell: Shell }, previous: Map<string, Memory> | null, gate: NotifyGate = notifyGate(), now = 0, reobserve = false): { next: Map<string, Memory>; transitions: Transition[] } {
-  const next = new Map<string, Memory>(), transitions: Transition[] = [], statuses = new Map<string, string>();
+export function threadTransitions(environment: { shell: Shell }, previous: Map<string, Memory> | null, gate: NotifyGate = notifyGate()): { next: Map<string, Memory>; transitions: Transition[] } {
+  const next = new Map<string, Memory>(), transitions: Transition[] = [];
   noteSubagentRequests(environment.shell.threads); // subagents are skipped below, so their requests notify through the thread above them
-  const cancel = (key: string) => { gate.pending.delete(key); };
   const skip = (key: string, at: number | null) => { if (at !== null && at > (gate.handled.get(key) ?? -Infinity)) gate.handled.set(key, at); };
   const transition = (id: string, kind: Transition['kind'], status: string) => transitions.push({ threadId: id, kind, status,
     title: kind === 'completion' ? 'Thread completed' : status === 'approval' ? 'Approval needed' : status === 'limited' ? 'Usage limit reached' : status === 'failed' ? 'Thread failed' : 'Input needed' });
@@ -220,34 +208,19 @@ export function threadTransitions(environment: { shell: Shell }, previous: Map<s
     const completedAt = Date.parse(run?.completedAt ?? '');
     const settled = status === 'ready' && run?.status === 'completed';
     const observed: Memory = { attention, settled, completedAt: settled && Number.isFinite(completedAt) ? completedAt : null };
-    next.set(id, observed); statuses.set(id, status);
+    next.set(id, observed);
     const archived = thread.archivedAt != null, quiet = thread.latestRunStopRequested === true;
-    if (observed.settled && observed.completedAt !== null) gate.lastSettled.set(id, observed.completedAt);
-    if (!observed.settled || archived || quiet) cancel(id);
     if (!prior || archived || quiet) skip(id, observed.completedAt);
     if (!prior || archived) continue;
-    if (attention && attention !== prior.attention) {
-      skip(id, gate.lastSettled.get(id) ?? null);
-      cancel(id);
-      transition(id, 'input', status);
-      continue;
-    }
+    if (attention && attention !== prior.attention) { transition(id, 'input', status); continue; }
     const at = observed.completedAt;
-    // A completion the previous shell already showed settled was taken then (scheduled, notified or skipped).
-    if (!observed.settled || at === null || at <= (gate.handled.get(id) ?? -Infinity) || gate.pending.get(id)?.at === at || (!reobserve && prior.settled && prior.completedAt === at)) continue;
-    // A caller without a clock (now 0) has no grace to wait out.
-    if (!(now > 0)) { gate.handled.set(id, at); transition(id, 'completion', status); continue; }
-    gate.pending.set(id, { at, seen: now, due: 0 });
+    // A completion the previous shell already showed settled was taken then (the reference observes changed threads only).
+    if (!observed.settled || at === null || at <= (gate.handled.get(id) ?? -Infinity) || (prior.settled && prior.completedAt === at)) continue;
+    gate.handled.set(id, at);
+    transition(id, 'completion', status);
   }
   // retain: threads that left the snapshot are forgotten.
-  for (const map of [gate.pending, gate.handled, gate.lastSettled]) for (const key of [...map.keys()]) if (!next.has(key)) map.delete(key);
-  for (const [id, wait] of [...gate.pending]) {
-    if (!wait.due && now > wait.seen) wait.due = now + WORKING_EXIT_GRACE_MS;
-    if (!wait.due || now < wait.due) continue;
-    gate.pending.delete(id);
-    gate.handled.set(id, wait.at);
-    transition(id, 'completion', statuses.get(id) ?? 'ready');
-  }
+  for (const key of [...gate.handled.keys()]) if (!next.has(key)) gate.handled.delete(key);
   return { next, transitions };
 }
 
@@ -256,7 +229,8 @@ export function transitionToast(transition: Transition) {
   const kind = transition.kind === 'completion' ? 'success' as const : transition.status === 'failed' ? 'error' as const : 'warning' as const;
   const leading = transition.kind === 'completion' ? 'circle-check:success-foreground'
     : transition.status === 'approval' ? 'shield-question:warning-foreground'
-      : transition.status === 'failed' ? 'circle-alert:destructive-foreground' : 'message-circle-question:info-foreground';
+      : transition.status === 'limited' ? 'circle-alert:warning-foreground'
+        : transition.status === 'failed' ? 'circle-alert:destructive-foreground' : 'message-circle-question:info-foreground';
   return { kind, leading };
 }
 
@@ -281,8 +255,8 @@ export function notifyEnvironments(client: T3Client, source: EnvironmentFleet = 
 
 /**
  * ThreadNotificationCoordinator: one EnvironmentNotifications per environment. Each keeps its own
- * memory, dropped when the environment leaves. While its shell is not live only the waiting completions are cancelled
- * (the gate's cancelPending): the memory stays, so what changed during a disconnect notifies once on reconnect. A toast's
+ * memory, dropped when the environment leaves. While its shell is not live it is not observed: the memory stays, so
+ * what changed during a disconnect notifies once on reconnect. `now` is the sounds' clock. A toast's
  * "Open thread" and a clicked notification name the thread with its environment
  * (`fleet:<environment>:<thread>`, the reference's /$environmentId/$threadId route), which
  * `select-thread` opens in place when that environment is the focus and focuses it otherwise.
@@ -299,16 +273,16 @@ export async function threadNotifications(client: T3Client, status: NotifyStatus
   // applyMode clears what is pending, and the window's `focus` clears it while desktop notifications are on.
   if (modeChanged || status.active) await clearPending(client, modeChanged);
   await closeHiddenPending(client, source);
-  if (mode === 'off' && !inApp) { state.previous.clear(); state.gates.clear(); state.reconnecting.clear(); return; }
+  if (mode === 'off' && !inApp) { state.previous.clear(); state.gates.clear(); return; }
   const environments = notifyEnvironments(client, source);
   const listed = new Set(environments.map(environment => environment.environmentId));
-  for (const environmentId of [...state.previous.keys()]) if (!listed.has(environmentId)) { state.previous.delete(environmentId); state.gates.delete(environmentId); state.reconnecting.delete(environmentId); }
+  for (const environmentId of [...state.previous.keys()]) if (!listed.has(environmentId)) { state.previous.delete(environmentId); state.gates.delete(environmentId); }
   const pending: { environment: WatchedEnvironment; transition: Transition }[] = [];
   for (const environment of environments) {
-    if (!environment.live) { state.gates.get(environment.environmentId)?.pending.clear(); state.reconnecting.add(environment.environmentId); continue; }
+    if (!environment.live) continue;
     let gate = state.gates.get(environment.environmentId);
     if (!gate) state.gates.set(environment.environmentId, gate = notifyGate());
-    const { next, transitions } = threadTransitions(environment, state.previous.get(environment.environmentId) ?? null, gate, now, state.reconnecting.delete(environment.environmentId));
+    const { next, transitions } = threadTransitions(environment, state.previous.get(environment.environmentId) ?? null, gate);
     state.previous.set(environment.environmentId, next);
     for (const transition of transitions) pending.push({ environment, transition });
   }

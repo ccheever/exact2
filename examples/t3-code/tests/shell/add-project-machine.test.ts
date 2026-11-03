@@ -206,6 +206,19 @@ describe('the dialog (AddProjectToMachineDialog)', () => {
     expect(addMachineView(client).error).toBe('Choose a folder on the other machine.');
   });
 
+  test('a path pasted from Finder replaces the folder the field held; typing keeps its escapes', async () => {
+    primaryAt('http://127.0.0.1:16960', 'env');
+    const { client, native } = harness({ listing: false });
+    await machine('studio', 'Studio');
+    await addMachineLocal(client, native, 'open', '', '');
+    expect(addMachineView(client).destination).toBe('~/code/widgets');
+    await addMachineLocal(client, native, 'path', '', "~/code/widgets'/Users/me/My Code'");
+    expect(addMachineView(client).destination).toBe('/Users/me/My Code');
+    await addMachineLocal(client, native, 'path', '', '');
+    for (const char of '/tmp/a\\ b') await addMachineLocal(client, native, 'path', '', `${addMachineView(client).destination}${char}`);
+    expect(addMachineView(client).destination).toBe('/tmp/a\\ b');
+  });
+
   test('Return in the folder field before the ignored files load starts nothing (the button is disabled then)', async () => {
     primaryAt('http://127.0.0.1:16960', 'env');
     const { client, native, calls } = harness();

@@ -11,7 +11,7 @@ import { projectIdentity } from '../client/presentation';
 import { applySticky } from '../composer/composer-controls';
 import type { T3Client } from '../client/client';
 import { welcomeShowing } from './pages-welcome';
-import { cachedDisplayNames, heroGroupMembers, heroGroups } from '../sidebar/project-groups';
+import { heroGroupMembers, heroGroups } from '../sidebar/project-groups';
 import { canPinProjectGroup, setProjectGroupPinned } from '../sidebar/project-pin';
 import { pinChord, projectsSpanEnvironments, shortcutLabel as commandShortcutLabel } from '../sidebar/sidebar-view';
 import { projectEnvironmentBadge } from '../connections/settings-b-fleet';
@@ -157,8 +157,8 @@ export async function pagesHome(client: T3Client, native: Native | null | undefi
   const resolved = !!project;
   const headline = heroHeadline({ scratchDraft, resolved, canChoose: projects.length > 0 });
   const connected = client.connection === 'connected';
-  // The logical project's name (project-groups.ts), as DraftHeroHeadline's activeProjectDisplayName.
-  const projectName = scratchDraft ? 'No project' : (project && cachedDisplayNames(client).get(client.projectId)) || str(project?.title, 'Choose a project');
+  // The selected checkout's own title (DraftHeroHeadline's activeProjectTitle), not its project group's name.
+  const projectName = scratchDraft ? 'No project' : str(project?.title, 'Choose a project');
   return {
     // /welcome renders NoProjectsHero beneath the wizard.
     // IndexDraftLanding renders nothing until it has picked, or, with no project anywhere, until every environment's shell is in (home-landing.ts).

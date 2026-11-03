@@ -88,6 +88,18 @@ export class WorkspaceDiscovery {
     return { key: attempt.key, needed: !attempt.complete && !exhausted, timer: pendingSnapshot(provider, cwd), wake: this.wake };
   }
 
+  /**
+   * isProviderWorkspaceSnapshotScanning: a scan is in flight, or the server is still discovering, for a cwd without a
+   * complete snapshot, so its skills and commands may still arrive. A failed scan clears the request and exhausted
+   * attempts end it, so this cannot stay true for a scan that will not finish.
+   */
+  scanning(provider: Obj, cwd: string): boolean {
+    const attempt = this.selected;
+    if (!attempt || attempt.cwd !== cwd || attempt.instanceId !== str(provider.instanceId)) return false;
+    return (attempt.flight !== null || attempt.requestedAt !== undefined || pendingSnapshot(provider, cwd)) && !this.hadSnapshot.get(attempt.base)
+      && (this.failures.get(attempt.base) ?? 0) < WORKSPACE_SNAPSHOT_MAX_ATTEMPTS;
+  }
+
   async refresh(key: string, request: (method: string, payload: Obj) => Promise<Obj>): Promise<WorkspaceRefresh> {
     const attempt = this.selected;
     // Root mutations carry the readiness key, so switching environments before

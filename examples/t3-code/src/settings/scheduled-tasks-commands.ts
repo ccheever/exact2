@@ -4,12 +4,13 @@
 // and runNow). Each write is addressed to the task's own environment (the focused transport
 // or its fleet transport, live-streams.ts) and checks the task against that environment's
 // live list (the newest `scheduledTasks.subscribe` snapshot).
+import { clampManagedRuntimeMode, managedPolicySummary, RUNTIME_MODES, type RuntimeMode } from '../client/managed-policy';
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { bridgeReply, ClientError, providerAvailable, type Native } from '../client/protocol';
 import { taskInput } from './scheduled-view';
 import { currentTasks, liveEnvironment, type LiveEnvironment } from '../client/live-streams';
-import { matchesScheduledTaskScope } from './scheduled-tasks';
+import { matchesScheduledTaskScope, offersOnceSchedules } from './scheduled-tasks';
 import { pushToast } from '../shell/toast';
 import { fleet } from '../connections/settings-b-fleet';
 import { webhookAddress } from './scheduled-webhook';
@@ -33,7 +34,10 @@ export async function scheduledTaskCommand(client: T3Client, native: Native, sco
   if (input.id && (!task || !scoped(str(task.projectId)))) throw new ClientError('This scheduled task no longer exists.');
   if (input.action === 'save') {
     let payload: Obj;
-    try { payload = taskInput(input, task); } catch (error) { throw new ClientError(error instanceof Error ? error.message : 'Could not save scheduled task.'); }
+    try { payload = taskInput(input, task, offersOnceSchedules(environment.config, task)); } catch (error) { throw new ClientError(error instanceof Error ? error.message : 'Could not save scheduled task.'); }
+    // Tasks have no mode picker; a mode above the administrator's ceiling would fail every run.
+    const mode = str(payload.runtimeMode);
+    if (RUNTIME_MODES.includes(mode as RuntimeMode)) payload.runtimeMode = clampManagedRuntimeMode(managedPolicySummary(environment.config), mode as RuntimeMode) ?? mode;
     if (!environment.shell.projects.some(project => project.id === payload.projectId) || !scoped(str(payload.projectId))) throw new ClientError('Scheduled task is incomplete: Add a title, prompt, project, and model.');
     const selection = obj(payload.modelSelection);
     const provider = arr(environment.config.providers).find(entry => entry.instanceId === selection.instanceId && providerAvailable(entry));

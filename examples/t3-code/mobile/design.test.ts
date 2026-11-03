@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mobileHomeColors, mobileHtmlRenderTheme, mobileTheme, mobileThreadColors } from './design';
+import { mobileGlassColors, mobileHomeColors, mobileHtmlRenderTheme, mobileTheme, mobileThreadColors } from './design';
 
 describe('mobile user intent badge appearance', () => {
   const expected = {
@@ -61,6 +61,11 @@ describe('iOS sidebar runtime palette', () => {
 test('thread attachments expose the pinned subtle-strong backing role', () => {
   expect(mobileThreadColors('light').subtleStrong).toBe('#fafafa');
   expect(mobileThreadColors('dark').subtleStrong).toBe('#111111');
+});
+
+test('preview chrome keeps the source glass tokens independent of thread shape', () => {
+  expect(mobileGlassColors('light')).toEqual({ glassTint: 'rgba(255, 255, 255, 0.22)', glassFallback: 'rgba(244, 244, 245, 0.94)' });
+  expect(mobileGlassColors('dark')).toEqual({ glassTint: 'rgba(17, 17, 17, 0.22)', glassFallback: 'rgba(26, 27, 27, 0.9)' });
 });
 
 test('history controls use a translucent border role', () => {

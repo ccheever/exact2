@@ -13,6 +13,7 @@ import { settingsScopeEnvironmentLabel } from './settings-scope';
 import { letGo } from '../client/let-go';
 import { sleep } from '../client/command-waits';
 import { hiddenArchivedKeys, threadKey } from '../sidebar/thread-tag-filter';
+import { managedSettingReason } from './managed-policy';
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Could not load this section.';
 type NoticeRow = { id: string; name: string; version: string; license: string; bundles: string; sourceUrl: string; expanded: boolean; noticeText: string };
@@ -152,7 +153,8 @@ export async function archivedSettings(client: T3Client, native: Native | null |
 
 const bytes = (value: unknown) => formatBytes(num(value));
 
-type StorageRuleView = { mixed: boolean; key: string; label: string; description: string; enabled: boolean; days: string; retention: boolean; first: boolean; decrease: string; increase: string };
+/** `managed`: "Managed by <organization>." when a target's policy locks the rule, else ''. */
+type StorageRuleView = { mixed: boolean; key: string; label: string; description: string; enabled: boolean; days: string; retention: boolean; first: boolean; decrease: string; increase: string; managed: string };
 // StorageSettings.tsx: copy, order and scope rules of the reference route. Cleanup's rules, then the two under its
 // Advanced fold, then Artifacts and logs.
 const storageDefinitions = [
@@ -190,7 +192,7 @@ export async function worktreeRows(client: T3Client, native: Native, scope: Retu
 }
 export async function storageSettings(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, machine: string | undefined = undefined, projectKey = '', checkout = '', now = 0) {
   const modeLabels: Record<string, string> = { inherit: 'Inherit', off: 'Off', custom: 'Custom' };
-  const empty = { writeScope: `${machine ?? environmentId}|${projectKey}|${checkout}`, cleanupAvailable: false, cleanupDisabled: true, cleanupDescription: '', databaseNotices: [] as DatabaseNotice[], directory: '', directoryMixed: false, directorySupported: false, keepSupported: false, keepValue: '', keepDescription: '', keepOptions: [] as { value: string; label: string; selected: boolean }[],
+  const empty = { writeScope: `${machine ?? environmentId}|${projectKey}|${checkout}`, cleanupAvailable: false, cleanupDisabled: true, cleanupDescription: '', databaseNotices: [] as DatabaseNotice[], directory: '', directoryMixed: false, directorySupported: false, keepSupported: false, keepValue: '', keepManaged: '', keepDescription: '', keepOptions: [] as { value: string; label: string; selected: boolean }[],
     available: false, project: projectId !== '', error: '', notice: '', mode: 'inherit', modeLabel: 'Inherit', modeDescription: '', scope: `${environmentId}:${projectId}`, modes: [] as { value: string; label: string; selected: boolean }[], worktrees: [] as StorageRuleView[], worktreesAdvanced: [] as StorageRuleView[], artifacts: [] as StorageRuleView[], cleanupSummary: '', cleanupReports: [] as { id: string; label: string; counts: string; entries: CleanupEntry[]; omitted: string; omittedFirst: boolean; empty: string; emptyFirst: boolean }[],
     creation: [] as CoreRow[], creationAdvanced: [] as CoreRow[], branches: [] as ScopedRow[], diagnostics: [] as CoreRow[], codePreview: NO_PREVIEW };
   if (!active) { artifactStatuses.delete(client); return empty; }
@@ -223,7 +225,10 @@ export async function storageSettings(client: T3Client, native: Native | null | 
     const targetIds = context.targets.map(target => target.environmentId).sort().join(',');
     const mixed = (key: string) => key !== 'browserArtifactsAfterDays' && key !== 'logsAfterDays' ? differs(key)
       : context.targets.length > 1 && settledStatus(client, native as Native, key, `${targetIds}:${differs(key)}`) === `${targetIds}:true`;
-    const view = (definitions: (typeof storageDefinitions)[number][], first: boolean) => definitions.map(([key, label, description, retention], index) => ({ key, label, description: mixed(key) ? `Mixed across selected machines. ${description}` : description, mixed: mixed(key), retention, first: first && index === 0, enabled: retention ? typeof rules[key] === 'number' : rules[key] === true, days: typeof rules[key] === 'number' ? String(rules[key]) : '8',
+    // StorageSettings lockablePath: a policy locks the worktree rules through worktreeCleanup, which also reaches each project's own rules.
+    const managed = (key: string) => managedSettingReason(context.policies ?? [], key === 'browserArtifactsAfterDays' || key === 'logsAfterDays' ? [`storageCleanup.${key}`]
+      : project ? ['worktreeCleanup'] : ['worktreeCleanup', `storageCleanup.${key}`]) ?? '';
+    const view = (definitions: (typeof storageDefinitions)[number][], first: boolean) => definitions.map(([key, label, description, retention], index) => ({ key, label, managed: managed(key), description: mixed(key) ? `Mixed across selected machines. ${description}` : description, mixed: mixed(key), retention, first: first && index === 0, enabled: retention ? typeof rules[key] === 'number' : rules[key] === true, days: typeof rules[key] === 'number' ? String(rules[key]) : '8',
       decrease: String(Math.max(key === 'worktreeSettledAfterDays' ? 0 : 1, num(rules[key], 8) - 1)), increase: String(Math.min(3650, num(rules[key], 8) + 1)) }));
     const environments = liveEnvironments(client, native).filter(environment => scope.selected.some(selected => selected.environmentId === environment.environmentId)
       && environment.connected && obj(obj(environment.config.environment).capabilities).storageCleanupRun === true);
@@ -244,6 +249,7 @@ export async function storageSettings(client: T3Client, native: Native | null | 
     const keep = str(rules.worktreeKeepWhen, 'uncommitted-changes');
     return { ...page, available: configurable, project, notice: !configurable ? 'Update the selected environments to configure storage cleanup.' : scope.selected.some(environment => environment.connection.phase !== 'connected') ? 'Offline environments are skipped until they reconnect.' : '', writeScope: `${machine === undefined ? environmentId : machine}|${legacy?.key ?? projectKey}|${checkout}`, databaseNotices, cleanupAvailable: !project && environments.length > 0, cleanupDisabled: !hasRules || writable.length === 0, cleanupDescription: !hasRules ? 'Turn on a cleanup rule to use this.' : environments.map(environment => { const report = environment.cleanup.value?.[0]; return `${environments.length > 1 ? environment.label + ': ' : ''}${report ? `Last run ${relativeTimeLabel(str(report.finishedAt), now)}. ${bytes(report.bytesFreed)} recovered.` : environment.cleanup.error ? 'Could not load the last run.' : environment.cleanup.value === null ? 'Loading last run…' : "Cleanup hasn't run yet."}`; }).join('\n'), cleanupReports, cleanupSummary: lastRunSummary(cleanupReports, selected.length), directory: directoryMixed ? '' : str(settings.worktreesDirectory), directoryMixed, directorySupported, keepSupported: showRules && supports('storageCleanupRun'), keepValue: mixed('worktreeKeepWhen') ? '' : keep,
       keepDescription: mixed('worktreeKeepWhen') ? 'Mixed across selected machines.' : keep === 'any-local-files' ? 'Includes ignored files, except node_modules.' : keep === 'tracked-changes' ? 'Deletes untracked and ignored files, including .env.' : 'Keeps edits and untracked files. Deletes ignored files, including .env.',
+      keepManaged: managed('worktreeKeepWhen'),
       keepOptions: [['any-local-files', 'Any local files'], ['uncommitted-changes', 'Uncommitted changes'], ['tracked-changes', 'Edited tracked files']].map(([value, label]) => ({ value, label, selected: !mixed('worktreeKeepWhen') && value === keep })),
       mode, modeLabel: mixedModes ? 'Mixed' : modeLabels[mode] || 'Inherit',
 

@@ -181,8 +181,11 @@ describe('ThemeColorPickerPanel fields', () => {
     expect(['12, 34, 56', '12 34 56', 'rgb(12, 34, 56)', ' RGB( 12,34,56 ) ', '12,  34 ,56'].map(themeRgbToHex)).toEqual(Array(5).fill('#0c2238'));
     expect(['12, 34', '12, 34, 56, 78', '256, 0, 0', '-1, 0, 0', '1.5, 2, 3', 'a, b, c', '', 'rgb()'].map(themeRgbToHex)).toEqual(Array(8).fill(null));
   });
-  test('HEX commits only a complete six-digit value, lowercased, and drops the alpha; RGB and the controls keep it', () => {
-    expect(['#ABCDEF', '#abc', '#abcd', 'abcdef', '#abcdef12', '#abcdeg'].map(text => pickerCommit('hex', text, '#11223380'))).toEqual(['#abcdef', null, null, null, null, null]);
+  // colorPickers.browser.test.tsx "keeps a translucent color's alpha when a hex value is typed" (5d3d78ab93).
+  test('HEX commits only a complete six-digit value, lowercased; HEX, RGB and the controls keep the alpha', () => {
+    expect(['#ABCDEF', '#abc', '#abcd', 'abcdef', '#abcdef12', '#abcdeg'].map(text => pickerCommit('hex', text, '#11223380'))).toEqual(['#abcdef80', null, null, null, null, null]);
+    expect(pickerCommit('hex', '#ff0000', '#22ccff80')).toBe('#ff000080');
+    expect(pickerCommit('hex', '#ff0000', '#22ccff')).toBe('#ff0000');
     expect(pickerCommit('rgb', '1, 2, 3', '#11223380')).toBe('#01020380');
     expect(pickerCommit('rgb', '1, 2', '#11223380')).toBeNull();
     expect(pickerCommit('color', '#00ffff', '#112233')).toBe('#00ffff');
@@ -239,6 +242,27 @@ describe('the picker in the theme editor', () => {
     expect(row(fake, 'create', '#1', 'accent').value).toBe('#abcdef');
   });
 
+  // ThemeEditorPanel.browser.test.tsx "restores the colors from before the picker opened when Escape closes it" (5d3d78ab93).
+  test('Escape restores every colour, derived roles too, to the snapshot the opening took', () => {
+    const fake = client();
+    syncDraft(as(fake), 'create', '#1', prefs(fake), 'light');
+    const before = { ...currentDraft(as(fake))!.colors.light };
+    op(fake, 'edit-start', 'accent', '', 10);
+    op(fake, 'color', 'accent', '#00ffff', 11);
+    expect(previewTheme(as(fake))!.light!.focus).toBe('#00ffff');
+    op(fake, 'edit-cancel', 'accent', '', 12);
+    expect(currentDraft(as(fake))!.colors.light).toEqual(before);
+    expect(row(fake, 'create', '#1', 'accent').seq).toBe(12);
+    // A commit stamped before the cancel lands after it and is dropped; a second cancel without an opening changes nothing.
+    op(fake, 'color', 'accent', '#ff00ff', 11.5);
+    op(fake, 'edit-cancel', 'accent', '', 13);
+    expect(currentDraft(as(fake))!.colors.light).toEqual(before);
+    // A picker closed another way keeps its colour.
+    op(fake, 'edit-start', 'accent', '', 14);
+    op(fake, 'color', 'accent', '#00ffff', 15);
+    expect(row(fake, 'create', '#1', 'accent').value).toBe('#00ffff');
+  });
+
   test('switching rows and appearances starts each from its own value; one stamp per role spans both appearances', () => {
     const fake = client();
     syncDraft(as(fake), 'create', '#1', prefs(fake), 'light');
@@ -271,10 +295,10 @@ describe('the picker in the theme editor', () => {
     expect([saved.light!.accent, saved.light!.focus, saved.light!.update]).toEqual(['#0000ff80', '#0000ff80', '#0000ff80']);
     // The foreground derived from it reads the colour as it shows over the canvas.
     expect(saved.light!.accentForeground).toBe(updateFamily({ canvas: '#ffffff' }, 'accent', '#8080ff').accentForeground);
-    // A typed HEX value replaces it whole, as the reference's handleHexChange does.
+    // A typed HEX value keeps it too (handleHexChange at 5d3d78ab93).
     syncDraft(as(fake), 'edit', 'glass#2', prefs(fake), 'light');
     op(fake, 'hex', 'accent', '#00FF00', 3);
-    expect(row(fake, 'edit', 'glass#2', 'accent').value).toBe('#00ff00');
+    expect(row(fake, 'edit', 'glass#2', 'accent').value).toBe('#00ff0080');
   });
 
   test('updateThemeColorFamily keeps the alpha in the role and composites it for the roles it derives', () => {

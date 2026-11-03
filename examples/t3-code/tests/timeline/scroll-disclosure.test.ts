@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test';
 import { contractComponent } from '../support/contract-action-fixture';
 
 const root = contractComponent('app.contract', 'T3Code');
-for (const op of ['fold', 'group', 'attempt', 'tree-all', 'tree-dir']) test(`${op} preserves end following, and holds the reader's position away from the end`, () => {
-  for (const [atEnd, owner, held] of [[true, 'thread', false], [false, 'thread', true], [true, 'old-thread', true]] as const) {
+for (const op of ['fold', 'group', 'attempt', 'tree-all', 'tree-dir']) test(`${op} holds the toggled row's place, also at the end (#29166)`, () => {
+  for (const [atEnd, owner, held] of [[true, 'thread', true], [false, 'thread', true], [true, 'old-thread', true]] as const) {
     const state = { foldHold: false, rightPanelAt: '' };
     const calls: unknown[][] = [];
     root.call('chatLocal', state, { restAtEnd: atEnd, restOwner: owner, composerOwner: 'thread', command: (...args: unknown[]) => calls.push(args) }, [op, 'item', '']);

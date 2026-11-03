@@ -6,6 +6,7 @@
 // saved environment, listed under Environments with its own switch and row menu.
 // Several stay connected at once: the focused one is T3Client's
 // connection, the rest are background sessions (settings-b-fleet.ts, transport.ts).
+import { managedPolicySummary, managedUpdatesDenial } from '../client/managed-policy';
 import { obj, str, arr, type Obj } from '../client/domain';
 import { ClientError, bridgeReply, environmentFetchFailure, parsePairing, type Native } from '../client/protocol';
 import { fleet, environmentKey, phaseOf, trimOrigin, EnvironmentFleet, type FleetPhase, type FleetEntry } from './settings-b-fleet';
@@ -200,9 +201,9 @@ export function savedRow(source: Source, index: number, ssh: Record<string, SshT
   const lock = !Object.keys(source.config).length || !connected ? 'Connect to this environment to change its icon.'
     : capabilities.environmentIcon !== true ? "This environment's server is too old to keep an icon. Update it to choose one."
       : !source.scopes.includes('settings:write') ? 'Your session on this environment cannot change its settings.' : '';
-  const showUpdate = enabled && connected && mismatch !== null;
+  const showUpdate = enabled && connected && mismatch !== null, updatesDenial = managedUpdatesDenial(managedPolicySummary(source.config));
   // server-update.ts: a running update (the banner's or this row's) shows its progress here instead of the button.
-  const updateLabel = source.scopes.includes('environment:maintain') && showUpdate && !desktopManagedOnly(capabilities) && !outdated.running
+  const updateLabel = source.scopes.includes('environment:maintain') && showUpdate && !updatesDenial && !desktopManagedOnly(capabilities) && !outdated.running
     ? serverUpdateActionLabel(selfUpdate, configInstallation(source.config)) : '';
   const kind = Object.keys(source.config).length ? machineKind(source.config) : machineKind({}, source.machine);
   const detected = str(obj(obj(source.config.environment).platform).machine);
@@ -214,7 +215,8 @@ export function savedRow(source: Source, index: number, ssh: Record<string, SshT
     // ServerUpdateAction (3b0093d716): the manual label follows the install; a desktop app that cannot
     // update from here gets the sentence instead of a button.
     update: updateLabel,
-    updateNote: showUpdate && desktopManagedOnly(capabilities) ? DESKTOP_MANAGED_NOTE : '',
+    // ServerUpdateAction: a policy that stops updates says so instead of the button.
+    updateNote: showUpdate ? updatesDenial ?? (desktopManagedOnly(capabilities) ? DESKTOP_MANAGED_NOTE : '') : '',
     updateVersion: mismatch?.clientVersion ?? '',
     iconLock: lock,
     icons: MACHINE_KINDS.map(([id, label]) => ({ kind: id, label, selected: id === kind, note: id === (detected || 'server') ? (detected ? 'detected' : 'default') : '' })),
@@ -519,6 +521,8 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
     const label = `${str(obj(config.environment).label, 'Environment')} server`;
     const selfUpdate = str(obj(obj(config.environment).capabilities).serverSelfUpdate);
     try {
+      const denial = managedUpdatesDenial(managedPolicySummary(config));
+      if (denial) throw new ClientError(denial);
       if (!versionMismatch(str(obj(config.environment).serverVersion))) throw new ClientError('This server is already up to date.');
       if (!selfUpdate) {
         // ServerUpdateAction's manual path: copy the command that matches the install; no remote call.

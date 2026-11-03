@@ -1,6 +1,6 @@
 // Source edits from composer-code-block.ts at T3 Code 9c161462c9, and list continuation and the
 // quote exit (composer-rich-text-doc.ts needsBlankLineAfterQuote) at T3 Code 74541bab17.
-import { listOutdentForTab, nextOrderedMarkerText, renumberFollowingItems } from './composer-list-continuation';
+import { listBackspaceAtStart, listOutdentForTab, nextOrderedMarkerText, renumberFollowingItems } from './composer-list-continuation';
 import { codeAt, composerLines, composerMarkdown, emptyFenceAt, isClosingFence, parseOpeningFence, type ComposerBlockOrigin, type ComposerCodeBlock } from './composer-markdown';
 import type { ComposerRange } from './composer-markdown';
 
@@ -129,6 +129,10 @@ export function composerMarkdownKey(source: string, selection: ComposerRange, ke
   const current = parsed.blocks.find(block => block.start === line.start);
   if (current?.kind === 'list') {
     if (key.name === 'Tab' && !key.shift && collapsed) return edit(line.start, line.start, CODE_BLOCK_INDENT, { start: selection.start + 2, end: selection.end + 2 });
+    if (key.name === 'Backspace' && collapsed && selection.start === current.contentStart) {
+      const lifted = listBackspaceAtStart(source, selection.start, chips);
+      return lifted ? { kind: 'edit', edit: lifted } : DEFAULT;
+    }
     // ⇧Tab moves a nested item out (listOutdentForTab); on a top-level item it toggles plan mode or moves the focus back.
     if (key.name === 'Tab' && key.shift) {
       const outdent = listOutdentForTab(source, selection.start, selection.end, chips);

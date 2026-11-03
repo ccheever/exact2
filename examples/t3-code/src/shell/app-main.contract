@@ -2,6 +2,7 @@ use ThreadFindView, ThreadFindBar from "../timeline/thread-find.contract"
 use SettingsCore from "../settings/settings-core.contract"
 use Settings from "../shared/shapes.contract"
 use Snapshot from "../shared/shapes.contract"
+use ChildApprovals from "../composer/child-approvals.contract"
 use ComposerCard from "../composer/composer.contract"
 use ComposerEditorDock from "../composer/composer-editor.contract"
 use ComposerDrawerLayer from "../composer/composer-editor.contract"
@@ -343,6 +344,7 @@ component ChatColumn
       // The banners sit above the card; the drawer layer paints after both, over the banners, clipped at the card.
       column position=(overlaid ? "absolute" : "relative") left=(overlaid ? stackLeft : 0) bottom=0 width=(overlaid ? stackWidth : "100%") padding-left=(overlaid ? "0px" : "3rem") padding-right=(overlaid ? 0 : 3 * rem + laneInset) flex-shrink=0 align-items="center" box-sizing="border-box" id="frame-overlay" resize=frameMoved role="region" aria-label="Message input" focusin=workspaceEntered("composer") testId="composer-overlay"
         column padding-top=(overlaid ? "0px" : "0.75rem") width="100%" max-width=data.look.chatMax position="relative" box-sizing="border-box"
+          ChildApprovals(cards=data.composer.childApprovals, busy=commandPending, command=command)
           // The banners share a row with the stash's shoulder tab.
           row width="100%" align-items="flex-end" id="frame-shoulder" resize=frameMoved
             column flex=1 min-width=0 margin-right=(editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) ? "-1.125rem" : "0px") id="frame-dock" resize=frameMoved
@@ -355,7 +357,7 @@ component ChatColumn
           column width="100%" max-width=data.look.chatMax position="relative"
             // A pending approval leaves the composer usable: a send declines it and redirects the agent.
             if data.composer.subagent
-              SubagentBar(data=data, busy=commandPending, openParent=selectThread)
+              SubagentBar(data=data, busy=commandPending, openParent=selectThread, command=command)
             else
               ComposerEditorDock(editor=editor, dark=(scheme == "dark"), op=editorOp)
               ComposerCard(editor=editor, data=data, viewportWidth=((data.sidebarOpen ? sidebarWidth : 0) + conversationWidth), text=composerText, busy=commandPending, keyModels=settings.keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, stop=stop, onFocus=composerFocus, onBlur=composerBlur, openModels=openModels, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=askRemove, interaction=interaction, command=command, openProviders=openProviderSettings, contextOver=contextOver, urls=attachmentUrls.items)

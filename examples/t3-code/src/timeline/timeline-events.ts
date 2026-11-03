@@ -65,7 +65,7 @@ function latestRunModelBefore(runs: Obj[], instanceId: string, beforeOrdinal: nu
 const PROVIDER_TEXT_COLOR: Record<string, [string, string]> = {
   codex: ['#000000', '#ffffff'], claudeAgent: ['#d97757', '#d97757'], antigravity: ['#5b87bf', '#5b87bf'],
   acpRegistry: ['#000000', '#FFFFFF'], cursor: ['#26251E', '#EDECEC'], grok: ['#0F0F0F', '#F5F5F5'],
-  muse: ['#0081fb', '#0081fb'], opencode: ['#211E1E', '#F1ECEC'], pi: ['#0F0F0F', '#F5F5F5'],
+  kiro: ['#9046FF', '#9046FF'], muse: ['#0081fb', '#0081fb'], opencode: ['#211E1E', '#F1ECEC'], pi: ['#0F0F0F', '#F5F5F5'],
 };
 
 /**
@@ -91,7 +91,7 @@ export function handoffEndpoint(endpoint: HandoffEndpoint, providers: Obj[], ind
 /**
  * One subagent (SubagentTimelineLink): title, status (Queued … Stopped), its last progress or result
  * and its elapsed time, read from the parent's record of it where there is one. SubagentAvatar draws
- * the driver's ProviderInstanceIcon (`detail`, `initials`, `driverIcon`). A live agent's elapsed time
+ * the driver's ProviderInstanceIcon (`detail`, `initials`, `driverIcon`, the instance's `badge`). A live agent's elapsed time
  * ticks on the timeline clock from `startedMs` (AgentElapsed); a settled one is fixed in `output`.
  */
 export function subagent(item: Obj, context: SubagentContext = NO_CONTEXT): Activity & { startedMs: number; initials: string; driverIcon: string } {
@@ -113,6 +113,8 @@ export function subagent(item: Obj, context: SubagentContext = NO_CONTEXT): Acti
     tone: status === 'failed' ? 'error' : status === 'completed' ? 'success' : settled || status === 'idle' ? 'muted' : 'info',
     ok: true, reasoning: false, expandable: false, detail: driver, status, targetId: str(item.childThreadId), answer: '',
     startedMs: Number.isFinite(startedMs) ? startedMs : 0, initials: providerInstanceInitials(str(provider?.displayName, driver)),
+    // EnvironmentSubagentAvatar: the instance's badge where it shares its provider with another, or has an accent.
+    ...(provider ? { badge: providerBadge(provider, context.providers).providerBadge, badgeColor: providerBadge(provider, context.providers).providerBadgeColor } : {}),
     driverIcon: resolveProviderInstanceAcpRegistryIconUrl({ driverKind: driver, iconUrl: str(provider?.iconUrl) || undefined }) ?? '' };
 }
 
@@ -152,8 +154,9 @@ export function subagentGroupTiming(agents: ReadonlyArray<{ status: string; star
 export function eventRow(item: Obj, group: Obj[], row: Obj, context: SubagentContext = NO_CONTEXT): Partial<Message> & { kind: string } {
   const type = str(item.type);
   switch (type) {
-    // A stopped run is no error: a neutral divider with CircleStop.
-    case 'run_interrupt_result': return { kind: 'event', title: 'Run interrupted', detail: str(item.message), tone: 'neutral', icon: 'circle-stop', runId: str(item.runId) };
+    // A stopped run is no error: a neutral divider with CircleStop. Its detail wraps (`shape`), so a reason such as the
+    // hook that stopped a Codex turn shows whole.
+    case 'run_interrupt_result': return { kind: 'event', title: 'Run interrupted', detail: str(item.message), tone: 'neutral', icon: 'circle-stop', shape: 'wrap', runId: str(item.runId) };
     // HandoffRow: the endpoints (from…, then to) draw beside the label; `detail` is their text for the row's accessible name.
     case 'handoff': {
       const { from, to } = handoffEndpoints(item, context.runs ?? []);

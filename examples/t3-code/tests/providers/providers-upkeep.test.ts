@@ -7,7 +7,7 @@ import { describe, expect, it, test } from 'bun:test';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { providerPage, runProviderOp } from '../../src/providers/providers';
-import { advisoryView, providerUpkeepOp, runProviderUpdate, runUpdateAll, updateAllView, withUpkeep } from '../../src/providers/providers-upkeep';
+import { advisoryView, providerUpdateMachines, providerUpkeepOp, runProviderUpdate, runUpdateAll, updateAllView, withUpkeep } from '../../src/providers/providers-upkeep';
 import { primaryTarget, type UpdateTarget } from '../../src/providers/provider-update-notify';
 import { primaryAt, resetPrimary } from '../support/local-primary-fixture';
 import { toasts } from '../../src/shell/toast';
@@ -29,7 +29,7 @@ class Fake implements Native {
   async call(_native: Native, request: unknown): Promise<Obj> { const value = obj(request); return this.rpc(this, String(value.method), obj(value.payload)); }
   called(method: string) { return this.calls.filter(call => call.method === method).map(call => call.payload); }
 }
-const target = (fake: Fake, label = 'Remote device', key = 'focus'): UpdateTarget => ({ key, label, providers: fake.config.providers as Obj[], request: (method, payload) => fake.rpc(fake, method, payload) });
+const target = (fake: Fake, label = 'Remote device', key = 'focus', manageable = true): UpdateTarget => ({ key, label, providers: fake.config.providers as Obj[], manageable, request: (method, payload) => fake.rpc(fake, method, payload) });
 
 describe('EnvironmentProviderSettings routing', () => {
   it('routes refresh and provider update commands to the selected environment', async () => {
@@ -100,6 +100,15 @@ test('Update all: every machine with a one-click update, one toast with a line p
     [{ provider: 'codex', instanceId: 'codex' }, { provider: 'claudeAgent', instanceId: 'claudeAgent' }], [{ provider: 'cursor', instanceId: 'cursor' }]]);
   expect(toasts(studio as unknown as T3Client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['error', '1 of 3 provider updates failed', 'Mac Studio · Claude: npm exited with code 1.']]);
   expect(updateAllView(studio, [target(new Fake([codex({ versionAdvisory: { status: 'current' } })]))]).show).toBe(false);
+});
+
+test('Update all leaves out machines whose session does not confirm providers:manage', async () => {
+  const readOnly = new Fake(), writable = new Fake();
+  const targets = [target(readOnly, 'Read only', 'read-only', false), target(writable, 'Writable', 'writable')];
+  expect(providerUpdateMachines(targets).map(machine => machine.key)).toEqual(['writable']);
+  await runUpdateAll(writable, targets);
+  expect([readOnly.called('server.updateProvider'), writable.called('server.updateProvider')]).toEqual([[], [{ provider: 'codex', instanceId: 'codex' }]]);
+  expect(providerUpdateMachines([target(writable, 'Writable', 'writable', false)])).toEqual([]);
 });
 
 test('provider updates pop no toast at launch; Update all still offers them', async () => {

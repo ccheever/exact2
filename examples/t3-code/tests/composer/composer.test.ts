@@ -55,11 +55,28 @@ describe('composer controls', () => {
     expect(one.rows.map(row => [row.label, row.selected, row.isDefault, row.level, row.index])).toEqual([['Low', false, false, true, 0], ['Medium', true, true, true, 1], ['High', false, false, true, 2]]);
     const tier = { id: 'serviceTier', label: 'Speed', type: 'select', options: [{ id: 'default', label: 'Normal' }, { id: 'fast', label: 'Fast' }] };
     const two = input([effort, tier, { id: 'thinking', label: 'Thinking', type: 'boolean', currentValue: true }], [{ id: 'reasoningEffort', value: 'high' }, { id: 'serviceTier', value: 'fast' }]);
-    // Codex's service tier is the footer's speed control; a boolean is a labelled On/Off group after the selects.
-    expect(effortColumn(two).groups.map(group => [group.label, group.showLabel, group.options.map(row => `${row.label}${row.selected ? '*' : ''}`).join(' ')]))
-      .toEqual([['Reasoning', false, 'Low Medium High*'], ['Thinking', true, 'On* Off']]);
+    // Codex's service tier is the footer's speed control; another option is one row under the levels, a boolean a switch.
+    expect(effortColumn(two).groups.map(group => [group.kind, group.label, group.value, group.toggle, group.options.map(row => `${row.label}${row.selected ? '*' : ''}`).join(' ')]))
+      .toEqual([['control', 'Reasoning', '', false, 'Low Medium High*'], ['option', 'Thinking', 'On', true, '']]);
     expect(speedSegments(two).segments.map(segment => `${segment.label}${segment.checked ? '*' : ''}`)).toEqual(['Normal', 'Fast*']);
-    expect(effortColumn(input([], [])).groups).toEqual([{ key: 'none', kind: 'none', label: 'No effort levels', showLabel: false, note: '', value: '', options: [] }]);
+    expect(effortColumn(input([], [])).groups).toEqual([{ key: 'none', kind: 'none', descriptor: '', label: 'No effort levels', showLabel: false, note: '', value: '', options: [],
+      toggle: false, on: false, divider: false, index: -1, tabStop: false, menuWidth: 0, menuHeight: 0 }]);
+  });
+  test("the trigger names the reasoning control, a bolt for Fast and only the context window of the other traits", () => {
+    const view = (descriptors: object[], driver = 'codex', modelOptions: object[] = []) => composerView(client({ config: { providers: [provider('exact_fixture',
+      [{ slug: 'gpt-6-astra', name: 'GPT-6-Astra', capabilities: { optionDescriptors: descriptors } }], { driver })] }, modelOptions }),
+      { approval: false, question: false, choiceOnly: false });
+    const context = { id: 'contextWindow', label: 'Context', type: 'select', options: [{ id: '200k', label: '200K', isDefault: true }, { id: '1m', label: '1M' }] };
+    const mode = { id: 'mode', label: 'Mode', type: 'select', options: [{ id: 'code', label: 'Code', isDefault: true }] };
+    expect(view([effort, context, mode])).toMatchObject({ effortShown: true, effortWord: 'Medium', effortOther: '200K', modelDetail: 'Medium · 200K · Code' });
+    // An agent's own reasoning select reads as its word; a mode alone adds nothing after the name.
+    const thought = { id: 'thought_level', label: 'Thinking', type: 'select', role: 'reasoning', options: [{ id: 'a', label: 'Deep', isDefault: true }] };
+    expect(view([thought, mode], 'acp')).toMatchObject({ effortShown: true, effortWord: 'Deep', effortOther: '' });
+    expect(view([mode], 'acp')).toMatchObject({ effortShown: false, effortWord: '', modelDetail: 'Code' });
+    // A reasoning switch reads "<label> On|Off"; Fast shows its bolt without bars.
+    const fastMode = { id: 'fastMode', label: 'Fast mode', type: 'boolean', currentValue: true };
+    expect(view([{ id: 'thinking', label: 'Thinking', type: 'boolean', currentValue: true }, fastMode], 'claudeAgent', [{ id: 'fastMode', value: true }]))
+      .toMatchObject({ effortShown: true, effortWord: 'Thinking On', effortSpeed: 'Fast' });
   });
   test('Permissions hide at the default, show their label off it, and a new thread names them in its strip (#25869)', () => {
     const settings = { defaultRuntimeMode: 'full-access' };

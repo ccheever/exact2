@@ -1,6 +1,6 @@
 // The theme editor's colour picker (T3 Code 1e2ecbd975 settings/ThemeColorPicker.tsx
 // ThemeColorPicker / ThemeColorPickerPanel, ui/color-picker.tsx ColorSaturationValuePlane and
-// ColorHueSlider). The swatch opens a 18rem popover: the row's label over "Choose a color" and
+// ColorHueSlider; Escape's restore follows 5d3d78ab93). The swatch opens a 18rem popover: the row's label over "Choose a color" and
 // a round swatch, the saturation/brightness plane, the hue slider, and the HEX and RGB fields.
 //
 // The panel's HSV is this component's own state, as the reference keeps it in the panel: a
@@ -73,6 +73,8 @@ component ThemeColorSwatch
   state rgbEditing = false
   state focusPart = ""
   state mouse = false
+  // Escape closed the popover: later changes (a drag still held, a pending release) are dropped.
+  state cancelled = false
   derive inFlight = sent > row.seq
   // The panel's own HSV while it has one: a drag is on, a change of its own is in flight, or the row shows it.
   derive own = touched and (drag != "" or inFlight or tcpHex(h, s, v) == row.hex6)
@@ -92,13 +94,18 @@ component ThemeColorSwatch
   // trigger was pressed from the keyboard. It opens below the swatch, 10 apart, its right edge
   // at the swatch's (side="bottom" align="end" sideOffset 10), and flips above or to the start
   // near the window's edge, as Base UI's collision avoidance does (`position-try-fallbacks`).
+  // The draft keeps a snapshot of every colour from here (`edit-start`) for Escape to restore.
   action open
+    let t = max(performanceNow(), max(sent, row.seq) + 0.001)
     select()
     touched = false
     drag = ""
     hexEditing = false
     rgbEditing = false
     focusPart = ""
+    cancelled = false
+    sent = t
+    live("edit-start", `${session}|${row.role}`, "", t)
   action triggerDown
     mouse = true
   action triggerKey(k: string)
@@ -107,12 +114,18 @@ component ThemeColorSwatch
   // The popover is aria-modal so that no aria-keyshortcuts button outside it takes that Escape first
   // (Settings' Back): Base UI's dismissal prevents the key, and the reference's Escape-to-go-back skips
   // a prevented one (useEscapeToGoBack). On macOS aria-modal scopes only the shortcuts.
+  // Escape also restores the snapshot the opening took (`edit-cancel`, ThemeColorPicker's onEditCancel).
   action popKey(k: string)
     if k == "Escape"
+      let t = max(performanceNow(), max(sent, row.seq) + 0.001)
+      cancelled = true
+      drag = ""
+      sent = t
+      live("edit-cancel", `${session}|${row.role}`, "", t)
       focus(`theme-editor-swatch-${row.id}`)
   // One colour to the draft; `force` sends even while an earlier one is in flight (a release, a key).
   action push(hh: number, ss: number, vv: number, force: bool)
-    if force or not inFlight
+    if not cancelled and (force or not inFlight)
       let t = max(performanceNow(), max(sent, row.seq) + 0.001)
       let c = tcpHex(hh, ss, vv)
       sent = t
@@ -219,8 +232,9 @@ component ThemeColorSwatch
     let t = max(performanceNow(), max(sent, row.seq) + 0.001)
     hexDraft = text
     hexEditing = true
-    sent = t
-    live("hex", `${session}|${row.role}`, text, t)
+    if not cancelled
+      sent = t
+      live("hex", `${session}|${row.role}`, text, t)
   action rgbFocus
     rgbEditing = true
     rgbDraft = rgb
@@ -229,8 +243,9 @@ component ThemeColorSwatch
     let t = max(performanceNow(), max(sent, row.seq) + 0.001)
     rgbDraft = text
     rgbEditing = true
-    sent = t
-    live("rgb", `${session}|${row.role}`, text, t)
+    if not cancelled
+      sent = t
+      live("rgb", `${session}|${row.role}`, text, t)
   // A blur shows the current colour again, whatever was left in the field.
   action fieldBlur(part: string)
     hexEditing = false
