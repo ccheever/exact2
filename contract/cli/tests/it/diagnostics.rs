@@ -1426,7 +1426,7 @@ fn refusals_from_the_app_diaries_name_the_fix() {
     );
     // A switch's value pattern in `match`, inline, in a view and in an action.
     let not_a_switch = |found: &str| {
-        format!("a `match` case is `some(x)` or `none`, found {found}: `match` takes an option; to choose by a value, compare it: `x == \"a\" ? a : x == \"b\" ? b : c`")
+        format!("a `match` case is `some(x)` or `none`, found {found}: `match` takes an option; to choose by a value, compare it: `if x == \"a\"` in a view or an action, `x == \"a\" ? a : b` in an expression")
     };
     says(
         "fn label(f: string): string = match f { case \"unread\" => \"Unread\", case _ => \"All\" }\ncomponent App\n  view\n    text (label(\"unread\"))\n",

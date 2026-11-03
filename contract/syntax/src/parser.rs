@@ -251,7 +251,7 @@ impl Parser {
             return self.err(
                 "syntax-expected",
                 format!(
-                    "a `match` case is `some(x)` or `none`, found {}: `match` takes an option; to choose by a value, compare it: `x == \"a\" ? a : x == \"b\" ? b : c`",
+                    "a `match` case is `some(x)` or `none`, found {}: `match` takes an option; to choose by a value, compare it: `if x == \"a\"` in a view or an action, `x == \"a\" ? a : b` in an expression",
                     describe(self.peek_kind())
                 ),
             );
