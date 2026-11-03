@@ -68,7 +68,7 @@ export function mobileOutboxThread(environmentId: string, threadId: string, now:
   return { pendingInput: emptyPendingInput(), revision: client.revision, environmentId, threadId, title: homeDraftTitle(record.text, record.attachments.length),
     queuedCanSelect: !!shell && !failure, queued: true, queuedOwner: mobileOutboxOwner(record), queuedStatus: status, queuedReason: failure?.reason ?? item!.reason,
     queuedCanRetry: !failure && item!.canRetry, queuedFailed: !!failure, queuedCanEdit: failure?.editable ?? false,
-    loaded: true, loading: false, emptyTitle: '', emptyDetail: '', error: '', uncertain: false, hasMore: false,
+    loaded: true, loading: false, emptyTitle: '', emptyDetail: '', error: '', errorWarning: false, errorSummary: '', errorExpandable: false, uncertain: false, hasMore: false,
     historyLoading: false, historyRequest: '', historyError: '', historyRevision: client.historyRevision, readsNeeded: false, answerFilesOwner: '', answerFilesRequest: '', approvals: [],
     rows: [...rows, ...(detail && arr(detail.messages).some(message => message.id === record.messageId) ? [] : [{ id: record.messageId, kind: 'pending', title: '', body: record.text, blocks: mobileThreadMarkdownBlocks(record.text, dark),
       user: true, timestamp: mobileMessageTime(record.createdAt), showMeta: true, streaming: false, attribution: '', senderThreadId: '', intent: status, intentDescription: '', intentTone: '',
