@@ -54,9 +54,9 @@ describe('document action independent review regressions', () => {
     expect(await answer('attachmentNativePreview', [opened.sourceJSON])).toMatchObject({ identifier: data.identifier, sourceJSON: opened.sourceJSON, ready: true });
   });
   test('document share carries its route owner to the native presenter', async () => {
-    const f = fixture(), data = await read(f);
+    const f = fixture(), data = await mobileAttachmentDocument('transcript', 'file', 'media-route:1', true, false, 1000, false, f.native, f.client);
     const shared = await mobileAttachmentDocumentAction(JSON.stringify({ identifier: data.identifier, operation: 'share' }),
-      'transcript', 'file', 'route', data, f.native, f.files, f.client);
+      'transcript', 'file', 'media-route:1', data, f.native, f.files, f.client, 'route');
     expect(shared).toMatchObject({ operation: '', message: '' });
     expect(f.calls.find(call => call.op === 'mobileMediaShare')).toMatchObject({ routeKey: 'route' });
   });
