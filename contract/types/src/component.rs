@@ -457,7 +457,8 @@ pub(crate) fn check_component(
             continue;
         }
         for (i, p) in a.params.iter().enumerate() {
-            if ct.actions[ai][i].is_complete() || said.contains(&p.name) {
+            let t = &ct.actions[ai][i];
+            if t.is_complete() || (failed && *t == Ty::Unknown) || said.contains(&p.name) {
                 continue;
             }
             if p.name.starts_with(CAPTURE) {
