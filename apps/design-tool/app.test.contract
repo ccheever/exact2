@@ -290,9 +290,9 @@ test "the changes' long poll by cursor (tamber/1.17): a reply folds as it comes 
   // a new poll goes on in the new run.
   request POST "/__stub/restart" {} as ada
   request POST "/__stub/long-poll" {} as ada
-  // (Its poll held there answers at once, and its next ask is refused, on a token that run does not know: the
-  // tool asks again, within 3 s, by a read, which asks a token.)
-  clock +500 real
+  // (Its poll held there answers at once, from another run, and the host's next ask, with a token the new run does
+  // not know, is refused, which ends the poll: the tool reads again in 3 s, which asks a token.)
+  clock until state changes.ok == false within 10000
   clock data
   clock +3000
   clock data
@@ -300,9 +300,8 @@ test "the changes' long poll by cursor (tamber/1.17): a reply folds as it comes 
   clock data
   clock +1
   clock data
-  // (The new poll's opening reply in, alone, before the next event.)
-  clock +200 real
-  clock data
+  // (The new poll's opening reply in, alone, before the next event: every clock waits for a long poll's first reply.)
+  expect state changes.stream == true
   request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "text.label"}]} as ada
   clock held changes
   clock +1
