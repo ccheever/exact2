@@ -26,6 +26,7 @@ import { pickerProjects } from './palette-projects'; // Project order
 import { openPanelPullRequestUrl, threadReferenceTarget } from '../sidebar/thread-reference';
 import { addProjectEnvironments, newProjectEnvironments, projectLocation } from './palette-environments';
 import { fleet, fleetThreads, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { rowThreadKey, threadTagFilter } from '../sidebar/thread-tag-filter';
 import { sourceControlHosts } from '../shared/source-control-hosts';
 import { textDirection } from '../shared/text-direction';
 import { leadingStatus, type LeadingStatus } from './palette-thread-status';
@@ -276,7 +277,9 @@ function severalEnvironments(client: T3Client): boolean {
 export function threadItems(client: T3Client, now: number, query: string, source: EnvironmentFleet = fleet): Item[] {
   const searchedLabels = severalEnvironments(client);
   const entries = new Map([...source.entries.values()].map(entry => [entry.environmentId, entry]));
-  return sortedThreads([...client.shell.threads, ...fleetThreads(source)]).filter(thread => isListedThreadLineage(thread.lineage)).map(thread => {
+  // useVisibleThreadShells: none the tag filter hides.
+  const tagHidden = threadTagFilter(client, source).keys;
+  return sortedThreads([...client.shell.threads, ...fleetThreads(source)]).filter(thread => isListedThreadLineage(thread.lineage) && !tagHidden.has(rowThreadKey(client, str(thread.id)))).map(thread => {
     const id = str(thread.id), ref = parseFleetThreadId(id), environmentId = ref?.environmentId ?? client.environmentId;
     // ThreadCommandSubtitle's environmentLabel: the thread's own environment's.
     const environmentLabel = projectLocation(client, environmentId, source).label;

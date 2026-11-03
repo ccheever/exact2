@@ -42,6 +42,7 @@ import { reservedAttachments } from '../composer/composer-editor-attach';
 import { DiffState, DIFF_LOCAL_OPS } from '../diff/diff';
 import { TELEMETRY_KEY, telemetryEvent } from '../settings/settings-a-telemetry';
 import { mostRecentProjectId } from '../pages/pages-home';
+import { visibleShell } from '../sidebar/thread-tag-filter';
 import { landHome, settleHome, settleHomeElsewhere, type HomeTarget } from '../pages/home-landing';
 import { adoptPagesPrefs } from '../pages/pages-prefs';
 import { adoptClosedViews } from '../panel/closed-views';
@@ -546,7 +547,7 @@ export class T3Client {
   ensureSelection(): void {
     const selected = this.shell.threads.find(thread => thread.id === this.threadId);
     if (selected) this.projectId = str(selected.projectId);
-    if (!this.shell.projects.some(project => project.id === this.projectId)) this.projectId = landHome(this, () => mostRecentProjectId(this.shell));
+    if (!this.shell.projects.some(project => project.id === this.projectId)) this.projectId = landHome(this, () => mostRecentProjectId(visibleShell(this)));
   }
   chooseDefaults(): void {
     const project = this.shell.projects.find(project => project.id === this.projectId);

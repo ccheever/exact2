@@ -12,6 +12,7 @@ import { environmentClient, groupOfMember } from './projects-fleet';
 import { settingsScopeEnvironmentLabel } from './settings-scope';
 import { letGo } from '../client/let-go';
 import { sleep } from '../client/command-waits';
+import { hiddenArchivedKeys, threadKey } from '../sidebar/thread-tag-filter';
 import { managedSettingReason } from './managed-policy';
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Could not load this section.';
@@ -111,6 +112,7 @@ export async function archivedSettings(client: T3Client, native: Native | null |
     if (!cache) archives.set(client, cache = new Map());
     const groups = new Map<string, ArchiveGroup & { dated: { at: string; row: ArchiveGroup['threads'][number] }[] }>();
     const failures: string[] = [], multiple = scope.selected.length > 1;
+    const pages: { environment: (typeof scope.selected)[number]; label: string; shell: ReturnType<typeof applyShell> }[] = [];
     for (const environment of scope.selected) {
       if (environment.connection.phase !== 'connected') continue;
       const label = settingsScopeEnvironmentLabel(environment, scope.environments);
@@ -123,7 +125,11 @@ export async function archivedSettings(client: T3Client, native: Native | null |
         cache.set(environment.environmentId, kept);
       }
       if (kept.error) { failures.push(`${label}: ${kept.error}`); continue; }
-      const shell = applyShell(initialShell(), kept.value);
+      pages.push({ environment, label, shell: applyShell(initialShell(), kept.value) });
+    }
+    // The tag filter: hidden archived threads, children of hidden parents included, stay out.
+    const hidden = hiddenArchivedKeys(client, pages.map(page => ({ environmentId: page.environment.environmentId, threads: page.shell.threads })));
+    for (const { environment, label, shell } of pages) {
       const selectedIds = scope.members.filter(member => member.environmentId === environment.environmentId).map(member => member.id);
       for (const project of shell.projects.filter(project => scope.kind === 'all' || scope.kind === 'environment' || selectedIds.includes(project.id))) {
         const logical = scope.groups.find(group => group.memberProjects.some(member => member.environmentId === environment.environmentId && member.id === project.id));
@@ -133,7 +139,7 @@ export async function archivedSettings(client: T3Client, native: Native | null |
           const title = logical?.displayName ?? str(project.title), identity = projectIdentity(title);
           groups.set(id, group = { id, title, mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface, first: false, threads: [], dated: [] });
         }
-        for (const thread of shell.threads.filter(thread => thread.projectId === project.id)) {
+        for (const thread of shell.threads.filter(thread => thread.projectId === project.id && !hidden.has(threadKey(environment.environmentId, str(thread.id))))) {
           const at = str(thread.archivedAt || thread.createdAt), threadId = str(thread.id);
           group.dated.push({ at, row: { id: multiple ? `${environment.environmentId}:${threadId}` : threadId, scope: `${environment.environmentId}:${project.id}:${threadId}`, title: str(thread.title), first: false,
             description: `${multiple ? label + ' · ' : ''}Archived ${relativeTimeLabel(at, now)} · Created ${relativeTimeLabel(str(thread.createdAt), now)}` } });

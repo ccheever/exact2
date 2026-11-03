@@ -1,4 +1,4 @@
-// SidebarUpdatePill and SidebarUpdateCapsule, T3 Code 96fc7b9551 (MIT; LICENSE-T3). The pill is
+// SidebarUpdatePill and SidebarUpdateCapsule, T3 Code 5d3d78ab93 (MIT; LICENSE-T3). The pill is
 // DesktopUpdateStatusIcon's "everything" state: CircleArrowUp in a round button on the sidebar control
 // surface. The capsule's trailing icon is the same state; this build has no desktop update feed, so the
 // checking, available, downloading and downloaded states never occur.
@@ -19,11 +19,13 @@ component UpdateEverything
     dialogOpener("update-everything")
     run("ue:open", "", "")
   view
-    column margin-left="auto" flex=(v.running ? "1" : "none") min-width=0 position="relative"
+    column margin-left="auto" flex=(v.running ? "1" : "none") position="relative"
       if v.running
         row height="2rem" border-radius="9999px" background-color=(hovered ? "light-dark(#fcfcfc, #f1f3f714)" : "light-dark(#f4f4f5, #0a0a0a)") border-width=(v.tone == "default" ? 0 : 1) border-style="solid" border-color=(v.tone == "failed" ? "#fb2c3666" : "#f0b10066") align-items="center" role="status" testId="update-everything-capsule"
           button press=run("ue:details", "", "") hover=hover aria-label=v.label testId="update-everything-details" flex=1 min-width=0 height="100%" padding-left="0.75rem" padding-right="0.25rem" border-width=0 background-color="#00000000" cursor="pointer" display="flex" align-items="center" gap="0.25rem"
-            text v.label flex=1 min-width=0 overflow="hidden" text-overflow="ellipsis" white-space="nowrap" font-size="0.75rem" color=(v.tone == "failed" ? "#fb2c36" : "light-dark(#18181b, #f1f3f7)")
+            // Width 0 keeps the label out of the capsule's minimum width, so a shared footer row can squeeze the label
+            // but never push the action past the sidebar edge.
+            text v.label flex=1 width=0 min-width=0 overflow="hidden" text-overflow="ellipsis" white-space="nowrap" font-size="0.75rem" color=(v.tone == "failed" ? "#fb2c36" : "light-dark(#18181b, #f1f3f7)")
             if v.elapsed != ""
               text v.elapsed font-size="0.75rem" font-variant-numeric="tabular-nums" color="#ca8a04"
           if v.action != ""

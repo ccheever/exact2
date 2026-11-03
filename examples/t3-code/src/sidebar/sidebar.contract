@@ -73,18 +73,11 @@ component Sidebar
     scrolled: action
     // The list's scroll offset, which a row-action sweep clamps the pointer to.
     scrollY: number
-  // The thread list is a tree (lib/sidebarTree.ts): one Tab stop, the focused row's, which ArrowUp and ArrowDown, Home
-  // and End move; ArrowRight opens a closed shelf or enters an open one, ArrowLeft closes an open shelf or goes to a
-  // row's shelf. The rows' own handlers keep Enter, Space and the context menu. Before a row takes the focus the open
-  // one holds the stop; a focused row that leaves the list hands it to the row now at its place.
-  state treeFocus = ""
-  state treeIndex = 0
+  // The thread list's keyboard (lib/sidebarTree.ts): its rows are ordinary buttons in the Tab order, each thread's
+  // buttons after it, so screen readers browse the list. ArrowUp and ArrowDown, Home and End move the focus between
+  // rows without opening them; ArrowRight opens a closed shelf or enters an open one, ArrowLeft closes an open shelf
+  // or goes to a row's shelf. The rows' own handlers keep Enter, Space and the context menu.
   derive treeIds = data.sidebar.tree.map((r) => r.id)
-  derive treeAt = min(treeIndex, max(0, treeIds.length - 1))
-  derive treeStop = treeIds.includes(treeFocus) ? treeFocus : (treeFocus == "" and data.sidebar.treeCurrent != "" ? data.sidebar.treeCurrent : treeIds.slice(treeAt, treeAt + 1).join(""))
-  action treeFocused(id: string)
-    treeFocus = id
-    treeIndex = max(0, treeIds.indexOf(id))
   action treeKey(id: string, k: string, e: KeyboardEvent)
     let index = treeIds.indexOf(id)
     // SidebarThreadRow's handleKeyDown: F2 renames the focused thread in place, as a double click does.
@@ -103,12 +96,8 @@ component Sidebar
       if target != ""
         // Revealing before focusing; the focus itself does not scroll (a settled row moves to the bottom shelf).
         scrollIntoView(target, block="nearest", behavior="instant")
-        treeFocus = target
-        treeIndex = max(0, treeIds.indexOf(target))
         focus(target)
   provide
-    sidebarTreeStop = treeStop
-    treeFocused
     treeKey
   // The row a right-click named, for its context popover (ThreadMenu, DraftMenu): the row's `contextmenu` runs first.
   // `target` is what the press landed on: the row, or a focusable control in it (Unpin, Snooze, Discard draft), which
@@ -139,6 +128,12 @@ component Sidebar
     scrollIntoView(`row-${id}`, block="nearest", behavior="instant")
     mountRevealed = true
     local("reveal-done", id, "")
+  // The project filter's changes, the first as the sidebar mounts (no scroll) and each later one (scroll to the top).
+  state listTopAt = -1
+  action listTopDue(seq: number, w: number, h: number)
+    if listTopAt >= 0 and seq != listTopAt
+      scrollIntoView("thread-list-start", block="start", behavior="instant")
+    listTopAt = seq
   action draftMenu(id: string, target: string)
     menuDraft = id
     // Chromium focuses the reference's draft row on a right press (Sidebar.tsx:872-873). Writing it is the
@@ -174,7 +169,7 @@ component Sidebar
           // Filter and Add project show only with a project group (SidebarThreadHeader `hasProjects`).
           if data.sidebar.projectGroupCount > 0
             SidebarTip(tip="sidebar-filter", hoverCard=hoverCard)
-              button cursor="pointer" press=local("scope-open", "", "") width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hoverId == "sidebar-filter" ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label=(data.sidebar.scopeKey == "" ? "Filter threads by project" : `Filter threads by project: ${data.sidebar.scopeLabel}`) aria-expanded=data.sidebar.scopeOpen testId="filter-project" title=""
+              button cursor="pointer" id="sidebar-scope-trigger" press=local("scope-open", "", "") width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hoverId == "sidebar-filter" ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label=(data.sidebar.scopeKey == "" ? "Filter threads by project" : `Filter threads by project: ${data.sidebar.scopeLabel}`) aria-expanded=data.sidebar.scopeOpen testId="filter-project" title=""
                 if data.sidebar.scopeKey == ""
                   SidebarIcon(name="list-filter", size=16, color=(data.sidebar.scopeOpen or hoverId == "sidebar-filter" ? "light-dark(#18181b, #f3f3f3)" : "light-dark(#86868e, #8b8b8b)"))
                 else if data.sidebar.scopeCount > 1
@@ -193,10 +188,13 @@ component Sidebar
             button cursor="pointer" press=newThread width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hoverId == "sidebar-new-thread" and data.connected ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="New thread" testId="new-thread" disabled=(busy or not data.connected or not data.sidebar.hasProjects) title=""
               Icon(name="compose", size=16, color=(hoverId == "sidebar-new-thread" and data.connected ? "light-dark(#18181b, #f3f3f3)" : "light-dark(#86868e, #8b8b8b)"))
       scroll id="thread-list" flex=1 min-height=0 padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" scroll=scrolled testId="thread-list"
+        for seq in [data.sidebar.listTop] key=seq
+          box id="thread-list-start" width="100%" height="0px" flex-shrink=0 aria-hidden=true resize=listTopDue(seq)
         if not data.sidebar.searching
-          column min-height="100%" width="100%" gap=1 role="tree" aria-label="Threads"
+          // Presentation flattens VoiceOver's list interaction boundary while keeping the rows' controls.
+          column min-height="100%" width="100%" gap=1 role="presentation"
             for d in data.sidebar.drafts key=d.id
-              DraftCard(d=d, run=run, menu=draftMenu, hoverCard=hoverCard, hoverId=hoverId)
+              DraftCard(d=d, meta=data.sidebar.metaInk, run=run, menu=draftMenu, hoverCard=hoverCard, hoverId=hoverId)
             if data.sidebar.drafts.length > 0
               box height=1 flex-shrink=0 margin-left="0.625rem" margin-right="0.625rem" margin-top="0.375rem" margin-bottom="0.375rem" background-color="light-dark(#e4e4e799, #ffffff0c)" testId="sidebar-draft-divider"
             box id="sidebar-list-top" width="100%" height=(dragId != "" ? "1.5rem" : "0px") margin-bottom=-1 position="relative" testId="sidebar-pinned-header"
@@ -223,7 +221,7 @@ component Sidebar
                 ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="snoozed", label="Snoozed", busy=busy, local=local, run=run, menu=threadMenu, open=open, hoverCard=hoverCard, pressDown=pressDown, hoverId=hoverId, hoverSeq=hoverSeq, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
               ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="settled", label="Settled", busy=busy, local=local, run=run, menu=threadMenu, open=open, hoverCard=hoverCard, pressDown=pressDown, hoverId=hoverId, hoverSeq=hoverSeq, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
               if data.sidebar.showMore > 0
-                button cursor="pointer" id="settled-more" press=local("more", "", "") role="treeitem" aria-level=2 tabindex=(treeStop == "settled-more" ? 0 : -1) focus=treeFocused("settled-more") key=treeKey("settled-more") width="100%" height="2.25rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" testId="sidebar-show-more"
+                button cursor="pointer" id="settled-more" press=local("more", "", "") key=treeKey("settled-more") width="100%" height="2.25rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" testId="sidebar-show-more" tabindex=0
                   :focus-visible
                     box-shadow="inset 0 0 0 2px light-dark(#1b4ed8, #346bf1)"
                   // Plus means "add", so revealing more uses a chevron.
@@ -267,7 +265,7 @@ component Sidebar
         else
           row margin-left="auto" flex-shrink=0
             SidebarTip(tip="sidebar-update", hoverCard=hoverCard)
-              SidebarUpdatePill(color="light-dark(#86868e, #8b8b8b)", testId="sidebar-check-updates")
+              SidebarUpdatePill(color="light-dark(#86868e, #8b8b8b)", testId="sidebar-check-updates", updatesDenial=data.sidebar.updatesDenial)
       // The resize rail is SidebarOverlays' (sidebar-rail.contract): a strip reaching past the sidebar is not hit-testable here.
 
 // The hover a section's rows see: none while a row-action sweep is live (the
@@ -284,8 +282,6 @@ fn sidebarTipRow(id: string): string = id.includes("#") ? id.slice(0, id.indexOf
 // a collapsed shelf still paints the open thread, which the projection already decided.
 component ThreadSection
   inject
-    sidebarTreeStop: string
-    treeFocused: action
     treeKey: action
   props
     reduced: bool
@@ -399,7 +395,7 @@ component ThreadSection
     column gap=1 width="100%" margin-bottom=(label == "" and rows.length == 0 ? "-1px" : "0px")
       if label != ""
         box position="relative" width="calc(100% - 4px)" margin-left="0.125rem" height="2rem" flex-shrink=0
-          button cursor="pointer" id=`shelf-${section}` press=local("shelf", section, "") role="treeitem" aria-level=1 tabindex=(sidebarTreeStop == `shelf-${section}` ? 0 : -1) focus=treeFocused(`shelf-${section}`) key=treeKey(`shelf-${section}`) width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.5rem" aria-label=`Toggle ${label}` aria-expanded=expanded testId=`toggle-${section}`
+          button cursor="pointer" id=`shelf-${section}` press=local("shelf", section, "") key=treeKey(`shelf-${section}`) width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.5rem" aria-label=`Toggle ${label}` aria-expanded=expanded testId=`toggle-${section}` tabindex=0
             // CollapsibleSectionHeader: focus-visible:ring-2 ring-inset ring-ring/70.
             :focus-visible
               box-shadow="inset 0 0 0 2px light-dark(#1b4ed8b3, #346bf1b3)"

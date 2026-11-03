@@ -13,7 +13,9 @@ import type { T3Client } from '../client/client';
 import { welcomeShowing } from './pages-welcome';
 import { heroGroupMembers, heroGroups } from '../sidebar/project-groups';
 import { canPinProjectGroup, setProjectGroupPinned } from '../sidebar/project-pin';
-import { pinChord, shortcutLabel as commandShortcutLabel } from '../sidebar/sidebar-view';
+import { pinChord, projectsSpanEnvironments, shortcutLabel as commandShortcutLabel } from '../sidebar/sidebar-view';
+import { projectEnvironmentBadge } from '../connections/settings-b-fleet';
+import { visibleShell } from '../sidebar/thread-tag-filter';
 import { openScratchProject } from '../composer/scratch-project';
 import { primary, withoutPrimaryDuplicates } from '../connections/local-primary'; // "This machine": the primary counts as an environment
 import { homeWaiting } from './home-landing';
@@ -75,8 +77,11 @@ export function isScratchProject(project: Obj | undefined, root: string): boolea
 }
 
 export type HeroProject = { id: string; name: string; mark: string; ink: string; surface: string; selected: boolean };
-/** A menu row with its ProjectPinButton: offered where the group can be pinned, titled with the thread pin shortcut. */
-export type HeroPickerRow = HeroProject & { canPin: boolean; pinned: boolean; pinTitle: string };
+/**
+ * A menu row with its ProjectPinButton (offered where the group can be pinned, titled with the thread pin shortcut),
+ * then its ProjectEnvironmentBadge while the projects span environments ('' for none).
+ */
+export type HeroPickerRow = HeroProject & { canPin: boolean; pinned: boolean; pinTitle: string; envBadge: string; envMachine: string };
 export type PagesHome = {
   landing: string; headline: string; projectName: string; projectNames: { id: string }[]; projects: HeroPickerRow[];
   /** The thread pin binding as a chord ("" without one), which pins the menu's highlighted row (isProjectPinShortcut). */
@@ -148,7 +153,7 @@ export async function pagesHome(client: T3Client, native: Native | null | undefi
   const root = client.ready ? scratchRoot(client.config) : '';
   const project = client.shell.projects.find(candidate => candidate.id === client.projectId);
   const scratchDraft = isScratchProject(project, root);
-  const projects = client.ready ? heroPickerRows(client, heroGroups(client, heroProjects(client))) : []; // one row per logical project, by its group's name
+  const projects = client.ready ? heroPickerRows(client, heroGroups(client, heroProjects({ shell: visibleShell(client), projectId: client.projectId, config: client.config }))) : []; // one row per logical project, by its group's name
   const resolved = !!project;
   const headline = heroHeadline({ scratchDraft, resolved, canChoose: projects.length > 0 });
   const connected = client.connection === 'connected';
@@ -176,10 +181,12 @@ export async function pagesHome(client: T3Client, native: Native | null | undefi
 }
 /** Each row's pin: canPinProjectGroup over the group's checkouts, and whether any of them is pinned. */
 function heroPickerRows(client: T3Client, projects: HeroProject[]): HeroPickerRow[] {
-  const shortcut = commandShortcutLabel(client, 'thread.pin');
+  const shortcut = commandShortcutLabel(client, 'thread.pin'), spans = projectsSpanEnvironments(client);
   return projects.map(project => {
     const members = heroGroupMembers(client, project.id), pinned = projectGroupOrganization(members).pinned, action = `${pinned ? 'Unpin' : 'Pin'} ${project.name}`;
-    return { ...project, canPin: canPinProjectGroup(client, members), pinned, pinTitle: shortcut ? `${action} (${shortcut})` : action };
+    const badge = spans ? projectEnvironmentBadge(client, members) : null;
+    return { ...project, canPin: canPinProjectGroup(client, members), pinned, pinTitle: shortcut ? `${action} (${shortcut})` : action,
+      envBadge: badge?.description ?? '', envMachine: badge?.machine ?? '' };
   });
 }
 /** `pageslocal:hero-pin`: the row's group pinned or unpinned on every checkout; the menu stays open, its rows in place. */

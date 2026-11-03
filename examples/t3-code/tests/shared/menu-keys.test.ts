@@ -272,9 +272,9 @@ describe('↓ and ↑ on a closed trigger open its menu at the first or the last
 describe('#298 bug 4: Custom snooze from the sidebar row by the real pointer and ↓', () => {
   test('the open popup pins its trigger across descendant focus changes and unpins only when closed', async () => {
     const row = await component('sidebar-row.contract', 'ThreadRow');
-    expect(row).toContain('if shown or swept\n                        SidebarCardActions(');
+    expect(row).toContain('if shown or swept\n                          SidebarCardActions(');
     expect(row).toContain('max-width=(shown ? "0px" : "15rem")');
-    expect(row).toContain('max-width=(shown ? "15rem" : "0px") overflow=(shown ? "visible" : "hidden") opacity=(shown ? 1 : 0) pointer-events=(shown ? "auto" : "none") aria-hidden=(not shown)');
+    expect(row).toContain('max-width=(shown ? "15rem" : "0px") overflow=(shown ? "visible" : "hidden") opacity=(shown ? 1 : 0) pointer-events=(shown ? "auto" : "none")');
     expect(row).toContain('KeyMenu(menuId=`snooze-${t.id}-keys`, items=snoozeItems, keyed=0, gap="0px", modal=true)');
     expect(row).toContain('[KmItem(id=`snooze-${t.id}-custom`, label="Custom…")]');
     expect(row).toMatch(/id=`snooze-\$\{t.id\}` popover="auto" toggle=snoozeChanged/);

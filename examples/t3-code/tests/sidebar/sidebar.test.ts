@@ -388,6 +388,18 @@ describe('sidebar projection (sidebar-view.ts)', () => {
     expect(sidebarSnapshot(client, NOW, helpers).sidebar.scopes[0]).toMatchObject({ all: true, selected: true });
   });
 
+  test('each change of the project filter starts the thread list at the top; opening the menu does not', async () => {
+    const { client } = fake([shell('a'), shell('b', { projectId: 'p2' })]);
+    const top = () => sidebarSnapshot(client, NOW, helpers).sidebar.listTop;
+    const start = top();
+    await sidebarLocal(client, native, 'scope-open', '', '');
+    expect(top()).toBe(start);
+    await sidebarLocal(client, native, 'scope-toggle', '', 'g2');
+    expect(top()).toBe(start + 1);
+    await sidebarLocal(client, native, 'scope', '', '');
+    expect(top()).toBe(start + 2);
+  });
+
   test('a saved single project key from an older file reads as one chosen project', () => {
     expect(decodeSidebarPrefs({ scope: 'g2' }).scopes).toEqual(['g2']);
     expect(decodeSidebarPrefs({ scopes: ['g1', 'g2', 'g1', 3], scope: 'g9' }).scopes).toEqual(['g1', 'g2']);

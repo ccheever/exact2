@@ -60,13 +60,11 @@ export function pendingApproval(thread: Obj): boolean {
   return request != null && !['user_input', 'auth_refresh'].includes(str(obj(request).kind));
 }
 /**
- * models.ts presentThreadShell hasPendingUserInput: an async question (`blocking: false`) leaves a working run
- * Working; it asks for input once the run stops working. Waiting runs have ended their provider turn.
+ * models.ts presentThreadShell hasPendingUserInput: any open question, an async one (`blocking: false`) during a
+ * running run included, so the thread leaves Working.
  */
 export function pendingInput(thread: Obj): boolean {
-  const request = obj(thread.pendingRuntimeRequest);
-  if (thread.pendingRuntimeRequest == null || request.kind !== 'user_input') return false;
-  return request.blocking !== false || !['preparing', 'starting', 'running'].includes(shellRuntime(thread)?.status ?? '');
+  return thread.pendingRuntimeRequest != null && obj(thread.pendingRuntimeRequest).kind === 'user_input';
 }
 
 /** Sidebar.logic.ts resolveSidebarThreadStatus: its own request, else a hidden subagent's below it (subagent-requests.ts). */
@@ -94,8 +92,8 @@ export function hasQueuedTurnStart(thread: Obj, now: number): boolean {
   return [run.requestedAt, run.startedAt, run.completedAt].every(value => value == null || parse(value) < messageAt);
 }
 /**
- * canSnooze: not while the agent or one of its subagents is blocked on the user, nor with a queued turn start. Any
- * pending request counts, a nonblocking question too: the server rejects snoozing then.
+ * canSnooze: not while the agent or one of its subagents is blocked on the user, nor with a queued turn start. The
+ * server rejects snoozing for any pending request.
  */
 export function canSnooze(thread: Obj, now: number): boolean {
   return thread.pendingRuntimeRequest == null && !pendingApproval(thread) && !pendingInput(thread) && pendingSubagentRequest(thread) === null && !hasQueuedTurnStart(thread, now);
@@ -179,6 +177,13 @@ export function sectionOf(thread: Obj, caps: Caps, now: number, workingShelf: bo
   if (caps.settlement && thread.settledOverride === 'settled') return 'settled';
   if (thread.pinnedAt != null) return 'pinned';
   return workingShelf && isWorking(thread) ? 'working' : 'active';
+}
+/**
+ * isSidebarEnvironmentDisconnected: an environment that is not connecting and not connected with a live shell. Its
+ * threads may be stale, so none sits in the Working shelf; a first connection attempt keeps the cached placement.
+ */
+export function isSidebarEnvironmentDisconnected(phase: string, shellIsLive: boolean): boolean {
+  return phase !== 'connecting' && (phase !== 'connected' || !shellIsLive);
 }
 /** filterSidebarV2VisibleThreads: archived, subagent and side chat threads stay out of the list. */
 export function sidebarVisible(thread: Obj): boolean {

@@ -75,7 +75,7 @@ export function mix(a: string, weight: number, b: string): string {
 export const alpha = (color: string, amount: number) => { const [r, g, b, a] = parse(color); return hex([r, g, b, a * amount]); };
 
 /** The tokens this module paints, in the stock index.css vocabulary, per appearance. */
-type Tokens = Record<'canvas' | 'sidebar' | 'sidebarBorder' | 'rowActive' | 'sidebarText' | 'sidebarMuted' | 'sidebarIcon' | 'text' | 'muted'
+type Tokens = Record<'canvas' | 'sidebar' | 'sidebarBorder' | 'rowActive' | 'sidebarText' | 'sidebarMuted' | 'sidebarSecondary' | 'sidebarIcon' | 'text' | 'muted'
   | 'card' | 'cardBorder' | 'divider' | 'input' | 'field' | 'accent' | 'accentText' | 'switchOff' | 'thumb' | 'thumbOff' | 'popover' | 'popoverBorder' | 'highlight' | 'optionHighlight' | 'optionSelected' | 'kbd' | 'output' | 'line' | 'rowHover' | 'sectionMuted' | 'tileActive'
   | 'border' | 'backdrop' | 'footer' | 'surface' | 'glass' | 'nav' | 'navActive' | 'navHover', string>;
 function tokens(themeId: string, mode: 'light' | 'dark', contrast: number, custom: CustomTheme[], glass = 80): Tokens {
@@ -100,6 +100,9 @@ function tokens(themeId: string, mode: 'light' | 'dark', contrast: number, custo
     canvas, sidebar, text: ink(text, canvas), muted: ink(mutedText, canvas),
     sidebarBorder: edge(stock ? (dark ? '#ffffff14' : '#e4e4e7') : r.sidebarBorder, sidebarText), rowActive: stock ? (dark ? '#f1f1f112' : '#ffffff') : r.sidebarRowActive,
     sidebarText: ink(sidebarText, sidebar), sidebarMuted: alpha(ink(sidebarMuted, sidebar), 0.8), sidebarIcon: mix(ink(sidebarMuted, sidebar), 0.85, sidebar),
+    // The sidebar's --secondary-label (row metadata): the stock dark sidebar's #8f8f8f, or the theme's in either mode.
+    // Every built-in theme's secondaryLabel is its textMuted; a custom theme may carry its own.
+    sidebarSecondary: ink(stock ? (dark ? '#8f8f8f' : '#71717b') : (r as Partial<Record<string, string>>).secondaryLabel ?? r.textMuted, canvas),
     card: alpha(card, 0.4), cardBorder: edge(alpha(border, 0.6), text), divider: edge(alpha(border, 0.5), text), input: edge(input, text),
     field: stock ? (dark ? '#ffffff09' : '#fcfcfc') : canvas, accent: stock ? (dark ? '#346bf1' : '#1b4ed8') : r.accent, accentText: r.accentForeground,
     // ui/switch: a switched-off thumb is muted-foreground in dark mode, so it stays visible on the dark track.

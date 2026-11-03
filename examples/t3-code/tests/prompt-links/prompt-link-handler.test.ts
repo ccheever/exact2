@@ -174,7 +174,7 @@ test('a thread link switches to its connected background environment before open
     expect(client.threadId).toBe('remote-thread');
     expect(client.local.drafts['env2:remote-thread']).toBe('Remote draft');
     expectNotSent(native);
-  } finally { fleet.entries.delete(key); }
+  } finally { fleet.entries.delete(key); primary.setting = true; }
 });
 
 test('invalid and hidden-only prompts stay out of drafts', async () => {
@@ -372,6 +372,11 @@ test('only a source control link or a t3code:// link waits for every environment
     expect(promptLinksReady(client, 't3code://new?prompt=hi')).toBe(false);
     expect(promptLinksReady(client, 'https://example.com/docs')).toBe(true);
     expect(promptLinksReady(client, 'file:///tmp/page.html')).toBe(true);
+    // With the local environment switched off, a source control link still waits for the other environments' projects.
+    primary.setting = false;
+    expect(promptLinksReady(client, pullRequest)).toBe(false);
+    expect(promptLinksReady(client, commit)).toBe(false);
+    primary.setting = true;
     // With pull request links opening in the browser, a source control link is an ordinary one.
     client.local.clientSettings = { ...client.local.clientSettings, pullRequestLinksOpenInApp: false };
     expect(promptLinksReady(client, pullRequest)).toBe(true);
@@ -382,5 +387,5 @@ test('only a source control link or a t3code:// link waits for every environment
     // No link runs before the window's own environment is ready.
     client.shellLive = false;
     expect(promptLinksReady(client, 'https://example.com/docs')).toBe(false);
-  } finally { fleet.entries.delete(key); }
+  } finally { fleet.entries.delete(key); primary.setting = true; }
 });

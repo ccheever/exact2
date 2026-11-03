@@ -54,11 +54,34 @@ describe('sortWorkingThreadsBySend', () => {
     const client = {
       shell: { projects: [{ id: 'p1', title: 'P' }], threads, sequence: 1 },
       config: { environment: { capabilities: {} }, providers: [], keybindings: [] },
-      environmentId: 'env', local: { drafts: {}, clientSettings: { sidebarWorkingShelfEnabled: true } },
+      environmentId: 'env', connection: 'connected', shellLive: true, local: { drafts: {}, clientSettings: { sidebarWorkingShelfEnabled: true } },
       projectGroups: () => [{ key: 'g1', name: 'P', members: [{ id: 'p1' }] }],
     } as unknown as T3Client;
     const parts = partition(client, Date.parse('2026-06-01T10:00:00.000Z'));
     expect(parts.working.map(item => item.id)).toEqual(['w3', 'w2', 'w1']);
     expect(parts.active.map(item => item.id)).toEqual(['i2', 'i1']);
+  });
+});
+
+// Ported from T3 Code 5d3d78ab93 apps/web/src/components/Sidebar.logic.test.ts (belongsInSidebarWorkingShelf).
+describe('a thread on a disconnected environment', () => {
+  const at = Date.parse('2026-06-01T10:00:00.000Z');
+  const client = (connection: string, shellLive: boolean) => ({
+    shell: { projects: [{ id: 'p1', title: 'P' }], threads: [thread('w', running('2026-06-01T09:00:00.000Z'))], sequence: 1 },
+    config: { environment: { capabilities: {} }, providers: [], keybindings: [] },
+    environmentId: 'env', connection, shellLive, local: { drafts: {}, clientSettings: { sidebarWorkingShelfEnabled: true } },
+    projectGroups: () => [{ key: 'g1', name: 'P', members: [{ id: 'p1' }] }],
+  }) as unknown as T3Client;
+
+  it('is listed outside the Working shelf until its shell is live again', () => {
+    for (const [connection, live] of [['reconnecting', false], ['disconnected', false], ['connected', false]] as const) {
+      const parts = partition(client(connection, live), at);
+      expect([parts.working.length, parts.active.map(item => item.id)]).toEqual([0, ['w']]);
+    }
+  });
+
+  it('keeps its cached place on the first connection attempt', () => {
+    expect(partition(client('connecting', false), at).working.map(item => item.id)).toEqual(['w']);
+    expect(partition(client('connected', true), at).working.map(item => item.id)).toEqual(['w']);
   });
 });

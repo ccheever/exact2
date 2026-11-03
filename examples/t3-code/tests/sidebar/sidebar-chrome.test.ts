@@ -1,7 +1,7 @@
-// The sidebar's chrome against T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3), read and run from the contracts:
+// The sidebar's chrome against T3 Code 5d3d78ab93 (MIT, see LICENSE-T3), read and run from the contracts:
 // sidebar/mainAppLocation.ts isSidebarUtilityPage (the footer under Usage), SidebarUpdateCapsule.tsx (the update
 // button stays inside the sidebar), ThreadStatusIndicators.tsx (a row's status label is no live region; Woke keeps
-// one), SidebarThreadRow.tsx and LegacySidebar.tsx (the ⌘1–⌘9 jump badges are `rounded-full h-5` pills), the drag
+// one), SidebarThreadRow.tsx (the ⌘1–⌘9 jump hints are a Kbd in the status slot), the drag
 // ghost's count (ThreadContextDragGhost.tsx `rounded-full`), SidebarThreadUndoNotice.tsx (a group: the notice is
 // announced, sidebar.test.ts), the rename field's `dir="auto"` and the Working shelf's grace timers (threadInbox.ts).
 import { describe, expect, test } from 'bun:test';
@@ -28,7 +28,7 @@ const attribute = (text: string, name: string): string => {
 };
 
 describe('the footer under a page', () => {
-  test.each([['sidebar.contract', 'Sidebar', { sidebar: { revealPending: '', revealRow: '', tree: [], treeCurrent: '' } }]] as const)(
+  test.each([['sidebar.contract', 'Sidebar', { sidebar: { revealPending: '', revealRow: '', tree: [], treeCurrent: '', listTop: 0 } }]] as const)(
     '%s keeps Settings, Pull requests and Usage under Usage; the pull requests page draws Back instead', (file, name, data) => {
       const sidebar = contractComponent(file, name), state = sidebar.state();
       for (const button of ['testId="connection-settings"', 'testId="open-pull-requests"', 'testId="open-usage"']) {
@@ -54,12 +54,39 @@ test('a row\'s status label is no live region; Woke keeps one', () => {
   expect(line('sidebar-row.contract', 'text "Woke"')).toContain('role="status"');
 });
 
-test('the jump badges are pills, as `rounded-full` on their 1.25rem height', () => {
-  for (const [file, marker] of [['sidebar-row.contract', 'top=(t.card ? "1.9375rem" : "0.5rem") height="1.25rem"']] as const) {
-    const badge = line(file, marker);
-    const radius = Number(/border-radius="([\d.]+)rem"/.exec(badge)?.[1]);
-    expect(radius).toBeGreaterThanOrEqual(1.25 / 2);
-  }
+test('a held jump modifier draws the shortcut as a Kbd in the status slot, hiding the rest, but not over an open snooze menu', () => {
+  const row = contractComponent('sidebar-row.contract', 'ThreadRow');
+  const t = { id: 'a', jump: '⌘1', card: true, renaming: false, hoverKey: 'a', section: 'active', woke: false };
+  const scope = { t, presets: [], KmItem: (item: object) => item, threadJumpHints: true, hoverId: '', dragId: '', dragVerb: '', sweepKeys: '', sweepVerb: '', page: '' };
+  const at = (snoozeOpen: boolean) => ({ ...row.state(), snoozeOpen });
+  expect(row.drawn('SidebarJumpHint(label=t.jump)', at(false), scope)).toBe(true);
+  expect(row.attribute('visibility=(jumpHint', 'visibility', at(false), scope)).toBe('hidden');
+  expect(row.drawn('SidebarJumpHint(label=t.jump)', at(true), scope)).toBe(false);
+  expect(row.attribute('visibility=(jumpHint', 'visibility', at(true), scope)).toBe('visible');
+  expect(row.drawn('SidebarJumpHint(label=t.jump)', at(false), { ...scope, threadJumpHints: false })).toBe(false);
+  // ui/kbd.tsx: h-5, rounded (0.25rem), not a pill.
+  const kbd = line('sidebar-row.contract', 'testId="sidebar-jump-hint"');
+  expect(kbd).toContain('height="1.25rem"');
+  expect(kbd).toContain('border-radius="0.25rem"');
+});
+
+test('the undo notice may shrink to nothing, its label giving way to the undo icon', () => {
+  expect(line('undo-notice.contract', 'testId="sidebar-undo-notice"')).toContain('min-width=0');
+  expect(line('undo-notice.contract', 'testId="sidebar-undo"')).toContain('min-width=0');
+  expect(line('undo-notice.contract', 'testId="sidebar-undo"')).not.toContain('flex-shrink=0');
+  // The capsule's label adds nothing to its minimum width.
+  expect(line('update-everything.contract', 'text v.label flex=1')).toContain('width=0');
+});
+
+test('the project filter\'s later changes scroll the thread list to its top; the first, at mount, does not', () => {
+  const sidebar = contractComponent('sidebar.contract', 'Sidebar');
+  const scrolls: unknown[] = [], scope = { scrollIntoView: (...args: unknown[]) => scrolls.push(args[0]) };
+  const state: Record<string, unknown> = { listTopAt: -1 };
+  sidebar.call('listTopDue', state, scope, [3, 1, 0]);
+  expect(scrolls).toEqual([]);
+  sidebar.call('listTopDue', state, scope, [4, 1, 0]);
+  expect(scrolls).toEqual(['thread-list-start']);
+  expect(state.listTopAt).toBe(4);
 });
 
 test('the undo notice is a footer item, not a live region: the shell\'s announcer speaks it', () => {
@@ -112,4 +139,17 @@ describe('the idle update pill\'s tip goes with the pill', () => {
     root.call('sidebarUpdateTipEnd', other, {}, []);
     expect(other.sidebarHoverId).toBe('sidebar-usage');
   });
+});
+
+test('the project filter gives the focus back to its trigger after a keyboard close, not after a pointer pick', () => {
+  const menu = contractComponent('sidebar-overlays.contract', 'SidebarScopeMenu');
+  const calls: unknown[][] = [];
+  const scope = { data: { sidebar: { scopes: [{ key: 'g1', canPin: false }], scopeHighlight: 'g1', scopePinChord: '' } }, pinChordPressed: () => false,
+    local: (...args: unknown[]) => calls.push(['local', ...args]), focus: (id: string) => calls.push(['focus', id]), preventDefault: () => {}, stopPropagation: () => {} };
+  const key = { shiftKey: false, metaKey: false, ctrlKey: false, altKey: false };
+  menu.call('submitScope', menu.state(), scope, []);
+  menu.call('searchKey', menu.state(), scope, ['Escape', key]);
+  menu.call('pick', menu.state(), scope, ['g1', key]);
+  expect(calls).toEqual([['local', 'scope', '', 'g1'], ['focus', 'sidebar-scope-trigger'], ['local', 'scope-key', '', 'Escape'], ['focus', 'sidebar-scope-trigger'], ['local', 'scope', '', 'g1']]);
+  expect(line('sidebar.contract', 'id="sidebar-scope-trigger"')).toContain('press=local("scope-open", "", "")');
 });

@@ -12,12 +12,13 @@
 import * as notificationsPackage from '@exact/notifications';
 import { noteSubagentRequests } from '../sidebar/subagent-requests';
 import type { T3Client } from '../client/client';
-import { pushToast } from './toast';
+import { dismissToast, pushToast, toasts } from './toast';
 import { isListedThreadLineage, obj, str, type Shell } from '../client/domain';
 import { bridgeReply, type Native } from '../client/protocol';
 import { sidebarStatus, latestRun } from '../sidebar/sidebar-model';
 import { fleet, fleetThreadId, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { letGo } from '../client/let-go';
+import { tagFilteredEnvironments, threadKey, threadTagFilter } from '../sidebar/thread-tag-filter';
 import { decodeGuideOpenTarget } from '../pull-requests/guide-target';
 
 export type NotificationStatus = { available: boolean; state: string; badge: boolean };
@@ -53,11 +54,15 @@ export const WORKING_EXIT_GRACE_MS = 2_000;
 export type NotifyGate = { handled: Map<string, number> };
 export const notifyGate = (): NotifyGate => ({ handled: new Map() });
 /** Each environment's EnvironmentNotifications memory and gate, by environment id. */
-type NotifyState = { previous: Map<string, Map<string, Memory>>; gates: Map<string, NotifyGate>; mode: string };
+type NotifyState = {
+  previous: Map<string, Map<string, Memory>>; gates: Map<string, NotifyGate>; mode: string;
+  /** The open "Open thread" toasts and the pending notifications' tags, by thread key, so hiding a thread can close them. */
+  openToasts: Map<string, number[]>; notified: Map<string, string>;
+};
 const states = new WeakMap<T3Client, NotifyState>();
 function notifyState(client: T3Client): NotifyState {
   let state = states.get(client);
-  if (!state) { state = { previous: new Map(), gates: new Map(), mode: '' }; states.set(client, state); }
+  if (!state) { state = { previous: new Map(), gates: new Map(), mode: '', openToasts: new Map(), notified: new Map() }; states.set(client, state); }
   return state;
 }
 
@@ -106,6 +111,29 @@ export async function postNotification(client: object, status: NotifyStatus, tit
   const tags = pending(client);
   tags.add(tag);
   await quietly(() => notifications.setAppBadge({ contents: tags.size }));
+}
+/**
+ * closeHiddenPending: a toast or notification shown before the tag filter turned on must not stay on screen. While
+ * hiding, one whose thread left the live list (archived) cannot be judged, so it closes too.
+ */
+async function closeHiddenPending(client: T3Client, source: EnvironmentFleet): Promise<void> {
+  const state = notifyState(client), { keys, hiding } = threadTagFilter(client, source);
+  const live = hiding ? new Set(tagFilteredEnvironments(client, source).flatMap(environment => environment.threads.map(thread => threadKey(environment.environmentId, str(thread.id))))) : null;
+  const shown = new Set(toasts(client).map(toast => toast.id));
+  for (const [key, ids] of state.openToasts) {
+    const open = ids.filter(id => shown.has(id));
+    if (open.length && (keys.has(key) || (live !== null && !live.has(key)))) { open.forEach(id => dismissToast(client, id)); state.openToasts.delete(key); }
+    else if (open.length) state.openToasts.set(key, open);
+    else state.openToasts.delete(key);
+  }
+  const tags = pending(client);
+  for (const [tag, key] of state.notified) {
+    if (!tags.has(tag)) { state.notified.delete(tag); continue; }
+    if (!keys.has(key) && (live === null || live.has(key))) continue;
+    tags.delete(tag); state.notified.delete(tag);
+    await quietly(() => notifications.closeNotification({ tag }));
+    await quietly(() => tags.size ? notifications.setAppBadge({ contents: tags.size }) : notifications.clearAppBadge({}));
+  }
 }
 /** clearPending: each pending notification closes and the badge clears (the window's focus, a mode change). */
 async function clearPending(client: object, always: boolean): Promise<void> {
@@ -244,6 +272,7 @@ export async function threadNotifications(client: T3Client, status: NotifyStatus
   state.mode = mode;
   // applyMode clears what is pending, and the window's `focus` clears it while desktop notifications are on.
   if (modeChanged || status.active) await clearPending(client, modeChanged);
+  await closeHiddenPending(client, source);
   if (mode === 'off' && !inApp) { state.previous.clear(); state.gates.clear(); return; }
   const environments = notifyEnvironments(client, source);
   const listed = new Set(environments.map(environment => environment.environmentId));
@@ -257,7 +286,11 @@ export async function threadNotifications(client: T3Client, status: NotifyStatus
     state.previous.set(environment.environmentId, next);
     for (const transition of transitions) pending.push({ environment, transition });
   }
-  for (const { environment, transition } of pending) await notifyTransition(client, status, environment, transition, mode, inApp, now);
+  for (const { environment, transition } of pending) {
+    // A thread the tag filter hides raises nothing.
+    if (threadTagFilter(client, source).keys.has(threadKey(environment.environmentId, transition.threadId))) continue;
+    await notifyTransition(client, status, environment, transition, mode, inApp, now);
+  }
 }
 
 /** One transition: the sound, then the in-app toast (focused window, not the open thread) or the system notification. */
@@ -268,12 +301,16 @@ async function notifyTransition(client: T3Client, status: NotifyStatus, environm
   if (hasNotificationSound(mode)) notificationSound(client, transition.kind, now);
   if (inApp && status.active && !(environment.focused && transition.threadId === client.threadId)) {
     const { kind, leading } = transitionToast(transition);
-    pushToast(client, { kind, title: transition.title, description: body, leading, hideCopy: true,
+    const id = pushToast(client, { kind, title: transition.title, description: body, leading, hideCopy: true,
       action: { label: 'Open thread', op: 'select-thread', id: target } });
+    const key = threadKey(environment.environmentId, transition.threadId), open = notifyState(client).openToasts;
+    open.set(key, [...open.get(key) ?? [], id]);
     return;
   }
   if (!hasDesktopNotifications(mode) || status.active) return;
-  await postNotification(client, status, transition.title, body, `${environment.environmentId}:${transition.threadId}`, target);
+  const tag = `${environment.environmentId}:${transition.threadId}`;
+  await postNotification(client, status, transition.title, body, tag, target);
+  if (pending(client).has(tag)) notifyState(client).notified.set(tag, threadKey(environment.environmentId, transition.threadId));
 }
 
 // --- NotificationSettings permission gate ------------------------------------

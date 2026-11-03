@@ -27,6 +27,17 @@ component TipCard2
       if detail != ""
         text detail font-size="0.75rem" line-height="1.03125rem" white-space="nowrap" color="light-dark(#71717b, #a1a1a1)"
 
+// SidebarUpdatePill's idle tooltip when updates are unavailable (getDesktopUpdateIdleTooltip): the title in medium
+// weight over the reason, muted, with no gap between them.
+component UpdateUnavailableTip
+  props
+    detail: string
+    shown: bool
+  view
+    column max-width="20rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.375rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" opacity=(shown ? 1 : 0) transition=(shown ? "opacity 150ms ease 600ms" : "opacity 0ms") pointer-events="none" role="tooltip" aria-hidden=(not shown) testId="tooltip"
+      text "Updates unavailable" font-size="0.75rem" line-height="1.03125rem" font-weight=500 white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
+      text detail font-size="0.75rem" line-height="1.03125rem" white-space="nowrap" color="light-dark(#71717b, #a1a1a1)"
+
 // The resize rail itself is sidebar-rail.contract's SidebarWindowRail; its tooltip is SidebarEdgeTips'.
 
 // The window-level bubbles (SidebarOverlays) for the sidebar's chrome
@@ -56,6 +67,8 @@ component SidebarEdgeTips
     newThread: string
     newThreadDetail: string
     pullRequests: bool
+    // The machine's managed-policy refusal of updates, or "".
+    updatesDenial: string
   view
     row position="absolute" left=(width + 0.6875 * rem) top=0 bottom=0 align-items="center" pointer-events="none" z-index=140
       TipCard(label="Drag to resize sidebar", shown=(hoverId == "sidebar-rail"))
@@ -76,7 +89,10 @@ component SidebarEdgeTips
     row position="absolute" left=(pullRequests ? "-6.5rem" : "-8.75rem") width="25rem" bottom="2.75rem" justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Usage", shown=(hoverId == "sidebar-usage"))
     row position="absolute" left=(width - 14 * rem) width="25rem" bottom="2.75rem" justify-content="center" pointer-events="none" z-index=140
-      TipCard(label="Check for updates", shown=(hoverId == "sidebar-update"))
+      if updatesDenial != ""
+        UpdateUnavailableTip(detail=updatesDenial, shown=(hoverId == "sidebar-update"))
+      else
+        TipCard(label="Check for updates", shown=(hoverId == "sidebar-update"))
 
 // SidebarProviderUpdatePill: an update in flight or its outcome; the body opens Settings › Providers. It leaves in
 // 180 ms (6 px down, fading), and a timed success draws its countdown: a bar across the pill that runs out in 3 s.

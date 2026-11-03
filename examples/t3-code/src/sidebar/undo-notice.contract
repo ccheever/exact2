@@ -1,9 +1,11 @@
-// SidebarThreadUndoNotice (T3 Code 6d450a4284, MIT; see LICENSE-T3): one muted line and the "⌘Z to undo" button in
+// SidebarThreadUndoNotice (T3 Code 5d3d78ab93, MIT; see LICENSE-T3): one muted line and the "⌘Z to undo" button in
 // the foreground, with no box. It fades in and out in 200 ms; the window removes it when its five seconds end. It is
 // announced as "<summary>, ⌘Z to undo" through the shell's announcer (sidebar-commands.ts noticeChanged,
 // showThreadUndoNotice.ts's setNotice), so the line itself is not a live region.
 // FooterUndoNotice fills the free space of the footer's utility row, so it never moves or covers the list. Its
-// summary is short ("Settled 2,").
+// summary is short ("Settled 2,"). It may shrink to nothing: a narrow row keeps the undo icon, not the update pill.
+
+use SidebarIcon from "./sidebar-icons.contract"
 
 keyframes undoNoticeIn
   from opacity=0
@@ -23,11 +25,15 @@ component FooterUndoNotice
   action hover(on: bool)
     hovered = on
   view
-    // No min-width 0 on the item: the undo button sets its minimum, so a shared row squeezes its neighbour.
-    row flex=1 role="listitem" animation="undoNoticeIn 200ms ease-out" -exact-exit-animation="undoNoticeOut 200ms ease-out" testId="sidebar-undo-notice"
+    row flex=1 min-width=0 role="listitem" animation="undoNoticeIn 200ms ease-out" -exact-exit-animation="undoNoticeOut 200ms ease-out" testId="sidebar-undo-notice"
       // Reversed wrap: a summary that does not fit beside the undo button drops to a second line that overflow hides,
       // instead of truncating mid-word. The button comes first, as screen readers browse it, and sits at the end.
       row height="1.5rem" min-width=0 flex=1 flex-direction="row-reverse" flex-wrap="wrap" column-gap="0.25rem" overflow="hidden"
-        button cursor="pointer" press=run("undo", "", "") hover=hover testId="sidebar-undo" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0
-          text label font-size="0.6875rem" line-height="1.5rem" font-weight=500 color=ink white-space="nowrap" text-decoration-line=(hovered ? "underline" : "none")
+        button cursor="pointer" press=run("undo", "", "") hover=hover testId="sidebar-undo" min-width=0 padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+          // The icon's negative margin cancels its width, so beside the label it sits in clipped space; once the label
+          // is too wide it wraps away and the icon shows.
+          row height="1.5rem" min-width=0 flex-wrap="wrap" justify-content="flex-end" overflow="hidden"
+            box margin-left="-1rem" width="1rem" height="1.5rem" display="flex" align-items="center" flex-shrink=0
+              SidebarIcon(name="undo-2", size=16, color=ink)
+            text label font-size="0.6875rem" line-height="1.5rem" font-weight=500 color=ink white-space="nowrap" text-decoration-line=(hovered ? "underline" : "none")
         text text white-space="nowrap" font-size="0.6875rem" line-height="1.5rem" color=muted
