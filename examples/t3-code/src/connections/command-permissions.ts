@@ -1,4 +1,4 @@
-// T3 Code 2359643cff (MIT, LICENSE-T3): auth/RpcAuthorization.ts and contracts/clientRpcPermissions.ts.
+// T3 Code 5d3d78ab93 (MIT, LICENSE-T3): auth/RpcAuthorization.ts and contracts/clientRpcPermissions.ts.
 // Client guards provide immediate feedback; the server authorizes every request.
 import { obj, str, type Obj } from '../client/domain';
 import { ClientError } from '../client/protocol';
@@ -36,6 +36,7 @@ const RPC_SCOPES: Record<string, Permission> = {
   'orchestration.forceStopThread': 'orchestration:operate',
   'orchestration.getArchivedShellSnapshot': 'orchestration:read',
   'orchestration.getFullThreadDiff': 'orchestration:read',
+  'orchestration.getNativeChildWork': 'orchestration:read',
   'orchestration.getThreadProjection': 'orchestration:read',
   'orchestration.getTurnDiff': 'orchestration:read',
   'orchestration.getTurnItem': 'orchestration:read',
