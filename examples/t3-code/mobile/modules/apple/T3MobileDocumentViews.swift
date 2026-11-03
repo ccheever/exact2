@@ -216,7 +216,9 @@ final class T3MobileDocumentHTML: ExactNativeInstance {
     init(dataRoot: URL, audioSession: T3MobileAudioSession, events: ExactNativeEvents) {
         self.audioSession = audioSession
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
+        // Match the reference AttachmentFileScreen WebView: the page keeps its
+        // normal WebKit storage across reloads and route remounts.
+        configuration.websiteDataStore = .default()
         web = WKWebView(frame: .zero, configuration: configuration)
         files = T3MobileMediaFiles(dataRoot: dataRoot)
         super.init(events: events)
@@ -256,7 +258,7 @@ final class T3MobileDocumentHTML: ExactNativeInstance {
         retired.navigationDelegate = nil; retired.stopLoading(); retired.removeFromSuperview()
         retired.setAllMediaPlaybackSuspended(true) { _ = retired; session.release(retiredOwner) }
         T3MobileMediaFiles.release(lease); lease = nil
-        let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent()
+        let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .default()
         web = WKWebView(frame: root.bounds, configuration: configuration); attachWeb()
         identifier = source.identifier
         if let url = source.url { activeNavigation = web.load(URLRequest(url: url)); return }

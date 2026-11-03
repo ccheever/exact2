@@ -202,7 +202,8 @@ final class T3MobileHTMLRender: ExactNativeInstance {
         generation += 1
         let delegate = T3HTMLRenderDelegate(owner: self, stamp: source.stamp, generation: generation)
         let config = WKWebViewConfiguration()
-        config.websiteDataStore = .nonPersistent()
+        // Keep the same persistent page storage as the reference mobile WebView.
+        config.websiteDataStore = .default()
         config.allowsInlineMediaPlayback = true
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
         if source.nested {
