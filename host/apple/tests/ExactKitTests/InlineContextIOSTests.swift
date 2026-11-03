@@ -310,36 +310,74 @@ final class InlineContextIOSTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(over.view.subviews.first).isScreens, "the screen, the badge over the cover")
     }
 
-    func testARunNearItsCardsEdgeLiftsWithinTheCard() throws {
+    func testARunNearItsCardsEdgeLiftsOnTheCardExtended() throws {
         let p = try presenter()
         defer { p.menus.reset(); window.isHidden = true }
-        // Under a root controller, whose view the preview rises over, as in an app
+        let (node, card) = try cardAround(p, margin: 4)
+        card.backgroundColor = UIColor(red: 1, green: 0.84, blue: 0.04, alpha: 1)
+        let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
+        let preview = try lift(p, node, at: try XCTUnwrap(rects.first))
+        let outline = try XCTUnwrap(UIPreviewParameters(textLineRects: rects.map { NSValue(cgRect: node.convert($0, to: preview.target.container)) }).visiblePath)
+        let area = outline.bounds
+        outline.apply(CGAffineTransform(translationX: -area.minX, y: -area.minY))
+        XCTAssertEqual(preview.view.bounds.size, area.size, "UIKit's footprint, though its padding reaches past the card")
+        XCTAssertEqual(preview.parameters.visiblePath?.cgPath, outline.cgPath, "outlined as UIKit outlines text lines")
+        XCTAssertFalse(preview.view.subviews.contains { $0 is UIImageView }, "one flat color, the card's, nothing drawn")
+        let drawn = UIGraphicsImageRenderer(bounds: preview.view.bounds).image { preview.view.layer.render(in: $0.cgContext) }
+        XCTAssertEqual(pixel(drawn, at: CGPoint(x: 2, y: area.height / 2)), [255, 214, 10, 255], "the card's color past its edge, none of the page")
+    }
+
+    func testARunNearAPictureCardsEdgeExtendsThePicture() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let (node, card) = try cardAround(p, margin: 4)
+        // A card that clips a picture, red on the left and blue on the right, under the paragraph
+        card.clipsToBounds = true
+        let picture = UIImageView(image: UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { c in
+            UIColor.red.setFill(); c.fill(CGRect(x: 0, y: 0, width: 4, height: 8))
+            UIColor.blue.setFill(); c.fill(CGRect(x: 4, y: 0, width: 4, height: 8))
+        })
+        picture.frame = card.bounds
+        card.insertSubview(picture, belowSubview: node)
+        let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
+        let preview = try lift(p, node, at: try XCTUnwrap(rects.first))
+        let area = textLines(rects, in: node).area
+        XCTAssertEqual(preview.view.bounds.size, area.size, "UIKit's footprint")
+        let drawn = UIGraphicsImageRenderer(bounds: preview.view.bounds).image { preview.view.layer.render(in: $0.cgContext) }
+        XCTAssertEqual(pixel(drawn, at: CGPoint(x: 2, y: area.height / 2)), [255, 0, 0, 255], "the picture reflected past the card, none of the page")
+        // A blur over the picture, which only the screen shows: the screen's pixels, its edge stretched past the card
+        let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
+        blur.frame = card.bounds
+        card.insertSubview(blur, belowSubview: node)
+        until("the blur is shown") { blur.layer.presentation() != nil }
+        let screen = try lift(p, node, at: try XCTUnwrap(rects.first))
+        let shown = UIGraphicsImageRenderer(bounds: screen.view.bounds).image { screen.view.layer.render(in: $0.cgContext) }
+        let band = pixel(shown, at: CGPoint(x: 2, y: area.height / 2)), inside = pixel(shown, at: CGPoint(x: 12, y: area.height / 2))
+        XCTAssertTrue(band.count == 4 && zip(band, inside).allSatisfy { abs(Int($0) - Int($1)) <= 3 }, "the blur's edge stretched past the card (\(band) beside \(inside)), none of the page")
+    }
+
+    /// The paragraph moved into a card with `margin` around it, less than UIKit's padding, under a root controller,
+    /// whose view the preview rises over, as in an app
+    private func cardAround(_ p: Presenter, margin: CGFloat) throws -> (NodeView, UIView) {
         let host = UIViewController()
         window.rootViewController = host
         host.view.frame = window.bounds
         host.view.addSubview(p.viewport)
         let node = try XCTUnwrap(p.views[2]), page = try XCTUnwrap(node.superview)
-        // A card around the paragraph with less room than UIKit's padding, which would take in the page around it
-        let card = UIView(frame: node.frame.insetBy(dx: -4, dy: -4))
-        card.backgroundColor = UIColor(red: 1, green: 0.84, blue: 0.04, alpha: 1)
+        let card = UIView(frame: node.frame.insetBy(dx: -margin, dy: -margin))
         card.layer.cornerRadius = 8
         page.insertSubview(card, belowSubview: node)
         card.addSubview(node)
-        node.frame.origin = CGPoint(x: 4, y: 4)
+        node.frame.origin = CGPoint(x: margin, y: margin)
         until("the paragraph is drawn") { node.snapshotView(afterScreenUpdates: false) != nil }
+        return (node, card)
+    }
+
+    /// The preview UIKit lifts for a long press on `rect` of `node`
+    private func lift(_ p: Presenter, _ node: NodeView, at rect: CGRect) throws -> UITargetedPreview {
         let interaction = try XCTUnwrap(node.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
-        let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
-        let rect = try XCTUnwrap(rects.first)
         let config = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: rect.midX, y: rect.midY)))
-        let preview = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configuration: config, highlightPreviewForItemWithIdentifier: config.identifier))
-        let size = preview.view.bounds.size, center = preview.target.center
-        let shown = CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
-        XCTAssertTrue(card.convert(card.bounds, to: preview.target.container).insetBy(dx: -0.5, dy: -0.5).contains(shown), "within the card")
-        XCTAssertLessThan(size.width, textLines(rects, in: node).area.width - 4, "cut where UIKit's padding reaches past the card")
-        XCTAssertEqual((preview.view.layer.mask as? CAShapeLayer)?.path, preview.parameters.visiblePath?.cgPath, "the picture cut with it")
-        XCTAssertFalse(preview.view.subviews.contains { $0 is UIImageView }, "one flat color, as all that shows is the card's")
-        let drawn = UIGraphicsImageRenderer(bounds: preview.view.bounds).image { preview.view.layer.render(in: $0.cgContext) }
-        XCTAssertEqual(pixel(drawn, at: CGPoint(x: 1, y: size.height / 2)), [255, 214, 10, 255], "the card's color at its edge, none of the page")
+        return try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configuration: config, highlightPreviewForItemWithIdentifier: config.identifier))
     }
 
     func testARunOverABlurLiftsTheScreen() throws {

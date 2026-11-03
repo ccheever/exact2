@@ -925,8 +925,11 @@ menu's glass and the dismissal. In the delegate:
   finger lands, before a press the touch starts has drawn. Where that
   padding reaches past the box the run sits in (the paragraph where it
   paints a fill or a background image, else the nearest ancestor that does
-  or that clips), the outline is cut to the box, so the lift holds none of
-  what lies outside it, such as the page around a card. The picture is
+  or that clips), it extends the box: a box of one color fills it, and
+  otherwise the box reflects past its edges, as reflect padding extends an
+  image (from the screen, where the run's words are in the picture, its
+  edge pixels stretch instead), so the lift keeps UIKit's footprint and
+  holds none of what lies outside the box, such as the page around a card. The picture is
   the run's own boxes from the screen over what lies under the paragraph
   without its other text, which the padding would take in: a flat color
   where only fills that cover the area paint there, else the layers drawn

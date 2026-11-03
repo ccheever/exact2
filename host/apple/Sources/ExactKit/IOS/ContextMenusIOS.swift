@@ -501,33 +501,73 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
     /// A run's lines where the screen shows them in `container`: their boxes,
     /// and their outline as UIKit outlines text lines, with the padding UIKit
     /// gives them (`UIPreviewParameters(textLineRects:)`), in the coordinates of
-    /// the outline's area. The outline is cut to the box the run sits in
-    /// (`box`) where the padding reaches past it, so the lift holds none of what
-    /// lies outside the box, such as the page around a card.
+    /// the outline's area. Where the padding reaches past the box the run sits
+    /// in (`box(of:below:)`), it extends the box: the lift keeps UIKit's
+    /// footprint and holds none of what lies outside the box, such as the page
+    /// around a card.
     private struct RunLines {
         let boxes: [CGRect], outline: UIBezierPath, area: CGRect, container: UIView
-        /// The layer the outline was cut to, which covers all of it
+        /// The box the padding reaches past, whose look it extends over the area
         let box: CALayer?
+        /// The part of the area the box fills, in the area's coordinates: the
+        /// largest rectangle inside its outline, which the padding extends over
+        /// the rest (`extensions`)
+        let inner: CGRect?
 
         /// Nil where the run shows no lines.
         init?(_ run: InlineText, in source: NodeView, over container: UIView) {
             let boxes = source.inlineRects(run).map { source.convert($0, to: container) }.filter { !$0.isEmpty }
-            guard var outline = UIPreviewParameters(textLineRects: boxes.map { NSValue(cgRect: $0) }).visiblePath?.copy() as? UIBezierPath,
+            guard let outline = UIPreviewParameters(textLineRects: boxes.map { NSValue(cgRect: $0) }).visiblePath?.copy() as? UIBezierPath,
                   !outline.bounds.isEmpty else { return nil }
-            var cutTo: CALayer?
-            if let box = ContextMenuHost.box(of: source, below: container), !ContextMenuHost.covers(box.layer, outline.bounds, in: container.layer) {
-                let shape = ContextMenuHost.rounded(box) ?? UIBezierPath(rect: box.bounds)
-                shape.apply(ContextMenuHost.placement(of: box, in: container))
-                let cut = outline.cgPath.intersection(shape.cgPath)
-                if !cut.boundingBoxOfPath.isEmpty { (outline, cutTo) = (UIBezierPath(cgPath: cut), box.layer) }
-            }
             let area = outline.bounds
             outline.apply(CGAffineTransform(translationX: -area.minX, y: -area.minY))
-            (self.boxes, self.outline, self.area, self.container, self.box) = (boxes, outline, area, container, cutTo)
+            var box: CALayer?, inner: CGRect?
+            if let found = ContextMenuHost.box(of: source, below: container), !ContextMenuHost.covers(found.layer, area, in: container.layer) {
+                let shape = ContextMenuHost.rounded(found) ?? UIBezierPath(rect: found.bounds)
+                shape.apply(ContextMenuHost.placement(of: found, in: container))
+                let fills = ContextMenuHost.innerRect(of: shape).intersection(area)
+                if !fills.isNull, fills.width >= 1, fills.height >= 1 { (box, inner) = (found.layer, fills.offsetBy(dx: -area.minX, dy: -area.minY)) }
+            }
+            (self.boxes, self.outline, self.area, self.container, self.box, self.inner) = (boxes, outline, area, container, box, inner)
         }
 
         /// The lines' place, where a preview of them rises and returns
         var target: UIPreviewTarget { UIPreviewTarget(container: container, center: CGPoint(x: area.midX, y: area.midY)) }
+
+        /// How the padding beyond `inner` extends it: each band past a side, or
+        /// corner past a corner, takes the part of `inner` just inside it,
+        /// mirrored as reflect padding does (`reflect`), so a picture's texture
+        /// carries on without streaks, or else its edge pixels, stretched across
+        /// (clamping)
+        func extensions(reflect: Bool) -> [(from: CGRect, to: CGRect, flip: UIImage.Orientation)] {
+            guard let inner else { return [] }
+            let bounds = CGRect(origin: .zero, size: area.size), pixel = 1 / container.traitCollection.displayScale
+            // Each axis: the span before `inner`, `inner` itself and the span after it, with the span of `inner` each takes
+            func spans(_ lo: CGFloat, _ start: CGFloat, _ end: CGFloat, _ hi: CGFloat) -> [(to: ClosedRange<CGFloat>, from: ClosedRange<CGFloat>, outside: Bool)] {
+                let before = reflect ? start...min(end, start + (start - lo)) : start...start + pixel
+                let after = reflect ? max(start, end - (hi - end))...end : end - pixel...end
+                return [(lo...start, before, true), (start...end, start...end, false), (end...hi, after, true)]
+            }
+            let columns = spans(bounds.minX, inner.minX, inner.maxX, bounds.maxX), rows = spans(bounds.minY, inner.minY, inner.maxY, bounds.maxY)
+            return columns.flatMap { column in rows.compactMap { row in
+                guard column.outside || row.outside, column.to.upperBound > column.to.lowerBound, row.to.upperBound > row.to.lowerBound else { return nil }
+                let flip: UIImage.Orientation = !reflect ? .up : column.outside ? (row.outside ? .down : .upMirrored) : .downMirrored
+                return (CGRect(x: column.from.lowerBound, y: row.from.lowerBound, width: column.from.upperBound - column.from.lowerBound, height: row.from.upperBound - row.from.lowerBound),
+                        CGRect(x: column.to.lowerBound, y: row.to.lowerBound, width: column.to.upperBound - column.to.lowerBound, height: row.to.upperBound - row.to.lowerBound), flip)
+            } }
+        }
+    }
+
+    /// The largest rectangle centered in `shape`'s bounds whose corners lie
+    /// inside it, found half a point at a time
+    private static func innerRect(of shape: UIBezierPath) -> CGRect {
+        var rect = shape.bounds
+        while rect.width > 1, rect.height > 1 {
+            let r = rect.insetBy(dx: 0.01, dy: 0.01)
+            if [CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY), CGPoint(x: r.minX, y: r.maxY), CGPoint(x: r.maxX, y: r.maxY)].allSatisfy(shape.contains) { break }
+            rect = rect.insetBy(dx: 0.5, dy: 0.5)
+        }
+        return rect
     }
 
     /// The box a paragraph's runs sit in, below `container`: the paragraph
@@ -567,11 +607,22 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
 
     /// The run's area as the screen shows it: its own boxes from the screen
     /// over its padding (`padding`), else the screen's picture of all of it,
-    /// neighboring text included.
+    /// neighboring text included. Either way, the padding extends the box the
+    /// run sits in past its edges (`RunLines.extensions`).
     private static func picture(_ lines: RunLines, of source: NodeView) -> RunPicture? {
         let container = lines.container, area = lines.area
         guard let padding = padding(lines, of: source) else {
-            return container.resizableSnapshotView(from: area, afterScreenUpdates: false, withCapInsets: .zero).map(RunPicture.init(padding:))
+            guard lines.inner != nil else {
+                return container.resizableSnapshotView(from: area, afterScreenUpdates: false, withCapInsets: .zero).map(RunPicture.init(padding:))
+            }
+            // The screen as pixels, its edges stretched: a snapshot of a strip too
+            // thin for a blur's radius shows what lies behind it unblurred, and a
+            // reflection would mirror the run's words, which the screen holds (filmed)
+            let b = container.bounds
+            let screen = UIGraphicsImageRenderer(size: area.size, format: UIGraphicsImageRendererFormat(for: container.traitCollection)).image { _ in
+                _ = container.drawHierarchy(in: CGRect(x: b.minX - area.minX, y: b.minY - area.minY, width: b.width, height: b.height), afterScreenUpdates: false)
+            }
+            return RunPicture(padding: UIImageView(image: extended(screen, by: lines.extensions(reflect: false))))
         }
         let picture = RunPicture(padding: padding)
         let runArea = lines.boxes.reduce(CGRect.null) { $0.union($1) }
@@ -596,7 +647,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
     private static func padding(_ lines: RunLines, of source: NodeView) -> UIView? {
         let container = lines.container, area = lines.area
         guard !source.boxDrawn, source.layer.borderWidth == 0, let parent = source.superview else { return nil }
-        // From the nearest view under the paragraph that covers the outline opaquely: nothing behind it shows
+        // From the nearest view under the paragraph that covers the area opaquely, or the box the padding extends: nothing behind it shows
         let root = sequence(first: parent, next: { $0.superview }).first {
             $0.layer.opacity >= 1 && ($0.layer.backgroundColor?.alpha ?? 0) >= 1 && ($0.layer === lines.box || covers($0.layer, area, in: container.layer))
         } ?? source.window ?? container
@@ -614,7 +665,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
             var corners: UIRectCorner = []
             for (masked, corner) in [(CACornerMask.layerMinXMinYCorner, UIRectCorner.topLeft), (.layerMaxXMinYCorner, .topRight), (.layerMinXMaxYCorner, .bottomLeft), (.layerMaxXMaxYCorner, .bottomRight)]
             where source.layer.maskedCorners.contains(masked) { corners.insert(corner) }
-            return UIImageView(image: UIGraphicsImageRenderer(size: area.size, format: UIGraphicsImageRendererFormat(for: container.traitCollection)).image { context in
+            return UIImageView(image: extended(UIGraphicsImageRenderer(size: area.size, format: UIGraphicsImageRendererFormat(for: container.traitCollection)).image { context in
                 let cg = context.cgContext
                 cg.translateBy(x: -area.minX, y: -area.minY)
                 cg.saveGState()
@@ -632,7 +683,22 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
                     cg.addPath(UIBezierPath(roundedRect: source.convert(source.bounds, to: container), byRoundingCorners: corners, cornerRadii: CGSize(width: radius, height: radius)).cgPath)
                     cg.fillPath()
                 }
-            })
+            }, by: lines.extensions(reflect: true)))
+        }
+    }
+
+    /// `image` with the padding beyond the box drawn as `extensions` says
+    /// (`RunLines.extensions`), unsmoothed
+    private static func extended(_ image: UIImage, by extensions: [(from: CGRect, to: CGRect, flip: UIImage.Orientation)]) -> UIImage {
+        guard !extensions.isEmpty, let pixels = image.cgImage else { return image }
+        return UIGraphicsImageRenderer(size: image.size, format: image.imageRendererFormat).image { context in
+            image.draw(at: .zero)
+            context.cgContext.interpolationQuality = .none
+            let scale = image.scale
+            for (from, to, flip) in extensions {
+                guard let part = pixels.cropping(to: CGRect(x: from.minX * scale, y: from.minY * scale, width: from.width * scale, height: from.height * scale).integral) else { continue }
+                UIImage(cgImage: part, scale: scale, orientation: flip).draw(in: to)
+            }
         }
     }
 
@@ -668,8 +734,8 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
     /// `root`'s layers in the order they are composited. A layer counts as only its fill where
     /// it is sure to paint nothing else; the color is flat where every fill
     /// there, from the last opaque one that covers the whole area up, covers it
-    /// too, at full opacity. The box the outline was cut to (`box`) covers all
-    /// that shows. Anything else is drawn, never guessed.
+    /// too, at full opacity. The box the padding extends (`box`) counts as
+    /// covering the area. Anything else is drawn, never guessed.
     private static func underneath(_ root: CALayer, across area: CGRect, in space: CALayer, exceptFor paragraph: CALayer, within box: CALayer?) -> Underneath {
         var flat = false, fills: [CGColor] = [], outside: [CALayer] = [], reordered = false
         func paint(_ layer: CALayer, opacity: Float) {
