@@ -349,6 +349,34 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertTrue(published, "the app chart refreshes before tracking ends, even with an active unknown-cadence scroll observer")
     }
 
+    func testAnIdleAppShowsNoFramesThoughTheCardRedrawsItself() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("UIUpdateLink is available from iOS 18") }
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window for the frame-health card")
+        }
+        let health = FrameHealth(enabled: true)
+        defer { health.destroy() }
+        let overlay = FrameHealthOverlay(health: health)
+        let window = hosted(overlay, in: scene, size: CGSize(width: 393, height: 852)), dot = CALayer()
+        window.layer.addSublayer(dot)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        overlay.setVisible(true)
+        // The card reads twice a second, changes of its own; none of them is the app's frame, nor do they make UIKit run
+        // updates that would be
+        RunLoop.main.run(until: Date().addingTimeInterval(3))
+        XCTAssertEqual(overlay.screenFrames, 0, "\(overlay.card.state.rows)")
+        XCTAssertEqual(overlay.card.state.rows.map(\.1), ["—", "—"])
+        // While the charts move with the time, the app's own changes are its frames: only one falling in the same refresh
+        // as a change of the card's, twice a second, is taken for the card's
+        for x in 1...6 {
+            dot.position.x = CGFloat(x)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        }
+        XCTAssertGreaterThanOrEqual(overlay.screenFrames, 4)
+        XCTAssertLessThanOrEqual(overlay.screenFrames, 6, "the card's own changes are not counted")
+        overlay.setVisible(false)
+    }
+
     func testTheScreenSeesEachFrameAndTheMainThreadsWorkOnlyWhileItRuns() throws {
         guard #available(iOS 18.0, *) else { throw XCTSkip("UIUpdateLink is available from iOS 18") }
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {

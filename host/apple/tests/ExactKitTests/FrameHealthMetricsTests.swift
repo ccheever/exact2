@@ -348,7 +348,7 @@ final class FrameHealthMetricsTests: XCTestCase {
                 return bytes
             }
             func shown() {
-                chart.present()
+                chart.present(flush: true)
                 for layer in layers { layer.displayIfNeeded() }
             }
             // What the frames drew against a whole drawing of the same frames, which the layers then keep

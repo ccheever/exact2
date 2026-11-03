@@ -151,7 +151,7 @@ final class FrameHealthOverlay: UIView {
             let screen = self.screen ?? FrameHealthScreen()
             self.screen = screen
             screen.chart = card.chart
-            screen.willCommit = { [weak self] in self?.committing() }
+            screen.willDraw = { [weak self] in self?.drawWithUpdate() }
             screen.start(scene)
             if screen.running, screenReader.start(claim: false) {
                 screen.health.changed = { [weak self] in self?.refresh() }
@@ -165,17 +165,21 @@ final class FrameHealthOverlay: UIView {
         follow(true)
     }
 
-    /// Follow the time, or stop, as the card pauses or hides: the charts move between frames, and the face reads on its
-    /// own while it measures the screen.
+    /// Follow the time, or stop, as the card pauses or hides. Measuring the screen, the card reads twice a second and
+    /// moves the charts with the time in the same change of its own: an update of the app's that falls in the same refresh
+    /// as one of the card's is taken for the card's, so it makes as few as it can. Otherwise the charts follow the time on
+    /// their own.
     private func follow(_ on: Bool) {
-        card.chart.follow(on)
         reading?.invalidate()
         reading = nil
+        card.chart.follow(on && !observing)
         guard on, observing else { return }
         let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self else { return }
             asCard {
-                guard self.sample(now: CACurrentMediaTime()), !self.dragging else { return }
+                let now = CACurrentMediaTime()
+                let read = self.sample(now: now), moved = self.card.chart.tick(at: now)
+                guard read || moved || self.needsShow, !self.dragging else { return }
                 self.show()
             }
         }
@@ -201,6 +205,9 @@ final class FrameHealthOverlay: UIView {
     /// Whether the face shows the screen's frames
     private var observing: Bool { screen?.running == true }
 
+    /// The screen's frames since the card started reading
+    var screenFrames: UInt64 { screen?.health.snapshot().callbacks ?? 0 }
+
     /// Read the collectors at most twice a second; a stopped Exact source changes only at lifecycle boundaries, so every
     /// one is read.
     @discardableResult
@@ -225,12 +232,14 @@ final class FrameHealthOverlay: UIView {
             guard !screen.drawing else { needsShow = true; return }
             screen.ownChange()
         }
+        needsShow = false
         render()
         card.chart.present()
     }
 
-    /// Within an update, before its commit: the card's waiting change and the charts' new frames go out with it.
-    private func committing() {
+    /// Within an update, as an animation's changes are: the card's waiting change and the charts' new frames go out with
+    /// it.
+    private func drawWithUpdate() {
         asCard {
             showWaiting()
             card.chart.present()
@@ -635,7 +644,13 @@ final class FrameHealthCardView: UIView {
 
     private final class Face: UIView {
         weak var card: FrameHealthCardView?
-        override func draw(_ rect: CGRect) { card?.drawFace() }
+        /// Render the face as an image, which Core Animation commits in the update that asks for it; drawn into a backing
+        /// store by `draw(_:)`, it would take UIKit another update a refresh later to show each drawing (LLP 1079.000 §7.4)
+        override func display(_ layer: CALayer) {
+            let format = UIGraphicsImageRendererFormat(for: traitCollection)
+            (format.scale, format.opaque) = (layer.contentsScale, true)
+            layer.contents = UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in card?.drawFace() }.cgImage
+        }
     }
 
     private func drawFace() {
@@ -784,10 +799,10 @@ final class FrameHealthCardView: UIView {
                 label = [state.request.0, state.request.1, state.display].filter { !$0.isEmpty }.joined(separator: ", ")
             case .figures:
                 frame = CGRect(x: 0, y: 80, width: l.width, height: 45)
-                label = state.rows.map { "\($0.0): \($0.1) FPS, \($0.2) missed" }.joined(separator: ". ")
+                label = state.rows.map { "\($0.0): \($0.1) FPS, \($0.2) \(state.unit)" }.joined(separator: ". ")
             case .pacing:
                 frame = CGRect(x: 0, y: 125, width: l.width, height: 41)
-                label = "Pacing, \(state.pacingWindow): " + [state.pacing.0, state.pacing.1].filter { !$0.isEmpty }.joined(separator: ", ")
+                label = "\(state.pacingName), \(state.pacingWindow): " + [state.pacing.0, state.pacing.1].filter { !$0.isEmpty }.joined(separator: ", ")
             case .charts, .table:
                 let chosen = (element.role == .table) == state.table
                 frame = element.role == .charts ? l.segments.0 : l.segments.1

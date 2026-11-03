@@ -25,9 +25,9 @@ final class FrameHealthScreen {
     let health = FrameHealth(policy: .always, source: FrameHealth.screenSource)
     /// The card's charts, which take each frame and each long spell
     weak var chart: FrameHealthChart?
-    /// Runs in each update before its Core Animation transaction is committed, so what the card changes goes out with
-    /// the app's frame
-    var willCommit: (() -> Void)?
+    /// Runs in each update after its `CADisplayLink` callbacks, where an animation makes its changes, and before UIKit
+    /// lays out, draws and commits them, so what the card changes goes out with the app's frame
+    var willDraw: (() -> Void)?
     /// Seconds: one refresh at the display's highest rate
     private(set) var refresh = 1.0 / 60
     private(set) var running = false
@@ -69,7 +69,7 @@ final class FrameHealthScreen {
         link.addAction(to: .afterUpdateScheduled) { [weak self] _, info in
             self?.scheduled(presented: info.estimatedPresentationTime, deadline: info.completionDeadlineTime)
         }
-        link.addAction(to: .beforeCATransactionCommit) { [weak self] _, _ in self?.willCommit?() }
+        link.addAction(to: .afterCADisplayLinkDispatch) { [weak self] _, _ in self?.willDraw?() }
         for phase in [UIUpdateActionPhase.afterCATransactionCommit, .afterLowLatencyCATransactionCommit] {
             link.addAction(to: phase) { [weak self] _, _ in self?.update?.committed = CACurrentMediaTime() }
         }
