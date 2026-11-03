@@ -343,7 +343,7 @@ describe('sent chips, file links and citations without a pill', () => {
     const theirs = [{ kind: 'image', ink: 'light-dark(#000001, #fffffe)' }];
     expect(inks.inkOf!(theirs, 'image')).toBe('light-dark(#000001, #fffffe)');
     expect(inks.inkOf!(theirs, 'thread')).toBe(inks.defaultChipInk!('thread'));
-    expect(inks.inkOf!([], 'image')).toBe('light-dark(#006592, #249fdc)'); // image chips are blue (#26306)
+    expect(inks.inkOf!([], 'image')).toBe('light-dark(#006a99, #1296d3)'); // image chips are blue (#26306)
     expect([inks.chipAccent!('review', ''), inks.chipAccent!('pr', 'merged'), inks.chipAccent!('pr', ''), inks.chipAccent!('link', ''), inks.chipAccent!('unresolved', '')])
       .toEqual(['review-comment', 'pr-merged', 'pull-request', 'mention', 'neutral']);
     expect([inks.runAccent!('context-review-comment'), inks.runAccent!('context-other')]).toEqual(['review-comment', 'neutral']);
@@ -353,7 +353,7 @@ describe('sent chips, file links and citations without a pill', () => {
   test('markdownEnv carries the theme\'s inks; a sent message\'s bubble on the other side of the canvas takes its own text colour', async () => {
     const { markdownChipInks, markdownEnv } = await import('../../src/timeline/message-chips');
     const client = { local: { deviceSettings: { appearanceMode: 'system' }, clientSettings: { fontFamilyCode: '' } } } as unknown as T3Client;
-    expect(markdownEnv(client).inks).toContainEqual({ kind: 'citation', ink: 'light-dark(#1f5cba, #5695f8)' });
+    expect(markdownEnv(client).inks).toContainEqual({ kind: 'citation', ink: 'light-dark(#2361be, #4d8cee)' });
     // The default theme's bubble is on the canvas's side in both halves, so its chips keep their accents.
     expect(markdownChipInks(client, true)).toEqual(markdownChipInks(client));
     expect(markdownEnv({ local: {} } as unknown as T3Client).inks).toEqual([]);

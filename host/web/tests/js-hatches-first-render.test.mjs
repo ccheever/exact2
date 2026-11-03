@@ -30,7 +30,9 @@ async function run(name, platforms, module) {
     page.on('request', r => { if (/\/modules\/index\.js/.test(r.url())) artifacts.push(r.url()); });
     await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: 'load' });
     await page.waitForFunction(() => globalThis.exact?.ready === true);
-    await page.waitForTimeout(1500);
+    // Wait until nothing is in flight, so the checks read finished work: hatches.js `ht` counts a page-module load from
+    // the first render
+    await page.waitForFunction(() => globalThis.exact.inflight.n === 0);
     const hatchLines = await page.evaluate(() => (globalThis.exact.journal ?? []).filter(l => / hatch /.test(l)));
     return { artifacts, hatchLines, ticked: await page.evaluate(() => globalThis.ticked ?? 0) };
   } finally { await browser.close(); server.stop(true); }

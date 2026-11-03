@@ -80,8 +80,8 @@ struct HeaderTitle: Equatable {
                     headingImages.append(child)
                     let tinted = child.ownColor("tint_color") != nil
                     titleGlyphs.append(TitleGlyph(name: name, before: before,
-                        light: tinted ? child.undimmedChannels("tint_color", dark: false) : nil,
-                        dark: tinted ? child.undimmedChannels("tint_color", dark: true) : nil))
+                        light: tinted ? child.carriedChannels("tint_color", dark: false) : nil,
+                        dark: tinted ? child.carriedChannels("tint_color", dark: true) : nil))
                 }
             }
         }
@@ -465,12 +465,31 @@ extension NavigationHost {
         (nav.topViewController as? RouteController).map { routeShowsBar($0, in: nav) } ?? barShows(nav)
     }
 
+    /// Runs a hatch over `nav`, noting a tint it gave the bar (`NavigationStack.hatchTintsBar`), which
+    /// Exact then leaves: one the bar shows after it and did not before, where Exact gave the bar none
+    /// meanwhile (in a push the hatch made) and UIKit did not dim it (behind what the hatch presented)
+    @discardableResult func hatching<T>(_ nav: UINavigationController?, _ run: () -> T) -> T {
+        guard let nav, let stack = stacks[ObjectIdentifier(nav)] else { return run() }
+        let bar = nav.navigationBar, tint = bar.tintColor, mode = bar.tintAdjustmentMode, written = stack.barTint
+        let result = run()
+        if bar.tintColor != tint, bar.tintAdjustmentMode == mode, stack.barTint === written { stack.hatchTintsBar = true }
+        return result
+    }
+
     /// Show or hide a stack's bar for `c` (its top by default), on change.
     /// Called from `willShow`, UIKit's place for it: the bar moves with the
     /// transition, an interactive pop's included, and back on a cancel.
     func showBar(_ nav: UINavigationController, for c: RouteController? = nil, animated: Bool) {
         let c = c ?? nav.topViewController as? RouteController
-        guard stacks[ObjectIdentifier(nav)] != nil, !searching(c) else { return }
+        guard let stack = stacks[ObjectIdentifier(nav)] else { return }
+        // The bar's tint is the route's accent, as a hand-built app tints its bar for the screen it shows:
+        // its title, items and field in the tint draw it and grey behind a sheet or an alert. A tint a
+        // hatch gave the bar stays (`NavigationStack.hatchTintsBar`).
+        if let c, !stack.hatchTintsBar, c.node.ownAccent != stack.barTint {
+            nav.navigationBar.tintColor = c.node.ownAccent
+            stack.barTint = c.node.ownAccent
+        }
+        guard !searching(c) else { return }
         let shows = c.map { routeShowsBar($0, in: nav) } ?? barShows(nav)
         if nav.isNavigationBarHidden == shows { nav.setNavigationBarHidden(!shows, animated: animated) }
     }

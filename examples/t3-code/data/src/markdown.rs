@@ -245,6 +245,7 @@ include!("markdown_direction.rs");
 include!("markdown_math.rs");
 include!("markdown_breaks.rs");
 include!("markdown_inert.rs");
+include!("markdown_favicon.rs");
 /// The resolver's mark for a workspace file link (`[label](src/a.ts:3)`): T3
 /// draws it as a file chip, not a web link.
 const FILE_LINK: &str = "t3-file:";
@@ -289,7 +290,7 @@ fn label(path: &str, line: &str) -> String {
 /// A `shape ChatRun` record with T3's link presentation: `kind` is "file"
 /// (a chip whose text is its label), "link-start"/"link" for a web link (the
 /// favicon precedes its first word), or "" for prose; `icon` names the chip's
-/// Pierre icon.
+/// Pierre icon, or a web link's favicon on its first run (link_favicon).
 fn chat_run(value: Value, link_start: bool) -> Value {
     let Value::Record(fields) = value else {
         return value;
@@ -360,7 +361,8 @@ fn chat_run(value: Value, link_start: bool) -> Value {
         fields[5] = Value::str(&format!("t3-inline-code:{text}"));
     }
     fields.push(Value::str(kind));
-    fields.push(Value::str(icon));
+    // A web link's first run names its favicon (markdown_favicon.rs).
+    fields.push(Value::str(&if kind == "link-start" { link_favicon(&href) } else { icon.to_string() }));
     Value::record(fields)
 }
 fn context_kind(kind: &str) -> &'static str {
@@ -1221,7 +1223,7 @@ mod tests {
                     "the ".into(),
                     "https://example.com/docs".into(),
                     "link-start".into(),
-                    "".into()
+                    "https://www.google.com/s2/favicons?domain=example.com&sz=32".into()
                 ),
                 (
                     "reference".into(),

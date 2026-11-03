@@ -6,6 +6,7 @@ use Snapshot from "../shared/shapes.contract"
 use Icon from "../shared/icons.contract"
 use ProviderMark from "../shared/icons.contract"
 use ProjectMark from "../shared/icons-kit.contract"
+use PgGlyph from "../shared/pages-icons.contract"
 use ShellView from "../shell/shell-shapes.contract"
 use ShellIcon from "../shell/shell-icons.contract"
 use TipBubble from "../shell/shell-tip.contract"
@@ -78,7 +79,11 @@ component ChatHeader
         if data.projectId != ""
           box position="relative" flex-shrink=1 min-width=0 display="flex" flex-direction="row" align-items="center"
             button press=title("new-thread", "") hover=hover("crumb") aria-label=`New thread in ${data.projectName}` testId="header-project" min-width=0 max-width="100%" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.375rem"
-              ProjectMark(label=data.projectMark, muted=false, ink=data.projectInk, surface=data.projectSurface, size=14)
+              // The scratch project's icon (SCRATCH_PROJECT_ICON): Lucide's message-square-dashed in the gray project colour.
+              if data.projectScratch
+                PgGlyph(name="message-square-dashed", size=14, color="light-dark(#4a5565, #99a1af)", weight=2)
+              else
+                ProjectMark(label=data.projectMark, muted=false, ink=data.projectInk, surface=data.projectSurface, size=14)
               text data.projectName font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(hovered == "crumb" ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)") line-clamp=1 min-width=0 max-width="10rem"
             TipBubble(label=`New thread in ${data.projectName}`, side="bottom", align="center", offset=26, inset=0, shown=(hovered == "crumb"))
           text "/" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" flex-shrink=0

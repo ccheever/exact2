@@ -12,7 +12,7 @@ import { obj, str } from '../client/domain';
 import { terminologyForUrl } from '../details/git-logic';
 import { chipInk, contextChipInks } from '../shared/chip-accents';
 import { paintOf } from '../appearance/settings-appearance-look';
-import { themeRoles } from '../appearance/settings-appearance';
+import { THEME_IDS, themeRoles } from '../appearance/settings-appearance';
 
 export type ComposerChipFace = {
   kind: string; label: string; suffix: string; icon: string; fileToken: string;
@@ -107,7 +107,12 @@ const inkCache = new WeakMap<object, { key: string; inks: Record<string, string>
 export function chipInks(client: T3Client, bubble = false): Record<string, string> {
   const { prefs, custom } = paintOf(client);
   // The status colours a palette leaves to the standard ones (STANDARD_STATUS_COLORS): the error foreground.
-  const light = { errorForeground: '#c10007', ...themeRoles(prefs.themeLight, 'light', custom) }, dark = { errorForeground: '#ff6467', ...themeRoles(prefs.themeDark, 'dark', custom) };
+  // The standard theme is solved as index.css paints it (getStandardPaintedThemeColors): a black dark canvas and the
+  // web's bubble shades.
+  const standard = (id: string) => !custom.some(theme => theme.id === id) && (id === 't3-code' || !THEME_IDS.includes(id));
+  const painted = (id: string, mode: 'light' | 'dark') => !standard(id) ? {} : mode === 'light' ? { messageSurface: '#ebebed' } : { canvas: '#000000', messageSurface: '#1e1e1e' };
+  const light = { errorForeground: '#c10007', ...themeRoles(prefs.themeLight, 'light', custom), ...painted(prefs.themeLight, 'light') };
+  const dark = { errorForeground: '#ff6467', ...themeRoles(prefs.themeDark, 'dark', custom), ...painted(prefs.themeDark, 'dark') };
   const key = JSON.stringify([light, dark]), cached = inkCache.get(client);
   if (cached?.key === key) return bubble ? cached.bubble : cached.inks;
   const a = contextChipInks(light), b = contextChipInks(dark);

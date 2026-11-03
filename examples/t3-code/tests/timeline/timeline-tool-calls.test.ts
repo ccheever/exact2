@@ -66,7 +66,7 @@ describe('Claude skill calls (43bd667)', () => {
   test('a read expands to the paths it read, not the inspector', async () => {
     const view = client([user('u', 0, 'go'), tool('r', 1, 'Read', { file_path: 'src/app.ts' }), answer('a', 3, 'done')]);
     const entry = (await opened(view)).flatMap(row => row.activities ?? []).find(activity => activity.id === key('r'));
-    expect(entry).toMatchObject({ label: 'Read project/src/app.ts', output: '/work/project/src/app.ts', body: '' });
+    expect(entry).toMatchObject({ label: 'Read src/app.ts', output: '/work/project/src/app.ts', body: '' });
   });
 });
 

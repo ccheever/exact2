@@ -93,6 +93,7 @@ component ProjectPicker
 component WelcomeLayer
   props
     welcome: WelcomeView
+    covered: bool // Settings is open over it
     viewport: Viewport
     scheme: string
     welcomeStep: string
@@ -125,7 +126,8 @@ component WelcomeLayer
     welcomeGo(step)
   view
     DialogFinalFocus(open=welcome.show, owner="welcome-dialog")
-    if welcome.show
+    // Settings opened over the wizard (the app menu's Settings…) covers it until it closes, as in the reference.
+    if welcome.show and not covered
       WelcomeWizard(view=welcome, scheme=scheme, viewportHeight=viewport.height, step=welcomeStep, busy=commandPending, error=modalError, link=welcomeLink, pairOpen=welcomePairOpen, helpOpen=welcomeHelpOpen, go=welcomeGoStep, local=welcomeImport, editLink=welcomeEditLink, pair=welcomePair, togglePair=welcomeTogglePairing, toggleHelp=welcomeToggleHelp, copy=prCopy, setup=welcomeSetup, chatgpt=providerUi("open", "chatgpt"), finish=welcomeFinish, setupOp=providerOp, setupBusy=setupBusy, ui=providerUi)
 
 // Window overlays above everything: model picker, palette, thread details, title menu, dialogs, toasts.

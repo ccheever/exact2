@@ -18,13 +18,14 @@
 //                                         an agent drive of the bundle: with --local "This machine" too,
 //                                         each named environment paired in the welcome wizard (fresh
 //                                         tokens, kept off the terminal), the wizard finished, then the ops
+//   bun env.mjs pair-url <name> <file>    a pairing link for a real-input launch, written to <file> (absolute; owner-only)
 //   bun env.mjs forget <name> [--app ID]  removes what a normal launch of the app ID (default com.exact.t3code.macos) saved for it
 //   bun env.mjs no-scratch <t3 home>      the same for This machine's home (T3_LOCAL_HOME), before the app starts
 //   bun env.mjs samples <dir>             sample.py, doc.pdf and clip.mp4, to attach as chips
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { withoutScratch, writeSamples } from "./lib.mjs";
+import { withoutScratch, writePairingUrl, writeSamples } from "./lib.mjs";
 import { ENVIRONMENTS, LOCAL_PORT, offlineEnv, checkPort, checkout, envDir, example, fixturePaths, forgetKeychain, localHome, pairingUrl, welcomeWait, recorded, routeOf, seed, shellOf, startServer, stopGithubApi, stopHub, stopServer } from "./lib.mjs";
 
 const paths = fixturePaths();
@@ -120,6 +121,7 @@ if (import.meta.main) {
       }
     } else if (command === "drive") process.exitCode = drive(process.argv.slice(3));
     else if (command === "no-scratch") console.log(withoutScratch(process.argv[3] ?? (() => { throw new Error("name the T3 home"); })()));
+    else if (command === "pair-url") console.log(writePairingUrl(paths, nameArg(), process.argv[4]));
     else if (command === "samples") console.log(writeSamples(process.argv[3] ?? (() => { throw new Error("name a directory"); })()).join("\n"));
     else if (command === "forget") {
       const name = nameArg();
@@ -130,6 +132,6 @@ if (import.meta.main) {
       const route = routeOf(paths, name), origins = [origin, ...(route ? [`http://127.0.0.1:${route.port}`] : [])];
       const app = flag(process.argv.slice(3), "--app") ?? "com.exact.t3code.macos";
       console.log(forgetKeychain(app, origins, environmentId) ? "removed" : "none saved");
-    } else { console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 23).join("\n")); process.exitCode = command ? 2 : 0; }
+    } else { console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 24).join("\n")); process.exitCode = command ? 2 : 0; }
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

@@ -2255,12 +2255,12 @@ button's fill, a toggle's on state, the icon of a tappable row. Write it as
 grey behind an alert or a sheet to say the screen under it is inert. **A
 colour of its own is for what means something by itself**: status
 (`-exact-system-green`, `-exact-system-red`), text hierarchy (`-exact-label`,
-`-exact-secondary-label`), data, and marks. A colour of its own never dims; on
-iOS the tint does where UIKit draws it, whoever set it (the root's
-`accent-color` or a node's own), as UIKit greys a view's `tintColor`:
-controls, bars, symbols drawn in the tint, and a box shadow in `AccentColor`.
-A gradient or SVG paint in `AccentColor` is resolved by Exact to the app's
-accent and does not dim. Set the app's accent once, on the root:
+`-exact-secondary-label`), data, and marks. A colour of its own never dims,
+except on a native button, which greys whole as UIKit greys a button, its
+symbol's `-exact-tint-color` too. On iOS the tint dims, whoever set it (the
+root's `accent-color` or a node's own), as UIKit greys a view's `tintColor`:
+controls, bars, text, symbols, fills, shadows and SVG paints in `AccentColor`.
+Set the app's accent once, on the root:
 `accent-color` on the root element is the app's accent, and on iOS it is the
 window's tint, as an AccentColor asset is, so every `AccentColor`, bar, sheet
 and alert follows it. On Apple hosts only, an app may instead ship its accent

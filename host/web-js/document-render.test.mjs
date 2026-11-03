@@ -933,7 +933,7 @@ component App
         for (const [width, woken] of [[390, false], [1280, true]]) {
           const page = await browser.newPage({ viewport: { width, height: 800 } });
           await page.goto(new URL('/wide', server.url).href);
-          await page.waitForTimeout(500);
+          await decided(page);
           expect([how, width, await page.evaluate(() => !!globalThis.exact?.ready)]).toEqual([how, width, woken]);
           // Woken, the runtime lays the page out for the reader's viewport, not the render's (D2).
           if (woken) await page.waitForFunction(() => globalThis.exact?.ready && document.querySelector('main')?.textContent === 'wide', null, { timeout: 5000 }).catch(() => {});
@@ -941,7 +941,7 @@ component App
         }
         const page = await browser.newPage({ viewport: { width: 390, height: 800 } });
         await page.goto(new URL('/seen', server.url).href);
-        await page.waitForTimeout(500);
+        await decided(page);
         const before = await page.evaluate(() => !!globalThis.exact?.ready);
         await page.mouse.wheel(0, 4000);
         await page.waitForFunction(() => !!globalThis.exact?.ready, null, { timeout: 5000 });
@@ -950,6 +950,15 @@ component App
     }, {}, {}, how);
   }
 }, 240000);
+
+/** Resolves once a page's capture script has decided whether to wake the runtime, or after 20 s. It decides at the
+ * first paint; an intersect handler's observer then reports first in a task after the next frame, which computes it
+ * after its animation frame callbacks (HTML's "update the rendering"), so we wait two frames, then a task. */
+const decided = page => page.evaluate(() => new Promise(done => {
+  setTimeout(done, 20_000);
+  new PerformanceObserver((_, o) => { o.disconnect(); requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done))); })
+    .observe({ type: 'paint', buffered: true });
+}));
 
 // LLP 1048.003 D4: only the shown route's `scroll document` is the page's scroller. A hidden route's is
 // `data-exact-offpage`, scrolling inside its bound, so its content leaves the page's height; each route keeps its own
@@ -1000,7 +1009,8 @@ component Pages
       expect([how, await at()]).toEqual([how, ['/detail', 0, 1000]]);
       await page.evaluate(() => history.back());
       await page.waitForFunction(() => location.pathname === '/');
-      await page.waitForTimeout(100);
+      // Wait for home's place and height to come back (on a miss, the expect says what they are)
+      await page.waitForFunction(h => scrollY === 500 && document.documentElement.scrollHeight === h, home, { timeout: 5000 }).catch(() => {});
       expect([how, await at()]).toEqual([how, ['/', 500, home]]);
     } finally { await browser.close(); server.stop(true); }
   }, {}, {}, how);
@@ -1159,6 +1169,8 @@ component App
     fresh.ahead = false;
     const page = async (r, at) => (await r(at)).html.replace(/"time":[\d.]+/, '"time":0');
     await page(ahead, '/');
+    // Leave the realm made ahead idle 1.5 s, as it may wait between requests (LLP 1048.007 D7), so that a timer its
+    // bundle's loading set for up to that long has fired before it renders
     await new Promise(r => setTimeout(r, 1500));
     for (const at of ['/items/b', '/']) expect([at, await page(ahead, at)]).toEqual([at, await page(fresh, at)]);
   });

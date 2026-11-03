@@ -119,6 +119,7 @@ component SidebarOverlays
 // open. A badge on the icon marks each chosen project.
 component SidebarScopeMenu
   inject
+    scheme: string
     rem: number
   props
     data: Snapshot
@@ -186,7 +187,7 @@ component SidebarScopeMenu
   action pinHover(key: string, over: bool)
     pinOver = over ? key : (pinOver == key ? "" : pinOver)
   view
-    column position="absolute" left="0.5rem" top="6rem" z-index=31 min-width=(width - 6.5 * rem) max-width="18rem" max-height="23rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" backdrop-filter="blur(16px)" box-shadow="0 17px 42px -18px light-dark(#0000008c, #000000cc)" overflow="hidden" role="dialog" testId="scope-menu"
+    column position="absolute" left="0.5rem" top="6rem" z-index=31 min-width=(width - 6.5 * rem) max-width="18rem" max-height="23rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" backdrop-filter=(scheme == "dark" ? "blur(16px)" : "blur(12px)") box-shadow="0 17px 42px -18px light-dark(#0000008c, #000000cc)" overflow="hidden" role="dialog" testId="scope-menu"
       column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" box-sizing="border-box"
         row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" align-items="flex-start" position="relative" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#1b4ed8, #346bf1)"
           box position="absolute" left=0 top="0.375rem" width="1rem" height="1rem" pointer-events="none"
@@ -374,13 +375,15 @@ component SidebarPlacedHoverCard
     SidebarHoverCard(t=t, x=x, y=max(aTop - cardH, min(aBottom, shifted)), shown=shown)
 
 component SidebarHoverCard
+  inject
+    scheme: string
   props
     t: Thread
     x: number
     y: number
     shown: bool
   view
-    column position="absolute" left=(shown ? x : -4000) top=y z-index=29 opacity=(shown ? 1 : 0) transition=(shown ? "opacity 0ms linear 150ms" : "opacity 0ms") aria-hidden=(not shown) max-width="20rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" backdrop-filter="blur(16px)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" pointer-events="none" role="tooltip" testId=(shown ? `hover-card-${t.id}` : "hover-card-hidden")
+    column position="absolute" left=(shown ? x : -4000) top=y z-index=29 opacity=(shown ? 1 : 0) transition=(shown ? "opacity 0ms linear 150ms" : "opacity 0ms") aria-hidden=(not shown) max-width="20rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" backdrop-filter=(scheme == "dark" ? "blur(16px)" : "blur(12px)") box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" pointer-events="none" role="tooltip" testId=(shown ? `hover-card-${t.id}` : "hover-card-hidden")
       text t.title max-width="18.5rem" font-size="0.75rem" line-height="0.9375rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
       column gap="0.375rem" padding-left="0.125rem"
         if t.projectName != ""

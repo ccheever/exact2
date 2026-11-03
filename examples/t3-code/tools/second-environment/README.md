@@ -151,6 +151,6 @@ file drop on a sidebar row is the row's Contract `drop`: `tap thread-<id> drop <
 A normal launch saves the pairing and its token in the connection catalog, one Keychain item (service the
 app's bundle id, account `t3-catalog`). Launch a lane copy
 of the bundle (its own bundle id) with `T3_LOCAL_HOME=<root>/local/t3home T3_LOCAL_PORT=16500`,
-pair with a URL from `bun -e 'import {fixturePaths,pairingUrl} from "./lib.mjs"; await Bun.write("/abs/pairing-url", pairingUrl(fixturePaths(), "second"))'`
-(paste it from that file), and afterwards remove it with `bun env.mjs forget second --app <the copy's bundle id>`
+pair with a URL from `bun env.mjs pair-url second /tmp/<lane>/pair-url` (paste it from that file; the path must
+be absolute, so a link never lands in the checkout), and afterwards remove it with `bun env.mjs forget second --app <the copy's bundle id>`
 (only that fixture's entry and tokens; "none saved" when there was none).

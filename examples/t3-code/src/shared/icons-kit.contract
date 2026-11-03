@@ -4,7 +4,7 @@ use AcpRegistryAgentIcon from "../providers/provider-icons-kit.contract"
 use providerAccentInk from "./accent-ink.contract"
 
 // ProjectMonogram: a name-hashed tint at 14% behind its two-letter mark; settled
-// rows render it in the muted ink instead.
+// rows render it in the muted ink instead. The mark is 8.25 of the tile's 16 units, so it scales with `size`.
 component ProjectMark
   props
     label: string
@@ -14,7 +14,7 @@ component ProjectMark
     size: number
   view
     box width=`${size / 16}rem` height=`${size / 16}rem` border-radius=`${size / 64}rem` background-color=(muted ? "light-dark(#71717b19, #a1a1a11a)" : surface) display="flex" align-items="center" justify-content="center" flex-shrink=0
-      text label font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.515625rem" font-weight=700 color=(muted ? "light-dark(#71717bb3, #a1a1a1b3)" : ink)
+      text label font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size=`${size * 0.515625 / 16}rem` font-weight=700 color=(muted ? "light-dark(#71717bb3, #a1a1a1b3)" : ink)
 
 // ProviderInstanceIcon: the driver glyph with the account badge on a card
 // surface (bg-card, input border, shadow-sm), as the composer shows it.
@@ -34,7 +34,8 @@ component ProviderInstanceMark
 
 // The same mark on the sidebar, where bg-card resolves to the sidebar's own
 // white/black and the badge's border matches it. An ACP Registry instance draws
-// its agent's icon (`icon`, acp-icons.ts), as ProviderInstanceIcon does.
+// its agent's icon (`icon`, acp-icons.ts), as ProviderInstanceIcon does; its fallback glyph is black or white
+// (AcpRegistryIcon's fill-black dark:fill-white), where the driver marks take the muted ink.
 component SidebarProviderMark
   props
     driver: string
@@ -45,7 +46,7 @@ component SidebarProviderMark
     box width="0.875rem" height="0.875rem" position="relative" flex-shrink=0
       box opacity=0.6
         if driver == "acpRegistry"
-          AcpRegistryAgentIcon(icon=icon, size=14, color="light-dark(#71717b, #a1a1a1)")
+          AcpRegistryAgentIcon(icon=icon, size=14, color="light-dark(#000000, #ffffff)")
         else
           ProviderMark(driver=driver, size=14, color="light-dark(#71717b, #a1a1a1)")
       if badge != ""

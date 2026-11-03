@@ -2,6 +2,7 @@ use FindPart, FindParts, FindToken, findFrom, findTo from "./thread-find.contrac
 // App-local chat typography over the existing portable Markdown parser.
 use FileTypeIcon from "../shared/timeline-files.contract"
 use TimelineIcon from "./timeline-icons-kit.contract"
+use LinkFavicon from "./link-favicon.contract"
 use Tip from "../shell/shell-tip.contract"
 use synColor, synSlant, synWeight from "../highlight/syntax-ink.contract"
 use AttachmentUrl, ChipThumb from "./timeline-attachments.contract"
@@ -480,7 +481,7 @@ component BlockBody
             TaskCheckbox(block=block, local=local)
           if block.task == "" and ["•", "◦", "▪"].includes(block.marker)
             box width="1.25rem" height="1.421875rem" flex-shrink=0 position="relative"
-              box position="absolute" left=(block.dir == "rtl" ? "0.6875rem" : "0.25rem") top="0.59375rem" width="0.3125rem" height="0.3125rem" box-sizing="border-box" border-radius=(block.marker == "▪" ? "0px" : "0.15625rem") border-width=(block.marker == "◦" ? 1 : 0) border-style="solid" border-color=prose background-color=(block.marker == "◦" ? "#00000000" : prose)
+              box position="absolute" left="0.46875rem" top="0.59375rem" width="0.3125rem" height="0.3125rem" box-sizing="border-box" border-radius=(block.marker == "▪" ? "0px" : "0.15625rem") border-width=(block.marker == "◦" ? 1 : 0) border-style="solid" border-color=prose background-color=(block.marker == "◦" ? "#00000000" : prose)
           if block.task == "" and not ["•", "◦", "▪"].includes(block.marker)
             text block.marker width=(block.gutter > 0 ? `${block.gutter}ch` : "1.25rem") flex-shrink=0 padding-left=(block.dir == "rtl" ? "0.25rem" : "0px") padding-right=(block.dir == "rtl" ? "0px" : "0.25rem") box-sizing="border-box" text-align="end" white-space="nowrap" font-size="0.875rem" line-height="1.421875rem" color=prose
         // A quote reads in the prose's own ink beside a 2px bar of it at 35% (border-inline-start), on its start side.
@@ -681,7 +682,7 @@ component FlowRuns
         if run.kind == "link-start" and linkRun(run, chips) and webLink(run.href)
           link href=run.href press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start" title=""
             box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
-              TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
+              LinkFavicon(icon=run.icon, color="light-dark(#1447e6, #50a2ff)")
             LinkRunWords(run=run, size=size, weight=weight, top="0.153125rem")
         if run.kind == "link-start" and linkRun(run, chips) and not webLink(run.href)
           link href=run.href press=open(run.href) aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start" title=""
@@ -806,7 +807,7 @@ fn linkLeads(runs: ChatRun[], id: string, link: string): bool = runs.slice(max(0
 // A pull request link in a pull request's text (ChatMarkdown's anchor with
 // PullRequestLinkPreview, pullRequestMarkdown.logic.ts autolinks): its press asks the panel to open it
 // (pages-pr-links.ts openLink: the panel for a pull request, the browser for anything else or with a modifier
-// held). A web link keeps its favicon (the globe); a `#N` autolink has none, and a commit's is monospace.
+// held). A web link keeps its favicon (LinkFavicon); a `#N` autolink has none, and a commit's is monospace.
 component PrLinkRun
   inject
     rem: number
@@ -839,7 +840,7 @@ component PrLinkRun
     button id=`pr-link-${chip.id}` press=open pointerdown=down pointerup=up contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" hover=hover role="link" aria-label=run.text testId=`pr-link-${chip.id}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="flex-start" flex-shrink=0 cursor="pointer" title=""
       if run.kind == "link-start" and chip.detail == ""
         box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
-          TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
+          LinkFavicon(icon=run.icon, color="light-dark(#1447e6, #50a2ff)")
       if chip.detail == "commit"
         text white-space="pre" flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size=size line-height="1.421875rem" font-weight=weight font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color="light-dark(#1447e6, #50a2ff)"
           FindParts(parts=run.findParts)

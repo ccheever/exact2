@@ -21,7 +21,7 @@ component WebhookDeliveriesDialog
       refresh = refresh + 1
   derive targets = (data.selected == "" ? data.items.map((item) => `webhook-delivery-${item.id}`) : []).concat(["webhook-deliveries-back", "webhook-deliveries-done"])
   view
-    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)"
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" backdrop-filter="blur(4px)"
       column role="dialog" aria-label=data.title id="webhook-deliveries-dialog" testId="webhook-deliveries-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("webhook-deliveries-dialog") key=dialogFallback("webhook-deliveries-dialog", targets) width="100%" max-width="42rem" max-height="90vh" border-radius="1rem" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden"
         FocusGuard(guardId="webhook-deliveries-guard-start", targets=targets, popup="webhook-deliveries-dialog")
         DialogOpenFocus(target="webhook-deliveries-done")

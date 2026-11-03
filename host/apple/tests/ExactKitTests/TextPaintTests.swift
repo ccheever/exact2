@@ -17,8 +17,8 @@ final class TextPaintTests: XCTestCase {
             letterSpacing: 0, background: background)
     }
 
-    /// A stroke in a colour of its own space (its width, then nine numbers: a wide colour, or a dimmed
-    /// face's grey past white) is painted in that colour, as a four-channel one is
+    /// A stroke in a colour of its own space (its width, then nine numbers: a wide colour)
+    /// is painted in that colour, as a four-channel one is
     func testAStrokeInItsOwnSpaceIsPainted() throws {
         var wide = run("Wide")
         wide.stroke = [2, 255, 255, 255, 255, 0, 1.2, 1.2, 1.2, 1]

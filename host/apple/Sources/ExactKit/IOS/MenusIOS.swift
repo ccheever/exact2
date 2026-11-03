@@ -1259,13 +1259,13 @@ final class MenuHost {
         let owner = Confirmation(host: self, source: source, popover: pop, modal: modal, actions: presented,
                                  cancel: cancels.first.map { Confirmation.Presented($0, title: title(of: $0), enabled: !$0.disabled) }, style: style,
                                  title: words.title, message: words.message)
-        // A native action's tint is its accent (LLP 1069.011.000 D5); the
-        // alert has one tint, the first action's, else its one button's. Unsaid, it is UIKit's
-        // (LLP 1115 D4): a `color` the action only inherits is not its own.
+        // A native action's tint is its accent (LLP 1069.011.000 D5); the alert has one tint, the first
+        // action's, else its one button's, a value by its tint: the alert's window carries neither a theme's
+        // tint nor an embedder's. Unsaid, it is UIKit's (LLP 1115 D4): an inherited `color` is not its own.
         let lead = actions.first ?? cancels[0]
         owner.alert.view.tintColor = lead.isNativeButton
-            ? lead.channels("accent_color").map { TextEngine.color($0) }
-            : lead.ownUIColor("text_color")
+            ? lead.carriedColor("accent_color")
+            : lead.ownColor("text_color") == nil ? nil : lead.carriedColor("text_color")
         for (index, entry) in presented.enumerated() {
             let action = actions[index]
             let style: UIAlertAction.Style = action.props["destructive"] == "true" ? .destructive : .default

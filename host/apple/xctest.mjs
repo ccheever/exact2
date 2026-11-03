@@ -16,7 +16,7 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   const contract = args => run(env.EXACT_CONTRACT, ['build', ...args]);
   // A test that writes its own manifest names the app the tests link (`SheetFixture`'s `data`).
   env[`${prefix}_TEST_APP_ID`] = appId;
-  for (const [name, key] of [['frame-health', 'FRAME_HEALTH'], ['store-refresh', 'STORE_REFRESH'], ['headless', 'HEADLESS'], ['headless-markdown', 'HEADLESS_MARKDOWN'], ['headless-hidden-markdown', 'HEADLESS_HIDDEN_MARKDOWN'], ['headless-live', 'HEADLESS_LIVE'], ['headless-back', 'HEADLESS_BACK'], ['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['transparent-bar', 'TRANSPARENT_BAR'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE'], ['inline-frame', 'INLINE_FRAME'], ['fieldless', 'FIELDLESS'], ['web-documents', 'WEB_DOCUMENTS'], ['iframe-post-messages', 'IFRAME_POST_MESSAGES'], ['iframe-partition', 'IFRAME_PARTITION'], ['iframe-windows', 'IFRAME_WINDOWS'], ['iframe-pdf', 'IFRAME_PDF'], ['iframe-resident-popover', 'IFRAME_RESIDENT_POPOVER'], ['tab-owner', 'TAB_OWNER'], ['grouped-list-reveal', 'GROUPED_REVEAL'], ['due-now', 'DUE_NOW'], ['caret-reveal', 'CARET_REVEAL'], ['cover-scroll', 'COVER_SCROLL'], ['page-edges', 'PAGE_EDGES'], ['barless-route', 'BARLESS_ROUTE'], ['page-edges-grouped', 'PAGE_EDGES_GROUPED'], ['control-bars', 'CONTROL_BARS'], ['search-scope', 'SEARCH_SCOPE'], ['held-tab', 'HELD_TAB'], ['pull-refresh', 'PULL_REFRESH'], ['edge-effect', 'EDGE_EFFECT'], ['sticky-bar', 'STICKY_BAR'], ['glass-press', 'GLASS_PRESS'], ['surface-pairs', 'SURFACE_PAIRS'], ['prevent-focus', 'PREVENT_FOCUS']]) {
+  for (const [name, key] of [['frame-health', 'FRAME_HEALTH'], ['store-refresh', 'STORE_REFRESH'], ['headless', 'HEADLESS'], ['headless-markdown', 'HEADLESS_MARKDOWN'], ['headless-hidden-markdown', 'HEADLESS_HIDDEN_MARKDOWN'], ['headless-live', 'HEADLESS_LIVE'], ['headless-back', 'HEADLESS_BACK'], ['native-navigation-scroll', 'NATIVE_SCROLL'], ['intersect', 'INTERSECT'], ['native-buttons', 'BUTTONS'], ['keyboard-form', 'KEYBOARD'], ['tab-edge', 'TAB_EDGE'], ['repaint', 'REPAINT'], ['still-title', 'STILL_TITLE'], ['navigation-bars', 'NAVIGATION_BARS'], ['large-title', 'LARGE_TITLE'], ['transparent-bar', 'TRANSPARENT_BAR'], ['bar-band', 'BAR_BAND'], ['pad-bar', 'PAD_BAR'], ['pushed-title', 'PUSHED_TITLE'], ['inline-frame', 'INLINE_FRAME'], ['fieldless', 'FIELDLESS'], ['web-documents', 'WEB_DOCUMENTS'], ['iframe-post-messages', 'IFRAME_POST_MESSAGES'], ['iframe-partition', 'IFRAME_PARTITION'], ['iframe-windows', 'IFRAME_WINDOWS'], ['iframe-pdf', 'IFRAME_PDF'], ['iframe-resident-popover', 'IFRAME_RESIDENT_POPOVER'], ['tab-owner', 'TAB_OWNER'], ['grouped-list-reveal', 'GROUPED_REVEAL'], ['due-now', 'DUE_NOW'], ['caret-reveal', 'CARET_REVEAL'], ['cover-scroll', 'COVER_SCROLL'], ['page-edges', 'PAGE_EDGES'], ['barless-route', 'BARLESS_ROUTE'], ['page-edges-grouped', 'PAGE_EDGES_GROUPED'], ['control-bars', 'CONTROL_BARS'], ['search-scope', 'SEARCH_SCOPE'], ['held-tab', 'HELD_TAB'], ['pull-refresh', 'PULL_REFRESH'], ['edge-effect', 'EDGE_EFFECT'], ['sticky-bar', 'STICKY_BAR'], ['glass-press', 'GLASS_PRESS'], ['surface-pairs', 'SURFACE_PAIRS'], ['prevent-focus', 'PREVENT_FOCUS'], ['accent-bars', 'ACCENT_BARS'], ['accent-tabs', 'ACCENT_TABS']]) {
     contract([resolve(root, `scripts/fixtures/${name}.contract`), '-o', env[`${prefix}_${key}_PLAN`] = resolve(dir, `${name}.plan`)]);
   }
   contract([resolve(root, 'host/apple/tests/fixtures/sticky-transition.contract'), '-o', env[`${prefix}_STICKY_TRANSITION_PLAN`] = resolve(dir, 'sticky-transition.plan')]);
@@ -32,6 +32,7 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
   contract([resolve(root, 'host/apple/tests/fixtures/reset-gate.contract'), '-o', env[`${prefix}_RESET_GATE_PLAN`] = resolve(dir, 'reset-gate.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/reset-gate-admission.contract'), '-o', env[`${prefix}_RESET_GATE_ADMISSION_PLAN`] = resolve(dir, 'reset-gate-admission.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/native-retry.contract'), '-o', env[`${prefix}_NATIVE_RETRY_PLAN`] = resolve(dir, 'native-retry.plan')]);
+  contract([resolve(root, 'host/apple/tests/fixtures/dimmed-pixels.contract'), '-o', env[`${prefix}_DIMMED_PIXELS_PLAN`] = resolve(dir, 'dimmed-pixels.plan')]);
   contract([resolve(root, 'host/apple/tests/fixtures/reset-hold.contract'), '-o', env[`${prefix}_RESET_HOLD_PLAN`] = resolve(dir, 'reset-hold.plan')]);
   // NavigationBarIOSTests': a header whose controls share and add a control.
   contract([resolve(root, 'host/apple/tests/fixtures/bar-share.contract'), '-o', env[`${prefix}_BAR_SHARE_PLAN`] = resolve(dir, 'bar-share.plan')]);
@@ -116,11 +117,12 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
  *  active one, as another test process brought forward makes it, and in the
  *  shared process it read the menu items other classes left. The Canvas 2D
  *  GPU module (`canvasGpu`) is loaded only in its own tests' process:
- *  loaded, every canvas draws on the GPU. */
-export async function macTests(pkg, scratch, env, canvasGpu) {
+ *  loaded, every canvas draws on the GPU. `only`, when given, names the
+ *  classes to run. */
+export async function macTests(pkg, scratch, env, canvasGpu, only = null) {
   const listed = read('swift', ['test', '--skip-build', '--list-tests', '--scratch-path', scratch], { cwd: pkg, env });
   if (listed.status !== 0) throw new Error(`swift test --list-tests failed: ${listed.stderr}`);
-  const classes = [...new Set(listed.stdout.match(/^ExactKitTests\.\w+(?=\/)/gm) ?? [])];
+  const classes = chosen([...new Set(listed.stdout.match(/^ExactKitTests\.\w+(?=\/)/gm) ?? [])], only, 'macOS');
   const macWide = /NSPasteboard\.general|\bactivate\(|NSEvent\.mouseLocation|CGWindowListCreateImage/;
   const tracksMenu = /\.popUp\(positioning:/;
   const shared = new Set(), solo = new Set();
@@ -166,8 +168,9 @@ export async function macTests(pkg, scratch, env, canvasGpu) {
  *  accessibility runtime on for that run alone. The Canvas 2D GPU module's own run apart with it
  *  loaded (`canvasGpu`): loaded, every canvas draws on the GPU, and the others read the Core
  *  Graphics path a runner without it draws. `runApple` and `run` are build.mjs's: they throw on
- *  failure, and `runApple` refuses a mixed deployment target. */
-export function iosTestRuns({ pkg, products, destination, udid, env, canvasGpu, hostSource, triple, runApple, run }) {
+ *  failure, and `runApple` refuses a mixed deployment target. `only`, when
+ *  given, names the classes to run, and a run with none of them is left out. */
+export function iosTestRuns({ pkg, products, destination, udid, env, canvasGpu, hostSource, triple, runApple, run, only = null }) {
   const bare = withoutPerformanceChecker(products), host = resolve(products, 'ExactTestHost.app');
   rmSync(host, { recursive: true, force: true });
   mkdirSync(host, { recursive: true });
@@ -179,7 +182,8 @@ export function iosTestRuns({ pkg, products, destination, udid, env, canvasGpu, 
   runApple('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-parse-as-library', '-target', triple, hostSource, '-o', resolve(host, 'ExactTestHost')]);
   const hosted = hostedIn(products, bare, 'ExactTestHost.app');
   run('codesign', ['-s', '-', '--force', '--deep', host], { stdio: 'ignore' });
-  const hostedOnly = hostedTests(resolve(pkg, 'tests/ExactKitTests')), gpuTests = 'ExactKitTests/Canvas2DGpuStressTests';
+  const gpuTests = 'ExactKitTests/Canvas2DGpuStressTests', classes = only?.map(c => `ExactKitTests/${c}`);
+  const hostedOnly = hostedTests(resolve(pkg, 'tests/ExactKitTests')).filter(t => !classes || classes.some(c => t.startsWith(`${c}/`)));
   const testRun = (xctestrun, selection, runEnv) => {
     try {
       runApple('xcodebuild', ['test-without-building', '-xctestrun', xctestrun, '-destination', destination, '-collect-test-diagnostics', 'never',
@@ -187,19 +191,24 @@ export function iosTestRuns({ pkg, products, destination, udid, env, canvasGpu, 
       return null;
     } catch (e) { return e; }
   };
-  const bareRun = testRun(bare, [gpuTests, ...hostedOnly].map(t => `-skip-testing:${t}`), env);
+  const bareClasses = classes?.filter(c => c !== gpuTests);
+  const bareRun = bareClasses?.length === 0 ? null : testRun(bare, [...(bareClasses ?? []).map(c => `-only-testing:${c}`),
+    ...[gpuTests, ...hostedOnly].map(t => `-skip-testing:${t}`)], env);
   // UIKit loads its accessibility code only for an assistive technology or automation
   // (AgentAccessibility.axRuntimeLoaded): on for the hosted run, then as it was.
-  read('xcrun', ['simctl', 'bootstatus', udid, '-b']);
-  const ax = ['com.apple.Accessibility', 'ApplicationAccessibilityEnabled'], before = read('xcrun', ['simctl', 'spawn', udid, 'defaults', 'read', ...ax]);
   let hostedRun = null;
-  try {
-    run('xcrun', ['simctl', 'spawn', udid, 'defaults', 'write', ...ax, '-bool', 'true']);
-    hostedRun = hostedOnly.length ? testRun(hosted, hostedOnly.map(t => `-only-testing:${t}`), env) : null;
-  } finally {
-    read('xcrun', ['simctl', 'spawn', udid, 'defaults', ...(before.status === 0 ? ['write', ...ax, '-bool', before.stdout.trim() === '1' ? 'true' : 'false'] : ['delete', ...ax])]);
+  if (hostedOnly.length) {
+    read('xcrun', ['simctl', 'bootstatus', udid, '-b']);
+    const ax = ['com.apple.Accessibility', 'ApplicationAccessibilityEnabled'], before = read('xcrun', ['simctl', 'spawn', udid, 'defaults', 'read', ...ax]);
+    try {
+      run('xcrun', ['simctl', 'spawn', udid, 'defaults', 'write', ...ax, '-bool', 'true']);
+      hostedRun = testRun(hosted, hostedOnly.map(t => `-only-testing:${t}`), env);
+    } finally {
+      read('xcrun', ['simctl', 'spawn', udid, 'defaults', ...(before.status === 0 ? ['write', ...ax, '-bool', before.stdout.trim() === '1' ? 'true' : 'false'] : ['delete', ...ax])]);
+    }
   }
-  const gpuRun = testRun(bare, [`-only-testing:${gpuTests}`], { ...env, TEST_RUNNER_EXACT_CANVAS_GPU_DYLIB: canvasGpu });
+  const gpuRun = classes && !classes.includes(gpuTests) ? null
+    : testRun(bare, [`-only-testing:${gpuTests}`], { ...env, TEST_RUNNER_EXACT_CANVAS_GPU_DYLIB: canvasGpu });
   const failed = bareRun ?? hostedRun ?? gpuRun;
   if (failed) throw failed;
 }
@@ -256,6 +265,76 @@ export function hostedIn(products, xctestrun, app) {
   const written = read('plutil', ['-convert', 'xml1', '-o', hosted, json]);
   if (written.status !== 0) throw new Error(`plutil ${json}: ${written.stderr}`);
   return hosted;
+}
+
+/** The test classes `--only` names in `args`, `FrameHealthMetricsTests,FrameHealthIOSTests`, checked
+ *  against those the files in `dir` declare for `platform`, so a misspelled class, or one the
+ *  platform compiles out, fails before the build. */
+export function onlyClasses(args, dir, platform) {
+  const value = args[args.indexOf('--only') + 1] ?? '';
+  const only = value.startsWith('-') ? [] : value.split(',').map(c => c.trim().replace(/^ExactKitTests\./, '')).filter(Boolean);
+  if (!only.length) throw new Error('--only names no test class. Name one or more, separated by commas: --only FrameHealthMetricsTests,FrameHealthIOSTests');
+  chosen(testClasses(dir, platform).map(c => `ExactKitTests.${c}`), only, platform);
+  return only;
+}
+
+/** `classes`, `ExactKitTests.<Class>`, kept to those `only` names when it is given; a name that is no
+ *  test class there fails, naming the platform. */
+function chosen(classes, only, platform) {
+  if (!only) return classes;
+  const unknown = only.filter(name => !classes.includes(`ExactKitTests.${name}`));
+  if (unknown.length) throw new Error(`--only names ${unknown.join(', ')}, which ${unknown.length === 1 ? 'is no' : 'are not'} ${platform} test class${unknown.length === 1 ? '' : 'es'} in tests/ExactKitTests. Name a test class that ${platform} compiles, as FrameHealthMetricsTests, which both platforms run; a class within #if os() runs only where that condition holds.`);
+  return only.map(name => `ExactKitTests.${name}`);
+}
+
+/** The test classes the files in `dir` declare for `platform`, 'iOS' or 'macOS', by name: a subclass
+ *  of `XCTestCase`, of a fixture or of another test class, outside any `#if` branch that rules the
+ *  platform out by `os()` or `canImport(UIKit|AppKit)`. A condition that names anything else is taken
+ *  to hold either way. */
+export function testClasses(dir, platform) {
+  const ios = platform === 'iOS';
+  // 'yes', 'no' or 'maybe' for a condition, worked out with each condition it names that does not
+  // depend on the platform taken first as true and then as false
+  const holds = (condition) => {
+    const as = (other) => {
+      const js = condition.replace(/\/\/.*$/, '').replace(/os\((\w+)\)/g, (_, os) => String(os === (ios ? 'iOS' : 'macOS')))
+        .replace(/canImport\((\w+)\)/g, (_, m) => m === 'UIKit' ? String(ios) : m === 'AppKit' ? String(!ios) : String(other))
+        // The iOS tests run on a simulator, and neither platform's in Mac Catalyst
+        .replace(/targetEnvironment\((\w+)\)/g, (_, e) => String(e === 'simulator' && ios))
+        .replace(/\b(?!true\b|false\b)[A-Za-z_]\w*\b/g, String(other));
+      // Only whole tokens of a condition reach the evaluation; one that does not parse is taken either way
+      if (!/^(\s*(true|false|&&|\|\||[()!]))*\s*$/.test(js)) return other;
+      try { return Boolean(Function(`return (${js})`)()); } catch { return other; }
+    };
+    const [one, two] = [as(true), as(false)];
+    return one === two ? (one ? 'yes' : 'no') : 'maybe';
+  };
+  const declared = new Map();
+  for (const file of readdirSync(dir).filter(f => f.endsWith('.swift'))) {
+    const branches = [];
+    for (const line of readFileSync(resolve(dir, file), 'utf8').split('\n')) {
+      const directive = /^\s*#(if|elseif|else|endif)\b\s*(.*)/.exec(line);
+      if (directive) {
+        const [, word, condition] = directive, top = branches.at(-1);
+        if (word === 'if') { const now = holds(condition); branches.push({ now, taken: now === 'yes', open: now !== 'no' }); }
+        else if (word === 'endif') branches.pop();
+        else if (top) {
+          const now = top.taken ? 'no' : word === 'else' ? (top.open ? 'maybe' : 'yes') : holds(condition);
+          Object.assign(top, { now, taken: top.taken || now === 'yes', open: top.open || now !== 'no' });
+        }
+        continue;
+      }
+      const declaration = !/^\s*\/\//.test(line) && /\bclass (\w+)\s*:\s*(\w+)/.exec(line);
+      if (declaration && branches.every(b => b.now !== 'no')) declared.set(declaration[1], declaration[2]);
+    }
+  }
+  const isTest = (name, seen = new Set()) => {
+    const parent = declared.get(name);
+    if (!parent || seen.has(name)) return false;
+    return parent === 'XCTestCase' || /Fixture$/.test(parent) || isTest(parent, seen.add(name));
+  };
+  // A fixture is a base the test classes share, with no tests of its own
+  return [...declared.keys()].filter(name => isTest(name) && !name.endsWith('Fixture')).sort();
 }
 
 /** The tests in `dir` that need what only an app gives them, `ExactKitTests/<Class>/<test>`:

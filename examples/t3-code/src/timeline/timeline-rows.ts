@@ -316,7 +316,7 @@ export function deriveRows(input: RowInput): Row[] {
         } else if (visible.length === 1 && isToolLike(visible[0]!)) {
           const single = visible[0]!;
           rows.push({ kind: 'entry', id: entry.id, createdAt: entry.createdAt, entries: visible,
-            label: groupAction(single) === 'edit' ? summarizeToolGroup(visible).summary : singleToolCallLabel(single, input.root) });
+            label: groupAction(single) === 'edit' ? summarizeToolGroup(visible).summary : singleToolCallLabel(single) });
         } else {
           const single = visible.length === 1 ? visible[0]! : null;
           const singleLabel = single !== null && isToolLike(single) && groupAction(single) !== 'edit';
@@ -326,7 +326,7 @@ export function deriveRows(input: RowInput): Row[] {
           const presented = groupToolPresentation(visible.map(item => item.item));
           const summaryToolIcon = singleLabel ? toolPresentation(single, 'completed')?.icon : undefined;
           rows.push({ kind: 'group', id: `work-toggle:${entry.id}`, createdAt: entry.createdAt, runId: work.runId, groupId, count: visible.length, expanded,
-            summary: singleLabel ? singleToolCallLabel(single, input.root) : single !== null && !isToolLike(single) ? single.label : summarizeToolGroup(visible).summary,
+            summary: singleLabel ? singleToolCallLabel(single) : single !== null && !isToolLike(single) ? single.label : summarizeToolGroup(visible).summary,
             icon: summaryToolIcon ?? presented.toolSurface ?? summaryIcon(summaryKind(visible)), toolIcon: presented.toolIcon ?? null, failed: !!latestTool && displayFailed(latestTool) });
           if (expanded) rows.push({ kind: 'details', id: `${groupId}:details`, createdAt: entry.createdAt, entries: visible });
         }

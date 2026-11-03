@@ -516,6 +516,8 @@ shape Snapshot
   projectMark: string
   projectInk: string
   projectSurface: string
+  // The project is the machine's folder for threads without a project: its crumb draws the dashed glyph.
+  projectScratch: bool
   runtimeMode: string
   modeLabel: string
   interactionMode: string
