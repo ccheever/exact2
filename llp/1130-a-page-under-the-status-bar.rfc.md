@@ -30,7 +30,7 @@ scrolled 200 points on the iOS 27 simulator (iPhone 18 Pro), shows white above y
 below y = 840, with the rows cut at both lines
 (`~/audits/exact2-no-tells-2026-10-11/llp1130/before.png`).
 
-Under `viewport-fit=cover` (Color Gallery) the same scroll view reaches the top, and UIKit
+Under `viewport-fit=cover` (UI Gallery) the same scroll view reaches the top, and UIKit
 draws its edge effect under the status bar with no code of Exact's. Under a container a
 route is covered for the safe area (`routeEdges`), its top scroller goes under the bar
 (`collapse`), and its bottom scroller runs to the screen's foot (`reachBottom`,
@@ -126,7 +126,7 @@ it, with no code of Exact's. Measured on the document's own scroll view (inset a
 `.never`, no authored edge effect): a `viewport-fit=cover` page whose document starts under
 the status bar shows its first line blurred there
 (`~/audits/exact2-no-tells-2026-10-11/llp1130/document-cover-probe.png`). It is measured
-again on an unstyled node scroller in the gate (Color Gallery writes
+again on an unstyled node scroller in the gate (UI Gallery writes
 `-exact-scroll-edge-effect="soft"`, so it proves nothing about the default). An authored
 `-exact-scroll-edge-effect` wins as it does on any scroller.
 
@@ -157,6 +157,6 @@ again on an unstyled node scroller in the gate (Color Gallery writes
   document's and the scroller's `scrollTop` read as before, the keyboard in both policies.
 - The iOS smoke (`scripts/smoke.mjs ios`).
 - Apps that run on iOS with no container, before and after: Metronome (a short root),
-  Messages Stress (a header above its list: no top band), Color Gallery (`cover`,
+  Messages Stress (a header above its list: no top band), UI Gallery (`cover`,
   unchanged).
 - The six checks, the UIKit XCTests (`build.mjs --test --ios`), and the tvOS compile.

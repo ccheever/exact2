@@ -1,4 +1,4 @@
-//! The color gallery on web (LLP 1100 §10).
+//! The UI gallery on web (LLP 1100 §10).
 
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));

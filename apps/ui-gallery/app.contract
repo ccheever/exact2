@@ -1,5 +1,5 @@
-// The color gallery (LLP 1100 §10). Not built for Linux, which draws sRGB
-// only (LLP 1100 D10).
+// The UI gallery: colors (LLP 1100 §10) and the UI drawn with them. Not
+// built for Linux, which draws sRGB only (LLP 1100 D10).
 
 shape Display
   colorGamut: string
@@ -98,7 +98,7 @@ style Page
   margin-left="auto"
   margin-right="auto"
 
-component ColorGallery
+component UIGallery
   resource display = exactViewport() as shape Display
   resource css = colorSpaces("css") as shape SpaceRow[]
   resource platform = colorSpaces("platform") as shape SpaceRow[]
@@ -142,8 +142,8 @@ component ColorGallery
       scroll flex=(host == "web" ? 0 : 1) min-height=0 width="100%" overflow-x=(host == "web" ? "visible" : "hidden") overflow-y=(host == "web" ? "visible" : "scroll") testId="gallery" scroll=scrolled -exact-scroll-edge-effect="soft"
         column class=Page padding-top=16
           box height="env(safe-area-inset-top)" flex-shrink=0
-          text "Color Gallery" testId="title" font-size=26 font-weight=800 height=34
-          text "Every color space, profile and HDR format Exact supports, side by side." testId="subtitle" font-size=13 color="light-dark(#4b5563, #9ca3af)" height=34 overflow="hidden"
+          text "UI Gallery" testId="title" font-size=26 font-weight=800 height=34
+          text "Every color space, profile and HDR format Exact supports, and UI drawn with them." testId="subtitle" font-size=13 color="light-dark(#4b5563, #9ca3af)" height=34 overflow="hidden"
           text `This display's color gamut is ${display.colorGamut == "p3" ? "P3" : display.colorGamut == "rec2020" ? "Rec. 2020" : "sRGB"} and its dynamic range is ${display.dynamicRange == "high" ? "high (HDR)" : "standard (SDR)"}.` testId="facts" font-size=13 margin-top=8 height=34 overflow="hidden"
           column class=Card height=68 margin-top=10 box-sizing="border-box" position="sticky" top="calc(env(safe-area-inset-top) + 8px)" z-index=2 testId="limit-sticky" hatch="sticky-limit" box-shadow=(docked ? "0 2px 8px rgba(0, 0, 0, 0.1)" : "0 2px 8px rgba(0, 0, 0, 0)") background-color=(docked ? "light-dark(#ffffff, #1c1c1e)" : "light-dark(#f5f6f8, #1c1c1e)") transition="box-shadow 250ms ease-out, background-color 250ms ease-out"
             LimitControl(limit=limit, choose=choose)

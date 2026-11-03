@@ -1,6 +1,6 @@
-# The color gallery on apple (LLP 1100 §10).
+# The UI gallery on web (LLP 1100 §10).
 [package]
-name = "color-gallery-apple"
+name = "ui-gallery-web"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,14 +8,15 @@ publish = false
 build = "build.rs"
 
 [lib]
-crate-type = ["rlib"]
+crate-type = ["cdylib", "rlib"]
 test = false
 bench = false
 
 [dependencies]
 exact-logic = { path = "../../../logic" }
-exact-apple = { path = "../../../host/apple" }
-exact-js = { path = "../../../js" }
+exact-web = { path = "../../../host/web" }
+exact-web-capabilities = { path = "../../../host/web-capabilities" }
+exact-js-web = { path = "../../../js/web" }
 
 [build-dependencies]
 exact-js-bake = { path = "../../../js/bake" }

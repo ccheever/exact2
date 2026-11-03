@@ -5190,7 +5190,7 @@ draws nothing new: stage 11 C draws and conforms on top.
     own, and one condition's leaf exactly its own; an alias declares its base (the earlier test). Release output
     compared with d7eaafb72a's exact-web-js (before B2) for 14 apps: all 14 are byte-identical in app.js, app.css,
     paint.js, names.js and pages.json (hello, caltrain, design-tool, messages, realworld, theme-fixture,
-    color-gallery, tamber-host, svg-gallery, interaction-gallery, motion-gallery, markdown, typetour, spark). Further
+    ui-gallery, tamber-host, svg-gallery, interaction-gallery, motion-gallery, markdown, typetour, spark). Further
     tests: a number list's item declares none and a string list's all nine, and a keyword row (`font-style`) bound
     to a string state declares none.
   - **A real live edit on a page** (Astra 4). `base-scale-live.test.mjs` builds an app for development with

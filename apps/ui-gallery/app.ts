@@ -1,7 +1,7 @@
-// The color gallery's data and its canvas surface (LLP 1100 §10).
+// The UI gallery's data and its canvas surface (LLP 1100 §10).
 import type { Answer, Ctx2D, Frame, NativeModule } from './app.contract.d.ts';
 
-export const appId = 'com.exact.colorgallery';
+export const appId = 'com.exact.uigallery';
 export const grants = '';
 
 type Swatch = { label: string; color: string };
