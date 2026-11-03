@@ -27,7 +27,8 @@ test "a user action before the launch's restore lands wins: another conversation
   type "switcher-search" "Weekend"
   clock data
   type "switcher-search" key "Enter"
-  clock +3500 real
+  // Wait for the held server, after which the restore of #general could apply; it never does
+  clock until state guilds.length == 1 within 10000
   clock settle
   expect state chan.name == "Weekend rides"
   expect state onScreen == "1191168914239782914"

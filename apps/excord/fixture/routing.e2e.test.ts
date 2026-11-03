@@ -9,8 +9,8 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
-import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
+import { untilClock } from '../../../scripts/agent-held.mjs';
 import { startFixture } from './server.ts';
 
 const ROOT = resolve(import.meta.dir, '../../..');
@@ -39,8 +39,8 @@ beforeAll(async () => {
   server = createServer((req, res) => serveBuildTree(DIST, req, res, { pinned }));
   await new Promise<void>(ok => server.listen(0, '127.0.0.1', ok));
   base = `http://127.0.0.1:${(server.address() as any).port}`;
-  const { chromium } = createRequire(resolve(ROOT, 'scripts/agent.mjs'))('playwright-core');
-  browser = await chromium.launch({ headless: true, executablePath: chromium.executablePath() });
+  const { suiteBrowser } = await import(resolve(ROOT, 'scripts/agent-launch.mjs'));
+  browser = await suiteBrowser();
 });
 afterAll(async () => {
   await browser?.close();
@@ -48,7 +48,7 @@ afterAll(async () => {
   await fixture?.close();
 });
 
-// A page of the app at `path`, its agent adapter loaded (`?agent`), and its steps.
+// A page of the app at `path`, its agent adapter loaded (`?agent`), launched as the test files launch it, and its steps
 async function app(path = '/', viewport = { width: 420, height: 900 }, { scrollend = true } = {}) {
   const context = await browser.newContext({ viewport });
   // A host that never delivers `scrollend` (Windows' painted presenter): the page's listeners for it are
@@ -86,11 +86,24 @@ async function app(path = '/', viewport = { width: 420, height: 900 }, { scrolle
     return r;
   };
   const bag = async () => { const s = await step({ op: 'state' }); return { ...s.resources, ...s.derives, ...s.slots }; };
-  return {
-    page, bag, step,
+  // `clock settle`, as agent.mjs runs it: the page settles, then a task an `after(1, …)` armed a commit later
+  // has its clock moved to and the page settles again, up to 16 rounds (agent-inspect.mjs `nextCommitTasks`).
+  const settle = async () => {
+    let r;
+    for (let round = 0; round < 16; round++) {
+      r = await step({ op: 'clock', settle: true });
+      const tasks = Object.values((await step({ op: 'state' })).tasks ?? {}) as number[];
+      const soon = tasks.filter(at => Number.isFinite(at) && at > clock && at <= clock + 1).sort((x, y) => x - y);
+      if (!soon.length) return r;
+      await step({ op: 'clock', to: soon[soon.length - 1] });
+    }
+    return r;
+  };
+  const a = {
+    page, bag, step, settle,
     close: () => context.close(),
-    // `clock +<ms> [real]`: real time passing with the clock a step at a time, as `agent.mjs` does it (the
-    // gateway's READY and the data module's clock run on it); else the clock alone.
+    // `clock +<ms> [real]`: real time passing with the clock a step at a time, as `agent.mjs` does it, so what the
+    // browser and the fixture deliver meanwhile (a scroll's events, a message) lands on the way; else the clock alone
     plus: async (ms: number, real = false) => {
       const end = clock + ms;
       if (!real) return step({ op: 'clock', to: end });
@@ -101,19 +114,6 @@ async function app(path = '/', viewport = { width: 420, height: 900 }, { scrolle
         if (to >= end) return r;
         await Bun.sleep(Math.min(20, end - to));
       }
-    },
-    // `clock settle`, as agent.mjs runs it: the page settles, then a task an `after(1, …)` armed a commit later
-    // has its clock moved to and the page settles again, up to 16 rounds (agent-inspect.mjs `nextCommitTasks`).
-    settle: async () => {
-      let r;
-      for (let round = 0; round < 16; round++) {
-        r = await step({ op: 'clock', settle: true });
-        const tasks = Object.values((await step({ op: 'state' })).tasks ?? {}) as number[];
-        const soon = tasks.filter(at => Number.isFinite(at) && at > clock && at <= clock + 1).sort((x, y) => x - y);
-        if (!soon.length) return r;
-        await step({ op: 'clock', to: soon[soon.length - 1] });
-      }
-      return r;
     },
     data: () => step({ op: 'clock', data: true }),
     // The clock a millisecond at a time (each tick's replies landed), with what is open and kept read after each:
@@ -159,12 +159,18 @@ async function app(path = '/', viewport = { width: 420, height: 900 }, { scrolle
       throw new Error(`tap ${target}: ${last}`);
     },
   };
+  // Launch as the test files do (app.test.contract): `clock settle` (IDENTIFY's task), the gateway's READY on real time
+  // with the clock frozen, then `clock settle`
+  try {
+    await settle();
+    await untilClock({ op: step, carrier: { host: 'web' }, now: clock }, 'until state gateway.state == "ready" within 10000');
+    await settle();
+  } catch (e) { await context.close().catch(() => {}); throw e; }
+  return a;
 }
 
-// The launch: READY on real time, then #general with the fixture's links message in it.
+// Open #general and inject the fixture's links message into it
 async function generalWithLinks(a: Awaited<ReturnType<typeof app>>) {
-  await a.plus(1500, true);
-  await a.settle();
   await a.tap('channel-general');
   await a.settle();
   await a.tap('fixture');
@@ -278,8 +284,6 @@ test.skipIf(!built)('an address no route takes is no navigation: a request alrea
 test.skipIf(!built)('an address no route takes on the list leaves the channel left closed', async () => {
   const a = await app();
   try {
-    await a.plus(1500, true);
-    await a.settle();
     await a.tap('channel-general');
     await a.data();
     await a.settle();
@@ -321,8 +325,6 @@ test.skipIf(!built)('an encoded address for the open channel, over a request, re
 test.skipIf(!built)('a picture is a route over its channel: Back closes it alone, an address to another channel closes it', async () => {
   const a = await app();
   try {
-    await a.plus(1500, true);
-    await a.settle();
     await a.tap('channel-general');
     await a.data();
     await a.settle();
@@ -360,8 +362,6 @@ test.skipIf(!built)('the address of the list closes the open channel when narrow
   for (const [viewport, beside] of [[{ width: 420, height: 900 }, false], [{ width: 1100, height: 760 }, true]] as const) {
     const a = await app('/', viewport);
     try {
-      await a.plus(1500, true);
-      await a.settle();
       await a.tap('channel-general');
       await a.data();
       await a.settle();
@@ -390,8 +390,6 @@ test.skipIf(!built)('wide, the marked row follows the channel an address or Back
     return ids.map((id: number) => tree.nodes.find((n: any) => n.id === id)?.props?.testId ?? `view ${id}`);
   };
   try {
-    await a.plus(1500, true);
-    await a.settle();
     await a.tap('channel-general');
     await a.data();
     await a.settle();
@@ -447,7 +445,6 @@ test.skipIf(!built)('Back landing between a link\'s address write and its open w
 test.skipIf(!built)('a typed channel address at launch opens that channel', async () => {
   const a = await app(`/c/${RANDOM}`);
   try {
-    await a.plus(1500, true);
     await a.data();
     await a.settle();
     const s = await a.bag();
@@ -460,8 +457,6 @@ test.skipIf(!built)('a typed channel address at launch opens that channel', asyn
 test.skipIf(!built)('with no scrollend, a send from history settles, and reading back is away again', async () => {
   const a = await app('/', undefined, { scrollend: false });
   try {
-    await a.plus(1500, true);
-    await a.settle();
     await a.tap('channel-general');
     await a.data();
     await a.settle();
@@ -518,8 +513,6 @@ async function atEnd(a: Awaited<ReturnType<typeof app>>, s: any) {
 // at the fourth step, the list wheeled on from where the send puts it. The quiet path (`scrollQuiet`, 200 ms) is
 // restarted by every scroll report, so it never acts while the list moves.
 async function sendThenWheel(a: Awaited<ReturnType<typeof app>>) {
-  await a.plus(1500, true);
-  await a.settle();
   await a.tap('channel-general');
   await a.data();
   await a.settle();
@@ -591,8 +584,6 @@ test.skipIf(!built)('with scrollend, a send settles at its landing\'s scrollend 
 test.skipIf(!built)('with scrollend, a send from history settles only at its scrollend, however late', async () => {
   const a = await app();
   try {
-    await a.plus(1500, true);
-    await a.settle();
     await a.tap('channel-general');
     await a.data();
     await a.settle();
@@ -678,8 +669,6 @@ test.skipIf(!built)('a restore that gives up at the live end leaves the reader l
   const control = (body: object) => fetch(`${fixtureOrigin}/control/inject`, { method: 'POST',
     headers: { 'content-type': 'application/json' }, body: JSON.stringify({ channel_id: GENERAL, ...body }) });
   try {
-    await a.plus(1500, true);
-    await a.settle();
     await a.tap('channel-general');
     await a.data();
     await a.settle();
@@ -722,8 +711,6 @@ test.skipIf(!built)('a restore that gives up in older history keeps its anchor, 
   const control = (body: object) => fetch(`${fixtureOrigin}/control/inject`, { method: 'POST',
     headers: { 'content-type': 'application/json' }, body: JSON.stringify({ channel_id: GENERAL, ...body }) });
   try {
-    await a.plus(1500, true);
-    await a.settle();
     await a.tap('channel-general');
     await a.data();
     await a.settle();
@@ -777,8 +764,6 @@ test.skipIf(!built)('a restore given up in the open channel, reader off the end,
   const control = (body: object) => fetch(`${fixtureOrigin}/control/inject`, { method: 'POST',
     headers: { 'content-type': 'application/json' }, body: JSON.stringify({ channel_id: GENERAL, ...body }) });
   try {
-    await a.plus(1500, true);
-    await a.settle();
     await a.tap('channel-general');
     await a.data();
     await a.settle();
