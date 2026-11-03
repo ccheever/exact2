@@ -82,10 +82,12 @@ final class ReadoutView: UIView {
         if face != self.face {
             self.face = face
             for view in stack.arrangedSubviews { view.removeFromSuperview() }
-            for (((part, alpha), line), share) in zip(zip(zip(face.parts, face.opacities), face.lineHeights), face.shares) {
-                let view = Self.view(of: part, share: share)
-                view.alpha = alpha
-                if let line, view is UILabel { view.heightAnchor.constraint(equalToConstant: line).isActive = true }
+            for i in face.parts.indices {
+                let view = Self.view(of: face.parts[i], share: face.shares[i])
+                // A part in the tint takes its node's accent as its own tint, which it draws
+                if face.shares[i] != nil { view.tintColor = face.accents[i] }
+                view.alpha = face.opacities[i]
+                if let line = face.lineHeights[i], view is UILabel { view.heightAnchor.constraint(equalToConstant: line).isActive = true }
                 stack.addArrangedSubview(view)
             }
             stack.spacing = face.gap

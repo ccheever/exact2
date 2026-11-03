@@ -157,6 +157,8 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     /// and dimming belongs to UIKit's presentation.
     func paintBackdrop() {
         guard isViewLoaded else { return }
+        // The route's view takes its accent as its tint, which its backdrop in the tint is resolved by
+        assign(view, \.tintColor, node.ownAccent)
         let modal = node.props["navigationPresentation"] == "modal"
         let key = modal
             ? [ownBackdrop(dark: false), ownBackdrop(dark: true)]
@@ -178,7 +180,7 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
     }
 
     /// The route's own background, if it paints one; in `traits`, as the view's dynamic colour
-    /// resolves it, the tint by the view's (`channels(_:in:)`).
+    /// resolves it, the tint by the view's (`channels(_:in:)`), which is the route's accent.
     private func ownBackdrop(dark: Bool, in traits: UITraitCollection? = nil) -> [Double]? {
         if node.groundIsSheets { return nil }
         return Self.painted(node, dark: dark, in: traits)
@@ -403,9 +405,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// The tabs and stacks the items were last made from, made again when
     /// the size class (a path glyph's size) changes.
     var tabItemsSource: (NavigationTabs, [UIViewController])?
-    /// The bar's tint as last written: the tablist's accent, light and dark.
-    var tabTint: [[Double]?]?
-    var tabTintOwn = false
+    /// The bar's tint as last written as a value: the selected tab's own tint, light and dark; nil
+    /// where the bar takes an accent as its tint.
+    var tabTint: [[Double]]?
     let tabProxy = TabDelegateProxy()
     /// A context menu's commit pushes without the stack's animation: UIKit
     /// animates it (`.pop`, LLP 1021 §5.1). The selected route's key tells

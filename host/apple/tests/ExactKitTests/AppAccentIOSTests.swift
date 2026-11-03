@@ -340,6 +340,69 @@ final class AppAccentIOSTests: XCTestCase {
         XCTAssertEqual(seen, [[rgb(.systemRed) + [1], rgb(.systemRed) + [1]]], "the title and the item in the window's tint from the push on")
     }
 
+    /// A route with an accent of its own is its bar's tint, as a hand-built app tints its bar for the
+    /// screen it shows, from the push on: its title and its item in `AccentColor` draw that accent and
+    /// grey with the bar while UIKit dims the screen; the next route, with none, gives the bar back
+    /// the window's tint, pushed while the screen is dimmed too (a sheet closing as it pushes).
+    func testARoutesOwnAccentIsItsBarsTint() throws {
+        let session = try navigation("ACCENT_BARS", tint: .systemRed)
+        let p = session.presenter
+        func push(_ testId: String) throws -> UINavigationController {
+            let count = p.navigation.primaryNavigation?.viewControllers.count ?? 0
+            p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == testId }, testId).id)
+            let end = Date().addingTimeInterval(30)
+            while !(p.navigation.primaryNavigation?.viewControllers.count == count + 1 && !p.navigation.inTransition), Date() < end {
+                RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+            }
+            return try XCTUnwrap(p.navigation.primaryNavigation, "pushed from \(testId)")
+        }
+        let nav = try push("open-teal"), bar = nav.navigationBar
+        let item = try XCTUnwrap(nav.topViewController?.navigationItem)
+        let title = item.standardAppearance?.titleTextAttributes[.foregroundColor] as? UIColor
+        XCTAssertEqual(title, UIColor.tintColor, "the title is UIKit's tint")
+        let teal = rgb(.systemTeal) + [1]
+        for (colour, what) in [(bar.tintColor, "the bar's tint"), (title, "the title"), (item.rightBarButtonItems?.first?.tintColor, "the item")] {
+            XCTAssertEqual(rgba(colour, in: bar), teal, "\(what) is the route's accent")
+        }
+        let screen = try XCTUnwrap(window.rootViewController?.view)
+        screen.tintAdjustmentMode = .dimmed
+        for (colour, what) in [(bar.tintColor, "the bar's tint"), (title, "the title")] {
+            let dimmed = rgba(colour, in: bar)
+            XCTAssertLessThanOrEqual((dimmed.prefix(3).max() ?? 0) - (dimmed.prefix(3).min() ?? 0), 3, "\(what) greys while dimmed: \(dimmed)")
+        }
+        screen.tintAdjustmentMode = .automatic
+        XCTAssertEqual(rgba(bar.tintColor, in: bar), teal, "the accent again")
+        screen.tintAdjustmentMode = .dimmed
+        _ = try push("teal-action")
+        XCTAssertEqual(rgba(bar.tintColor, in: bar), rgba(bar.superview?.tintColor, in: bar), "pushed while dimmed, the bar inherits its tint already")
+        screen.tintAdjustmentMode = .automatic
+        XCTAssertEqual(rgba(bar.tintColor, in: bar), rgb(.systemRed) + [1], "the next route's bar inherits the window's tint")
+    }
+
+    /// A tabpanel's accent is its route's bar's tint, though UIKit holds the route's view in its tab's
+    /// stack, outside the tabpanel's (the authored tree, `Presenter.authoredParent`): the bar and the
+    /// title in `AccentColor` are teal; the other tab's route, under no accent of its own, has the
+    /// window's red.
+    func testATabpanelsAccentIsItsRoutesBarsTint() throws {
+        let session = try navigation("ACCENT_TABS", tint: .systemRed)
+        let p = session.presenter
+        func shown() throws -> (UINavigationBar, UIColor?) {
+            let nav = try XCTUnwrap(p.navigation.primaryNavigation)
+            let title = nav.topViewController?.navigationItem.standardAppearance?.titleTextAttributes[.foregroundColor] as? UIColor
+            return (nav.navigationBar, title)
+        }
+        let (bar, title) = try shown()
+        XCTAssertEqual(title, UIColor.tintColor, "the title is UIKit's tint")
+        XCTAssertEqual(rgba(bar.tintColor, in: bar), rgb(.systemTeal) + [1], "the bar is the tabpanel's teal")
+        XCTAssertEqual(rgba(title, in: bar), rgb(.systemTeal) + [1], "the title is the tabpanel's teal")
+        p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "tab-second" }).id)
+        let end = Date().addingTimeInterval(10)
+        while (try? shown().0) === bar, Date() < end { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
+        let (second, _) = try shown()
+        XCTAssertFalse(second === bar, "the second tab's stack shows")
+        XCTAssertEqual(rgba(second.tintColor, in: second), rgb(.systemRed) + [1], "the second tab's bar has the window's red")
+    }
+
     /// A session booted from fixture `key`'s plan in a window whose tint is `tint`, its first
     /// route shown.
     private func navigation(_ key: String, tint: UIColor) throws -> ExactSession {

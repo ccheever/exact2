@@ -144,7 +144,7 @@ private struct TabBarFace: Equatable {
             self.symbol = symbol
             self.title = title
             label = tab.props["accessibilityLabel"] ?? title
-            tint = tab.ownTintColor("accent_color", outside: true)
+            tint = tab.ownTintColor("accent_color")
             return
         }
         let children = tab.container.subviews.compactMap { $0 as? NodeView }
@@ -156,7 +156,7 @@ private struct TabBarFace: Equatable {
         self.symbol = image.faceSymbol ?? ""
         title = label.accessibleText
         self.label = tab.props["accessibilityLabel"] ?? title
-        tint = image.ownColor("text_color") == nil ? nil : image.ownTintColor("text_color", outside: true)
+        tint = image.ownColor("text_color") == nil ? nil : image.ownTintColor("text_color")
     }
 }
 
