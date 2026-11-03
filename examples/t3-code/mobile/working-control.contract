@@ -25,6 +25,8 @@ component MobileWorkingControl
   props
     data: WorkingControlData
     colors: ThreadColors
+    dark: bool
+    glassTint: string
     maxWidth: number
     openAgents: action
     openBrowser: action
@@ -49,6 +51,8 @@ component MobileWorkingControl
         row position="absolute" z-index=20 top=-40.5 left=0 right=0 height=38.5 justify-content="center" pointer-events="none"
           row pointer-events="none" height=38.5 min-width=0 align-items="center" overflow="hidden" border-radius=999 background-color=colors.glassFallback border-width=1 border-style="solid" border-color=colors.border box-sizing="border-box" font-family="DM Sans"
             box-shadow="0px 4px 6px -1px rgba(0, 0, 0, 0.1), 0px 2px 4px -2px rgba(0, 0, 0, 0.1)"
+            t3-composer-material position="absolute" inset=0 pointer-events="none" aria-hidden=true
+              material-appearance=(dark ? "dark" : "light") material-radius=32 material-style="regular" material-tint=glassTint material-surface=colors.glassFallback material-border=colors.border
             if data.statusKind != ""
               if data.reconnect
                 button pointer-events="auto" press=reconnect(data.owner) height=38.5 max-width=labelWidth box-sizing="border-box" min-width=0 flex-shrink=1 padding-left=14 padding-right=14 aria-label=data.statusAccessibility

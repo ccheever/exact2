@@ -70,6 +70,17 @@ test('empty and populated snapshots match the exact declared producer shape', ()
   for (const data of [view(fixture()), view(fixture({ runs: [run] })), mobileWorkingControl('', '', now, fixture())]) expect(Object.keys(data).sort()).toEqual(fields);
 });
 
+test('working capsule uses the native glass surface while retaining the measured segment host', () => {
+  const source = readFileSync(new URL('./working-control.contract', import.meta.url), 'utf8');
+  expect(source).toContain('glassTint: string');
+  expect(source).toContain('dark: bool');
+  expect(source).toContain('t3-composer-material position="absolute" inset=0');
+  expect(source).toContain('material-radius=32');
+  expect(source).toContain('material-tint=glassTint');
+  expect(source).toContain('material-surface=colors.glassFallback');
+  expect(source).toContain('material-border=colors.border');
+});
+
 test('connecting and reconnecting preserve the pinned connection-error retry copy', () => {
   const client = fixture();
   for (const phase of ['connecting', 'reconnecting']) {
