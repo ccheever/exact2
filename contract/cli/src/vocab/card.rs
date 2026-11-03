@@ -87,6 +87,22 @@ pub struct TagLine {
     pub events: Vec<&'static str>,
 }
 
+impl TagLine {
+    /// Its attributes, then its events after `; on`: the row after its tags.
+    pub fn takes(&self) -> String {
+        let mut out = self.attrs.join(" ");
+        if !self.events.is_empty() {
+            out += &format!("; on {}", self.events.join(" "));
+        }
+        out
+    }
+}
+
+/// The row of the tag `name`, when the card lists it.
+pub fn tag_line(name: &str) -> Option<TagLine> {
+    tag_lines().into_iter().find(|t| t.tags.contains(&name))
+}
+
 pub fn tag_lines() -> Vec<TagLine> {
     let words = |s: Option<&'static str>| s.unwrap_or_default().split_whitespace().collect();
     section("tags")
@@ -204,11 +220,7 @@ pub fn card() -> String {
                 _ => (*n).to_owned(),
             })
             .collect();
-        out += &format!("  {}: {}", names.join(" "), t.attrs.join(" "));
-        if !t.events.is_empty() {
-            out += &format!("; on {}", t.events.join(" "));
-        }
-        out += "\n";
+        out += &format!("  {}: {}\n", names.join(" "), t.takes());
     }
     out += "\nparts: use X from \"exact:content\"; an option is none or some(…)\n";
     for (_, call) in part_calls() {

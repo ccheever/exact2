@@ -222,6 +222,24 @@ fn a_handler_and_a_tag_say_what_they_are() {
     let column = stdout(&vocab(&["column"]));
     assert!(column.contains("column: tag, View"), "{column}");
     assert!(column.contains("flex_direction: column"), "{column}");
+    // The card's row under the tag: its attributes, then its events.
+    let input = stdout(&vocab(&["input"]));
+    assert!(
+        input.contains("\n  attributes value type inputmode ")
+            && input.contains(" enterkeyhint autocomplete autocapitalize ")
+            && input.contains("; on input change submit "),
+        "{input}"
+    );
+    // An image's sources, a native module's files among them.
+    let image = stdout(&vocab(&["image"]));
+    for part in [
+        "\n  attributes alt; on load\n",
+        "an `app:/data|cache|tmp/…` file",
+        "`context.cache`",
+        "`image \"app:/cache/<name>\"`",
+    ] {
+        assert!(image.contains(part), "{part}: {image}");
+    }
 }
 
 /// LLP 1116.003 D2.2: when a route's `header` becomes the iOS navigation
@@ -285,6 +303,17 @@ fn button_states_the_platforms_default_style_per_host() {
             .as_str()
             .is_some_and(|n| n.contains("plain tinted text on iOS")),
         "{doc}"
+    );
+}
+
+/// A grouped list's styles are named under the word, the default first.
+#[test]
+fn list_style_names_its_styles() {
+    let out = stdout(&vocab(&["listStyle"]));
+    assert!(
+        out.contains("one of inset-grouped|grouped|plain, default inset-grouped")
+            && out.contains("`list appearance=\"auto\"`"),
+        "{out}"
     );
 }
 

@@ -438,6 +438,10 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
     }
     if let Some(t) = tags::tag(name) {
         println!("{name}: tag, {}", tag_text(&t));
+        // The card's row: what it takes beyond the style attributes every tag takes.
+        if let Some(row) = card::tag_line(name) {
+            println!("  attributes {}", row.takes());
+        }
         if let Some(note) = vocab::tag_note(name) {
             println!("  {note}");
         }
@@ -1181,6 +1185,18 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
                 );
                 // LLP 1115.000 D14.5: a presentation default is the platform's, said per host.
                 return vec![line, vocab::BUTTON_DEFAULT_NOTE.into()];
+            }
+            // A grouped list's styles, as its refusal names them; none written is the first.
+            if p.name() == "listStyle" {
+                line += &format!(
+                    ", one of {}, default {}",
+                    vocab::LIST_STYLES.join("|"),
+                    vocab::LIST_STYLES[0]
+                );
+                return vec![
+                    line,
+                    "styles a grouped list (`list appearance=\"auto\"`), as a literal".into(),
+                ];
             }
             if name == "autocapitalize" {
                 return vec![line, AUTOCAPITALIZE.into()];
