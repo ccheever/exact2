@@ -242,7 +242,7 @@ describe('pinned shared sources', () => {
         : name === 'shell-vcs.ts' ? 'c280acc1806c4e1fea5d4797b1278b99b5ee2ba0' : name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
         : ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
           ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
-      const adapted = ['client.ts', 'client-ops-composer.ts', 'composer-controls.ts', 'domain.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts', 'timeline-rows.ts', 'timeline-presentation.ts', 'protocol.ts', 'r5-composer-citation.ts'].includes(name);
+      const adapted = ['client.ts', 'client-ops-composer.ts', 'composer-controls.ts', 'domain.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts', 'composer-editor-files.ts', 'timeline-rows.ts', 'timeline-presentation.ts', 'protocol.ts', 'r5-composer-citation.ts'].includes(name);
       if (name === 'word-diff.ts') expect(local.slice(0, 3)).toEqual([
         '// GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.',
         '// Unchanged body from examples/t3-code/word-diff.ts; engine/span source extracted from',
@@ -361,6 +361,10 @@ describe('pinned shared sources', () => {
           .replace("async function editorView(client: T3Client, native: Native | null | undefined, now: number): Promise<Omit<ComposerEditorView, 'drawer'>> {\n  const entry = cache(client);", "async function editorView(client: T3Client, native: Native | null | undefined, now: number): Promise<Omit<ComposerEditorView, 'drawer'>> {\n  const pickStamp = contextPickStamp(client), entry = cache(client);")
           .replace('  entry.rows = rows;', "  entry.rows = rows;\n  entry.pickStamp = contextPickStamp(client) === pickStamp ? pickStamp : '';");
       }
+      if (name === 'composer-editor-files.ts') expected = expected
+        .replace('  attachmentId: string;\n', '  attachmentId: string; uploadEnvironmentId?: string;\n')
+        .replace(/attachmentId: str\(file\.attachmentId\), status:/,
+          'attachmentId: str(file.attachmentId), ...(str(file.uploadEnvironmentId) ? { uploadEnvironmentId: str(file.uploadEnvironmentId) } : {}),\n      status:');
       if (name === 'project-clones-live.ts') expected = "// Mobile 365aa87982 apps/mobile/src/state/projectClones.ts: failed subscriptions read as empty.\n" + expected
         .replace("  const clones = liveEnvironment(client, null, client.environmentId)?.clones.value ?? [];",
           "  const stream = liveEnvironment(client, null, client.environmentId)?.clones;\n  const clones = stream?.error ? [] : stream?.value ?? [];");

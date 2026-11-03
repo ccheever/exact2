@@ -1,5 +1,5 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/composer-editor-files.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Adapted body from examples/t3-code/composer-editor-files.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
 // Large pastes fold into a `pasted-text.txt` file attachment (ChatComposer
 // foldPastedText, client-runtime textPaste.ts): the native editor holds the
 // paste back and reports it; this stages the file and puts its inline file
@@ -24,7 +24,7 @@ export type DraftFile = {
   id: string; contextId: string; draftKey: string; environmentId: string;
   name: string; mimeType: string; sizeBytes: number; source: string;
   /** The server's upload id once the bytes are there (uploaded at send). */
-  attachmentId: string;
+  attachmentId: string; uploadEnvironmentId?: string;
   status: 'staged' | 'ready';
   /** r5-composer: a video's first-frame size, saved with the draft so a relaunch keeps its preview's aspect. */
   videoWidth?: number; videoHeight?: number;
@@ -43,7 +43,8 @@ export function adoptComposerFiles(next: object, saved: Obj): void {
   setDraftFiles(next, arr(saved.composerFiles).filter(file => (str(file.status) === 'ready' ? !!str(file.attachmentId) : str(file.source) === 'attached') && str(file.id) && str(file.name))
     .slice(0, 400).map(file => ({ id: str(file.id), contextId: str(file.contextId), draftKey: str(file.draftKey), environmentId: str(file.environmentId),
       name: str(file.name), mimeType: str(file.mimeType, PASTED_TEXT_MIME), sizeBytes: Number(file.sizeBytes) || 0, source: str(file.source),
-      attachmentId: str(file.attachmentId), status: str(file.status) === 'ready' ? 'ready' as const : 'staged' as const,
+      attachmentId: str(file.attachmentId), ...(str(file.uploadEnvironmentId) ? { uploadEnvironmentId: str(file.uploadEnvironmentId) } : {}),
+      status: str(file.status) === 'ready' ? 'ready' as const : 'staged' as const,
       ...(Number(file.videoWidth) > 0 && Number(file.videoHeight) > 0 ? { videoWidth: Number(file.videoWidth), videoHeight: Number(file.videoHeight) } : {}) })));
 }
 

@@ -153,6 +153,7 @@ export function mobileThreadSendPlan(snapshot:ThreadSendSnapshot,facts:ThreadSen
     const caps=obj(obj(facts.config?.environment).capabilities),limit=Number(obj(caps.fileAttachments).maxUploadBytes);
     const accepts=(file:MobileOutboxRecord['attachments'][number])=>caps.attachmentUploads===true
       &&(file.kind==='image'||caps.fileAttachments!==undefined&&file.sizeBytes<=Math.min(limit,MAX_FILE_BYTES));
+    if(facts.connected&&files.some(file=>accepts(file)&&facts.uploadStates[file.id]==='uploading'))return refuse('Wait for attachments to finish uploading.');
     if(facts.connected&&files.some(file=>accepts(file)&&facts.uploadStates[file.id]==='failed'))return refuse('Retry or remove the failed attachment');
     if(facts.connected&&mobileModelSelectionUnavailable(facts.config,snapshot.modelSelection as unknown as Obj))
       return refuse('Antigravity model unavailable. Set it up on web or desktop, or choose another model.');

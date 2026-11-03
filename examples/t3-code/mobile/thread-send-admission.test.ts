@@ -63,9 +63,9 @@ test('two context IDs share one canonical local file and existing wire remaps bo
 test('offline queues all content despite absent transport permissions; connected denial refuses',()=>{
   const f=facts();f.canOperate=false;expect(plan(snapshot(),f).kind).toBe('refused');f.connected=false;expect(ready(snapshot(),f).text).toBe('hello');
 });
-test('source only failed upload states accepted by this server block; uploading and unsupported states queue',()=>{
+test('source upload states accepted by this server block while uploading or failed',()=>{
   const s=snapshot();s.attachments=[{type:'file',id:id(1),file:file(1)}];const f=facts();
-  for(const state of ['ready','uploading'] as const){f.uploadStates[id(1)]=state;expect(plan(s,f).kind).toBe('message')}
+  f.uploadStates[id(1)]='ready';expect(plan(s,f).kind).toBe('message');f.uploadStates[id(1)]='uploading';expect(plan(s,f).kind).toBe('refused');
   f.uploadStates[id(1)]='failed';expect(plan(s,f).kind).toBe('refused');f.connected=false;expect(plan(s,f).kind).toBe('message');
   f.connected=true;f.config={environment:{capabilities:{}}};expect(plan(s,f).kind).toBe('message');
 });

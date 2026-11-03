@@ -23,6 +23,7 @@ import {pendingRequests} from './shared/requests';
 import {obj,str,type Obj} from './shared/domain';
 import {bridgeReply,ClientError,type Native,type Files} from './shared/protocol';
 import {letGo,letGoAware} from './shared/let-go';
+import {mobileComposerAttachmentUploadSnapshot} from './composer-attachment-uploads';
 
 export interface ThreadSendRootInput {
   editorAdmission?:string;
@@ -82,10 +83,9 @@ function controls(client:MobileDraftClient,input:ThreadSendRootInput,expectedOwn
       ||!mobileEditorFilesReady(client,editor.admission))return null;
   }
   try {const p=obj(JSON.parse(input.preferencesJSON));if(!['queue','steer'].includes(str(p.followUpBehavior))||typeof p.planModeEnabled!=='boolean')return null;
+    const uploads=mobileComposerAttachmentUploadSnapshot(client);
     return {expectedOwner,alternate,...(editor?{editor}:{}),preferences:{followUpBehavior:p.followUpBehavior as 'queue'|'steer',planModeEnabled:p.planModeEnabled},
-      // New paste/upload producers are not admitted by this root yet. Existing
-      // uploaded IDs still require the controller’s real provenance proof.
-      activity:{contextImporting:input.contextImporting,pendingPastedText:false,uploadStates:{},uploadOwners:{}}};
+      activity:{contextImporting:input.contextImporting,pendingPastedText:false,uploadStates:uploads.states,uploadOwners:uploads.owners}};
   }catch{return null}
 }
 function local(client:MobileDraftClient,input:ThreadSendRootInput,active:boolean) {

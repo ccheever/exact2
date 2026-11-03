@@ -21,8 +21,10 @@ import { attachFiles, MAX_ATTACHMENTS } from './shared/composer-controls-attach'
 import { attachStagingLimit, reservedAttachments } from './shared/composer-editor-attach';
 import { draftFiles, referencedFiles, formatAttachmentSize } from './shared/composer-editor-files';
 import { activeInput } from './shared/requests';
+import { mobileComposerAttachmentUploadRetry, mobileComposerAttachmentUploadsStart, mobileComposerAttachmentUploadSnapshot } from './composer-attachment-uploads';
 
-export interface ComposerAttachment { id: string; name: string; kind: string; size: string; mimeType: string; preview: string; removeOperation: string; disabled: boolean }
+export interface ComposerAttachment { id: string; name: string; kind: string; size: string; mimeType: string; preview: string; removeOperation: string; disabled: boolean;
+  uploadState: string; uploadProgress: number; uploadError: string; }
 export interface ComposerAttachmentsSnapshot { previewRequest: string; contentOwner: string; items: ComposerAttachment[]; canPick: boolean; supportsFiles: boolean; remaining: number; error: string; }
 const errors = new WeakMap<T3Client, string>();
 const picking = new WeakSet<T3Client>();
@@ -32,6 +34,9 @@ const imageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'
 /** Plain files retain inline shared references; media entries can feed the source's attachment strip. */
 export function mobileComposerAttachments(client: T3Client = mobileClient, now = 0): ComposerAttachmentsSnapshot {
   const target = mobileComposerTarget(client), edit = mobileQueuedEditCurrent(client);
+  const uploads = mobileComposerAttachmentUploadSnapshot(client, client.draftKey);
+  const decorate = (item: Omit<ComposerAttachment, 'uploadState' | 'uploadProgress' | 'uploadError'>): ComposerAttachment => ({ ...item,
+    uploadState: uploads.states[item.id] ?? '', uploadProgress: uploads.progress[item.id] ?? 0, uploadError: uploads.errors[item.id] ?? '' });
   if (edit) {
     const disabled = !mobileQueuedEditPresentation(client).canCancel || client.busy || !!client.pending || mobileQueuedEditAttachmentPicking(client);
     const remaining = Math.max(0, MAX_ATTACHMENTS - edit.existingAttachments.length - edit.attachments.length);
@@ -41,7 +46,7 @@ export function mobileComposerAttachments(client: T3Client = mobileClient, now =
       removeOperation: 'remove-retained', disabled })), ...edit.attachments.map(file => ({ id: file.id, name: file.name,
       kind: file.mimeType.startsWith('video/') ? 'video' : file.kind, mimeType: file.mimeType, size: formatAttachmentSize(file.sizeBytes),
       preview: '', removeOperation: file.kind === 'image' ? 'remove-snapshot' : 'editorlocal:r4c-video-remove', disabled }))];
-    return { previewRequest: composerAttachmentPreviewRequest(client, items, now), contentOwner: target.owner, items: items.map(item => ({ ...item, preview: composerAttachmentPreview(client, item, now) })), canPick: !disabled && remaining > 0, supportsFiles: attachStagingLimit(client) > 0,
+    return { previewRequest: composerAttachmentPreviewRequest(client, items, now), contentOwner: target.owner, items: items.map(item => decorate({ ...item, preview: composerAttachmentPreview(client, item, now) })), canPick: !disabled && remaining > 0, supportsFiles: attachStagingLimit(client) > 0,
       remaining, error: errors.get(client) ?? '' };
   }
   const mounted=mobileEditorOwner(client), rich=mounted?.state.mountId&&mounted.target.owner===target.owner?mounted:null;
@@ -54,7 +59,7 @@ export function mobileComposerAttachments(client: T3Client = mobileClient, now =
     kind: file.mimeType.startsWith('video/') ? 'video' : file.mimeType.startsWith('image/') ? 'image' : 'file', mimeType: file.mimeType,
     size: formatAttachmentSize(file.sizeBytes), preview: '', removeOperation: 'editorlocal:r4c-video-remove', disabled }));
   const items = mobileDraftAttachmentsOrdered(client, client.draftKey, [...images, ...files]);
-  return { previewRequest: composerAttachmentPreviewRequest(client, items, now), contentOwner: target.owner, items: items.map(item => ({ ...item, preview: composerAttachmentPreview(client, item, now) })), canPick: !!client.projectId && !disabled && remaining > 0 && !activeInput(client),
+  return { previewRequest: composerAttachmentPreviewRequest(client, items, now), contentOwner: target.owner, items: items.map(item => decorate({ ...item, preview: composerAttachmentPreview(client, item, now) })), canPick: !!client.projectId && !disabled && remaining > 0 && !activeInput(client),
     supportsFiles: rich?mobileComposerPickerFileLimit(client,'files')>0:attachStagingLimit(client) > 0, remaining, error: errors.get(client) ?? '' };
 }
 
@@ -81,6 +86,10 @@ export async function mobileNewTaskAttachmentRemove(source: 'remove-image' | 're
 async function attachmentAction(source: string, id: string, nativeInput: Native, suppliedStorage: Files, client: T3Client, expectedOwner: string) {
   const result = (message = '') => ({ revision: client.revision, message });
   const target = mobileComposerTargetRequire(client, expectedOwner);
+  if (source === 'retry-upload') {
+    if (mobileComposerAttachmentUploadRetry(client, nativeInput, suppliedStorage, id)) return result();
+    return result('That attachment is no longer waiting for a retry.');
+  }
   if (target.kind === 'queued-edit') return mobileQueuedEditAttachmentAction(source, id, target.editOwner, nativeInput, client);
   if (picking.has(client) || client.pending || client.busy) return result('Wait for the current submission before changing attachments.');
   const native = letGoAware(mobileNative(nativeInput)), storage = client === mobileClient ? nativeFiles(native) : suppliedStorage;
@@ -176,6 +185,7 @@ async function attachmentAction(source: string, id: string, nativeInput: Native,
       await bridgeReply(native, { op: file.kind === 'image' ? 'snapshotDraftRemove' : 'composerAttachRemove', id: file.id });
     }
     await client.persist(durable); // Bytes stay owned until durable shared draft state says otherwise.
+    mobileComposerAttachmentUploadsStart(client, native, durable, key, picked.map(file => str(file.id)));
     const message = pickError || client.error;
     if (message) errors.set(client, message);
     return result(message);
