@@ -393,20 +393,28 @@ final class InlineContextIOSTests: XCTestCase {
         let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
         blur.frame = node.frame.insetBy(dx: -20, dy: -20)
         node.superview?.insertSubview(blur, belowSubview: node)
-        until("the paragraph is drawn") { node.snapshotView(afterScreenUpdates: false) != nil }
         let interaction = try XCTUnwrap(node.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
         let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
         let rect = try XCTUnwrap(rects.first)
+        // A badge over the blur, in the run's padding: composited after it, so never under its live copy
+        let area = textLines(rects, in: node).area
+        let badge = UIView(frame: CGRect(x: node.frame.minX + rect.maxX + 3, y: area.minY + 2, width: 6, height: 6))
+        badge.backgroundColor = .red
+        node.superview?.insertSubview(badge, aboveSubview: blur)
+        until("the paragraph is drawn") { node.snapshotView(afterScreenUpdates: false) != nil }
         let config = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: rect.midX, y: rect.midY)))
         let preview = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configuration: config, highlightPreviewForItemWithIdentifier: config.identifier))
         let padding = try XCTUnwrap(preview.view.subviews.first)
         XCTAssertFalse(padding.isScreens, "no snapshot of the screen")
         XCTAssertTrue(padding.subviews.contains { ($0 as? UIVisualEffectView)?.effect is UIBlurEffect }, "the blur live over copies of what lies under it")
-        XCTAssertEqual(preview.view.bounds.size, textLines(rects, in: node).area.size)
+        XCTAssertEqual(preview.view.bounds.size, area.size)
+        let red = pixel(onScreen(preview.view), at: CGPoint(x: badge.frame.midX - area.minX, y: badge.frame.midY - area.minY))
+        XCTAssertTrue(red[0] > 220 && red[1] < 60 && red[2] < 60, "the badge's copy over the live blur, unblurred: \(red)")
         let animator = Animator()
         p.menus.context.contextMenuInteraction(interaction, willEndFor: config, animator: animator)
         animator.animations.forEach { $0() }
-        XCTAssertEqual(padding.alpha, 0, "it lands without its padding")
+        XCTAssertTrue(padding.subviews.allSatisfy { view in (view as? UIVisualEffectView).map { $0.effect == nil } ?? (view.alpha == 0) },
+                      "it lands without its padding, the live blur losing its effect as UIKit animates it and the copies fading")
     }
 
     func testARunOverAFilteredLayerLiftsTheScreen() throws {
