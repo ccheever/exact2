@@ -1,8 +1,8 @@
 # Recipe: a capability that asks permission
 
 A native module that needs the person's permission (location here) is asked
-for in the app's own UI, read as a fact, and recovered from in the app's own
-UI. exact2 never answers the platform's prompt (LLP 1133 D7).
+for, read as a fact and recovered from in the app's own UI. exact2 never
+answers the platform's prompt (LLP 1133 D7).
 
 1. **Declare** one grant line, and its purpose in the strings table. The build
    derives every platform's manifest from it.
@@ -12,16 +12,17 @@ UI. exact2 never answers the platform's prompt (LLP 1133 D7).
    ```
 
    `strings/en.json`: `{ "locationPurpose": "Shows the weather where you are." }`.
-   `device.geolocation` is precise; write one line, not both.
+   `device.geolocation` is precise; write one, not both.
 
-2. **Read** the state, which is a fact: `granted`, `prompt`, `denied` or
+2. **Read** the state, a fact: `granted`, `prompt`, `denied` or
    `unknown`, with `available` and `accuracy`.
 
-3. **Ask** from a person's action. The request itself shows the platform's
-   prompt while the state is `prompt`.
+3. **Ask** from a person's action. While `prompt`, the request shows the
+   platform's prompt.
 
-4. **Recover:** while `denied`, say so and offer Settings; everything that
-   does not need it keeps working.
+4. **Recover:** while `denied`, say so and offer Settings; the rest keeps
+   working. A refused request fails and runs no `then`: read
+   `failed(located)` ([error-alert](error-alert.md)).
 
 ```text
 use getCurrentPosition, geolocationStatus, GeolocationPosition, GeolocationStatus from "@exact/geolocation"
@@ -50,9 +51,9 @@ component App
           text "Open Settings"
 ```
 
-A module's options are keyword arguments; a platform's own words are dotted
-(`apple.desiredAccuracy`, `android.quality`), and an omitted one stays the
-platform's default. Data code reads the same names:
+A module's options are keyword arguments; a platform's own are dotted
+(`apple.desiredAccuracy`, `android.quality`); an omitted one is the platform's
+default. Data code reads the same names:
 
 ```ts
 import { watchPosition } from '@exact/geolocation';
