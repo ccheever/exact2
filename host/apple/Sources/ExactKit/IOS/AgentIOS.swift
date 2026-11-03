@@ -1157,9 +1157,11 @@ extension Agent {
                     _ = field.returnHeard(prompt)
                 } else if let f = focus.selectionField {
                     (f as? TextField)?.heard = name
-                    if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = f.delegate?.textFieldShouldReturn?(f) }
+                    (f.delegate as? PromptField)?.heard = name
+                    if name == "Backspace" { if let prompt = f.delegate as? PromptField { prompt.deleteBackward(f) } else { f.deleteBackward() } } else if name == "Enter" { _ = f.delegate?.textFieldShouldReturn?(f) }
                     else if Agent.caretKey(name, in: f) {} else if types { f.insertText(name) }
                     (f as? TextField)?.heard = nil
+                    (f.delegate as? PromptField)?.heard = nil
                 } else if presenter.controls.radioKey(focus, name, held: held) { // x2apps survey #2
                 } else {
                     #if os(iOS)

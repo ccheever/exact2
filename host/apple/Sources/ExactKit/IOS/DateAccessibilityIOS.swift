@@ -1,45 +1,63 @@
 #if os(iOS)
 import UIKit
-import ObjectiveC
 
-/// The compact picker's exposed element computes its value and ignores
-/// assignments. Override the public getter, preserving its class's activation
-/// and delegating its nonempty value back to UIKit.
-enum DateAccessibility {
-    private final class Owner {
-        weak var picker: BoundDatePicker?
-        init(_ picker: BoundDatePicker) { self.picker = picker }
+/// What VoiceOver reads for an empty compact picker in place of one of
+/// UIKit's own elements for it. UIKit's element computes its value from the
+/// picker's date, which an empty picker still holds, and ignores an assigned
+/// one; so while the picker is empty it exposes these instead
+/// (`UIAccessibilityContainer`, `BoundDatePicker.accessibilityElements`).
+/// Each says what its UIKit element says, but for the value, which is the
+/// author's placeholder or none, and activating it activates that element,
+/// which opens the calendar or wheel; where that element leaves activation
+/// to VoiceOver, VoiceOver taps its activation point, on UIKit's content.
+final class EmptyDateElement: UIAccessibilityElement, AgentOwned {
+    private(set) weak var native: NSObject?
+    private weak var picker: BoundDatePicker?
+    init(standingFor native: NSObject, in picker: BoundDatePicker) {
+        self.native = native
+        self.picker = picker
+        super.init(accessibilityContainer: picker)
     }
-    private static var ownerKey: UInt8 = 0
-    private static var classes: [ObjectIdentifier: AnyClass] = [:]
+    var agentViewId: UInt32? { picker.map { UInt32($0.tag) } }
+    override var accessibilityLabel: String? { get { native?.accessibilityLabel } set {} }
+    override var accessibilityHint: String? { get { native?.accessibilityHint } set {} }
+    override var accessibilityValue: String? {
+        get { picker.flatMap { $0.placeholder.isEmpty ? nil : $0.placeholder } }
+        set {}
+    }
+    override var accessibilityTraits: UIAccessibilityTraits { get { native?.accessibilityTraits ?? .button } set {} }
+    override var accessibilityFrame: CGRect { get { native?.accessibilityFrame ?? .zero } set {} }
+    override var accessibilityActivationPoint: CGPoint {
+        get { native.map(\.accessibilityActivationPoint) ?? CGPoint(x: accessibilityFrame.midX, y: accessibilityFrame.midY) }
+        set {}
+    }
+    override var accessibilityIdentifier: String? { get { (native as? UIAccessibilityIdentification)?.accessibilityIdentifier } set {} }
+    override var accessibilityCustomActions: [UIAccessibilityCustomAction]? { get { native?.accessibilityCustomActions } set {} }
+    override func accessibilityActivate() -> Bool { native?.accessibilityActivate() ?? false }
+}
 
-    static func value(of element: NSObject, follows picker: BoundDatePicker) {
-        if let owner = objc_getAssociatedObject(element, &ownerKey) as? Owner {
-            owner.picker = picker
-            return
-        }
-        guard let base = object_getClass(element) else { return }
-        let key = ObjectIdentifier(base)
-        let subclass: AnyClass
-        if let cached = classes[key] { subclass = cached } else {
-            let selector = NSSelectorFromString("accessibilityValue")
-            guard let method = class_getInstanceMethod(base, selector),
-                  let type = objc_allocateClassPair(base, "ExactEmptyDate_" + NSStringFromClass(base), 0) else { return }
-            typealias Getter = @convention(c) (NSObject, Selector) -> Unmanaged<NSString>?
-            let original = unsafeBitCast(method_getImplementation(method), to: Getter.self)
-            let get: @convention(block) (NSObject) -> NSString? = { object in
-                if let picker = (objc_getAssociatedObject(object, &ownerKey) as? Owner)?.picker, picker.empty {
-                    return picker.placeholder as NSString
-                }
-                return original(object, selector)?.takeUnretainedValue()
+extension BoundDatePicker {
+    /// The elements UIKit exposes for this picker, found as VoiceOver finds
+    /// them: its declared elements, else its subviews, down to each element.
+    func nativeAccessibilityElements() -> [NSObject] {
+        var found: [NSObject] = [], seen = Set<ObjectIdentifier>()
+        func visit(_ object: NSObject) {
+            guard seen.insert(ObjectIdentifier(object)).inserted else { return }
+            if object.isAccessibilityElement { found.append(object); return }
+            if let elements = object.accessibilityElements, !elements.isEmpty {
+                for case let element as NSObject in elements { visit(element) }
+                return
             }
-            class_addMethod(type, selector, imp_implementationWithBlock(get), method_getTypeEncoding(method))
-            objc_registerClassPair(type)
-            classes[key] = type
-            subclass = type
+            let count = object.accessibilityElementCount()
+            if count != NSNotFound, count > 0 {
+                for i in 0..<count { if let element = object.accessibilityElement(at: i) as? NSObject { visit(element) } }
+            } else if let view = object as? UIView {
+                for child in view.subviews { visit(child) }
+            }
         }
-        objc_setAssociatedObject(element, &ownerKey, Owner(picker), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        object_setClass(element, subclass)
+        let own = (super.accessibilityElements ?? []).compactMap { $0 as? NSObject }
+        for object in own.isEmpty ? subviews : own { visit(object) }
+        return found
     }
 }
 #endif

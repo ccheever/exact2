@@ -35,6 +35,20 @@ final class DatesIOSTests: XCTestCase {
             let rows = elements(id)
             XCTAssertFalse(rows.isEmpty, "the native picker is exposed")
             XCTAssertTrue(rows.allSatisfy { $0["value"] as? String == "Add a date" }, "\(rows)")
+            // Exact's own elements say it, standing for UIKit's, whose classes
+            // are their own: public API, no runtime subclass.
+            let picker = try XCTUnwrap(p.controls.controls[UInt32(id)] as? BoundDatePicker)
+            let standIns = try XCTUnwrap(picker.accessibilityElements as? [EmptyDateElement])
+            XCTAssertEqual(standIns.count, rows.count)
+            for element in standIns {
+                let native = try XCTUnwrap(element.native)
+                XCTAssertFalse(NSStringFromClass(type(of: native)).hasPrefix("ExactEmptyDate_"))
+                XCTAssertNotEqual(native.accessibilityValue, "Add a date", "UIKit's element is left as it is")
+                XCTAssertEqual(element.accessibilityLabel, native.accessibilityLabel)
+                XCTAssertEqual(element.accessibilityTraits, native.accessibilityTraits)
+                XCTAssertEqual(element.accessibilityFrame, native.accessibilityFrame)
+                XCTAssertEqual(element.accessibilityActivationPoint, native.accessibilityActivationPoint, "VoiceOver's tap lands on UIKit's content")
+            }
         }
         p.apply(wireBatch([["op": "props", "id": 2, "set": ["placeholder": "Choose a day"]]]))
         window.layoutIfNeeded()
