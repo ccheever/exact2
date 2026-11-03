@@ -1,4 +1,4 @@
-// composer-editor-mentions.ts, composer-logic.ts and citation spacing at T3 Code 9c161462c9;
+// composer-editor-mentions.ts, composer-logic.ts (detectComposerTrigger at 5d3d78ab93) and citation spacing at T3 Code 9c161462c9;
 // composerInlineTokens.ts (decorators) and the provider's skill chips (ComposerPromptEditorTiptap.tsx
 // composerSkillMeta) at 74541bab17; composerTrigger.ts (path words, currency amounts) at 7c3b3b3605ef.
 import { codeAt, composerMarkdown, type ComposerBlock, type ComposerBlockOrigin } from './composer-markdown';
@@ -121,11 +121,12 @@ export function isCurrencyAmountQuery(query: string): boolean {
 export function composerTrigger(value: string, cursor: number, chips = composerChips(value), styling = true, blockOrigins?: readonly ComposerBlockOrigin[]): ComposerTrigger | null {
   if (!Number.isInteger(cursor) || cursor < 0 || cursor > value.length || chips.some(chip => cursor > chip.start && cursor < chip.end)) return null;
   if (styling && codeAt(composerMarkdown(value, { blockOrigins }).blocks, { start: cursor, end: cursor })) return null;
-  const start = value.lastIndexOf('\n', cursor - 1) + 1, prefix = value.slice(start, cursor), slash = /^\/(\S*)$/.exec(prefix);
-  // A slash word with a second slash, such as `/tmp/build.sh`, is a path; the whole word counts, so a caret
-  // before the second slash still sees it (isPathWord).
-  if (slash) return /^\/\S*\//.test(value.slice(start)) ? null : { kind: 'slash-command', query: slash[1] ?? '', start, end: cursor };
+  const start = value.lastIndexOf('\n', cursor - 1) + 1, prefix = value.slice(start, cursor);
   const token = /[^ \t\r\n]*$/.exec(prefix)?.[0] ?? '', tokenStart = cursor - token.length;
+  // A slash word opens the commands wherever it starts (the web's composer-logic.ts); the menu keeps the ones that
+  // work only at the message start for a word there. A word with a second slash, such as `/tmp/build.sh`, is a path;
+  // the whole word counts, so a caret before the second slash still sees it (isPathWord).
+  if (token.startsWith('/')) return /^\/\S*\//.test(value.slice(tokenStart)) ? null : { kind: 'slash-command', query: token.slice(1), start: tokenStart, end: cursor };
   const pr = /^#([\p{L}\p{N}][\p{L}\p{N}_-]*)?$/u.exec(token);
   if (pr) return { kind: 'pull-request', query: pr[1] ?? '', start: tokenStart, end: cursor };
   const skill = /^\p{Sc}/u.exec(token);

@@ -149,7 +149,7 @@ describe('slash command menu', () => {
     const skills = [{ name: 'pdf-tools', description: 'Work with PDFs', scope: 'user', enabled: true, path: '/u/.codex/skills/pdf' }];
     const rows = slash({ skills });
     const skill = rows.find(row => row.type === 'skill')!;
-    expect([skill.prefix, skill.label, skill.badge, skill.badgeIcon, skill.insert]).toEqual(['/skill:', 'Pdf Tools', 'Personal', 'user-round', '$pdf-tools ']);
+    expect([skill.prefix, skill.label, skill.badge, skill.badgeIcon, skill.insert]).toEqual(['/skill:', 'pdf-tools', 'Personal', 'user-round', '$pdf-tools ']);
     expect(slash({ skills, showSkillsInSlashMenu: false }).some(row => row.type === 'skill')).toBe(false);
   });
   test('provider commands insert /name and a space', () => {
@@ -166,8 +166,8 @@ describe('$ skill menu', () => {
   ];
   test('rows carry the skill badge with a Skill suffix and skip disabled skills', () => {
     expect(skillRows(skills, '', 'codex').map(row => [row.label, row.description, row.badge])).toEqual([
-      ['Deploy', 'Ship it', 'Repo Skill'], ['Figma', 'Design', 'System Skill'], ['Plugin X', 'Run provider skill', 'App Skill']]);
-    expect(skillRows(skills, 'fig', 'codex').map(row => row.label)).toEqual(['Figma']);
+      ['deploy', 'Ship it', 'Repo Skill'], ['figma', 'Design', 'System Skill'], ['plugin-x', 'Run provider skill', 'App Skill']]);
+    expect(skillRows(skills, 'fig', 'codex').map(row => row.label)).toEqual(['figma']);
   });
   test('empty states', () => {
     expect(emptyText('skill', '', false)).toBe('No skills found. Try / to browse provider commands.');
@@ -411,8 +411,10 @@ describe('skill chip labels', () => {
     { name: 'frontend-design', scope: 'user', enabled: false },
     { name: 'imagegen', displayName: 'Second Image Gen', scope: 'user', enabled: true },
   ];
-  test('each name reads as its first skill: the display name, trimmed, else the title-cased name', () => {
-    expect(skillChipLabels(skills)).toEqual({ imagegen: 'Image Gen', 'openai-docs': 'OpenAI Docs', 'frontend-design': 'Frontend Design' });
+  test("each name reads as its first skill: the display name, trimmed, else the skill's own name", () => {
+    expect(skillChipLabels(skills)).toEqual({ imagegen: 'Image Gen', 'openai-docs': 'OpenAI Docs', 'frontend-design': 'frontend-design' });
+    expect(skillChipLabels([{ name: 'superpowers:brainstorming' }, { name: 'mca_lab_status', displayName: '  ' }]))
+      .toEqual({ 'superpowers:brainstorming': 'superpowers:brainstorming', mca_lab_status: 'mca_lab_status' });
     expect(skillChipLabels([])).toEqual({});
     // Exact names, as the reference's `find`: a chip `$imagegen` does not take `ImageGen`'s label.
     expect(skillChipLabels([{ name: 'ImageGen', displayName: 'Other' }])).toEqual({ ImageGen: 'Other' });

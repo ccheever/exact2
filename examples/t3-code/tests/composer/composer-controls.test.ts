@@ -68,11 +68,11 @@ describe('sticky model and next-turn selection', () => {
     const speed = speedSegments({ driver: 'codex', descriptors: [effort, fast], selections: [{ id: 'fastMode', value: true }], selection: null, reported: null,
       ultra: { primaryId: '', controlled: false, inBody: false }, unavailable: false, labels: {} });
     expect(speed.segments.map(segment => [segment.label, segment.value, segment.checked, segment.bolt])).toEqual([['Standard', 'false', false, ''], ['Fast', 'true', true, 'fast']]);
-    expect(traitsDisplay('codex', [effort, fast], [{ id: 'fastMode', value: true }])).toEqual({ label: 'Medium Fast', speedLabel: 'Fast', otherLabels: [] });
-    expect(traitsDisplay('claudeAgent', [fast], [])).toEqual({ label: 'Normal', speedLabel: null, otherLabels: [] });
+    expect(traitsDisplay('codex', [effort, fast], [{ id: 'fastMode', value: true }])).toEqual({ label: 'Medium Fast', speedLabel: 'Fast' });
+    expect(traitsDisplay('claudeAgent', [fast], [])).toEqual({ label: 'Normal', speedLabel: null });
     const tier = { id: 'serviceTier', type: 'select', options: [{ id: 'default', label: 'Normal' }, { id: 'priority', label: 'Fast' }, { id: 'flex', label: 'Ultrafast' }] };
-    expect(traitsDisplay('codex', [effort, tier], [{ id: 'serviceTier', value: 'flex' }])).toEqual({ label: 'Medium Ultrafast', speedLabel: 'Ultrafast', otherLabels: [] });
-    expect(traitsDisplay('codex', [effort, { id: 'thinking', label: 'Thinking', type: 'boolean', currentValue: true }], [])).toEqual({ label: 'Medium · Thinking On', speedLabel: null, otherLabels: ['Thinking On'] });
+    expect(traitsDisplay('codex', [effort, tier], [{ id: 'serviceTier', value: 'flex' }])).toEqual({ label: 'Medium Ultrafast', speedLabel: 'Ultrafast' });
+    expect(traitsDisplay('codex', [effort, { id: 'thinking', label: 'Thinking', type: 'boolean', currentValue: true }], [])).toEqual({ label: 'Medium · Thinking On', speedLabel: null });
   });
   test('a started thread locks the picker to its driver; drafts are unrestricted', async () => {
     const { client, command } = await opened();

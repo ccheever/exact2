@@ -14,7 +14,7 @@ import { redactedValue } from '../shared/redacted-text';
 import { confirmDialogCopy } from '../connections/server-update';
 import { codexSetupView, codexRuntimeFields, codexPicker, codexFlow, readCodexSetupMode } from './codex-setup'; // CodexSetupSection
 import { usesChatGptSharing } from './chatgpt-plan';
-import { REASONING_SELECT_DESCRIPTOR_IDS } from '../composer/composer-controls-model';
+import { isReasoningControl } from '../client/server-fields';
 import { obj, str, arr, num, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
@@ -107,7 +107,7 @@ const fieldRow = (instanceId: string, field: DriverField, value: string, extra: 
 });
 
 const PROVIDER_ALIAS_SLUGS = new Set(['default', 'auto']);
-const hasReasoningControl = (model: Obj) => arr(obj(model.capabilities).optionDescriptors).some(item => REASONING_SELECT_DESCRIPTOR_IDS.has(str(item.id)));
+const hasReasoningControl = (model: Obj) => arr(obj(model.capabilities).optionDescriptors).some(isReasoningControl);
 /**
  * ProviderModelsSection describeModelCapabilities (T3 Code 2359643cff). Reasoning is the norm, so only its absence is
  * labeled, and only when another model has it (`flagMissingReasoning`); custom models, models without capabilities

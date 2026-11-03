@@ -150,14 +150,15 @@ describe('formatProviderSkillDisplayName', () => {
     const { formatProviderSkillDisplayName } = await import('../../src/timeline/message-chips');
     expect(formatProviderSkillDisplayName({ name: 'review-follow-up', displayName: 'Review Follow-up' })).toBe('Review Follow-up');
   });
-  test('falls back to a title-cased skill name', async () => {
+  test("falls back to the skill's own name", async () => {
     const { formatProviderSkillDisplayName } = await import('../../src/timeline/message-chips');
-    expect(formatProviderSkillDisplayName({ name: 'review-follow-up' })).toBe('Review Follow Up');
+    expect(formatProviderSkillDisplayName({ name: 'review-follow-up' })).toBe('review-follow-up');
+    expect(formatProviderSkillDisplayName({ name: 'superpowers:brainstorming', displayName: ' ' })).toBe('superpowers:brainstorming');
   });
   test('Markdown skill candidates exclude prices, invalid names and repeated names', async () => {
     const { markdownSkills } = await import('../../src/timeline/message-chips');
     expect(markdownSkills(['5', '1k', '1e9', '5foo', 'review-follow-up', 'review-follow-up', '_invalid', 'with space', 'unknown!'].map(name => ({ name })))).toEqual([
-      { name: '5foo', displayName: '5foo' }, { name: 'review-follow-up', displayName: 'Review Follow Up' },
+      { name: '5foo', displayName: '5foo' }, { name: 'review-follow-up', displayName: 'review-follow-up' },
     ]);
   });
 });

@@ -183,7 +183,7 @@ describe('root composer projection source', () => {
     const active = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'thread', value });
     const preview = composerRichSource(client, { snapshotOwner: client.snapshotOwner, owner: 'preview', value, surface: 'preview' });
     expect(active.chips[0]?.face.label).toBe('Custom Workspace Skill');
-    expect(preview.chips[0]?.face.label).toBe('Frontend Design');
+    expect(preview.chips[0]?.face.label).toBe('frontend-design');
     const refs = '[PR #7](t3-context://v1/review-comment/review-comment_p) [gone](t3-context://v1/terminal/terminal_missing) [old](t3-context://v1/terminal/terminal_old)';
     client.local.reviewComments = { 'review-comment_p': { kind: 'review-comment', contextId: 'review-comment_p', pullRequest: { state: 'merged', number: 7 } } };
     client.local.terminalContexts = { terminal_old: { kind: 'terminal', contextId: 'terminal_old', text: '' } };

@@ -7,7 +7,6 @@
 // as absent here, as its ForwardCompatibleOptional and catchDecoding fields do, so a hand-edited settings.json or a
 // later server never fails a whole snapshot.
 import { obj, str, type Obj } from './domain';
-import { REASONING_SELECT_DESCRIPTOR_IDS } from '../composer/composer-controls-model';
 
 // MARK: Scheduled tasks
 
@@ -91,6 +90,12 @@ export function usageSummaryInput<T extends Obj>(input: T, filter: UsageModelFil
 export const sameUsageModelFilter = (left: Obj, right: Obj): boolean => JSON.stringify(left.modelFilter) === JSON.stringify(right.modelFilter);
 
 // MARK: Models
+
+/** threadExecution.ts REASONING_EFFORT_OPTION_IDS (v0.1.5): the option ids that carry a reasoning effort (Cursor's is
+ *  `reasoning_effort`, Antigravity's `thinking_level`). */
+export const REASONING_EFFORT_OPTION_IDS: readonly string[] = ['reasoningEffort', 'effort', 'reasoning', 'variant', 'reasoning_effort', 'thinking_level'];
+
+const REASONING_SELECT_DESCRIPTOR_IDS: ReadonlySet<string> = new Set([...REASONING_EFFORT_OPTION_IDS, 'thinking']);
 
 /** isReasoningControl: a known effort id (REASONING_SELECT_DESCRIPTOR_IDS), or a select its agent marked `role: "reasoning"` (an ACP `thought_level`). */
 export function isReasoningControl(descriptor: Obj): boolean {

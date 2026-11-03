@@ -143,51 +143,57 @@ describe('provider-reported option labels (63f74e209d)', () => {
 
 describe('background work (151c241cd2, a5b34b2537)', () => {
   test('subagent descriptions read as display names', () => {
-    expect(presentBackgroundWork([{ kind: 'subagent', description: 'Subagent: Luna Window Properties' }])!.title).toBe('Waiting on subagent Luna Window Properties');
+    expect(presentBackgroundWork([{ kind: 'subagent', description: 'Subagent: Luna Window Properties' }])!.title).toBe('Waiting · Luna Window Properties');
     expect(presentBackgroundWork([{ kind: 'subagent', description: 'Subagent:' }])!.title).toBe('Waiting on a subagent');
     const several = presentBackgroundWork([{ kind: 'subagent', description: 'Luna Window Properties' }, { kind: 'command', description: 'Review src/math.ts' },
       { kind: 'subagent', description: '/root/run_tests' }])!;
     expect(several).toMatchObject({ title: 'Waiting on 2 subagents and 1 command', description: 'Luna Window Properties, Run Tests, Review src/math.ts', waiting: true, segments: [] });
-    expect(presentBackgroundWork([{ kind: 'command', description: '/root/run_tests' }])!.title).toBe('Running: /root/run_tests');
+    expect(presentBackgroundWork([{ kind: 'command', description: '/root/run_tests' }])!.title).toBe('Running · /root/run_tests');
+    // A command is named by its script, not the shell that wraps it (commandDisplayText).
+    expect(presentBackgroundWork([{ kind: 'command', description: "/bin/zsh -lc 'npm run dev'" }])!.items[0]!.label).toBe('npm run dev');
   });
   test('a subagent with its own thread is an inline link in the roster', () => {
     const roster = presentBackgroundWork([{ kind: 'command', description: 'npm test' }, { kind: 'subagent', description: 'Subagent: Review', childThreadId: 'child-1' }])!;
     expect(roster.segments).toEqual([{ key: '0:Review', label: 'Review', threadId: 'child-1', aria: 'Open subagent Review', last: false },
       { key: '1:npm test', label: 'npm test', threadId: '', aria: 'Open subagent npm test', last: true }]);
     // The title already names a lone subagent, so its link reads "Show" (#16022).
-    expect(presentBackgroundWork([{ kind: 'subagent', description: 'Review', childThreadId: 'c' }])).toMatchObject({ title: 'Waiting on subagent Review', description: 'Show',
+    expect(presentBackgroundWork([{ kind: 'subagent', description: 'Review', childThreadId: 'c' }])).toMatchObject({ title: 'Waiting · Review', description: 'Show',
       segments: [{ label: 'Show', aria: 'Show subagent Review', threadId: 'c', last: true }] });
   });
   test('commands and monitors left (a dev server, its watchdog) run rather than wait unless the agent awaits them', () => {
-    expect(presentBackgroundWork([{ kind: 'command', description: 'Start the dev server' }])).toEqual({ title: 'Running: Start the dev server', description: '', waiting: false, segments: [],
+    expect(presentBackgroundWork([{ kind: 'command', description: 'Start the dev server' }])).toEqual({ title: 'Running · Start the dev server', description: '', waiting: false, segments: [],
       items: [{ taskId: '', kind: 'command', label: 'Start the dev server', childThreadId: '' }] });
     expect(presentBackgroundWork([{ kind: 'command' }])!.title).toBe('Running a command');
     expect(presentBackgroundWork([{ kind: 'command' }, { kind: 'command', description: 'b' }])).toMatchObject({ title: 'Running 2 commands', waiting: false });
     expect(presentBackgroundWork([{ kind: 'monitor' }])).toMatchObject({ title: 'Running a monitor', waiting: false });
     expect(presentBackgroundWork([{ kind: 'monitor', awaited: true }])).toMatchObject({ title: 'Waiting on a monitor', waiting: true });
-    expect(presentBackgroundWork([{ kind: 'command', description: 'npm test', awaited: true }])).toMatchObject({ title: 'Waiting on command npm test', waiting: true });
+    expect(presentBackgroundWork([{ kind: 'command', description: 'npm test', awaited: true }])).toMatchObject({ title: 'Waiting · npm test', waiting: true });
     expect(presentBackgroundWork([{ kind: 'background_task' }])).toMatchObject({ title: 'Waiting on a background task', waiting: true });
   });
   test('the line at the end of the timeline names the newest activity, without dots (#25299)', async () => {
     const { client } = await opened();
     Object.assign(client.shell.threads[0]!, { pendingBackgroundTasks: [{ taskId: 'a', kind: 'command', description: 'npm run dev' }] });
-    client.projection.turnItems = [{ id: 'a', type: 'command', startedAt: '2026-10-28T00:00:00.000Z' }];
+    client.projection.turnItems = [{ id: 'a', type: 'command_execution', input: 'npm run dev', startedAt: '2026-10-28T00:00:00.000Z' }];
     expect(snapshot(client).composer.notices).toEqual([]);
-    // One command: "Running" then its name in the code font, its elapsed time, then Stop.
-    expect(threadNowRows(client)[0]).toMatchObject({ kind: 'thread-now', title: 'Running', body: 'npm run dev', meta: true, icon: 'terminal', detail: '',
+    // One command: "Running ·" then its name in the code font, its elapsed time, then Stop.
+    expect(threadNowRows(client)[0]).toMatchObject({ kind: 'thread-now', title: 'Running ·', body: 'npm run dev', meta: true, icon: 'terminal', detail: '',
       startedMs: Date.parse('2026-10-28T00:00:00.000Z') });
     expect(threadNowRows(client)[0]!.activities).toEqual([expect.objectContaining({ status: 'action', label: 'Stop', detail: 'cc:stop-background', ok: true })]);
     // One subagent: its newest progress on one line, then Open.
     Object.assign(client.shell.threads[0]!, { pendingBackgroundTasks: [{ taskId: 'n1', kind: 'subagent', description: 'Subagent: Review', childThreadId: 'c1' }] });
     client.projection.turnItems = [{ id: 'i1', nativeItemRef: { nativeId: 'n1' }, type: 'subagent', progress: 'Reading\n  src/app.ts', updatedAt: '2026-10-28T00:00:05.000Z' }];
-    expect(threadNowRows(client)[0]).toMatchObject({ title: 'Waiting on', body: 'Review', meta: false, icon: 'circle-dashed', detail: 'Reading src/app.ts', startedMs: 0 });
+    expect(threadNowRows(client)[0]).toMatchObject({ title: 'Waiting ·', body: 'Review', meta: false, icon: 'circle-dashed', detail: 'Reading src/app.ts', startedMs: 0 });
     expect(threadNowRows(client)[0]!.activities!.map(entry => [entry.label, entry.detail, entry.targetId, entry.tone])).toEqual([['Open', 'select-thread', 'c1', 'muted'], ['Stop', 'cc:stop-background', '', '']]);
     // Several: the count, then the newest subagent progress, else the names (in the code font when all are commands).
     Object.assign(client.shell.threads[0]!, { pendingBackgroundTasks: [{ taskId: 'n1', kind: 'subagent', description: 'Review' }, { taskId: 'n2', kind: 'subagent', description: 'Lint' }] });
     client.projection.turnItems = [{ id: 'n1', type: 'subagent', progress: 'old', updatedAt: '2026-10-28T00:00:01.000Z' }, { id: 'n2', type: 'subagent', progress: 'new', updatedAt: '2026-10-28T00:00:09.000Z' }];
     expect(threadNowRows(client)[0]).toMatchObject({ title: 'Waiting on 2 subagents', body: '', detail: 'Lint: new' });
     Object.assign(client.shell.threads[0]!, { pendingBackgroundTasks: [{ taskId: 'x', kind: 'command', description: 'a' }, { taskId: 'y', kind: 'command', description: 'b' }] });
+    client.projection.turnItems = [{ id: 'x', type: 'command_execution', input: 'a' }, { id: 'y', type: 'command_execution', input: 'b' }];
     expect(threadNowRows(client)[0]).toMatchObject({ title: 'Running 2 commands', detail: 'a, b', meta: true, icon: 'terminal' });
+    // A label that is not its command's text (a description the agent wrote) keeps the interface font.
+    Object.assign(client.shell.threads[0]!, { pendingBackgroundTasks: [{ taskId: 'x', kind: 'command', description: 'Start the dev server' }] });
+    expect(threadNowRows(client)[0]).toMatchObject({ title: 'Running ·', body: 'Start the dev server', meta: false });
   });
 });
 

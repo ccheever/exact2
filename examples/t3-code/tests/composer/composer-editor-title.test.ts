@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { launchTitle } from '../../src/composer/composer-editor-title';
+import { launchTitle, truncate } from '../../src/composer/composer-editor-title';
+import { contextLabel } from '../../src/composer/composer-editor-menu';
 
 const quote = '[Assistant quote](t3-citation://v1/env/thread/msg?text=Hello%20there&start=0&end=11&prefix=&suffix=)';
 describe('new-thread title seed (ChatView onSend, deriveThreadTitleSeed)', () => {
@@ -22,8 +23,16 @@ describe('new-thread title seed (ChatView onSend, deriveThreadTitleSeed)', () =>
     expect(launchTitle('', [{ type: 'file', name: 'notes.md' }])).toBe('File: notes.md');
     expect(launchTitle('  ')).toBe('New thread');
   });
-  test('truncate keeps 50 characters', () => {
+  test('truncate keeps 50 code points, so an emoji at the cut stays whole', () => {
     expect(launchTitle('x'.repeat(60))).toBe(`${'x'.repeat(50)}...`);
     expect(launchTitle('x'.repeat(50))).toBe('x'.repeat(50));
+    expect(launchTitle(`${'x'.repeat(49)}🙂🙂`)).toBe(`${'x'.repeat(49)}🙂...`);
+    expect(launchTitle(`${'x'.repeat(49)}🙂`)).toBe(`${'x'.repeat(49)}🙂`);
+    expect(truncate('Implement ' + 'p'.repeat(60))).toBe(`Implement ${'p'.repeat(40)}...`);
+  });
+  test('a context chip label cut at 200 units keeps an emoji whole', () => {
+    expect(contextLabel(`${'x'.repeat(199)}🙂tail`, 'thread')).toBe('x'.repeat(199));
+    expect(contextLabel(`${'x'.repeat(198)}🙂tail`, 'thread')).toBe(`${'x'.repeat(198)}🙂`);
+    expect(contextLabel('  ', 'thread')).toBe('thread');
   });
 });

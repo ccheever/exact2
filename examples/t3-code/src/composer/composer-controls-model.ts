@@ -8,6 +8,7 @@
 // (deriveReportedModelSelection, REASONING_EFFORT_OPTION_IDS at 74541bab17), and, at 9c161462c9, TraitsPicker.tsx
 // (buildTraitsTriggerDisplay) and TraitsSpeed.tsx (getTraitsSpeedDisplay).
 import { arr, obj, str, type Obj } from '../client/domain';
+import { isReasoningSelect } from '../client/server-fields';
 import { resolveModelShortName as resolveShortName } from '../client/model-short-name';
 
 const ALIASES: Record<string, Record<string, string>> = {
@@ -130,17 +131,10 @@ export function chordGlyphs(chord: string): string {
   return `${has('Control') ? '⌃' : ''}${has('Alt') ? '⌥' : ''}${has('Shift') ? '⇧' : ''}${has('Meta') ? '⌘' : ''}${names[key] ?? (key.length === 1 ? key.toUpperCase() : key)}`;
 }
 
-/** threadExecution.ts REASONING_EFFORT_OPTION_IDS (v0.1.5): the option ids that carry a reasoning effort (Cursor's is
- *  `reasoning_effort`, Antigravity's `thinking_level`). */
-export const REASONING_EFFORT_OPTION_IDS: readonly string[] = ['reasoningEffort', 'effort', 'reasoning', 'variant', 'reasoning_effort', 'thinking_level'];
-
-/** TraitsPicker's reasoning selects: the first one listed pairs with the speed label and is the one effort keys step. */
-export const REASONING_SELECT_DESCRIPTOR_IDS: ReadonlySet<string> = new Set([...REASONING_EFFORT_OPTION_IDS, 'thinking']);
-
 /**
- * buildTraitsTriggerDisplay (modelTraits.ts at v0.1.5): "Fast" or "Ultrafast" follows the first reasoning
+ * buildTraitsTriggerDisplay (modelTraits.ts at 5d3d78ab93): "Fast" or "Ultrafast" follows the first reasoning
  * label ("High Fast · 1M"), or ends the list when there is none; booleans read
- * "<label> On|Off". `speedLabel` is the speed alone, `otherLabels` every label but reasoning and speed.
+ * "<label> On|Off". `speedLabel` is the speed alone.
  */
 export function traitsDisplay(driver: string, descriptors: Obj[], selections: Obj[], selection: Selection | null = null, reported: Selection | null = null,
   ultra: { primaryId: string; controlled: boolean } = { primaryId: '', controlled: false }) {
@@ -165,13 +159,13 @@ export function traitsDisplay(driver: string, descriptors: Obj[], selections: Ob
       // getProviderOptionCurrentLabel: a provider-reported value labels an option the user left unset.
       : descriptor.type === 'select' ? optionLabel(descriptor, resolvedCurrent(descriptor, selections), selection, reported) : '';
     if (!label) continue;
-    if (reasoningAt === -1 && descriptor.type === 'select' && REASONING_SELECT_DESCRIPTOR_IDS.has(str(descriptor.id))) reasoningAt = labels.length;
+    if (reasoningAt === -1 && isReasoningSelect(descriptor)) reasoningAt = labels.length;
     labels.push(label);
   }
-  const otherLabels = labels.filter((_, index) => index !== reasoningAt), speedLabel = speed || null;
-  if (!labels.length && fallback) return { label: fallback, speedLabel, otherLabels };
+  const speedLabel = speed || null;
+  if (!labels.length && fallback) return { label: fallback, speedLabel };
   if (speed) { if (reasoningAt >= 0) labels[reasoningAt] = `${labels[reasoningAt]} ${speed}`; else labels.push(speed); }
-  return { label: labels.join(' · '), speedLabel, otherLabels };
+  return { label: labels.join(' · '), speedLabel };
 }
 
 /**

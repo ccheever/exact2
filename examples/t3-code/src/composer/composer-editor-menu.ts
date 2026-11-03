@@ -65,9 +65,7 @@ function ranked<T>(entries: Array<{ item: T; score: number; tie: string }>): T[]
 
 // ── providerSkills.ts / providerSkillSearch.ts ─────────────────────────────
 export function skillDisplayName(skill: Obj): string {
-  const display = str(skill.displayName).trim();
-  if (display) return display;
-  return str(skill.name).split(/[\s:_-]+/).filter(Boolean).map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  return str(skill.displayName).trim() || str(skill.name);
 }
 function invocable(skill: Obj): boolean { return skill.enabled !== false && skill.userInvocable !== false; }
 /** isProviderSkillUserInvocable: the names whose `$name` is a skill chip in the composer. */
@@ -186,7 +184,7 @@ export function skillRows(skills: Obj[], query: string, driver: string): MenuRow
 }
 /** The composer's skill chip labels by skill name (ComposerPromptEditorTiptap `skillLabelFor`): the first
  *  skill of the selected provider with that exact name reads as formatProviderSkillDisplayName — its own
- *  display name, else the title-cased name. A name not in the list is title-cased by the editor. */
+ *  display name, else its name as written. A name not in the list reads as its name. */
 export function skillChipLabels(skills: Obj[]): Record<string, string> {
   const labels: Record<string, string> = {}, seen = new Set<string>();
   for (const skill of skills) {
@@ -266,7 +264,10 @@ export function contextId(kind: string, producerId: string): string {
   return `${slug || 'ctx'}-${fnv1a64(scoped)}`;
 }
 export function contextLabel(label: string, kind: string): string {
-  const cleaned = label.replace(/[[\]\\\r\n]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+  const normalized = label.replace(/[[\]\\\r\n]/g, ' ').replace(/\s+/g, ' ').trim();
+  // The 200-unit cap steps back rather than split a surrogate pair (an emoji).
+  const before = normalized.charCodeAt(199), after = normalized.charCodeAt(200);
+  const cleaned = normalized.slice(0, before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff ? 199 : 200);
   return cleaned || kind;
 }
 export function contextLink(kind: string, id: string, label: string): string {

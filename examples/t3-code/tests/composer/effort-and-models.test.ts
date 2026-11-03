@@ -80,7 +80,7 @@ describe('effort keys', () => {
 describe('traits and text model settings', () => {
   test('speed follows reasoning in text, including labels around it', () => {
     const context = { id: 'context', type: 'select', options: [{ id: '1m', label: '1M', isDefault: true }] };
-    expect(traitsDisplay('codex', [context, effort, tier], [{ id: 'serviceTier', value: 'flex' }])).toEqual({ label: '1M · Medium Ultrafast', speedLabel: 'Ultrafast', otherLabels: ['1M'] });
+    expect(traitsDisplay('codex', [context, effort, tier], [{ id: 'serviceTier', value: 'flex' }])).toEqual({ label: '1M · Medium Ultrafast', speedLabel: 'Ultrafast' });
   });
   test('unlisted text models choose the cheap provider default before its flagship', () => {
     const p = { ...provider('claude', 'claudeAgent'), models: [{ slug: 'opus', isDefault: true }, { slug: 'claude-haiku-5-5', name: 'Haiku' }] };

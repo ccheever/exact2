@@ -1,4 +1,5 @@
 use Icon from "../shared/icons.contract"
+use NativeChildWorkDialog from "../composer/native-child-work.contract"
 use Settings from "../shared/shapes.contract"
 use Snapshot from "../shared/shapes.contract"
 use PickerCatalog, PickerTarget from "../composer/composer-shapes.contract"
@@ -218,6 +219,10 @@ component WindowOverlays
     if shell.addMachine.open
       for opening in [shell.addMachine.key] key=opening
         AddMachineDialog(dialog=shell.addMachine, viewportWidth=viewport.width, dark=(scheme == "dark"), command=command)
+    // An Antigravity subagent's NativeChildWorkDialog (native-child-work.contract).
+    DialogFinalFocus(open=data.composer.nativeChildWork.open, owner="native-work-dialog")
+    if data.composer.nativeChildWork.open
+      NativeChildWorkDialog(work=data.composer.nativeChildWork, viewportWidth=viewport.width, dark=(scheme == "dark"), command=command)
     if titleMenuOpen
       TitleMenu(items=shell.titleMenu, children=shell.titleSubmenu, x=titleMenuX, y=titleMenuY, serial=titleMenuSerial, pick=titleMenuPick, ui=titleUi)
     DialogFinalFocus(open=(data.revertPending != ""), owner="revert-dialog")

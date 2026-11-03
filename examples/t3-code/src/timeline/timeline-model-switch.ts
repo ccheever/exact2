@@ -4,14 +4,15 @@
 // and getProviderOptionCurrentValue and modelTraits.ts isReasoningSelect. The server records the switch on the message
 // (`modelSwitch`, {from, to}); the divider above it names only what changed.
 import { arr, obj, str, type Obj } from '../client/domain';
-import { REASONING_EFFORT_OPTION_IDS, REASONING_SELECT_DESCRIPTOR_IDS, triggerModelName } from '../composer/composer-controls-model';
+import { triggerModelName } from '../composer/composer-controls-model';
+import { isReasoningControl, REASONING_EFFORT_OPTION_IDS } from '../client/server-fields';
 
 const statedValue = (selection: Obj, id: string): string | undefined => {
   const value = arr(selection.options).find(option => option.id === id)?.value;
   return typeof value === 'string' ? value : undefined;
 };
 /** isReasoningSelect: a select that is a known effort id, or one its agent marked as reasoning. */
-const isReasoningSelect = (descriptor: Obj) => descriptor.type === 'select' && (descriptor.role === 'reasoning' || REASONING_SELECT_DESCRIPTOR_IDS.has(str(descriptor.id)));
+const isReasoningSelect = (descriptor: Obj) => descriptor.type === 'select' && isReasoningControl(descriptor);
 
 /** getProviderOptionCurrentValue without a reported selection: what the descriptor resolves to for this selection. */
 function currentValue(descriptor: Obj, selection: Obj): unknown {

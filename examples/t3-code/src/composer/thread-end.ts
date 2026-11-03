@@ -20,6 +20,9 @@ import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
 import { userMessagePresentation } from '../timeline/user-message';
 import { scheduledTaskTitle } from '../timeline/timeline-presentation';
 import { canForceStop, forceStoppingThread, threadRunStop } from './run-stop';
+import { backgroundStopPending } from './background-stop';
+import { composerNow } from './composer-controls';
+import { commandDisplayText } from '../timeline/command-label';
 
 /**
  * A line of thread state (`kind` "thread-now"): `icon` with `tone` "info" (or "warning", an unanswered Stop) on the one
@@ -55,9 +58,10 @@ function childInput(client: T3Client): Line | null {
 const epoch = (value: unknown) => { const ms = typeof value === 'string' ? Date.parse(value) : NaN; return Number.isFinite(ms) ? ms : null; };
 const oneLine = (value: unknown) => str(value).replace(/\s+/gu, ' ').trim();
 /**
- * backgroundWorkNowItem: background commands and subagents once the turn is done. One task reads "Running <name>" (a
- * command's name in the code font), its subagent's newest progress after it, then its elapsed time and Open; several
- * read their count and the newest progress of any subagent, else their names. A terminal glyph when all are commands.
+ * backgroundWorkNowItem: background commands and subagents once the turn is done. One task reads "Running · <name>" or
+ * "Waiting · <name>" (a command named by its own text in the code font), its subagent's newest progress after it, then
+ * its elapsed time and Open; several read their count and the newest progress of any subagent, else their names. A
+ * terminal glyph when all are commands. Stop stays "Stopping..." until the stopped tasks leave (background-stop.ts).
  */
 function backgroundWork(client: T3Client): Line | null {
   if (activeRun(client.projection)) return null;
@@ -69,18 +73,23 @@ function backgroundWork(client: T3Client): Line | null {
     // The key derivePendingBackgroundWork gives turn-item tasks; subagent items carry progress.
     const item = [...turnItems].reverse().find(candidate => (str(obj(candidate.nativeItemRef).nativeId) || str(candidate.id)) === task.taskId);
     const subagent = item?.type === 'subagent' ? item : undefined;
-    return { task, activity: oneLine(subagent?.progress), startedMs: epoch(item?.startedAt), updatedMs: subagent ? epoch(subagent.updatedAt) ?? 0 : 0,
-      childThreadId: task.childThreadId || str(subagent?.childThreadId) };
+    // A command's label is in the code font only while it is that command's text.
+    const mono = item?.type === 'command_execution' && commandDisplayText(str(item.input)) === task.label;
+    return { task, mono, activity: oneLine(subagent?.progress), startedMs: epoch(item?.startedAt),
+      updatedMs: subagent ? epoch(subagent.updatedAt) ?? 0 : 0, childThreadId: task.childThreadId || str(subagent?.childThreadId) };
   });
   const only = rows.length === 1 ? rows[0] : undefined;
   const newest = rows.filter(row => row.activity).sort((left, right) => right.updatedMs - left.updatedMs)[0];
   const commands = rows.every(row => row.task.kind !== 'subagent');
-  const stopping = client.busy && client.pending?.description === 'Stop background work';
+  const tasks = arr(shell?.pendingBackgroundTasks);
+  const stopping = backgroundStopPending(client, tasks, composerNow(client));
   const canOperate = client.connection === 'connected' && client.scopes.includes('orchestration:operate');
   const names = rows.map(row => row.task.label).join(', ');
+  // One named task reads "Running · <label>" (presentPendingBackgroundWork's title); the label is the part that gives way.
+  const named = !!only && presented.title.endsWith(` · ${only.task.label}`);
   return { id: `background-work:${client.threadId}`, icon: commands ? 'terminal' : 'circle-dashed',
-    ...(only ? { title: presented.waiting ? 'Waiting on' : 'Running', label: only.task.label, mono: only.task.kind !== 'subagent', detail: only.activity }
-      : { title: presented.title, detail: newest ? `${newest.task.label}: ${newest.activity}` : names, mono: !newest && commands }),
+    ...(only ? { ...(named ? { title: `${presented.waiting ? 'Waiting' : 'Running'} ·`, label: only.task.label, mono: only.mono } : { title: presented.title }), detail: only.activity }
+      : { title: presented.title, detail: newest ? `${newest.task.label}: ${newest.activity}` : names, mono: !newest && rows.every(row => row.mono) }),
     ...(only?.startedMs != null ? { startedMs: only.startedMs } : {}),
     actions: [...(only?.childThreadId ? [action('open', 'Open', 'select-thread', only.childThreadId, 'muted')] : []),
       action('stop', stopping ? 'Stopping...' : 'Stop', 'cc:stop-background', '', '', canOperate && !stopping)] };

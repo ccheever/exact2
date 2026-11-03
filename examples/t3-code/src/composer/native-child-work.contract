@@ -1,0 +1,65 @@
+// NativeChildWorkDialog at T3 Code 5d3d78ab93 (MIT; see LICENSE-T3): "Subagent work", read only (DialogPopup max-w-2xl):
+// each native child's role, its prompt, then its steps along a rule (border-s ps-3), and Refresh in the footer. Close,
+// Escape and the backdrop close it; native-child-work.ts serves it.
+use NativeChildWork from "./composer-shapes.contract"
+use CcIcon from "./composer-controls.contract"
+use FocusGuard from "../shared/dialog-trap.contract"
+use DialogOpenFocus from "../shared/dialog-trap.contract"
+
+component NativeChildWorkDialog
+  inject
+    dialogEntered: action
+    dialogFallback: action
+  props
+    work: NativeChildWork
+    viewportWidth: number
+    dark: bool
+    command: action
+  derive width = min(672, viewportWidth - 32)
+  derive dialogTargets = ["native-work-refresh", "native-work-close"]
+  action close
+    command("cc:native-child-work", "", "close", 0)
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #000000a3)" backdrop-filter="blur(4px)" testId="native-work-overlay"
+      button press=close aria-label="Close" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="native-work-backdrop" title=""
+      column width=width max-height="100%" position="relative" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="dialog" aria-label="Subagent work" testId="native-work-dialog" id="native-work-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("native-work-dialog") key=dialogFallback("native-work-dialog", dialogTargets)
+        FocusGuard(guardId="native-work-guard-start", targets=dialogTargets, popup="native-work-dialog")
+        DialogOpenFocus(target="native-work-refresh")
+        row gap="0.5rem" padding-left="1.5rem" padding-right="1rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box" align-items="flex-start"
+          column flex=1 min-width=0 gap="0.5rem"
+            text "Subagent work" font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2
+            text "Read only. These subagents cannot take messages." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
+          button press=close id="native-work-close" aria-label="Close" testId="native-work-close" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" flex-shrink=0 title=""
+            CcIcon(name="x", size=16, color="light-dark(#71717b, #a1a1a1)", weight=1.75)
+        scroll width="100%" min-height=0 flex-shrink=1
+          column gap="1rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="0.25rem" padding-bottom="1.5rem" box-sizing="border-box"
+            if work.error != ""
+              text work.error font-size="0.875rem" line-height="1.25rem" color="light-dark(#e40014, #ff6467)" testId="native-work-error"
+            else if work.loading and work.children.length == 0
+              text "Loading…" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
+            else if work.children.length == 0
+              text "The provider has no record of which subagents this call started." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" testId="native-work-empty"
+            else
+              for child in work.children key=child.key
+                column gap="0.5rem" min-width=0 role="region" aria-label=child.role testId=`native-work-child-${child.key}`
+                  text child.role font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
+                  text child.prompt font-size="0.875rem" line-height="1.25rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #a1a1a1)"
+                  if child.truncated
+                    text "Earlier steps are not shown." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+                  if not child.transcript
+                    text "No transcript yet." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+                  else
+                    column gap="0.5rem" padding-left="0.75rem" border-left-style="solid" border-left-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" box-sizing="border-box" role="list"
+                      for step in child.steps key=step.key
+                        column gap="0.25rem" min-width=0 role="listitem"
+                          text step.label font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #a1a1a1)"
+                          if step.calls != ""
+                            text step.calls font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#18181b, #f5f5f5)"
+                          if step.hasText
+                            scroll max-height="12rem" width="100%"
+                              text step.text font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="anywhere" user-select="text" color="light-dark(#18181b, #f5f5f5)"
+        // DialogFooter variant bare: Refresh (Button sm outline), disabled while a read is out.
+        row justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="1.5rem" box-sizing="border-box"
+          button press=command("cc:native-child-work", "", "refresh", 0) id="native-work-refresh" disabled=work.loading opacity=(work.loading ? 0.64 : 1) testId="native-work-refresh" height="2rem" padding-left="0.75rem" padding-right="0.75rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #ffffff0a)" display="flex" align-items="center" title=""
+            text "Refresh" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+        FocusGuard(guardId="native-work-guard-end", targets=dialogTargets, popup="native-work-dialog")

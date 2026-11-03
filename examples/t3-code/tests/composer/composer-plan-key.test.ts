@@ -20,7 +20,7 @@ function composer(options: Options = {}) {
       sendCommandChords: options.sendCommandChords ?? '' }, connected: options.connected ?? true },
     richComposer: { mode: 'rich', historyPrevious: true, historyNext: true, chips: [] },
     composerRichCurrent: true, composerSelectionCurrent: true, composerSelectionStart: caret, composerSelectionEnd: caret, composerText: '- a',
-    composerInCode: options.inCode ?? false, composerInList: options.inList ?? false, composerInNestedList: options.nested ?? false, composerCodeStart: false, composerRequiresModifier: false,
+    composerInCode: options.inCode ?? false, composerInList: options.inList ?? false, composerInNestedList: options.nested ?? false, composerCodeStart: false, composerNestedListStart: false, composerRequiresModifier: false,
     editor: { menu: { open: options.menuOpen ?? false, count: options.menuCount ?? 3 }, stash: { menuOpen: options.stashOpen ?? false, count: options.stashCount ?? 2 } },
     shortcuts: [...(options.queuedEdit ? [{ kind: 'composer-key', chord: options.queuedEdit, target: 'cclocal:queued-edit', extra: 'run-1' }] : []),
       ...(options.workspaceFocus ? [{ kind: 'workspace-focus', chord: 'F6', target: 'next' }, { kind: 'workspace-focus', chord: 'Shift+F6', target: 'previous' }, { kind: 'workspace-focus', chord: 'Meta+F6', target: 'next' }] : [])],

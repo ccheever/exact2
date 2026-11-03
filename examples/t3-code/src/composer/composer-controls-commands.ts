@@ -15,6 +15,11 @@ import { copyBranchName, dismissBranchMismatch, restoreThreadBranch, selectBranc
 import { attachIncoming, cancelPreparingImage, type IncomingFiles } from './composer-controls-attach';
 import { retryDraftUpload, runDraftUploads } from './composer-uploads';
 import { foldPaste, heldPaste } from './composer-editor-files';
+import { truncate } from './composer-editor-title'; // shared/String.ts truncate
+import { stopBackgroundWork } from './background-stop';
+import { respondToChildApproval } from './child-approvals';
+import { nativeChildWork } from './native-child-work';
+import { wakeShell } from '../client/command-waits';
 import { uuid } from '../transport/transport-wire';
 import { queueRowDrop } from '../sidebar/row-drop';
 import { openUsageLimits, closeUsageLimits, changeLimitRecovery, dismissFallbackNotice, usageLocal } from './composer-controls-usage';
@@ -163,7 +168,7 @@ export async function composerCommand(client: T3Client, native: Native, storage:
     const projection = requireThread(client), source = obj(projection.thread);
     const settings = obj(client.config.settings), overrides = obj(obj(settings.projectSettingsOverrides)[client.projectId]);
     const runtimeMode = str(overrides.defaultRuntimeMode || settings.defaultRuntimeMode, 'approval-required');
-    const title = (plan.title ? `Implement ${plan.title}` : 'Implement plan').slice(0, 100);
+    const title = truncate(plan.title ? `Implement ${plan.title}` : 'Implement plan');
     const [commandId, messageId, threadId] = await access.ids(3);
     const payload = launchPayload(commandId, threadId, messageId, client.projectId, `${PLAN_IMPLEMENTATION_PROMPT_PREFIX}${plan.markdown.trim()}`,
       dispatchSelection(client, client.providerId, client.modelId, client.modelOptions), runtimeMode, 'default');
@@ -210,29 +215,34 @@ export async function composerCommand(client: T3Client, native: Native, storage:
   if (op === 'branch' || op === 'branch-create') return selectBranch(client, native, storage, value, op === 'branch-create');
   // useForceStopThread: the run that ignored Stop (the line's) goes with the request.
   if (op === 'force-stop') { await forceStop(client, native, id); return ''; }
+  if (op === 'native-child-work') { await nativeChildWork(client, native, value); return ''; }
+  if (op === 'child-approval') { await respondToChildApproval(client, native, storage, id, value); return ''; }
   if (op === 'stop-background') {
     // interruptThreadTurn: `thread.stop` when the server advertises threadStop; otherwise the active run, else the
     // latest one while background work is pending; with neither, a PR watch can still hold the thread (one that never
-    // ran too).
+    // ran too). The line reads "Stopping..." until the tasks leave (background-stop.ts), and looks again once the
+    // retry window ends.
     const projection = requireThread(client), threadId = client.threadId;
-    if (client.threadStopOffered) {
-      const [commandId] = await access.ids(1);
-      await access.dispatch(storage, { type: 'thread.stop', commandId, threadId }, 'Stop background work');
-      return '';
-    }
-    const pending = arr(client.shell?.threads.find(thread => thread.id === threadId)?.pendingBackgroundTasks).length > 0;
-    const run = activeRun(projection) ?? (pending ? arr(projection.runs).at(-1) : undefined);
-    if (!run) {
-      for (const link of visiblePullRequests(obj(projection.thread).pullRequests)) {
-        if (link.watch === undefined) continue;
+    const tasks = arr(client.shell?.threads.find(thread => thread.id === threadId)?.pendingBackgroundTasks);
+    await stopBackgroundWork(client, tasks, () => composerNow(client), async () => {
+      if (client.threadStopOffered) {
         const [commandId] = await access.ids(1);
-        await access.dispatch(storage, { type: 'thread.pull-request.watch', commandId, threadId, host: link.host, repository: link.repository, number: link.number, watching: false }, 'Stop pull request watch');
+        await access.dispatch(storage, { type: 'thread.stop', commandId, threadId }, 'Stop background work');
+        return;
       }
-      return '';
-    }
-    const [commandId] = await access.ids(1);
-    // holdQueue interrupts every provider thread with pending work, a delegated child's too.
-    await access.dispatch(storage, { type: 'run.interrupt', commandId, threadId, runId: str(run.id), holdQueue: true }, 'Stop background work');
+      const run = activeRun(projection) ?? (tasks.length > 0 ? arr(projection.runs).at(-1) : undefined);
+      if (!run) {
+        for (const link of visiblePullRequests(obj(projection.thread).pullRequests)) {
+          if (link.watch === undefined) continue;
+          const [commandId] = await access.ids(1);
+          await access.dispatch(storage, { type: 'thread.pull-request.watch', commandId, threadId, host: link.host, repository: link.repository, number: link.number, watching: false }, 'Stop pull request watch');
+        }
+        return;
+      }
+      const [commandId] = await access.ids(1);
+      // holdQueue interrupts every provider thread with pending work, a delegated child's too.
+      await access.dispatch(storage, { type: 'run.interrupt', commandId, threadId, runId: str(run.id), holdQueue: true }, 'Stop background work');
+    }, retryAfterMs => { setTimeout(() => void wakeShell(native), retryAfterMs); });
     return '';
   }
   if (op === 'queued-remove' || op === 'queued-steer') {
