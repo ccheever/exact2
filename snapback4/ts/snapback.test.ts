@@ -1363,7 +1363,7 @@ test('open refuses invalid acquisition budgets with E_CLIENT before opening stor
   }
 });
 
-test.skipIf(!process.env.SNAPBACK4_BIN)('acquireLimit bounds progressive HTTP and wasm rounds; until acquired yields between turns', async () => {
+test.skipIf(!process.env.SNAPBACK4_BIN)('acquireLimit survives commit recovery in shared web handles; until acquired yields between turns', async () => {
   const project = join(scratch, 'progressive-server');
   mkdirSync(join(project, 'snapback'), { recursive: true });
   writeFileSync(join(project, 'snapback/schema.q'), `use personas alice
@@ -1409,7 +1409,8 @@ test.skipIf(!process.env.SNAPBACK4_BIN)('acquireLimit bounds progressive HTTP an
         ...Array.from({ length: 100 }, (_, n) => ({ table: 'historyRows', row: { id: `${c}-${String(n).padStart(3, '0')}`, conversation: c, body: String(n), at: n } }))];
     }).flat();
     expect((await realFetch(`${at}/seed`, { method: 'POST', headers, body: JSON.stringify(rows) }).then(r => r.json())).seeded).toBe(4080);
-    const page = storage(join(scratch, 'progressive-device'));
+    const faults: Faults = {};
+    const page = storage(join(scratch, 'progressive-device'), faults);
     const { webDevice } = await import('./web.ts');
     const device = await webDevice(page, 'test.exact.progressive', 'app:/data/history.sqlite', `file://${wasm}`);
     await device.call({ op: 'open', path: 'app:/data/history.sqlite', origin: at, viewer: 'dev:alice', backend: { initial_backend: backend } });
@@ -1419,10 +1420,11 @@ test.skipIf(!process.env.SNAPBACK4_BIN)('acquireLimit bounds progressive HTTP an
     // The online fallback sets the hint before its group is available locally.
     await db.read('history', { c: 'g39' }, 1000);
     let rounds = 0, streams = 0, interleaved = false;
+    const acquireLimits: number[] = [];
     globalThis.fetch = (async (url, init) => {
       if (String(url) === `${at}/sync`) {
         const body = JSON.parse(String(init?.body));
-        if (body.acquire) { expect(body.limit).toBe(400); rounds++; }
+        if (body.acquire) { acquireLimits.push(body.limit); rounds++; }
         else { expect(body.limit).toBe(10_000); streams++; }
       }
       return realFetch(url, init);
@@ -1435,10 +1437,24 @@ test.skipIf(!process.env.SNAPBACK4_BIN)('acquireLimit bounds progressive HTTP an
     expect(read.complete).toBe(true); expect(read.server).not.toBe(true);
     expect(read.data?.map(r => r.id)).toEqual(Array.from({ length: 10 }, (_, n) => `g39-${String(99 - n).padStart(3, '0')}`));
     expect((await db.read('history', { c: 'g38' }, 1000)).server).toBe(true);
+    expect(acquireLimits).toEqual([400]);
+    const sibling = await Snapback.open({ ...options, acquireLimit: 800 });
+    try {
+      faults.failNext = true;
+      await expect(db.write('add', { c: 'g39' }, 1000, 'unsaved-during-walk')).rejects.toThrow(/storage write failed/);
+      const before = acquireLimits.length;
+      // A restored cursor drains the ordinary stream before resuming acquisition.
+      expect((await sibling.sync()).ok).toBe(true);
+      expect((await sibling.sync()).ok).toBe(true);
+      expect(acquireLimits.length).toBeGreaterThan(before);
+      expect(acquireLimits.slice(before)).toEqual(Array(acquireLimits.length - before).fill(400));
+      expect((await db.status()).queued).toEqual([]);
+    } finally { await sibling.close(); }
     const all = db.sync({ until: 'acquired' });
     const write = await db.write('add', { c: 'g39' }, 1000, 'during-walk');
     interleaved = !(await db.status()).acquired;
     expect((await all).acquired).toBe(true);
+    expect(acquireLimits).toEqual(Array(acquireLimits.length).fill(400));
     expect(interleaved).toBe(true); expect(rounds).toBeGreaterThan(2); expect(streams).toBeGreaterThan(0);
     expect((await db.outcome(write.id)).state).toBe('sent');
     expect((await db.status()).acquisition.flooredGroups).toBe(40);

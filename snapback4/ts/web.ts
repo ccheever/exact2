@@ -231,7 +231,7 @@ export async function webDevice(storage: SqliteStorage, app: string, path: strin
         }
         if (answer.error !== undefined) throw new Error(String(answer.error));
         if (request.op === 'open' && answer.ok) {
-          opened = { op: 'open', path: request.path, origin: request.origin, viewer: request.viewer } as Request;
+          opened = { ...request };
         }
         return answer;
       } finally {
