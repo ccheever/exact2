@@ -218,7 +218,7 @@ final class LocalBackendManagerTests: XCTestCase {
         XCTAssertNotNil(first.range(of: "^[0-9a-f]{64}$", options: .regularExpression))
         XCTAssertEqual(first, second)
         let base = ["PATH": "/usr/bin", "T3CODE_PORT": "4888", "T3CODE_MODE": "web", "T3CODE_DESKTOP_LAN_HOST": "10.0.0.2", "T3CODE_HOME": "/elsewhere", "LANG": "en_US.UTF-8"]
-        let env = T3LocalShellEnvironment.serverEnvironment(base: base) { _, _, _ in "" }.env
+        let env = T3LocalShellEnvironment.serverEnvironment(base)
         let config = T3LocalBackend.startConfig(versionDir: URL(fileURLWithPath: "/home/.t3/runtime/versions/1.2.3"), port: 4888,
                                                 home: URL(fileURLWithPath: "/home/.t3"), token: first, env: env, cwd: "/home")
         XCTAssertEqual(config.executablePath, "/home/.t3/runtime/versions/1.2.3/t3")
@@ -237,11 +237,11 @@ final class LocalBackendManagerTests: XCTestCase {
         XCTAssertEqual(config.bootstrap.tailscaleServePort, 443)
         XCTAssertEqual(config.bootstrap.desktopBootstrapToken, first)
         XCTAssertNil(config.bootstrap.resourceMonitorPath)
-        XCTAssertEqual(config.bootstrap.shellEnvironmentPrepared, true, "By default the login shell returned a PATH, so the server does not ask it again")
+        XCTAssertEqual(config.bootstrap.shellEnvironmentPrepared, true, "The shell's values arrive on fd 4, so the server does not ask it")
         let line = String(decoding: config.bootstrap.jsonLine(), as: UTF8.self)
         XCTAssertTrue(line.hasSuffix("}\n"))
         let decoded = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
-        XCTAssertEqual(Set(decoded?.keys.map { $0 } ?? []), ["mode", "noBrowser", "port", "t3Home", "host", "desktopBootstrapToken", "shellEnvironmentPrepared", "tailscaleServeEnabled", "tailscaleServePort"])
+        XCTAssertEqual(Set(decoded?.keys.map { $0 } ?? []), ["mode", "noBrowser", "port", "t3Home", "host", "desktopBootstrapToken", "shellEnvironmentPrepared", "tailscaleServeEnabled", "tailscaleServePort", "desktopTelemetryFd"])
         XCTAssertEqual(decoded?["shellEnvironmentPrepared"] as? Bool, true)
     }
 

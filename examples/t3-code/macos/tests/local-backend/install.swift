@@ -99,9 +99,25 @@ final class LocalRuntimeInstallTests: XCTestCase {
         _ = fixture.runtime().ensure()
         let paths = T3LocalRuntime.paths(home: fixture.home, version: "1.2.3")
         XCTAssertEqual(fixture.runtime().ensure(), .ready(versionDir: paths.versionDir, version: "1.2.3", installed: false))
-        // The same layout the `t3` installer writes: a runtime it installed is used as it is.
+        // The folder names the archive it came from, so the bundle's archive is not needed again.
         try? FileManager.default.removeItem(at: fixture.archive)
         XCTAssertEqual(fixture.runtime().ensure(), .ready(versionDir: paths.versionDir, version: "1.2.3", installed: false))
+    }
+
+    func testAFolderOfTheSameVersionFromAnotherArchiveIsUnpackedAgain() {
+        let fixture = Fixture()
+        let paths = T3LocalRuntime.paths(home: fixture.home, version: "1.2.3")
+        XCTAssertEqual(fixture.runtime().ensure(), .ready(versionDir: paths.versionDir, version: "1.2.3", installed: true))
+        let pinned = try! String(contentsOf: paths.archive, encoding: .utf8)
+        XCTAssertEqual(pinned, "\(sha256(fixture.archive))\n")
+        // Another build of 1.2.3, and the `t3` installer's layout, which names no archive.
+        try! "\(String(repeating: "0", count: 64))\n".write(to: paths.archive, atomically: true, encoding: .utf8)
+        XCTAssertFalse(T3LocalRuntime.installed(paths, version: "1.2.3", archive: sha256(fixture.archive)))
+        XCTAssertTrue(T3LocalRuntime.installed(paths, version: "1.2.3"))
+        XCTAssertEqual(fixture.runtime().ensure(), .ready(versionDir: paths.versionDir, version: "1.2.3", installed: true))
+        try! FileManager.default.removeItem(at: paths.archive)
+        XCTAssertEqual(fixture.runtime().ensure(), .ready(versionDir: paths.versionDir, version: "1.2.3", installed: true))
+        XCTAssertEqual(try? String(contentsOf: paths.archive, encoding: .utf8), pinned)
     }
 
     func testATamperedArchiveIsRefusedBeforeItIsExpanded() {
@@ -285,9 +301,10 @@ final class LocalCrashReaperTests: XCTestCase {
 }
 
 final class LocalProcessTests: XCTestCase {
-    /// The production spawner with a fake `t3` that records its argv, environment and stdin, prints
-    /// to both streams and exits 3: the envelope arrives on stdin and nowhere else, output reaches
-    /// the log, and the unexpected exit restarts it after 0.5 s.
+    /// The production spawner with a fake `t3` that records its argv, environment, stdin and the first
+    /// line on fd 4, prints to both streams and exits 3: the envelope arrives on stdin and nowhere else,
+    /// the telemetry descriptor opens with the hello and the shell snapshot, output reaches the log, and
+    /// the unexpected exit restarts it after 0.5 s.
     func testTheFakeT3ReceivesTheEnvelopeOnStdinOnly() {
         let directory = scratch("fake-t3"), script = directory.appendingPathComponent("t3")
         try! """
@@ -299,20 +316,26 @@ final class LocalProcessTests: XCTestCase {
         mv "$FAKE_T3_OUT/argv.$$.txt" "$FAKE_T3_OUT/argv.txt"
         env > "$FAKE_T3_OUT/env.$$.txt"
         mv "$FAKE_T3_OUT/env.$$.txt" "$FAKE_T3_OUT/env.txt"
+        head -n 2 <&4 > "$FAKE_T3_OUT/telemetry.$$.txt"
+        mv "$FAKE_T3_OUT/telemetry.$$.txt" "$FAKE_T3_OUT/telemetry.txt"
         echo "fake server out"
         echo "fake server err" >&2
         exit 3
         """.write(to: script, atomically: true, encoding: .utf8)
         try! FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         let token = T3LocalBackend.shared.currentBootstrapToken
-        let env = T3LocalShellEnvironment.serverEnvironment(base: ["PATH": "/usr/bin:/bin", "FAKE_T3_OUT": directory.path, "T3CODE_PORT": "1"]) { _, _, _ in "" }.env
+        let discovery = T3LocalShellDiscovery(inherited: ["PATH": "/usr/bin:/bin", "FAKE_T3_OUT": directory.path, "T3CODE_PORT": "1"],
+                                              stateDir: directory.appendingPathComponent("home/userdata")) { _, _, _ in "" }
+        discovery.start()
+        XCTAssertEqual(discovery.probed.wait(timeout: .now() + 5), .success)
+        let env = T3LocalShellEnvironment.serverEnvironment(discovery.environment())
         var config = T3LocalBackend.startConfig(versionDir: directory, port: 16999, home: directory.appendingPathComponent("home"), token: token, env: env, cwd: directory.path)
         config.executablePath = script.path
         let queue = DispatchQueue(label: "test.local")
         let log = RecordingLog(), prober = FakeProber()
         prober.fallback = nil
         let manager = T3LocalBackendManager(executor: T3LocalQueueExecutor(queue: queue), clock: T3LocalQueueClock(queue: queue),
-                                            spawner: T3LocalProcessSpawner(), prober: prober, log: log, spec: T3LocalBackendSpec(configResolve: { config }))
+                                            spawner: T3LocalProcessSpawner(discovery: discovery), prober: prober, log: log, spec: T3LocalBackendSpec(configResolve: { config }))
         var pids: [Int32] = []
         manager.spec.onStarted = { pid, _ in pids.append(pid) }
         queue.async { manager.start() }
@@ -333,11 +356,22 @@ final class LocalProcessTests: XCTestCase {
         XCTAssertEqual(envelope["desktopBootstrapToken"] as? String, token)
         XCTAssertEqual(envelope["host"] as? String, "127.0.0.1")
         XCTAssertEqual(envelope["t3Home"] as? String, directory.appendingPathComponent("home").path)
+        XCTAssertEqual(envelope["desktopTelemetryFd"] as? Int, 4)
+        XCTAssertEqual(envelope["shellEnvironmentPrepared"] as? Bool, true)
+        let telemetry = try! String(contentsOf: directory.appendingPathComponent("telemetry.txt"), encoding: .utf8).split(separator: "\n")
+            .map { try! JSONSerialization.jsonObject(with: Data($0.utf8)) as! [String: Any] }
+        XCTAssertEqual(telemetry.first?["type"] as? String, "desktopTelemetryHello")
+        XCTAssertEqual(telemetry.first?["electronPid"] as? Int, Int(getpid()))
+        // The probe failed, so the snapshot is the inherited environment, not discovered.
+        XCTAssertEqual(telemetry.last?["type"] as? String, "shellEnvironment")
+        XCTAssertEqual(telemetry.last?["discovered"] as? Bool, false)
+        XCTAssertEqual((telemetry.last?["environment"] as? [String: Any])?["PATH"] as? String, "/usr/bin:/bin")
         let argv = try! String(contentsOf: directory.appendingPathComponent("argv.txt"), encoding: .utf8)
         XCTAssertEqual(argv, "--bootstrap-fd\n0\n")
         let childEnv = try! String(contentsOf: directory.appendingPathComponent("env.txt"), encoding: .utf8)
         XCTAssertFalse(childEnv.contains(token), "No token in the environment")
         XCTAssertTrue(childEnv.contains("T3CODE_TELEMETRY_ENABLED=false"))
+        XCTAssertTrue(childEnv.contains("T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING=1"))
         XCTAssertFalse(childEnv.contains("T3CODE_PORT="))
     }
 }

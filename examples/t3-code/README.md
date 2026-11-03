@@ -11,12 +11,12 @@ The terminal is T3 Code's own page in an `iframe`, with its own server socket. A
 module (`modules/apple/`) adapts type-to-focus, modifier events, the browser web view, menus,
 notifications and window chrome. Provider execution, workspaces, Git and conversation
 history stay on the T3 server.
-The app carries the official T3 server release (the CLI archive of the release built from the
-reference pin, unmodified; `server-runtime/runtime-pin.json`) and runs it as its own local
-server, "This machine". It does not modify T3 Code.
+The app carries the T3 server built from the reference pin (the CLI archive upstream's release
+workflow makes, built here from that commit, unmodified; `server-runtime/runtime-pin.json`) and runs
+it as its own local server, "This machine". It does not modify T3 Code.
 
-The reference is T3 Code `2359643cff` (`referencePin` in `server-runtime/runtime-pin.json`;
-the client mirrors the stable release `0.1.6`, `version-skew.ts`). Ported files name
+The reference is T3 Code `5d3d78ab93`, upstream main after v0.1.6, whose server and Beta app report
+0.1.6 (`referencePin` in `server-runtime/runtime-pin.json`; `CLIENT_VERSION` in `version-skew.ts`). Ported files name
 the reference files they follow, and T3 Code's MIT notice is kept in `LICENSE-T3`.
 
 macOS is the only target: there is no web, iOS or Linux build of this app.
@@ -69,11 +69,13 @@ outside the root's members: its build script bakes the whole app on one core for
 exact2's six blocking checks leave it out and the async lane (`scripts/async.mjs`'s
 `t3-code` and `t3-code-clippy` steps) builds, tests and lints it.
 
-The embedded server. `tools/stage-runtime/stage-runtime.mjs` downloads the release archive named by
-`server-runtime/runtime-pin.json`, accepts it only when its SHA-256, the release's `SHA256SUMS`
-and the pin agree, checks the signatures of its Mach-O files, runs `t3 --version`, starts it once on
-a scratch home and a lane port, and puts the archive and its manifest beside the pin (`--offline`
-reuses the cache in `.runtime-cache/`). The bundle carries that folder as
+The embedded server. `tools/stage-runtime/stage-runtime.mjs` takes the archive named by
+`server-runtime/runtime-pin.json`: a release pin's is downloaded and accepted only when its SHA-256,
+the release's `SHA256SUMS` and the pin agree; a build pin's (no release publishes the commit) is
+built as the pin's `build` steps say and copied into `.runtime-cache/`, and accepted when its SHA-256
+is the pin's. Then it checks the signatures of its Mach-O files (ad hoc for a build), runs `t3 --version`,
+starts it once on a scratch home and a lane port, and puts the archive and its manifest beside the pin
+(`--offline` uses only the cache). The bundle carries that folder as
 `Contents/Resources/t3-runtime` (`app.json` `host.macos.resources`). At the first launch the app
 unpacks it into `<T3 home>/runtime/versions/<version>` and starts `t3 --bootstrap-fd 0` with the
 desktop envelope; it restarts the server with T3 Code's backoff, keeps its failure log in

@@ -46,7 +46,7 @@ final class LocalSwitchTests: XCTestCase {
         let home = scratch("home")
         backend.environment = { ["T3_LOCAL_HOME": home.path, "T3_LOCAL_PORT": "\(port)", "T3_LOCAL_RUNTIME_DIR": runtime.path, "PATH": "/usr/bin:/bin"] }
         backend.resources = { nil }
-        backend.serverEnvironment = { ($0, true) }
+        backend.shellRunner = { _, _, _ in "" }
         backend.makeProber = { let prober = FakeProber(); if !answers { prober.fallback = nil }; return prober }
         backend.fatal = { stage, message in XCTFail("unexpected fatal \(stage): \(message)") }
         return backend

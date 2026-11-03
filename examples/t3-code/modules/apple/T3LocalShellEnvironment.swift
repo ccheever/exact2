@@ -1,23 +1,26 @@
 // The embedded server's environment, after T3 Code's desktop
-// app (MIT, see LICENSE-T3; reference 2359643cff: apps/desktop/src/shell/DesktopShellEnvironment.ts
-// `installPosixEnvironment`, backend/DesktopBackendConfiguration.ts `DESKTOP_BACKEND_ENV_NAMES`, and
-// packages/shared/src/shell.ts `buildEnvironmentCaptureCommand`, `readEnvironmentFromLoginShell`).
+// app (MIT, see LICENSE-T3; reference 5d3d78ab93: apps/desktop/src/shell/DesktopShellEnvironment.ts
+// `installPosixEnvironment` and `make`, backend/DesktopBackendConfiguration.ts `DESKTOP_BACKEND_ENV_NAMES`,
+// packages/shared/src/shell.ts `buildEnvironmentCaptureCommand`, `readEnvironmentFromLoginShell`,
+// `applyShellEnvironment`, and packages/contracts/src/resourceTelemetry.ts `ShellEnvironmentPatch`).
 //
 // An app opened from Finder inherits launchd's short PATH, so the server would not find the
-// provider CLIs. The login shell is asked once (`$SHELL -ilc`, 5 s; then /bin/zsh), launchctl's
+// provider CLIs. The login shell is asked (`$SHELL -ilc`, 5 s; then /bin/zsh), launchctl's
 // PATH only when no shell answered (2 s), and the values are merged into the environment the
-// server starts with. Differences: the reference installs them into its own process (every child
-// inherits them); this module applies them to the server's environment only. The probe runs in a new
-// session with stderr discarded, as the shared reader's does; the desktop's stays in the app's session.
-// The reference also reads T3CODE_TELEMETRY_ENABLED from the shell; here telemetry is always off (spec),
-// so it is not read.
+// server runs with. The server does not wait for the shell (T3LocalShellDiscovery): it starts with
+// the values the last probe cached, and the probe's answer reaches it later on its telemetry descriptor.
+// Differences: the reference installs the values into its own process (every child inherits them);
+// this module applies them to the server's environment only. The probe runs in a new session with
+// stderr discarded, as the shared reader's does; the desktop's stays in the app's session. The
+// reference also reads T3CODE_TELEMETRY_ENABLED from the shell; here telemetry is always off (spec),
+// so it is not read, and every snapshot says "false".
 import Foundation
 
 enum T3LocalShellEnvironment {
     static let loginShellNames = ["PATH", "DBUS_SESSION_BUS_ADDRESS", "DISPLAY", "LANG", "LC_ALL", "LC_CTYPE", "SSH_AUTH_SOCK",
                                   "HOMEBREW_PREFIX", "HOMEBREW_CELLAR", "HOMEBREW_REPOSITORY", "XDG_CONFIG_HOME", "XDG_CURRENT_DESKTOP",
                                   "XDG_DATA_HOME", "XDG_RUNTIME_DIR", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "WAYLAND_DISPLAY",
-                                  "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "__MISE_DIFF"]
+                                  "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "T3CODE_GITHUB_APP_CLIENT_ID", "__MISE_DIFF", "JAVA_HOME"]
     static let localeNames = ["LANG", "LC_ALL", "LC_CTYPE"]
     static let fallbackLcCtype = "en_US.UTF-8"
     static let loginShellTimeout: TimeInterval = 5
@@ -89,8 +92,8 @@ enum T3LocalShellEnvironment {
         return candidates
     }
 
-    /// `installPosixEnvironment` for darwin, applied to `env`. True when a login shell returned a PATH: after a
-    /// timed-out or empty probe the server must repair PATH itself (the envelope's `shellEnvironmentPrepared`).
+    /// `installPosixEnvironment` for darwin, applied to `env`. True when a login shell returned a PATH (only such a
+    /// probe is cached, and marks its snapshot `discovered`).
     @discardableResult static func install(into env: inout [String: String], run: Runner) -> Bool {
         var shell: [String: String] = [:]
         for candidate in loginShellCandidates(env) {
@@ -110,7 +113,7 @@ enum T3LocalShellEnvironment {
         // The CA trust names: without them a Node or OpenSSL with no bundled roots (a shared-OpenSSL node on
         // PATH) cannot verify TLS, so provider updaters and agents fail to reach their registries.
         for name in ["DISPLAY", "HOMEBREW_PREFIX", "HOMEBREW_CELLAR", "HOMEBREW_REPOSITORY", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR", "WAYLAND_DISPLAY",
-                     "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"] {
+                     "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "JAVA_HOME", "T3CODE_GITHUB_APP_CLIENT_ID"] {
             if env[name]?.isEmpty ?? true, let value = shell[name] { env[name] = value }
         }
         // One precedence group: LC_ALL can override an inherited LANG or LC_CTYPE.
@@ -121,14 +124,76 @@ enum T3LocalShellEnvironment {
         return trimmed(shell["PATH"]) != nil
     }
 
-    /// The server's environment: the app's, the login shell's values, without the envelope's
-    /// variables, and with telemetry off (spec); `prepared` is `install`'s answer.
-    static func serverEnvironment(base: [String: String], run: Runner) -> (env: [String: String], prepared: Bool) {
-        var env = base
-        let prepared = install(into: &env, run: run)
+    /// The server's environment: `env` (the app's, with the shell's values) without the envelope's variables,
+    /// with telemetry off (spec), and marked as waiting for the shell (`T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING`,
+    /// which the server clears when a discovered snapshot arrives).
+    static func serverEnvironment(_ env: [String: String]) -> [String: String] {
+        var env = env
         for name in backendEnvNames { env.removeValue(forKey: name) }
         env["T3CODE_TELEMETRY_ENABLED"] = "false"
-        return (env, prepared)
+        env["T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING"] = "1"
+        return env
+    }
+
+    /// `ShellEnvironmentPatch`: every name a snapshot carries, each with a value or null (removed).
+    static let patchNames = ["PATH", "DBUS_SESSION_BUS_ADDRESS", "DISPLAY", "LANG", "LC_ALL", "LC_CTYPE", "SSH_AUTH_SOCK", "HOMEBREW_PREFIX",
+                             "HOMEBREW_CELLAR", "HOMEBREW_REPOSITORY", "XDG_CONFIG_HOME", "XDG_CURRENT_DESKTOP", "XDG_DATA_HOME", "XDG_RUNTIME_DIR",
+                             "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "WAYLAND_DISPLAY", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
+                             "T3CODE_TELEMETRY_ENABLED", "T3CODE_GITHUB_APP_CLIENT_ID", "__MISE_DIFF", "JAVA_HOME", "FNM_DIR", "FNM_MULTISHELL_PATH"]
+    /// `CACHED_ENV_NAMES`: what the cache keeps of a probe that returned a PATH.
+    static let cachedNames = ["PATH", "__MISE_DIFF", "HOMEBREW_PREFIX", "HOMEBREW_CELLAR", "HOMEBREW_REPOSITORY", "JAVA_HOME",
+                              "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"]
+
+    /// `env`'s values for the patch names; an absent name is null. Telemetry stays off (spec).
+    static func patch(of env: [String: String]) -> [String: String] {
+        var values = env.filter { patchNames.contains($0.key) }
+        values["T3CODE_TELEMETRY_ENABLED"] = "false"
+        return values
+    }
+
+    /// `applyShellEnvironment` with a full patch: each patch name takes the patch's value or is removed.
+    static func apply(_ patch: [String: String], to env: inout [String: String]) {
+        for name in patchNames { env[name] = patch[name] }
+    }
+
+    /// The cache key: platform, home, SHELL and ZDOTDIR, as the JSON array the reference encodes.
+    static func cacheKey(_ env: [String: String]) -> String {
+        let parts = ["darwin", env["HOME"] ?? NSHomeDirectory(), env["SHELL"] ?? "", env["ZDOTDIR"] ?? ""]
+        let data = (try? JSONSerialization.data(withJSONObject: parts, options: [.withoutEscapingSlashes])) ?? Data()
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// A cache document of `key` written by the last probe that returned a PATH: the patch it gives at once, the
+    /// inherited value winning over a cached one (PATH merged with it, mise's record kept with the cached PATH).
+    /// Nil when the document is missing, malformed or another key's.
+    static func restore(_ data: Data?, key: String, inherited: [String: String]) -> [String: String]? {
+        guard let data, let document = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              document["version"] as? Int == 1, document["key"] as? String == key,
+              let environment = document["environment"] as? [String: Any],
+              patchNames.allSatisfy({ environment[$0] == nil || environment[$0] is String || environment[$0] is NSNull }) else { return nil }
+        var baseline = inherited
+        for name in cachedNames {
+            guard let value = environment[name] as? String else { continue }
+            if name != "PATH" && name != "__MISE_DIFF" && inherited[name] != nil { continue }
+            baseline[name] = name == "PATH" ? mergePaths([value, trimmed(inherited["PATH"] ?? inherited["Path"] ?? inherited["path"])]) ?? value : value
+        }
+        return patch(of: baseline)
+    }
+
+    /// The cache document for a probe that returned a PATH: `env`'s cached names.
+    static func cacheDocument(key: String, env: [String: String]) -> Data {
+        let environment = env.filter { cachedNames.contains($0.key) && !$0.value.isEmpty }
+        let document: [String: Any] = ["version": 1, "key": key, "environment": environment]
+        return (try? JSONSerialization.data(withJSONObject: document, options: [.withoutEscapingSlashes, .sortedKeys])) ?? Data()
+    }
+
+    /// `DesktopShellEnvironmentSnapshot`, one NDJSON line.
+    static func snapshotLine(_ patch: [String: String], discovered: Bool) -> Data {
+        let environment = Dictionary(uniqueKeysWithValues: patchNames.map { ($0, patch[$0].map { $0 as Any } ?? NSNull()) })
+        let message: [String: Any] = ["version": 1, "type": "shellEnvironment", "discovered": discovered, "platform": "darwin", "environment": environment]
+        var line = (try? JSONSerialization.data(withJSONObject: message, options: [.withoutEscapingSlashes, .sortedKeys])) ?? Data()
+        line.append(0x0A)
+        return line
     }
 
     /// The production runner (`readEnvironmentFromLoginShell`'s `detached: true, stdio: ["ignore", "pipe",
@@ -183,5 +248,78 @@ enum T3LocalShellEnvironment {
         // A descendant that keeps stdout open leaves the output unread.
         guard drained.wait(timeout: .now() + 1) == .success else { return "" }
         return String(decoding: data, as: UTF8.self)
+    }
+}
+
+/// `DesktopShellEnvironment.make`: the shell's values without holding the server's start. `start()` restores the
+/// cache (`<T3 home>/userdata/shell-environment-cache.json`) when its key matches and probes the login shell in
+/// the background; each result is a snapshot every server receives on its telemetry descriptor
+/// (T3LocalTelemetryChannel), the latest replayed to a new one. The first result is published even when the
+/// probe failed, the later ones only when it returned a PATH, which is also when the cache is written.
+final class T3LocalShellDiscovery: @unchecked Sendable {
+    let inherited: [String: String]
+    let cacheURL: URL
+    private let run: T3LocalShellEnvironment.Runner
+    private let queue = DispatchQueue(label: "com.exact.t3code.local.shell-discovery", qos: .userInitiated)
+    private let lock = NSLock()
+    private var started = false
+    private var latest: (patch: [String: String], line: Data)?
+    private var listeners: [Int: (Data) -> Void] = [:]
+    private var nextListener = 0
+    /// Signalled when the first probe has finished (tests).
+    let probed = DispatchSemaphore(value: 0)
+
+    init(inherited: [String: String], stateDir: URL, run: @escaping T3LocalShellEnvironment.Runner) {
+        self.inherited = inherited; self.run = run
+        cacheURL = stateDir.appendingPathComponent("shell-environment-cache.json")
+    }
+
+    /// `installIntoProcess`: at most once; returns at once.
+    func start() {
+        lock.lock(); let first = !started; started = true; lock.unlock()
+        guard first else { return }
+        let key = T3LocalShellEnvironment.cacheKey(inherited)
+        if let cached = T3LocalShellEnvironment.restore(try? Data(contentsOf: cacheURL), key: key, inherited: inherited) { publish(cached, discovered: false) }
+        queue.async { [self] in
+            refresh(key: key)
+            probed.signal()
+        }
+    }
+
+    /// The inherited environment with the latest snapshot applied.
+    func environment() -> [String: String] {
+        var env = inherited
+        lock.lock(); let patch = latest?.patch; lock.unlock()
+        if let patch { T3LocalShellEnvironment.apply(patch, to: &env) }
+        return env
+    }
+
+    /// Registers `listener` for later snapshots and returns the latest one, under one lock.
+    func subscribe(_ listener: @escaping (Data) -> Void) -> (replay: Data?, cancel: () -> Void) {
+        lock.lock(); defer { lock.unlock() }
+        let id = nextListener; nextListener += 1
+        listeners[id] = listener
+        return (latest?.line, { [weak self] in self?.lock.lock(); self?.listeners[id] = nil; self?.lock.unlock() })
+    }
+
+    private func publish(_ patch: [String: String], discovered: Bool) {
+        let line = T3LocalShellEnvironment.snapshotLine(patch, discovered: discovered)
+        lock.lock(); latest = (patch, line); let targets = Array(listeners.values); lock.unlock()
+        for listener in targets { listener(line) }
+    }
+
+    /// From the inherited baseline, so a cached value the shell no longer sets does not survive.
+    private func refresh(key: String) {
+        var fresh = inherited
+        let prepared = T3LocalShellEnvironment.install(into: &fresh, run: run)
+        lock.lock(); let none = latest == nil; lock.unlock()
+        if prepared || none { publish(T3LocalShellEnvironment.patch(of: fresh), discovered: prepared) }
+        guard prepared else { return }
+        let directory = cacheURL.deletingLastPathComponent(), staging = cacheURL.appendingPathExtension("tmp")
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            guard FileManager.default.createFile(atPath: staging.path, contents: T3LocalShellEnvironment.cacheDocument(key: key, env: fresh), attributes: [.posixPermissions: 0o600]),
+                  rename(staging.path, cacheURL.path) == 0 else { return }
+        } catch {}
     }
 }
