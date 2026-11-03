@@ -1891,8 +1891,9 @@ a 5xx, 408 or 429, an empty body) is asked again while the picture is on screen,
 and never sooner than `Retry-After`, so its `error` comes once those are spent (about a minute of
 waits, plus the downloads and any `Retry-After`), and one that fails off screen errs only after it has shown ([LLP 1011](../llp/1011-image-v1.spec.md) §4). A symbol fires neither. What each host's fetch of an `http(s)` source
 sends, follows and accepts is LLP 1011's: macOS and iOS send no cookie and no
-`Referer`, follow redirects to any host (within App Transport Security), take any
-2xx body up to 64 MiB whatever its `Content-Type`, and keep an HTTP cache on disk;
+`Referer`, follow redirects to any host (within App Transport Security), take a
+body up to 64 MiB whatever its `Content-Type` and its status, as a browser's `<img>` does
+(a 404 that is an image draws; one that is not is `HTTP 404`), and keep an HTTP cache on disk;
 the web is the browser's `<img>` (its cookies and `Referer` rules, no size cap). SVG
 draws on the web only; on Apple it is an `error`. A tinted remote image on the web
 needs CORS headers, or it is an `error` too. A drive sees both after `clock +<ms>
