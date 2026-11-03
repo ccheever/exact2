@@ -42,53 +42,127 @@ shape MobileQueueSnapshot
 shape MobileQueueResult
   revision: number
   message: string
+shape MobileQueueEntry
+  key: string
+  kind: string
+  row: option<MobileQueueRow>
+fn mobileQueueEntries(data: MobileQueueSnapshot): MobileQueueEntry[] = (
+  data.count == 0
+    ? [MobileQueueEntry(key="empty", kind="empty", row=none)]
+    : (data.held ? [MobileQueueEntry(key="held", kind="held", row=none)] : []).concat(data.rows.map(row => MobileQueueEntry(key=row.id, kind="row", row=some(row))))
+)
 component MobileQueueView
   props
     data: MobileQueueSnapshot
     colors: GitColors
     action: action
     bottomInset: number
+  derive entries = mobileQueueEntries(data)
+  state openKey = ""
+  state dragKey = ""
+  state offset = 0
+  action close(scrollLeft: number, scrollTop: number)
+    openKey = ""
+    dragKey = ""
+    offset = 0
+  action dragged(key: string, allowed: bool, dx: number, dy: number)
+    if allowed and not data.busy
+      if dragKey == key or dy >= -10 and dy <= 10
+        let start = dragKey == key ? offset : openKey == key ? -76 : 0
+        if dragKey != key
+          dragKey = key
+          openKey = ""
+        offset = max(-76, min(0, start + dx))
+  action released(key: string, ticket: string, vx: number, vy: number)
+    if dragKey == key
+      if offset <= -44 or vx < -900
+        action("queue:remove", ticket, "")
+        openKey = ""
+      else
+        openKey = offset < -28 ? key : ""
+      dragKey = ""
+      offset = 0
+  action choose(kind: string, ticket: string)
+    openKey = ""
+    dragKey = ""
+    offset = 0
+    action(kind, ticket, "")
+  action dropped(key: string, before: option<string>, event: ReorderEvent)
+    if event.to == "mobile-queue-scroll" and not data.busy
+      match first(data.rows.filter(row => row.id == key))
+        case some(row)
+          match before
+            case some(target)
+              if target != key and data.rows.filter(row => row.id == target).length > 0
+                action("queue:reorder", row.actionId, target)
+            case none
+              action("queue:reorder", row.actionId, "")
+        case none
+          offset = offset
   view
-    list id="mobile-queue-scroll" flex=1 min-height=0 padding-left=20 padding-right=20 padding-bottom=bottomInset background-color=colors.sheet
-      if data.held and data.count > 0
-        column padding-top=10.5 padding-bottom=10.5 gap=7
-          text "Queue held after restart" font-size=14 color=colors.muted
-          button press=action("queue:resume", data.actionId, "") disabled=(not data.canResume) min-height=44 border-radius=12 background-color=colors.primary
-            text "Resume queue" font-size=14 font-weight=500 color=colors.primaryForeground
-      if data.count == 0
-        text "No messages waiting in this queue." padding-top=21 font-size=14 text-align="center" color=colors.muted
-      for entry in data.rows key=entry.id
+    list id="mobile-queue-scroll" virtualized=true reorderGroup="mobile-queue" reorderdrop=dropped flex=1 min-height=0 padding-left=20 padding-right=20 padding-bottom=bottomInset background-color=colors.sheet scroll=close
+      for item in entries key=item.key
         column
-          row contextPopover=entry.menuId min-height=49 align-items="center" gap=8.75 padding-top=8.75 padding-bottom=8.75
-            border-bottom-width=1 border-bottom-style="solid" border-bottom-color=colors.border background-color=colors.sheet
-            button press=action("queue:edit", entry.actionId, "") disabled=(not entry.canEdit) flex=1 min-width=0 padding=0 gap=8.75 align-items="center"
-              if entry.attachments.length > 0 or entry.attachmentOverflow != ""
-                row flex-shrink=0 align-items="center" gap=3.5
-                  for attachment in entry.attachments key=attachment.id
-                    if attachment.url != ""
-                      image attachment.url object-fit="cover" width=24 height=24 border-radius=4 aria-label=attachment.name
-                    else
-                      view width=24 height=24 border-radius=4 background-color=colors.subtle
-                  if entry.attachmentOverflow != ""
-                    column min-width=24 height=24 padding-left=3.5 padding-right=3.5 border-radius=4 align-items="center" justify-content="center" background-color=colors.subtle
-                      text entry.attachmentOverflow font-size=10 color=colors.muted
-              text entry.title flex=1 min-width=0 line-clamp=1 text-overflow="ellipsis" font-size=14 color=(entry.editing ? colors.muted : colors.foreground)
-            if data.showSteer
-              button press=action("queue:steer", entry.actionId, "") disabled=(not entry.canSteer) -exact-press-haptic="selection"
-                height=28 padding-left=10.5 padding-right=10.5 border-radius=999 background-color=colors.primary opacity=(entry.canSteer ? 1 : 0.4)
-                aria-label=`Steer with message ${entry.index} now`
-                text "Steer" font-size=12 font-weight=500 color=colors.primaryForeground
-            button popovertarget=entry.menuId width=32 height=42 padding=0 aria-label=`Actions for queued message ${entry.index}`
-              t3-symbol symbol-name="ellipsis" symbol-weight="regular" symbol-tint=colors.muted width=16 height=16
-          column id=entry.menuId popover="auto" role="menu" aria-label=`Actions for queued message ${entry.index}`
-            if data.showSteer
-              button press=action("queue:steer", entry.actionId, "") disabled=(not entry.canSteer) -exact-press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
-                text "Steer now"
-            button press=action("queue:edit", entry.actionId, "") disabled=(not entry.canEdit) -exact-press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
-              text "Edit"
-            button press=action("queue:up", entry.actionId, "") disabled=(not entry.canMoveUp) -exact-press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
-              text "Move up"
-            button press=action("queue:down", entry.actionId, "") disabled=(not entry.canMoveDown) -exact-press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
-              text "Move down"
-            button press=action("queue:remove", entry.actionId, "") disabled=(not entry.canRemove) -exact-press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide" aria-label="Remove queued message"
-              text "Remove"
+          if item.kind == "held"
+            column padding-top=10.5 padding-bottom=10.5 gap=7
+              text "Queue held after restart" font-size=14 color=colors.muted
+              button press=action("queue:resume", data.actionId, "") disabled=(not data.canResume) min-height=44 border-radius=12 background-color=colors.primary
+                text "Resume queue" font-size=14 font-weight=500 color=colors.primaryForeground
+          else if item.kind == "empty"
+            text "No messages waiting in this queue." padding-top=21 font-size=14 text-align="center" color=colors.muted
+          else
+            match item.row
+              case some(entry)
+                box position="relative" overflow="hidden" background-color=colors.danger
+                  if entry.canRemove and (openKey == entry.id or dragKey == entry.id)
+                    row position="absolute" top=0 right=0 bottom=0 width=76 align-items="center" justify-content="center"
+                      button press=choose("queue:remove", entry.actionId) disabled=(not entry.canRemove or data.busy) -exact-press-haptic="selection" aria-label=`Remove queued message ${entry.index}` testId=`queue-swipe-remove-${entry.id}`
+                        width=76 height="100%" padding=0 border-width=0 background-color=colors.danger
+                        column align-items="center" justify-content="center" gap=2
+                          t3-symbol symbol-name="trash" symbol-weight="regular" symbol-tint=colors.dangerForeground width=16 height=16
+                          text "Remove" font-size=11 line-height="14px" color=colors.dangerForeground
+                  column translate=`${dragKey == entry.id ? offset : openKey == entry.id ? -76 : 0}px 0px`
+                    transition=(dragKey == entry.id ? "none" : "translate -exact-spring(330, 26, 0.7)")
+                    pan=dragged(entry.id, entry.canRemove)
+                    panrelease=released(entry.id, entry.actionId)
+                    touch-action="pan-y"
+                    background-color=colors.sheet
+                    testId=`queue-row-${entry.id}`
+                    row contextPopover=entry.menuId min-height=49 align-items="center" gap=8.75 padding-top=8.75 padding-bottom=8.75
+                      border-bottom-width=1 border-bottom-style="solid" border-bottom-color=colors.border
+                      button press=action("queue:edit", entry.actionId, "") disabled=(not entry.canEdit) flex=1 min-width=0 padding=0 gap=8.75 align-items="center"
+                        if entry.attachments.length > 0 or entry.attachmentOverflow != ""
+                          row flex-shrink=0 align-items="center" gap=3.5
+                            for attachment in entry.attachments key=attachment.id
+                              if attachment.url != ""
+                                image attachment.url object-fit="cover" width=24 height=24 border-radius=4 aria-label=attachment.name
+                              else
+                                view width=24 height=24 border-radius=4 background-color=colors.subtle
+                            if entry.attachmentOverflow != ""
+                              column min-width=24 height=24 padding-left=3.5 padding-right=3.5 border-radius=4 align-items="center" justify-content="center" background-color=colors.subtle
+                                text entry.attachmentOverflow font-size=10 color=colors.muted
+                      text entry.title flex=1 min-width=0 line-clamp=1 text-overflow="ellipsis" font-size=14 color=(entry.editing ? colors.muted : colors.foreground)
+                    if data.showSteer
+                      button press=action("queue:steer", entry.actionId, "") disabled=(not entry.canSteer) -exact-press-haptic="selection"
+                        height=28 padding-left=10.5 padding-right=10.5 border-radius=999 background-color=colors.primary opacity=(entry.canSteer ? 1 : 0.4)
+                        aria-label=`Steer with message ${entry.index} now`
+                        text "Steer" font-size=12 font-weight=500 color=colors.primaryForeground
+                    button popovertarget=entry.menuId width=32 height=42 padding=0 aria-label=`Actions for queued message ${entry.index}`
+                      t3-symbol symbol-name="ellipsis" symbol-weight="regular" symbol-tint=colors.muted width=16 height=16
+                    box reorderFor="mobile-queue-scroll" touch-action="none" width=30 height=42 flex-shrink=0 display="flex" align-items="center" justify-content="center" aria-label=`Reorder queued message ${entry.index}` testId=`queue-reorder-${entry.id}`
+                      t3-symbol symbol-name="line.3.horizontal" symbol-weight="regular" symbol-tint=colors.muted width=16 height=16
+                  column id=entry.menuId popover="auto" role="menu" aria-label=`Actions for queued message ${entry.index}`
+                    if data.showSteer
+                      button press=action("queue:steer", entry.actionId, "") disabled=(not entry.canSteer) -exact-press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
+                        text "Steer now"
+                    button press=action("queue:edit", entry.actionId, "") disabled=(not entry.canEdit) -exact-press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
+                      text "Edit"
+                    button press=action("queue:up", entry.actionId, "") disabled=(not entry.canMoveUp) -exact-press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
+                      text "Move up"
+                    button press=action("queue:down", entry.actionId, "") disabled=(not entry.canMoveDown) -exact-press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
+                      text "Move down"
+                    button press=action("queue:remove", entry.actionId, "") disabled=(not entry.canRemove) -exact-press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide" aria-label="Remove queued message"
+                      text "Remove"
+              case none
+                // The entry constructor only emits rows with a present payload.
+                text ""
