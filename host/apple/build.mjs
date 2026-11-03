@@ -1361,27 +1361,28 @@ async function main(args, lockHeld = false) {
   }
   if (args.includes('--no-install')) { if (args.includes('--run')) throw new Error('--no-install takes no --run'); console.log(`host/apple: ${paths.bundle} (${timing()}); built and signed, installed on nothing (--no-install)`); return; }
   const dev = device ? ph : simulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined, { tv, app: app.id, dir: app.dir, hint: '--sim <udid|name> (or EXACT_SIM)' });
-  // A phone installs the clip with the app that embeds it; a simulator registers it (`simctl listapps`, a launch
-  // of its id) only when the nested bundle is installed itself (measured on iOS 26.5: the app's install leaves it out).
-  for (const [, kind] of bundles) {
-    const host = kind === 'host', clip = kind === 'clip' ? appClip(app) : null;
-    const placed = clip ? resolve(paths.bundle, 'AppClips', `${clip.executable}.app`) : host ? hostPaths.bundle : paths.bundle;
-    if (device) {
-      if (clip) continue;
-      if (!ph.reachable) throw new Error(`${ph.name} is not connected; signed bundle retained at ${placed}`);
-      run('xcrun', ['devicectl', 'device', 'install', 'app', '--device', ph.udid, placed]);
-    } else install(dev, placed, app, host, !!clip, clip?.executable);
-  }
-  console.log(`host/apple: ${paths.bundle} on ${dev.name}${dev.udid ? ` ${dev.udid}` : ''} (${timing()}); GPU: ${gpuNote}${ios && !svgFilterBuilt ? '; no SVG filter kernels (no Metal toolchain)' : ''}; web arm: ${hasWeb ? webLoadName : 'none'}${modulesBuilt ? `; modules: ${modulesLoadName} (Frameworks, signed)` : ''}`);
-  if (args.includes('--run')) {
-    if (device) run('xcrun', deviceLaunchArgs(ph.udid, app.id, launchEnv));
-    else {
-      showSimulator(dev);
-      run('xcrun', ['simctl', 'launch', '--terminate-running-process', dev.udid, app.id], {
-        env: { ...process.env, ...(launchEnv.EXACT_DEV_PLAN ? { SIMCTL_CHILD_EXACT_DEV_PLAN: launchEnv.EXACT_DEV_PLAN } : {}), SIMCTL_CHILD_EXACT_ASSETS: paths.capture },
-      });
+  const place = () => {
+    // A phone installs the clip with the app that embeds it; a simulator registers it (`simctl listapps`, a launch
+    // of its id) only when the nested bundle is installed itself (measured on iOS 26.5: the app's install leaves it out).
+    for (const [, kind] of bundles) {
+      const host = kind === 'host', clip = kind === 'clip' ? appClip(app) : null;
+      const placed = clip ? resolve(paths.bundle, 'AppClips', `${clip.executable}.app`) : host ? hostPaths.bundle : paths.bundle;
+      if (device) {
+        if (clip) continue;
+        if (!ph.reachable) throw new Error(`${ph.name} is not connected; signed bundle retained at ${placed}`);
+        run('xcrun', ['devicectl', 'device', 'install', 'app', '--device', ph.udid, placed]);
+      } else install(dev, placed, app, host, !!clip, clip?.executable);
     }
-  }
+    console.log(`host/apple: ${paths.bundle} on ${dev.name}${dev.udid ? ` ${dev.udid}` : ''} (${timing()}); GPU: ${gpuNote}${ios && !svgFilterBuilt ? '; no SVG filter kernels (no Metal toolchain)' : ''}; web arm: ${hasWeb ? webLoadName : 'none'}${modulesBuilt ? `; modules: ${modulesLoadName} (Frameworks, signed)` : ''}`);
+    if (args.includes('--run')) {
+      if (device) run('xcrun', deviceLaunchArgs(ph.udid, app.id, launchEnv));
+      else {
+        showSimulator(dev);
+        run('xcrun', ['simctl', 'launch', '--terminate-running-process', dev.udid, app.id], { env: { ...process.env, ...(launchEnv.EXACT_DEV_PLAN ? { SIMCTL_CHILD_EXACT_DEV_PLAN: launchEnv.EXACT_DEV_PLAN } : {}), SIMCTL_CHILD_EXACT_ASSETS: paths.capture } });
+      }
+    }
+  };
+  await (device ? place() : (await import('../../scripts/agent-launch.mjs')).simulatorApps(dev.udid, bundles.flatMap(([, kind]) => kind === 'clip' ? [] : [kind === 'host' ? `${app.id}.host` : app.id]), place, { name: dev.name }));
   } finally { for (const step of beside) step.stop(); for (const path of cleanup.reverse()) rmSync(path, { recursive: true, force: true }); release(); }
 
 }
