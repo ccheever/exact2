@@ -5,6 +5,7 @@ import { noteComposerTyping, releaseHeldRequests } from '../../src/composer/comp
 import { pendingRequests, requestPresentation, requestActivity, resolveAnswer } from '../../src/composer/requests';
 import { timelinePendingApprovals } from '../../src/timeline/timeline-approvals';
 import { arr, obj, str, type Obj } from '../../src/client/domain';
+import { toasts } from '../../src/shell/toast';
 import type { Native, Files } from '../../src/client/protocol';
 import { readFileSync } from 'node:fs';
 import { appPath } from '../support/app-files';
@@ -157,8 +158,11 @@ describe('questions', () => {
     const { client, command } = harness(input([question('scope')]));
     client.local.drafts['env:t1'] = 'Earlier';
     await command('draft', '', 'typed');
+    expect(toasts(client)).toEqual([]);
     await command('choice', 'r1::scope', 'Session');
     expect(client.local.drafts['env:t1']).toBe('Earlier\n\ntyped');
+    // The move is announced (usePendingThreadRequests' toast).
+    expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['info', 'Your typed text was set aside', 'It will be back in the composer once the question is answered.']]);
     expect(resolveAnswer({ id: 'scope', header: '', question: '', multiSelect: false, allowCustom: true, options: [{ label: 'Session', value: 'Session', description: '' }] }, client.answers['r1::scope'])).toBe('Session');
   });
   test('validation names the unanswered question and multiple selection toggles exact values', async () => {

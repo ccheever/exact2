@@ -48,7 +48,7 @@ test('context availability and pull-request state use existing product records',
 test('preview skills have their own presentation and no context actions', () => {
   const client = new T3Client(), value = '$frontend-design @file.ts [Thread](t3-context://v1/thread/thread_t1)';
   const faces = composerChipFaces(client, value, composerChips(value), true);
-  expect(faces[0]).toMatchObject({ label: 'Frontend Design', kind: 'skill', interactive: true });
+  expect(faces[0]).toMatchObject({ label: 'frontend-design', kind: 'skill', interactive: true });
   expect(faces[1]?.interactive).toBe(false);
   expect(faces[2]?.available).toBe(false);
 });

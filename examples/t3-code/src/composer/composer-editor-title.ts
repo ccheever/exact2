@@ -3,11 +3,12 @@
 // read as its label and each image chip left out, assistant quotes as their text and whitespace
 // collapsed; with no prose, "Attached image(s)" for image chips or image attachments, then the first
 // attachment's name ("File: …"), then the first terminal, review comment ("Review: …") or preview
-// annotation context. truncate() keeps 50 characters.
+// annotation context. truncate() keeps 50 code points.
 import { citationsToPlainText, contextReferences, replaceContextReferences } from './composer-editor-menu';
 
 const normalize = (value: string) => citationsToPlainText(value).trim().replace(/\s+/gu, ' ');
-const truncate = (value: string) => { const trimmed = value.trim(); return trimmed.length <= 50 ? trimmed : `${trimmed.slice(0, 50)}...`; };
+// By code point, so an emoji at the cut stays whole.
+export const truncate = (value: string) => { const characters = Array.from(value.trim()); return characters.length <= 50 ? characters.join('') : `${characters.slice(0, 50).join('')}...`; };
 const imagesLabel = (count: number) => count === 1 ? 'Attached image' : 'Attached images';
 
 /** threadTitleTextFromPrompt. */

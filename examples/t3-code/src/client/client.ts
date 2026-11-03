@@ -9,6 +9,7 @@ import { shellFailure, shellSuccess, settingsFailure } from '../shell/shell-comm
 import { trackRpc } from '../shell/shell-slow';
 import { configEventSideEffects } from './protocol-config';
 import { traceRpc, statusTicket, settleTraces } from './protocol-reader';
+import { vcsRefsFreshness } from '../composer/vcs-refs-fresh';
 import { compatibilityProblem } from './protocol-outdated';
 import { type ComposerControlsPrefs, emptyComposerControls, decodeComposerControls, applySticky, applyStaged, reconcileStagedModels } from '../composer/composer-controls';
 import { adoptStash } from '../composer/composer-editor-stash';
@@ -236,12 +237,12 @@ export class T3Client {
     if (this.connection === 'connected' && this.scopesKnown) requireRpcPermissions(this.scopes, request);
     let response;
     // shell-slow.ts "Some requests are slow", with a trace the transport lists while pending (protocol-reader.ts).
-    const traced = traceRpc(this, request);
-    try { response = await this.raw(native, { ...traced.request, generation: expected }); }
+    const traced = traceRpc(this, request), refs = vcsRefsFreshness(this, traced.request);
+    try { response = await this.raw(native, { ...refs.request, generation: expected }); }
     catch (error) {
       if (error instanceof ClientError) throw error;
       throw new ClientError(message(error), 'transport', write);
-    } finally { traced.done(); }
+    } finally { traced.done(); refs.done(response?.ok === true); }
     if (!response.ok) throw new ClientError(response.error!.message, response.error!.kind, response.error!.uncertain, response.error!);
     if (response.generation !== expected || this.generation !== expected) {
       throw new ClientError('The connection changed. Refresh before continuing.', 'stale', write);

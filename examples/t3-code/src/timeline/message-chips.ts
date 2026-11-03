@@ -111,9 +111,10 @@ export function markdownLinks(markdown: string): { image: boolean; label: string
   return links;
 }
 
-/** formatAttachmentSize (client-runtime state/attachments.ts). */
+/** formatAttachmentSize (client-runtime state/attachments.ts): the unit is chosen after rounding, so 1023.5 KB reads "1.0 MB". */
 export function attachmentSize(bytes: number): string {
-  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
+  const kilobytes = Math.max(1, Math.ceil(bytes / 1024));
+  return kilobytes >= 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${kilobytes} KB`;
 }
 /** middleTruncateAttachmentName (composerInlineChip.ts): the start and the extension survive. */
 export function middleTruncate(name: string, max = 36): string {
@@ -374,9 +375,7 @@ const SKILL_TOKEN_REGEX =
   /(^|\s)\p{Sc}(?![0-9][0-9_]*(?:[kKmMbBtT]|[eE][0-9]+)?(?:\s|$))(?=[a-zA-Z0-9:_-]*[a-zA-Z])([a-zA-Z0-9][a-zA-Z0-9:_-]*)(?=\s|$)/gu;
 export interface MarkdownSkill { name: string; displayName: string }
 export function formatProviderSkillDisplayName(skill: { name: string; displayName?: string }): string {
-  const displayName = skill.displayName?.trim();
-  if (displayName) return displayName;
-  return skill.name.split(/[\s:_-]+/).filter(Boolean).map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  return skill.displayName?.trim() || skill.name;
 }
 export function markdownSkills(skills: readonly { name: string; displayName?: string }[]): MarkdownSkill[] {
   const seen = new Set<string>();

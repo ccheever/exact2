@@ -18,15 +18,17 @@ import { usageNotices, type UsageAccountView } from './composer-controls-usage';
 import { feedbackNotices, feedbackUploading } from './composer-feedback'; // Codex /feedback
 import { uploadBlock, waitingSend } from './composer-uploads'; // attachmentUploadBlockReason
 import { subagentTitle } from '../timeline/timeline-events';
+import { commandDisplayText } from '../timeline/command-label';
 import { keepsFullHistory, latestTokenUsage, resumeCompactionTokens } from './composer-controls-resume';
 import { composerRequests } from './requests';
 import { chordGlyphs } from './composer-controls-model';
-import { commandChords } from './composer-presentation';
+import { commandChords, runtimeModes } from './composer-presentation';
 import { threadWorktreeSetup } from '../timeline/timeline-worktree';
 import { machineChanging } from './scratch-machine'; // isEnvironmentChanging (c47f4263f9)
 import { labelWidth, type Measure, type ProbeKind } from './composer-measure';
 import { resolveRestingComposerControlsLayout } from './composer-resting-layout';
 import { terminalOpen } from '../terminal/terminal-drawer-view'; // the real terminalOpen
+import { clampManagedRuntimeMode, managedPolicySummary, managedRuntimeModeDenial, RUNTIME_MODES, type RuntimeMode } from '../client/managed-policy';
 import { pendingThreadImports } from './composer-thread-import';
 import { PLATFORM } from '../settings/desktop-shell-favicon'; // the send tooltip's modifier (isMacPlatform)
 import { layoutFrames } from '../shell/layout-frames'; // the card's width, for the Compact chip's label
@@ -63,7 +65,8 @@ export function footerLayout(input: { model: string; suffix: number; runtime: st
   // and the 1pt border), with 6pt gaps and 16pt icons; the controls sit 2pt apart (gap-0.5). The model trigger's
   // effort follows the name a word space (4pt) on; its minimum is min-w-13; the badge sits after them across its gap.
   const badge = input.badge ? input.badge + 6 : 0;
-  const picker = 40 + width(input.model, 'model') + (input.suffix ? 4 + input.suffix : 0) + badge;
+  // The name never grows past its max-w-56 (restingComposerControlsMeasurement's labelMaxWidth).
+  const picker = 40 + Math.min(224, width(input.model, 'model')) + (input.suffix ? 4 + input.suffix : 0) + badge;
   // The plan toggle's glyph: PencilRuler 16pt while planning, Bot 18pt otherwise.
   const planGlyph = input.plan === 'Plan' ? 16 : 18;
   const plan = input.plan ? 18 + planGlyph + 6 + width(input.plan, 'plan') : 0;
@@ -88,7 +91,7 @@ export function footerLayout(input: { model: string; suffix: number; runtime: st
 /** describeComposerEffort's suffix: the word or the bars, the bolt, the other traits (at most 6rem), 6pt apart. */
 export function effortSuffixWidth(effort: { word: string; bars: number; speed: string; other: string; shown: boolean }, measure?: Measure): number {
   if (!effort.shown) return 0;
-  const parts = [effort.word ? labelWidth(effort.word, false, 'traits', measure, textWidth) : effort.bars ? 4 * effort.bars - 2 : 0,
+  const parts = [effort.word ? Math.min(96, labelWidth(effort.word, false, 'traits', measure, textWidth)) : effort.bars ? 4 * effort.bars - 2 : 0,
     effort.speed === 'Ultrafast' ? 15 : effort.speed ? 12 : 0, effort.other ? Math.min(96, textWidth(effort.other, true)) : 0].filter(width => width > 0);
   return parts.reduce((sum, width) => sum + width, 0) + 6 * Math.max(0, parts.length - 1);
 }
@@ -97,6 +100,23 @@ export function effortSuffixWidth(effort: { word: string; bars: number; speed: s
 export { traitsDisplay } from './composer-controls-model';
 
 // ── Primary action ─────────────────────────────────────────────────────────
+
+/**
+ * ChatComposer runtimeModeCeilingDenial (5d3d78ab93): a thread or draft whose permission mode is above a managed
+ * policy's ceiling would be refused, so Send says why and a notice offers the broadest mode left (`fallback`, '' when
+ * none is). An open question keeps its answer sendable and owns the space above the composer, so neither shows then.
+ */
+export function runtimeModeCeiling(client: T3Client): { denial: string; fallback: string } {
+  const policy = managedPolicySummary(client.config);
+  if (!policy?.limits?.maxRuntimeMode || (client.threadId && composerRequests(client).inputs.length > 0)) return { denial: '', fallback: '' };
+  // resolveCompatibleRuntimeMode: the provider's modes, and the thread's mode or else the first of them.
+  const provider = composerSelection(client, !!fanoutSelections(client)).provider ?? arr(client.config.providers).find(entry => entry.instanceId === client.providerId);
+  const supported = arr(provider?.supportedRuntimeModes as unknown[]).map(value => str(value)).filter((mode): mode is RuntimeMode => RUNTIME_MODES.includes(mode as RuntimeMode));
+  const modes = supported.length ? supported : [...RUNTIME_MODES];
+  const mode = modes.includes(client.runtimeMode as RuntimeMode) ? client.runtimeMode as RuntimeMode : modes[0]!;
+  const denial = managedRuntimeModeDenial(policy, mode) ?? '';
+  return { denial, fallback: denial ? clampManagedRuntimeMode(policy, mode, modes) ?? '' : '' };
+}
 
 export function primaryAction(client: T3Client, phase: string) {
   const setupQueue = sendQueuesBehindSetup(client), running = phase === 'running' || setupQueue, connecting = phase === 'connecting' && !setupQueue;
@@ -114,7 +134,7 @@ export function primaryAction(client: T3Client, phase: string) {
   const providerBlock = chosen?.provider ? antigravitySendBlockReason(chosen.provider, chosen.model) : '';
   const status = unavailable ? 'Environment disconnected' : !client.scopes.includes('orchestration:operate') ? 'This connection cannot change threads.'
     : pendingThreadImports(client) ? 'Loading thread context…' : machineChanging(client) ? 'Preparing machine' : feedbackUploading(client) ? 'Sending feedback' : preparing ? 'Preparing worktree'
-      : projectCloneBlock(client) || uploadBlock(client) || providerBlock || (connecting ? 'Connecting' : sending ? 'Submitting message' : '');
+      : projectCloneBlock(client) || uploadBlock(client) || runtimeModeCeiling(client).denial || providerBlock || (connecting ? 'Connecting' : sending ? 'Submitting message' : '');
   const plan = planFollowUp(client);
   const alternate = followUp === 'queue' ? 'steer' : 'queue';
   // alternateShortcutLabel: composer.sendAlternate's effective binding, as formatShortcutLabel prints it (⌘Enter).
@@ -194,7 +214,9 @@ export function presentBackgroundWork(tasks: Obj[]): { title: string; descriptio
   const waiting = tasks.some(task => task.awaited === true || (task.kind !== 'command' && task.kind !== 'monitor'));
   const kind = (task: Obj) => BACKGROUND_KINDS[str(task.kind)] ?? BACKGROUND_KINDS.background_task!;
   const items = tasks.map(task => {
-    const description = str(task.description).trim(), label = task.kind === 'subagent' ? subagentTitle(description).trim() : description;
+    // A command or monitor is named by its script, not the shell that wraps it.
+    const description = str(task.description).trim(), label = task.kind === 'subagent' ? subagentTitle(description).trim()
+      : description && (task.kind === 'command' || task.kind === 'monitor') ? commandDisplayText(description) : description;
     return { kind: str(task.kind), meta: kind(task), label: label || kind(task).singular, child: task.kind === 'subagent' ? str(task.childThreadId) : '', taskId: str(task.taskId) };
   }).sort((a, b) => a.meta.order - b.meta.order);
   const presented = items.map(item => ({ taskId: item.taskId, kind: item.kind, label: item.label, childThreadId: item.child }));
@@ -203,7 +225,7 @@ export function presentBackgroundWork(tasks: Obj[]): { title: string; descriptio
     aria: `Open subagent ${item.label}`, last: index === list.length - 1 }));
   if (items.length === 1) {
     const only = items[0]!, noun = only.meta.singular, named = only.label !== noun;
-    const title = waiting ? (named ? `${only.kind === 'monitor' ? '' : `Waiting on ${noun} `}${only.label}` : `Waiting on a ${noun}`) : named ? `Running: ${only.label}` : `Running a ${noun}`;
+    const title = named ? `${waiting ? 'Waiting' : 'Running'} · ${only.label}` : waiting ? `Waiting on a ${noun}` : `Running a ${noun}`;
     // A single named item is already in the title, so a lone subagent's link reads "Show".
     return { title, description: only.child ? 'Show' : '', waiting, items: presented,
       segments: only.child ? [{ key: `0:${only.label}`, label: 'Show', threadId: only.child, aria: `Show subagent ${only.label}`, last: true }] : [] };
@@ -235,7 +257,11 @@ export function composerNotices(client: T3Client, now: number): ComposerNotice[]
     ? [...feedbackNotices(client).map(item => notice(item)), ...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...(mismatch ? [notice(mismatch)] : [])]
     : [...usageNotices(client, now).map(item => notice(item)), ...cloneItem];
   if (client.threadId && composerRequests(client).inputs.length > 0) return system.filter(item => item.variant === 'error' || item.variant === 'warning');
-  return [...system, ...attention];
+  // The managed policy's ceiling, after the others; "Switch to" picks the broadest mode it allows.
+  const ceiling = runtimeModeCeiling(client), fallback = runtimeModes.find(option => option.mode === ceiling.fallback);
+  const managed = ceiling.denial ? [notice({ id: 'managed-runtime-mode', variant: 'warning', icon: 'building', title: ceiling.denial,
+    ...(fallback ? { action: 'runtime', actionValue: fallback.mode, actionLabel: `Switch to ${fallback.label}` } : {}) })] : [];
+  return [...system, ...attention, ...managed];
 }
 
 // ── Provider-unavailable control ───────────────────────────────────────────

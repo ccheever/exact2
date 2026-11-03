@@ -220,6 +220,9 @@ shape QuestionOption
   description: string
   selected: bool
   shortcut: string
+  // Each text's own reading direction ("ltr" or "rtl"), the card's when it has no letters.
+  labelDir: string
+  descriptionDir: string
 shape Question
   id: string
   requestId: string
@@ -244,6 +247,11 @@ shape Question
   action: string
   options: QuestionOption[]
   md: MarkdownEnv
+  // The card's reading direction, by every question's prose (markdownProseDirection), and the header's and the
+  // collapsed question's own; "ltr" or "rtl". A right-to-left card mirrors and aligns its question and options right.
+  dir: string
+  headerDir: string
+  questionDir: string
 shape DiffSegment
   id: string
   text: string

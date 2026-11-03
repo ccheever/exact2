@@ -116,6 +116,8 @@ describe('a rail button names its state and the provider\'s message', () => {
     expect(railLabel({ ...claude, status: 'warning', message: ' Rate limited. ' }, false)).toBe('Claude: Limited. Rate limited.');
     expect(railLabel({ ...claude, status: 'checking', message: '' }, false)).toBe('Claude: Not ready.');
     expect(railLabel({ ...claude, enabled: false }, false)).toBe('Claude: Disabled in settings.');
+    expect(railLabel({ ...claude, enabled: false, availability: 'unavailable', status: 'error', message: "Example Corp's policy does not allow the Claude provider." }, false))
+      .toBe("Claude: Unavailable. Example Corp's policy does not allow the Claude provider.");
     expect(railLabel(claude, true)).toBe('Claude is unavailable in this thread. Start a new thread to switch providers.');
     expect(modelCatalog(client(), '', '').providers.map(rail => rail.label)).toEqual(['Codex: Unavailable. Codex CLI is not authenticated. Run `codex login` and try again.', 'Claude']);
   });

@@ -5,6 +5,7 @@ use PickerRow from "./composer-shapes.contract"
 use PickerRail from "./composer-shapes.contract"
 use PickerTarget from "./composer-shapes.contract"
 use EffortRow from "./composer-shapes.contract"
+use EffortGroup from "./composer-shapes.contract"
 use SpeedSegment from "./composer-shapes.contract"
 use ProviderMark from "../shared/icons.contract"
 use ProviderInstanceMark from "../shared/icons-kit.contract"
@@ -21,18 +22,18 @@ use hoverTipAtFrame from "../shell/hover-layer.contract"
 // the colour it settles to over the canvas: a native backdrop blur sees only its
 // parent's subtree, so translucency would show the transcript through crisply.
 // T3's ProviderModelPicker popover (ModelPickerContent, ModelPickerSidebar,
-// ModelListRow): below the model trigger (side bottom, align start, end-aligned
-// when the start would overflow, 4px offset), flipped above it when it does not
-// fit (the docked composer), 360 wide inside a 1px popover border. The list is
+// ModelListRow): a Settings row's opens below its trigger (side bottom, align
+// start, end-aligned when the start would overflow, 4px offset), flipped above
+// it when it does not fit, 360 wide inside a 1px popover border. Its list is
 // as tall as its content (rail, or search row plus 32pt rows, 2pt apart, plus
 // 20pt), capped at 346; once a search starts it keeps the height it had and
 // results scroll within it. It is never shorter than its tallest tab
 // (5a38e6b859). The search field keeps focus while the arrows move the
 // highlighted row, as the reference combobox does; Return chooses it, Escape
-// and outside presses dismiss. The composer's picker (2359643cff) docks its
-// model's effort column beside the list and a footer with speed and
-// Permissions under both, and stays open through every pick until Escape or an
-// outside press.
+// and outside presses dismiss. The composer's picker (5d3d78ab93) opens above
+// its trigger, aligned to its end, at one fixed height, and docks its model's
+// effort column beside the list and a footer with speed and Permissions under
+// both; it stays open through every pick until Escape or an outside press.
 
 // The keyboard index of the Show more row, which trails the legacy models only while they show.
 fn legacyIndex(index: number, open: bool, legacyCount: number): number = open ? index : index - legacyCount
@@ -90,7 +91,7 @@ component ModelRow
         button -exact-menu="none" press=pick key=rowKey disabled=(busy or row.reason != "") testId=`model-${row.id}` aria-label=[`${row.name}, ${row.providerName}`, row.label, (row.isNew ? "New model" : "")].filter((part) => part != "").join(" ") aria-keyshortcuts=row.jumpKey class=Control flex=1 min-width=0 align-self="stretch" padding-left="0.5rem" padding-right=0 padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.25rem" justify-content="flex-start" gap="0.5rem"
           ComposerInstanceMark(driver=row.driver, icon=row.icon, size=16, color="light-dark(#18181b, #f5f5f5)", badge=row.providerBadge, accent=row.providerBadgeColor)
           row flex=1 min-width=0 gap="0.5rem" align-items="center"
-            text row.name font-size="0.875rem" font-weight=400 line-height="1.203125rem" color="light-dark(#18181b, #f5f5f5)" line-clamp=1 min-width=0
+            text row.name title=row.nameTip font-size="0.875rem" font-weight=400 line-height="1.203125rem" color="light-dark(#18181b, #f5f5f5)" line-clamp=1 min-width=0
             if row.label != ""
               text row.label font-size="0.75rem" line-height="1rem" color="light-dark(#71717ab3, #a1a1a1b3)" line-clamp=1 min-width=0
             if row.isNew
@@ -145,11 +146,13 @@ component ModelPicker
   // The search field's caret, for Right at its end (selectionchange).
   state caret = 0
   state caretSession = -1
-  // The effort column's locked note as laid out (its text and pb-1.5), which effortHeight counts as three lines.
-  state noteHeight = 0
-  action noteSized(width: number, height: number)
-    noteHeight = height
+  // The open option's side menu (EffortOptionMenu): its group, the opening it belongs to, and where it sits in the popup.
+  state menuKey = ""
+  state menuSession = -1
+  state menuLeft = 0
+  state menuTop = 0
   derive navigated = navSession == session
+  derive menuOpen = (menuSession == session ? menuKey : "")
   derive legacyOpen = (legacySession == session) != catalog.legacyDefault
   derive railOver = (railSession == session ? railHoverIndex : -1)
   derive sidebar = not catalog.searching and catalog.providers.length > 0
@@ -179,8 +182,8 @@ component ModelPicker
   derive setupCount = catalog.setup.length
   derive footer = (setupCount > 0 ? min(176, 17 + 58 * setupCount) : 0)
   derive updateHeight = min(176, catalog.updateRequired.length * 76)
-  // ChatGptSharingControl: 1pt border, 8pt inset, a 24pt button.
-  derive sharing = (catalog.chatgptSharing ? 41 : 0)
+  // ChatGptSharingControl: 1pt border, 8pt inset, a 24pt button; docked, it closes the list column inside its height.
+  derive sharing = (catalog.chatgptSharing and not docked ? 41 : 0)
   // Rows are 32pt, 48pt with the provider line, 2pt apart, inside 10pt of padding; the list is never shorter than
   // the tallest tab's (catalog.tallest), so a tab switch does not move the rail under the pointer.
   derive twoLines = (legacyOpen ? catalog.twoLineCount : catalog.twoLineCount - catalog.legacyTwoLineCount)
@@ -189,25 +192,56 @@ component ModelPicker
   derive listHeight = (count > 0 ? count * 34 + twoLines * 16 + 18 : (setupCount > 0 ? 0 : 36)) + footer
   derive restListHeight = (restRows > 0 ? restRows * 34 + restTwoLines * 16 + 18 : 36)
   derive listNatural = max(floor, catalog.searching ? max(rails > 0 ? 49 + 40 * rails : 0, 43 + restListHeight) : max(sidebar ? 49 + 40 * rails : 0, 43 + listHeight)) + updateHeight
-  // Docked: the list and the effort column share a row capped at 346 (stacked: a 224pt list over at most 256 of
-  // column), then the 45pt footer (py-2 round a 28pt control, and its border).
-  derive effortNatural = data.composer.effortHeight + (noteHeight > 0 and data.composer.effortGroups.filter((g) => g.note != "").length > 0 ? noteHeight - 54 : 0)
-  derive rowHeight = (stacked ? 224 + min(256, effortNatural) : min(346, max(listNatural, effortNatural)))
-  derive natural = (docked ? rowHeight + 45 + sharing : min(346, listNatural + sharing))
+  // Docked: the list and the effort column share one fixed 346pt row (h-86.5), so a model with more options never
+  // resizes the popup (stacked: a 224pt list over a 256pt column), then the 45pt footer (py-2 round a 28pt control,
+  // and its border). A short window shrinks the row and keeps the footer.
+  derive rowNatural = (stacked ? 224 + 256 : 346)
+  derive natural = (docked ? rowNatural + 45 : min(346, listNatural + sharing))
   // The trigger's window-space edges: its top sits 4pt under the given bottom edge.
   // A Settings row's picker opens under its trigger, start-aligned (PopoverPopup align start), flipped above when it does not fit.
   derive anchored = anchor.bottom > 0
   derive triggerTop = (anchored ? anchor.top : viewport.height - bottom + 4)
   derive triggerBottom = (anchored ? anchor.bottom : triggerTop + (data.composer.toolbarTop > 0 and triggerTop - data.composer.toolbarTop >= 4 ? 24 : 28))
-  derive below = (anchored or data.composer.toolbarTop > 0) and triggerBottom + 4 + natural + 2 <= viewport.height - 5
-  derive height = min(natural, below ? viewport.height - triggerBottom - 11 : triggerTop - 11) + 2
-  derive y = (below ? triggerBottom + 4 : triggerTop - 4 - height)
-  derive edge = (anchored ? anchor.left : modelAnchorX >= 0 ? modelAnchorX : left + 7)
-  // The composer's measured trigger: its end when its start would overflow (Base UI's align flip).
-  derive x = (edge + width <= viewport.width - 5 ? edge : not anchored and modelAnchorX >= 0 ? max(5, modelAnchorX + modelAnchorWidth - width) : max(5, viewport.width - 5 - width))
+  // Docked, the popup opens above the composer and slides over it when that space is short, sized to the window
+  // (side top, collisionAvoidance side and align "shift", max-h available height), so a short window gets its full height.
+  derive below = anchored and triggerBottom + 4 + natural + 2 <= viewport.height - 5
+  derive height = (docked ? min(natural + 2, viewport.height - 10) : min(natural, below ? viewport.height - triggerBottom - 11 : triggerTop - 11) + 2)
+  derive rowHeight = (docked ? max(0, min(rowNatural, height - 2 - 45)) : 0)
+  derive y = (docked ? min(max(5, triggerTop - 4 - height), viewport.height - 5 - height) : below ? triggerBottom + 4 : triggerTop - 4 - height)
+  // The composer's picker aligns to its measured trigger's end, which stays put as the model or effort label changes,
+  // and shifts to stay in the window (popupAlign "end"); a Settings row's opens at its trigger's start, flipped to its
+  // end when that would overflow.
+  derive edge = (anchored ? anchor.left : modelAnchorX >= 0 ? modelAnchorX + modelAnchorWidth - width : left + 7)
+  derive x = (not anchored ? min(max(5, edge), viewport.width - 5 - width) : edge + width <= viewport.width - 5 ? edge : max(5, viewport.width - 5 - width))
   derive permissionsOpen = docked and modelOpenTarget == "permissions"
   // The effort rows Up and Down move between (the column's enabled rows).
-  derive effortEnabled = data.composer.effortGroups.map((g) => g.options.filter((o) => not o.disabled).map((o) => o.index)).flat()
+  derive effortEnabled = data.composer.effortOrder
+  // OptionMenuRow's MenuPopup: right of its row (6pt), its top at the row's; on the left when the right has no room, under
+  // the row when neither side has; shifted to stay in the window.
+  action openOption(key: string, index: number)
+    if key == ""
+      menuKey = ""
+    else
+      let row = frame(`model-effort-row-${index}`)
+      let w = match first(data.composer.effortGroups.filter((g) => g.key == key)) { case some(g) => g.menuWidth, case none => 160 }
+      let h = match first(data.composer.effortGroups.filter((g) => g.key == key)) { case some(g) => g.menuHeight, case none => 0 }
+      let right = row.x + row.width + 6
+      let side = right + w <= viewport.width - 5 ? right : (row.x - 6 - w >= 5 ? row.x - 6 - w : -1)
+      let top = side >= 0 ? row.y : row.y + row.height + 6
+      menuLeft = (side >= 0 ? side : min(max(5, row.x), viewport.width - 5 - w)) - x
+      menuTop = min(max(5, top), max(5, viewport.height - 5 - h)) - y
+      menuKey = key
+      menuSession = session
+  // A model or level picked closes an open option menu, as a press outside it does.
+  action chooseModel(id: string, providerId: string, add: bool)
+    menuKey = ""
+    select(id, providerId, add)
+  action closeOption(index: number)
+    menuKey = ""
+    focus(`model-effort-row-${index}`)
+  action pickInColumn(op: string, descriptor: string, value: string)
+    menuKey = ""
+    pickerPick(op, descriptor, value)
   action favoriteModel(op: string, id: string, model: string, n: number)
     command(op, catalog.environmentId + "\t" + id, model, n)
   action searchFocus
@@ -237,7 +271,7 @@ component ModelPicker
       if targetLegacy
         legacySession = legacySession == session ? -1 : session
       else if targetId != ""
-        select(targetId, targetProvider, e.shiftKey)
+        chooseModel(targetId, targetProvider, e.shiftKey)
       preventDefault()
     if name == "ArrowLeft" and query == "" and sidebar
       focus(`picker-rail-${max(0, catalog.railIndex)}`)
@@ -246,7 +280,7 @@ component ModelPicker
     if docked and name == "ArrowRight" and not e.altKey and not e.ctrlKey and not e.metaKey and not e.shiftKey and (caretSession == session ? caret : query.length) >= query.length
       preventDefault()
       if targetId != "" and highlight != selectedIndex
-        select(targetId, targetProvider, false)
+        chooseModel(targetId, targetProvider, false)
       else if data.composer.effortFocusAny >= 0
         focus(`model-effort-row-${data.composer.effortFocusAny}`)
   action setup(id: string)
@@ -281,7 +315,7 @@ component ModelPicker
   view
     // A Settings row's picker draws above that page's dialogs (the scheduled task editor is z-index 40). While the
     // Permissions menu is open, Escape is that menu's.
-    button position="absolute" left=0 right=0 top=0 bottom=0 z-index=(anchored ? 49 : 29) padding=0 border-width=0 border-radius=0 background-color="#00000000" press=closePicker aria-label="Dismiss model picker" aria-keyshortcuts=(permissionsOpen ? "" : "Escape") testId="dismiss-model-picker" title=""
+    button position="absolute" left=0 right=0 top=0 bottom=0 z-index=(anchored ? 49 : 29) padding=0 border-width=0 border-radius=0 background-color="#00000000" press=closePicker aria-label="Dismiss model picker" aria-keyshortcuts=(permissionsOpen or menuOpen != "" ? "" : "Escape") testId="dismiss-model-picker" title=""
     column position="absolute" left=x top=y width=width height=height border-radius="0.5rem" box-shadow="0 16px 40px -18px #0000008c" z-index=(anchored ? 50 : 30)
       column width="100%" height="100%" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-sizing="border-box" overflow="hidden" role="dialog" aria-label="Choose model" testId="model-dialog"
         // Docked, the row is as tall as the list or the column (capped), the footer under it; alone, the list takes the popup.
@@ -312,7 +346,7 @@ component ModelPicker
                 column gap="0.125rem" width="100%" role="listbox"
                   for row in catalog.models key=row.key
                     if row.kind != "legacy-model" or legacyOpen
-                      ModelRow(row=row, favoriteWritable=catalog.favoriteWritable, starOnHover=catalog.starOnHover, highlighted=((row.kind == "legacy" ? legacyIndex(row.index, legacyOpen, catalog.legacyCount) : row.index) == highlight), busy=(busy or (not anchored and data.running)), select=select, favorite=favoriteModel, toggleLegacy=toggleLegacy, legacyOpen=legacyOpen)
+                      ModelRow(row=row, favoriteWritable=catalog.favoriteWritable, starOnHover=catalog.starOnHover, highlighted=((row.kind == "legacy" ? legacyIndex(row.index, legacyOpen, catalog.legacyCount) : row.index) == highlight), busy=(busy or (not anchored and data.running)), select=chooseModel, favorite=favoriteModel, toggleLegacy=toggleLegacy, legacyOpen=legacyOpen)
               // ComboboxEmpty, the list's sibling: inside the list's scroll, which has no height when nothing
               // matches, it was clipped away (#298 bug 8).
               if count == 0 and setupCount == 0
@@ -329,13 +363,22 @@ component ModelPicker
                     column width="100%" box-sizing="border-box" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.375rem" padding-bottom="0.375rem" align-items="flex-start" gap="0.25rem"
                       text entry.message font-size="0.75rem" line-height="1.03125rem" line-clamp=3 color="light-dark(#71717a, #a1a1a1)"
                       ProviderSetupLink(label=entry.label, fontSize="0.75rem", lineHeight="1.03125rem", testId=`model-picker-setup-${entry.id}`, press=setup(entry.id))
+              // Docked, the sharing control closes the list column inside the popup's fixed height, so switching to or
+              // from a ChatGPT plan never resizes it.
+              if docked and catalog.chatgptSharing
+                row width="100%" flex-shrink=0 box-sizing="border-box" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" gap="1rem" align-items="center" justify-content="space-between" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" testId="model-picker-chatgpt-sharing" margin-top="auto"
+                  row gap="0.5rem" align-items="center"
+                    ProviderMark(driver="codex", size=14, color="light-dark(#71717a, #a1a1a1)")
+                    text "Using ChatGPT plan" font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #a1a1a1)"
+                  ChatGptUsageButton(small=true, testId="model-picker-manage-usage", press=command("pageslocal:chatgpt-usage", "", "", 0), first=false)
           if docked
-            ModelEffortColumn(data=data, stacked=stacked, pick=pickerPick, move=effortKey, noteSized=noteSized)
+            ModelEffortColumn(data=data, stacked=stacked, menuOpen=menuOpen, pick=pickInColumn, move=effortKey, openMenu=openOption)
         // ComposerPickerFooter: speed stays one click away, Permissions sit one menu deeper.
         if docked
           ModelPickerFooter(data=data, permissionsOpen=permissionsOpen, pick=pickerPick, permissions=modelPermissions)
-        // ChatGptSharingControl, under the picker for a single choice (ProviderModelPicker.tsx:317-319).
-        if catalog.chatgptSharing
+        // ChatGptSharingControl, under the picker for a single choice (ProviderModelPicker.tsx); docked, it closes the
+        // list column instead.
+        if catalog.chatgptSharing and not docked
           row width="100%" flex-shrink=0 box-sizing="border-box" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" gap="1rem" align-items="center" justify-content="space-between" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" testId="model-picker-chatgpt-sharing"
             row gap="0.5rem" align-items="center"
               ProviderMark(driver="codex", size=14, color="light-dark(#71717a, #a1a1a1)")
@@ -346,6 +389,11 @@ component ModelPicker
       if permissionsOpen
         button position="absolute" left=(0 - x) top=(0 - y) width=viewport.width height=viewport.height z-index=1 padding=0 border-width=0 border-radius=0 background-color="#00000000" press=modelPermissions(false) aria-label="Close permissions" aria-keyshortcuts="Escape" testId="dismiss-model-permissions" title=""
         PickerPermissions(data=data, bottom=(sharing + 41), pick=pickerPick, dismiss=modelPermissions)
+      // An option's side menu, beside its row; Escape closes it alone and the focus goes back to its row.
+      for g in data.composer.effortGroups key=g.key
+        if docked and g.key == menuOpen
+          button press=closeOption(g.index) aria-keyshortcuts="Escape" aria-label="Close menu" tabindex=-1 testId="dismiss-effort-option-menu" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" title=""
+          EffortOptionMenu(group=g, left=menuLeft, top=menuTop, maxHeight=(viewport.height - 10), pick=pickInColumn, dismiss=openOption)
 
 // A Settings row's ProviderModelPicker trigger outside General (Scheduled Tasks' Model,
 // Source Control's writer model; SETTINGS_PICKER_TRIGGER_CLASSNAME over ComposerControl "sm": h-7 px-2.5 gap-1.5,
@@ -367,20 +415,22 @@ component SettingsPickerTrigger
       text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" line-clamp=1
       CcIcon(name="chevron-down", size=14, color="light-dark(#71717b, #a1a1a1)", weight=1.75)
 
-// ── The composer's picker: its effort column and footer (ComposerModelEffort.tsx at 2359643cff) ─────────────────
+// ── The composer's picker: its effort column and footer (ComposerModelEffort.tsx at 5d3d78ab93) ─────────────────
 
-// ComposerEffortColumn (w-48, border-l, bg-muted/40; under 640pt a full-width block under the list, at most 16rem):
-// a header that matches the search row, so one rule runs across the top (the reasoning control's label, and the model
-// it serves), then the model's levels and its other options, each labelled; "No effort levels" when it has none.
+// ComposerEffortColumn (w-48, border-l, bg-muted/40; under 640pt a full-width block 16rem tall under the list): a header
+// that matches the search row, so one rule runs across the top (the reasoning control's label, "Options" with only other
+// options, else "Effort", and the model it serves), then the model's levels, and under a rule its other options, one
+// row each; "No effort levels" when it has none.
 component ModelEffortColumn
   props
     data: Snapshot
     stacked: bool
+    menuOpen: string
     pick: action
     move: action
-    noteSized: action
+    openMenu: action
   view
-    column width=(stacked ? "100%" : "12rem") flex-shrink=0 min-height=0 max-height=(stacked ? "16rem" : "none") height=(stacked ? "auto" : "100%") box-sizing="border-box" border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0e)" border-left-width=(stacked ? 0 : 1) border-top-width=(stacked ? 1 : 0) border-right-width=0 border-bottom-width=0 background-color="light-dark(#fafafa66, #ffffff03)" testId="model-picker-effort"
+    column width=(stacked ? "100%" : "12rem") flex-shrink=0 min-height=0 height=(stacked ? "16rem" : "100%") box-sizing="border-box" border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0e)" border-left-width=(stacked ? 0 : 1) border-top-width=(stacked ? 1 : 0) border-right-width=0 border-bottom-width=0 background-color="light-dark(#fafafa66, #ffffff03)" testId="model-picker-effort"
       column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" flex-shrink=0
         row height="2.0625rem" margin-top=-1 padding-bottom="0.375rem" box-sizing="border-box" gap="0.5rem" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0e)"
           text data.composer.effortHeader font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717a, #a1a1a1)" white-space="nowrap" flex-shrink=0 testId="model-effort-header"
@@ -398,18 +448,104 @@ component ModelEffortColumn
                 text group.value font-size="0.75rem" line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.375rem" color="light-dark(#71717acc, #a1a1a1cc)"
             if group.kind == "control"
               column gap="0.125rem" role="radiogroup" aria-label=group.label
-                if group.showLabel
-                  text group.label font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.25rem" color="light-dark(#71717a, #a1a1a1)" aria-hidden=true
                 // "ultrathink" in the prompt's body keeps the primary effort's rows visible but inert.
                 if group.note != ""
-                  column width="100%" resize=noteSized
-                    text group.note font-size="0.75rem" line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.375rem" color="light-dark(#71717acc, #a1a1a1cc)" testId="effort-ultrathink-note"
+                  text group.note font-size="0.75rem" line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.375rem" color="light-dark(#71717acc, #a1a1a1cc)" testId="effort-ultrathink-note"
                 for option in group.options key=option.key
                   EffortLevel(row=option, pick=pick, move=move)
+            if group.kind == "option"
+              // The other options sit under a rule (mt-1 border-t pt-1) below the levels.
+              column width="100%" margin-top=(group.divider ? "0.25rem" : "0px") padding-top=(group.divider ? "0.25rem" : "0px") border-top-style="solid" border-top-width=(group.divider ? 1 : 0) border-color="light-dark(#e4e4e7b3, #ffffff0e)" box-sizing="border-box"
+                EffortOption(group=group, open=(menuOpen == group.key), pick=pick, move=move, openMenu=openMenu)
 
-// ColumnRow (h-8 rounded-sm px-2 text-sm, hover foreground/9%): the label, "Default" for the catalog's default and the
-// check, whose column is always reserved. The reasoning control's checked row holds the column's one tab stop; a row
-// with a description says it on hover (TooltipPopup side right, max-w-56), drawn by the window's hover layer.
+// OptionMenuRow and OptionSwitchRow (the column row, h-auto py-1): an option's name (text-xs, muted) over its current
+// value. A select names its choice and opens the rest beside the column (Right opens it too; it opens on a press only,
+// as an opened menu takes the focus from the search); a two-state option toggles in place with a small switch.
+component EffortOption
+  props
+    group: EffortGroup
+    open: bool
+    pick: action
+    move: action
+    openMenu: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  action toggleMenu
+    openMenu(open ? "" : group.key, group.index)
+  action flip
+    pick("model-option", group.descriptor, group.on ? "false" : "true")
+  action rowKey(name: string, e: KeyboardEvent)
+    if name == "ArrowRight" and not group.toggle
+      preventDefault()
+      openMenu(group.key, group.index)
+    else
+      move(group.index, name, e)
+  view
+    if group.toggle
+      // The whole row is the switch's label, so a press anywhere on it toggles.
+      button press=flip hover=hover key=rowKey id=`model-effort-row-${group.index}` role="switch" aria-checked=group.on aria-label=group.label tabindex=(group.tabStop ? 0 : -1) testId=`effort-switch-${group.key}` class=Control justify-content="flex-start" width="100%" min-height="2rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.5rem" border-radius="0.25rem" background-color=(over ? "light-dark(#18181b17, #f5f5f517)" : "#00000000") title=""
+        column flex=1 min-width=0 aria-hidden=true
+          text group.label text-align="left" font-size="0.75rem" line-height="1rem" font-weight=400 color="light-dark(#71717a, #a1a1a1)" line-clamp=1
+          text group.value text-align="left" font-size="0.875rem" line-height="1.25rem" font-weight=400 color="light-dark(#18181b, #f5f5f5)" line-clamp=1
+        // Switch size sm: a 26x16 track and a 12pt thumb, primary when on.
+        row width="1.625rem" height="1rem" padding="0.125rem" box-sizing="border-box" border-radius="0.5rem" flex-shrink=0 align-items="center" justify-content=(group.on ? "flex-end" : "flex-start") background-color=(group.on ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff1c)") aria-hidden=true
+          box width="0.75rem" height="0.75rem" border-radius="0.375rem" flex-shrink=0 background-color=(group.on ? "light-dark(#fcfcfc, #000000)" : "light-dark(#fcfcfc, #a1a1a1)") box-shadow="0 1px 3px #0000000d"
+    else
+      button press=toggleMenu hover=hover key=rowKey id=`model-effort-row-${group.index}` aria-label=`${group.label}: ${group.value}` aria-haspopup="menu" aria-expanded=open tabindex=(group.tabStop ? 0 : -1) testId=`effort-option-${group.key}` class=Control justify-content="flex-start" width="100%" min-height="2rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.5rem" border-radius="0.25rem" background-color=(over or open ? "light-dark(#18181b17, #f5f5f517)" : "#00000000") title=""
+        column flex=1 min-width=0
+          text group.label text-align="left" font-size="0.75rem" line-height="1rem" font-weight=400 color="light-dark(#71717a, #a1a1a1)" line-clamp=1
+          text group.value text-align="left" font-size="0.875rem" line-height="1.25rem" font-weight=400 color="light-dark(#18181b, #f5f5f5)" line-clamp=1
+        box display="flex" flex-shrink=0 margin-right="-0.25rem" aria-hidden=true
+          CcIcon(name="chevron-right", size=14, color="light-dark(#71717a, #a1a1a1)", weight=1.75)
+
+// The option's side menu (MenuPopup side right, align start, 6pt beside its row, max-w-72; on the left when the right
+// has no room): MenuRadioItems (min-h-7 px-2 py-1, the checked one at foreground/8%), each a label, a two-line
+// description, "Default" and the check. A pick or Left closes it, Escape too, and Up and Down move through it.
+component EffortOptionMenu
+  props
+    group: EffortGroup
+    left: number
+    top: number
+    maxHeight: number
+    pick: action
+    dismiss: action
+  state over = -1
+  derive checkedCount = group.options.filter((c) => c.selected).length
+  action hover(index: number, value: bool)
+    over = value ? index : (over == index ? -1 : over)
+  action choose(value: string, selected: bool)
+    if not selected
+      pick("model-option", group.descriptor, value)
+    dismiss("", group.index)
+  action itemKey(at: number, name: string, e: KeyboardEvent)
+    if name == "ArrowLeft" or name == "Escape"
+      preventDefault()
+      dismiss("", group.index)
+      focus(`model-effort-row-${group.index}`)
+    if name == "ArrowDown" or name == "ArrowUp"
+      preventDefault()
+      focus(`effort-menu-item-${name == "ArrowDown" ? min(at + 1, group.options.length - 1) : max(at - 1, 0)}`)
+  view
+    column position="absolute" left=left top=top z-index=3 width=group.menuWidth box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" role="menu" aria-label=group.label testId=`effort-option-menu-${group.key}`
+      scroll max-height=maxHeight width="100%" padding="0.25rem" box-sizing="border-box"
+        for choice, at in group.options key=choice.key
+          // An opened menu takes the focus to its checked choice, else its first.
+          button press=choose(choice.value, choice.selected) hover=hover(at) key=itemKey(at) autofocus=(choice.selected or (at == 0 and checkedCount == 0)) id=`effort-menu-item-${at}` role="menuitemradio" aria-checked=choice.selected testId=`effort-menu-${choice.value}` class=Control justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.75rem" border-radius="0.25rem" background-color=(over == at ? "light-dark(#f4f4f5, #ffffff0a)" : choice.selected ? "light-dark(#18181b14, #f5f5f514)" : "#00000000") title=""
+            column flex=1 min-width=0
+              text choice.label text-align="left" font-size="0.875rem" line-height="1.25rem" font-weight=400 color="light-dark(#18181b, #f5f5f5)" line-clamp=1
+              if choice.description != ""
+                text choice.description text-align="left" font-size="0.75rem" line-height="1rem" font-weight=400 color="light-dark(#71717a, #a1a1a1)" line-clamp=2
+            if choice.isDefault
+              text "Default" font-size="0.75rem" line-height="1rem" color="light-dark(#71717ab3, #a1a1a1b3)" flex-shrink=0
+            if choice.selected
+              box display="flex" flex-shrink=0 aria-hidden=true
+                CcIcon(name="check", size=14, color="light-dark(#18181b, #f5f5f5)", weight=1.75)
+
+// ColumnRow (h-8 rounded-sm px-2 text-sm, hover foreground/9%): the label, then flush right the check on the selected
+// row or "Default" on the catalog's default when it is not selected; no column is reserved. The selected level holds the
+// column's one tab stop (the first when none shows as selected); a row with a description says it on hover (TooltipPopup
+// side right, max-w-56), drawn by the window's hover layer.
 component EffortLevel
   inject
     rem: number
@@ -432,12 +568,17 @@ component EffortLevel
     else
       move(row.index, name, e)
   view
-    button press=pick("model-option", row.descriptor, row.value) hover=hover key=rowKey disabled=row.disabled id=`model-effort-row-${row.index}` role="radio" aria-checked=row.selected aria-description=row.description tabindex=(row.selected and row.level ? 0 : -1) testId=`effort-${row.value}` class=Control justify-content="flex-start" width="100%" height="2rem" flex-shrink=0 padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" border-radius="0.25rem" opacity=(row.disabled ? 0.64 : 1) background-color=(over and not row.disabled ? "light-dark(#18181b17, #f5f5f517)" : "#00000000") title=""
+    button press=pick("model-option", row.descriptor, row.value) hover=hover key=rowKey disabled=row.disabled id=`model-effort-row-${row.index}` role="radio" aria-checked=row.selected aria-description=row.description tabindex=(row.tabStop ? 0 : -1) testId=`effort-${row.value}` class=Control justify-content="flex-start" width="100%" height="2rem" flex-shrink=0 padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" border-radius="0.25rem" opacity=(row.disabled ? 0.64 : 1) background-color=(over and not row.disabled ? "light-dark(#18181b17, #f5f5f517)" : "#00000000") title=""
       text row.label flex=1 min-width=0 line-clamp=1 text-align="left" font-size="0.875rem" line-height="1.25rem" font-weight=400 color="light-dark(#18181b, #f5f5f5)"
-      if row.isDefault
-        text "Default" font-size="0.75rem" line-height="1rem" color="light-dark(#71717ab3, #a1a1a1b3)" flex-shrink=0
-      box display="flex" flex-shrink=0 opacity=(row.selected ? 1 : 0) aria-hidden=true
-        CcIcon(name="check", size=14, color="light-dark(#18181b, #f5f5f5)", weight=1.75)
+      if row.selected
+        // The checked default row keeps "Default" for VoiceOver only (Tailwind's sr-only: 1px, clipped, out of flow).
+        if row.isDefault
+          text "Default" position="absolute" width=1 height=1 overflow="hidden" opacity=0 pointer-events="none"
+        box display="flex" flex-shrink=0 aria-hidden=true
+          CcIcon(name="check", size=14, color="light-dark(#18181b, #f5f5f5)", weight=1.75)
+      else
+        if row.isDefault
+          text "Default" font-size="0.75rem" line-height="1rem" color="light-dark(#71717ab3, #a1a1a1b3)" flex-shrink=0
 
 // ComposerPickerFooter (border-t, bg-muted/40, px-3 py-2, wrapping): the speed control, then Permissions at its end,
 // named for the mode and opening its menu one level deeper.
@@ -508,15 +649,15 @@ component PickerPermissions
       preventDefault()
       if next >= 0 and next < data.composer.runtimeCount
         focus(`model-permission-${next}`)
-  derive shown = match first(data.composer.runtimes.filter((option) => option.index == preview)) { case some(option) => option, case none => match first(data.composer.runtimes.filter((option) => option.selected)) { case some(option) => option, case none => ComposerRuntime(mode="", label="", description="", icon="", selected=false, index=-1) } }
+  derive shown = match first(data.composer.runtimes.filter((option) => option.index == preview)) { case some(option) => option, case none => match first(data.composer.runtimes.filter((option) => option.selected)) { case some(option) => option, case none => ComposerRuntime(mode="", label="", description="", icon="", selected=false, index=-1, disabledReason="") } }
   view
     column position="absolute" right="0.8125rem" bottom=bottom z-index=2 width="18.625rem" padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Permissions" testId="model-permissions-menu"
       column width="100%" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" gap="0.375rem" box-sizing="border-box"
         text "Permissions" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717a, #a1a1a1)"
         row padding="0.125rem" border-radius="0.5rem" background-color="light-dark(#e4e4e766, #ffffff0b)" role="group" aria-label="Permissions"
           for option in data.composer.runtimes key=option.mode
-            button press=choose(option.mode) hover=previewing(option.index) focus=previewing(option.index, true) blur=previewing(option.index, false) key=segmentKey(option.index) id=`model-permission-${option.index}` role="menuitemradio" aria-checked=option.selected aria-label=option.label aria-description=option.description testId=`picker-mode-${option.mode}` flex=1 height="1.5rem" padding=0 border-width=0 border-top-left-radius=(option.index == 0 ? "0.375rem" : "0px") border-bottom-left-radius=(option.index == 0 ? "0.375rem" : "0px") border-top-right-radius=(option.index == data.composer.runtimeCount - 1 ? "0.375rem" : "0px") border-bottom-right-radius=(option.index == data.composer.runtimeCount - 1 ? "0.375rem" : "0px") display="flex" align-items="center" justify-content="center" background-color=(option.selected ? "light-dark(#e4e4e7b8, #ffffff17)" : preview == option.index ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+            button press=choose(option.mode) disabled=(option.disabledReason != "") opacity=(option.disabledReason != "" ? 0.4 : 1) hover=previewing(option.index) focus=previewing(option.index, true) blur=previewing(option.index, false) key=segmentKey(option.index) id=`model-permission-${option.index}` role="menuitemradio" aria-checked=option.selected aria-label=option.label aria-description=(option.disabledReason != "" ? option.disabledReason : option.description) testId=`picker-mode-${option.mode}` flex=1 height="1.5rem" padding=0 border-width=0 border-top-left-radius=(option.index == 0 ? "0.375rem" : "0px") border-bottom-left-radius=(option.index == 0 ? "0.375rem" : "0px") border-top-right-radius=(option.index == data.composer.runtimeCount - 1 ? "0.375rem" : "0px") border-bottom-right-radius=(option.index == data.composer.runtimeCount - 1 ? "0.375rem" : "0px") display="flex" align-items="center" justify-content="center" background-color=(option.selected ? "light-dark(#e4e4e7b8, #ffffff17)" : preview == option.index ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
               CcIcon(name=option.icon, size=14, color=(option.selected or preview == option.index ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717a, #a1a1a1)"), weight=1.75)
         column gap="0.125rem" aria-hidden=true
           text shown.label font-size="0.875rem" line-height="1.25rem" color=(shown.selected ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717a, #a1a1a1)") testId="model-permissions-shown"
-          text shown.description font-size="0.75rem" line-height="1rem" min-height="2rem" color="light-dark(#71717a, #a1a1a1)"
+          text (shown.disabledReason != "" ? shown.disabledReason : shown.description) font-size="0.75rem" line-height="1rem" min-height="2rem" color="light-dark(#71717a, #a1a1a1)"

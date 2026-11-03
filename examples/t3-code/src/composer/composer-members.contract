@@ -311,6 +311,8 @@ members T3Code
   // The caret is on a nested list line, which ⇧Tab moves out (listOutdentForTab) before plan mode takes the key.
   derive composerInNestedList = composerRichCurrent and composerSelectionStart == composerSelectionEnd and fieldRich.mode != "literal" and fieldRich.blocks.filter((b) => b.kind == "list" and b.nested and composerSelectionStart >= b.start and composerSelectionEnd <= b.end).length > 0
   derive composerCodeStart = composerRichCurrent and composerSelectionStart == composerSelectionEnd and fieldRich.blocks.filter((b) => b.kind == "code" and composerSelectionStart == b.bodyStart).length > 0
+  // A caret at a nested list item's start, where Backspace lifts or joins the item (listBackspaceAtStart).
+  derive composerNestedListStart = composerRichCurrent and composerSelectionStart == composerSelectionEnd and fieldRich.mode != "literal" and fieldRich.blocks.filter((b) => b.kind == "list" and b.nested and composerSelectionStart == b.contentStart).length > 0
   derive composerRequiresModifier = settings.sendShortcut == "mod-enter" or (settings.sendShortcut == "mod-enter-multiline" and (fieldText.includes("\n") or fieldText.includes("\u{d}")))
   derive composerIntentContextCurrent = composerIntentObserved.owner == fieldOwner and composerIntentObserved.snapshotOwner == fieldData.snapshotOwner and composerIntentObserved.generation == fieldRich.generation and composerIntentMode == fieldRich.mode and composerFieldLive and not composerComposing
   derive composerIntentBaseCurrent = composerIntentContextCurrent and composerIntentObserved.value == fieldText and composerIntentObserved.inputSerial == composerFieldInputSerial and composerSelectionCurrent and composerIntentObserved.start == composerSelectionStart and composerIntentObserved.end == composerSelectionEnd
@@ -630,8 +632,9 @@ members T3Code
           preventDefault()
           stopPropagation()
           fieldEditorOp("history", k == "ArrowUp" ? "previous" : "next", "")
-      // Tab indents a list item; ⇧Tab outdents code and a nested list item (listOutdentForTab).
-      if k == "Enter" or (k == "Tab" and not heldCommand and (composerInCode or (composerInList and not e.shiftKey) or (composerInNestedList and e.shiftKey))) or (k == "Backspace" and not heldCommand and composerCodeStart)
+      // Tab indents a list item; ⇧Tab outdents code and a nested list item (listOutdentForTab); Backspace at a code
+      // block's start or a nested item's start is the grammar's.
+      if k == "Enter" or (k == "Tab" and not heldCommand and (composerInCode or (composerInList and not e.shiftKey) or (composerInNestedList and e.shiftKey))) or (k == "Backspace" and not heldCommand and (composerCodeStart or composerNestedListStart))
         preventDefault()
         stopPropagation()
         if k != "Enter" or not e.repeat

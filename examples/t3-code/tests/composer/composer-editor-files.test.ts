@@ -20,6 +20,9 @@ describe('large paste folding (textPaste.ts, foldPastedText)', () => {
     expect(formatAttachmentSize(40_000)).toBe('40 KB');
     expect(formatAttachmentSize(1)).toBe('1 KB');
     expect(formatAttachmentSize(3.2 * 1024 * 1024)).toBe('3.2 MB');
+    // The unit is chosen after rounding: just under 1 MB reads "1.0 MB", not "1024 KB".
+    expect(formatAttachmentSize(1023.5 * 1024)).toBe('1.0 MB');
+    expect(formatAttachmentSize(1023 * 1024)).toBe('1023 KB');
   });
   test('the staging limit follows the server capabilities, clamped to 50 MB', () => {
     expect(fileStagingLimit({})).toBe(0);

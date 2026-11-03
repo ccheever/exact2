@@ -53,7 +53,9 @@ export function resolveThreadCurrentPullRequestLink(links: unknown): Obj | null 
  * which the sidebar's worktree cleanup reaches, does not load the composer: a thread id is a context id as it stands.
  */
 export function threadChipCopyTarget(threadId: string, title: string): ThreadReferenceCopyTarget {
-  const label = title.replace(/[[\]\\\r\n]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200) || 'thread';
+  // The 200-unit cap steps back rather than split a surrogate pair (an emoji).
+  const normalized = title.replace(/[[\]\\\r\n]/g, ' ').replace(/\s+/g, ' ').trim(), before = normalized.charCodeAt(199), after = normalized.charCodeAt(200);
+  const label = normalized.slice(0, before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff ? 199 : 200) || 'thread';
   return { kind: 'thread', value: `[${label}](t3-context://v1/thread/thread_${threadId})`, description: label, clipboardTarget: 'thread',
     successTitle: 'Thread copied', failureTitle: 'Failed to copy thread' };
 }

@@ -14,6 +14,8 @@ import { obj, str, num, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { folderDropTarget, primary } from '../connections/local-primary';
+import { sshTargets } from '../connections/settings-b-ssh';
+import { trimOrigin } from '../connections/settings-b-fleet';
 import { pushToast } from '../shell/toast';
 import { acceptAttachedFile, appendChipLinks, attachStagingLimit, imageChipLink, imagesGetChips, insertFileChips, releaseStagedFile, reservedAttachments, reservedAttachmentsIn } from './composer-editor-attach';
 import { fileChipLink, holdDraftFiles, pasteAsTextArmed, type DraftFile } from './composer-editor-files';
@@ -126,11 +128,25 @@ export async function attachIncoming(client: T3Client, native: Native, origin: s
     for (const path of await Promise.all(previews)) await releasePreview(path);
   }
   if (folders.length) {
-    const remote = folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'remote';
-    if (remote) pushToast(client, { kind: 'error', title: 'Folders can only be referenced in the local desktop environment' });
+    const remote = folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'remote'
+      && !await savedLoopbackConnection(client, native);
+    if (remote) pushToast(client, { kind: 'error', title: 'Folders can only be referenced on a server running on this computer' });
     else for (const folder of folders) pushToast(client, { kind: 'error', title: `Couldn't get the path of "${str(folder.name)}"`, description: 'Type the folder path with @ instead.' });
   }
   return origin === 'paste' ? '' : 'focus:composer';
+}
+
+/**
+ * folderDropTarget's saved loopback connection: a saved server at 127.0.0.1, ::1 or localhost shares this computer's
+ * files, so its folders are local; an SSH forward's loopback address does not.
+ */
+async function savedLoopbackConnection(client: T3Client, native: Native): Promise<boolean> {
+  if (!client.origin || client.environmentId === primary.target?.environmentId) return false;
+  let hostname = '';
+  try { hostname = new URL(client.origin).hostname.trim().toLowerCase().replace(/^\[(.*)\]$/, '$1'); } catch { return false; }
+  if (!['127.0.0.1', '::1', 'localhost'].includes(hostname)) return false;
+  const forwards = await sshTargets(native), key = trimOrigin(client.origin);
+  return !forwards[key] && !forwards[`${key}/`];
 }
 
 /**

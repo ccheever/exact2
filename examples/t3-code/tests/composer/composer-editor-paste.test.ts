@@ -226,8 +226,13 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
   test('a dropped or pasted folder has no path to mention: the reference\'s refusal for it, or for a remote environment', async () => {
     const { client, native } = await opened();
     memoryFiles({ 'doc:/1/src': 'folder', 'doc:/2/notes.txt': text('notes') });
+    client.origin = 'https://devbox.example.com';
     await attachIncoming(client, native, 'drop', incoming(['doc:/1/src']));
-    expect(toasts(client).map(toast => toast.title)).toEqual(['Folders can only be referenced in the local desktop environment']);
+    expect(toasts(client).map(toast => toast.title)).toEqual(['Folders can only be referenced on a server running on this computer']);
+    // A saved server on this computer's loopback shares its files (folderDropTarget's saved loopback connection).
+    client.origin = 'http://127.0.0.1:4555';
+    await attachIncoming(client, native, 'drop', incoming(['doc:/1/src']));
+    expect(toasts(client).map(toast => toast.title).at(-1)).toBe('Couldn\'t get the path of "src"');
     primary.target = { environmentId: client.environmentId } as PrimaryTarget;
     await attachIncoming(client, native, 'drop', incoming(['doc:/1/src', 'doc:/2/notes.txt']));
     expect(toasts(client).map(toast => [toast.title, toast.description]).at(-1)).toEqual(['Couldn\'t get the path of "src"', 'Type the folder path with @ instead.']);

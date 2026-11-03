@@ -7,6 +7,9 @@
 import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError } from '../client/protocol';
 import type { T3Client } from '../client/client';
+import { pushToast } from '../shell/toast';
+import { textDirection } from '../shared/text-direction';
+import { markdownProseDirection } from './composer-text-direction';
 import { queuedEdit } from './composer-controls-queue';
 import { uploadBlock } from './composer-uploads';
 import { promptRewriteKey } from './composer-ultrathink';
@@ -21,7 +24,7 @@ import { answerSubmitting, attachmentsStaging, questionDraftKey, questionDraftPr
 /** One draft per question (`request::question`) and one per request (its question index). */
 export type RequestDraft = { selected: string[]; custom: string; index: number };
 type Question = { initialAnswer?: string; id: string; header: string; question: string; multiSelect: boolean; allowCustom: boolean; options: { label: string; value: string; description: string }[] };
-type PendingApproval = { requestId: string; kind: string; createdAt: string; detail: string; reason: string; fullAccessOverride: string; appName: string;
+export type PendingApproval = { requestId: string; kind: string; createdAt: string; detail: string; reason: string; fullAccessOverride: string; appName: string;
   options: Obj[]; live: boolean; supportsFeedback: boolean };
 type PendingInput = { requestId: string; createdAt: string; questions: Question[]; resumable: boolean; dismissible: boolean };
 
@@ -205,15 +208,22 @@ export function requestPresentation(client: T3Client) {
     const current = client.answers[`${input.requestId}::${entry.id}`];
     const customActive = (entry.initialAnswer !== undefined ? active.custom : active.custom.trim()).length > 0;
     const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(entry.question), client.shell.threads, client.environmentId), root = str(client.shell.projects.find(project => project.id === client.projectId)?.workspaceRoot);
+    // Hebrew and Arabic read right to left (ComposerPendingUserInputCard): the card by all of the prompt's prose, each
+    // header, question, label and description by its own words, falling back to the card's.
+    const dir = markdownProseDirection(input.questions.flatMap(question => [question.header, question.question,
+      ...question.options.flatMap(option => [option.label, option.description])]).join(' ')) ?? 'ltr';
+    const own = (value: string) => textDirection(value) ?? dir;
     return { id: `${input.requestId}::${entry.id}`, requestId: input.requestId, header: entry.header, question: text,
       multiSelect: entry.multiSelect, customAllowed: entry.allowCustom, canRespond: !reason, operable: operable(client), live: input.resumable, responseReason: reason,
       responding: responding(input.requestId), dismissible: input.dismissible, answer: active.custom,
       position: input.questions.length > 1 ? `${index + 1}/${input.questions.length}` : '', index, last: active.last,
       canAdvance: active.canAdvance, complete: active.complete, uploading: uploadBlock(client) !== '',
       action: responding(input.requestId) ? 'Submitting...' : active.last ? 'Submit' : 'Next', md: { ...markdownEnv(client), chips: withFileLinkMenus(client, messageChips({ text }, root, client.shell.threads, '', {}, client)), threadGlyphs: markdownThreadGlyphs(client, text) },
+      dir, headerDir: own(entry.header), questionDir: markdownProseDirection(entry.question) ?? dir,
       options: entry.options.map((option, position) => ({ id: option.value, label: option.label,
         description: option.description !== option.label ? option.description : '',
-        selected: !customActive && (current?.selected ?? []).includes(option.value), shortcut: position < 9 ? String(position + 1) : '' })) };
+        selected: !customActive && (current?.selected ?? []).includes(option.value), shortcut: position < 9 ? String(position + 1) : '',
+        labelDir: own(option.label), descriptionDir: own(option.description) })) };
   })()] : [];
   const requestMode = questions.length ? 'question' : approval ? 'approval' : '';
   const edit = queuedEdit(client);
@@ -267,7 +277,7 @@ export function setCustomAnswer(client: T3Client, value: string): boolean {
   setDraft(client, key, { custom: value, selected: current.active.initialAnswer !== undefined || value.trim() ? [] : draft(client, key).selected });
   return true;
 }
-/** Selecting replaces the custom answer; its text returns to the thread draft. */
+/** Selecting replaces the custom answer; its text returns to the thread draft, which a toast says. */
 export function chooseOption(client: T3Client, id: string, value: string, carry: (text: string) => void): boolean {
   if (!operable(client)) return false; // handleOptionSelection: a disabled card ignores the pick
   const separator = id.indexOf('::');
@@ -275,7 +285,10 @@ export function chooseOption(client: T3Client, id: string, value: string, carry:
   if (current.active!.id !== id.slice(separator + 2)) throw new ClientError('That question is no longer active.');
   if (!current.active!.options.some(option => option.value === value)) throw new ClientError('That option is no longer available.');
   const before = draft(client, id), displaced = before.custom.trim();
-  if (displaced) carry(displaced);
+  if (displaced) {
+    carry(displaced);
+    pushToast(client, { kind: 'info', title: 'Your typed text was set aside', description: 'It will be back in the composer once the question is answered.' });
+  }
   if (current.active!.multiSelect) {
     const selected = before.selected.includes(value) ? before.selected.filter(entry => entry !== value) : [...before.selected, value];
     setDraft(client, id, { selected, custom: '' });
