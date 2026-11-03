@@ -28,6 +28,14 @@ enum ButtonConfigurationIOS {
         value?.cgColor(dark: traits.userInterfaceStyle == .dark,
             contrast: traits.accessibilityContrast == .high, tint: accent).map { UIColor(cgColor: $0) }
     }
+    /// A row naming a colour UIKit has (a role such as `-exact-label` or `-exact-system-teal`, a platform
+    /// colour or an asset) as UIKit's own colour, as a hand-built button is given `.label` or `.systemTeal`,
+    /// which UIKit resolves in the button's traits (LLP 1095): glass brings a label colour out of a sheet's
+    /// dim with the sheet, and under Increase Contrast a filled style draws a system accent at its
+    /// high-contrast value where it darkens a fixed one once more (LLP 1116.019 D3); any other row, `resolved`
+    static func platformColor(_ row: BatchValue?, _ resolved: UIColor?) -> UIColor? {
+        SystemColor.native(row) ?? resolved
+    }
     /// UIKit's public system-spacing constraint, evaluated on the running OS
     /// once per font: solving it takes an Auto Layout pass. Main thread.
     private static var spacings: [UIFont: CGFloat] = [:]
@@ -176,7 +184,7 @@ enum ButtonConfigurationIOS {
         let circle = !sides.contains(where: { $0 != nil }) && face.title?.isEmpty ?? true && face.subtitle?.isEmpty ?? true
             && config.image != nil && !["plain", "borderless"].contains(drawn)
         if circle, rows.button["control_corner_style"] == nil, uniformRadius(face) == nil { config.cornerStyle = .capsule }
-        let foreground = color(rows.title["text_color"], traits: traits, accent: accent)
+        let foreground = platformColor(rows.title["text_color"], color(rows.title["text_color"], traits: traits, accent: accent))
         if let foreground { config.baseForegroundColor = foreground }
         // Unsaid on a fill of the accent, the ink is UIKit's white on every accent, teal and yellow too, as a
         // hand-built filled button draws it (LLP 1116.019 D3). Increase Contrast darkens a system accent, which
@@ -196,7 +204,7 @@ enum ButtonConfigurationIOS {
                 return outgoing
             }
         }
-        let subtitleColor = color(rows.subtitle["text_color"], traits: traits, accent: accent)
+        let subtitleColor = platformColor(rows.subtitle["text_color"], color(rows.subtitle["text_color"], traits: traits, accent: accent))
         let subtitleFontAuthored = rows.subtitle["font_size"] != nil || rows.subtitle["font_weight"] != nil
         if subtitleFontAuthored || subtitleColor != nil {
             config.subtitleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
