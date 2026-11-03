@@ -233,6 +233,33 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(p.views[7]).accessibilityTraits.contains(.link))
     }
 
+    /// accname's name from content (step 2F): a link's spoken name joins
+    /// its descendants' names, each a labelled one's own label (an image's
+    /// `alt` or `aria-label`, a `role="img"` box's) in place of its content,
+    /// as on the web. An unlabelled or `aria-hidden` image adds nothing, and
+    /// the words the link shows stay its words.
+    func testALinksNameCountsALabelledImageInside() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 40, "kind": "button", "handlers": ["press"], "props": ["testId": "row", "accessibilityRole": "link"]],
+            ["op": "create", "id": 41, "kind": "view", "props": ["accessibilityRole": "img", "accessibilityLabel": "Signal"]],
+            ["op": "create", "id": 42, "kind": "image", "props": ["accessibilityElementsHidden": "true"]],
+            ["op": "create", "id": 43, "kind": "image", "props": ["accessibilityLabel": "WhatsApp"]],
+            ["op": "create", "id": 44, "kind": "text", "props": ["text": "Ada"]],
+            ["op": "create", "id": 45, "kind": "image"],
+            ["op": "create", "id": 46, "kind": "image", "props": ["accessibilityLabel": "Hidden", "accessibilityElementsHidden": "true"]],
+            ["op": "children", "id": 41, "ids": [42]],
+            ["op": "children", "id": 40, "ids": [41, 43, 44, 45, 46]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4, 40]],
+            ["op": "frame", "id": 40, "x": 0.0, "y": 210.0, "w": 400.0, "h": 60.0],
+        ]))
+        p.syncAccessibility()
+        let row = try XCTUnwrap(p.views[40])
+        XCTAssertEqual(row.accessibilityLabel, "Signal WhatsApp Ada")
+        XCTAssertEqual(element(p.axElements(roots: [p.viewport]), "row")?["name"] as? String, "Signal WhatsApp Ada", "`tree --ax` reads the same name")
+        XCTAssertEqual(row.accessibleText, "Ada", "its words are the text it shows")
+    }
+
     func testElementsAreUIKitsAnswersJoinedToTheirViews() throws {
         let p = try fixture()
         let ax = p.axElements(roots: [p.viewport])
