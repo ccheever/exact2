@@ -985,6 +985,24 @@ test('launchers and generated own commands find pinned Bun with an old PATH', ()
   } finally {rmSync(parent, {recursive: true, force: true});}
 });
 
+test('a script moves to the pinned Bun, and a test file, whose `bun test` cannot move, names the Bun to run it with', () => {
+  const parent = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-bun-')));
+  try {
+    const pinned = resolve(parent, 'bun'), script = resolve(parent, 'script.mjs'), file = resolve(parent, 'pinned.test.mjs');
+    writeFileSync(pinned, '#!/bin/sh\nif [ "$1" = --version ]; then echo 99.0.0; else echo "pinned Bun ran $*"; fi\n', {mode: 0o755});
+    const source = `import {ensureBun} from ${JSON.stringify(resolve(import.meta.dir, '../scripts/bun.mjs'))};\nensureBun('1.0.0');\n`;
+    writeFileSync(script, source);
+    writeFileSync(file, `${source}import {test} from 'bun:test';\ntest('ran', () => {});\n`);
+    const env = {...process.env, BUN: pinned};
+    const moved = spawnSync(process.execPath, [script], {cwd: parent, env, encoding: 'utf8'});
+    assert.deepEqual([moved.status, moved.stdout], [0, `pinned Bun ran ${script}\n`]);
+    const tested = spawnSync(process.execPath, ['test', file], {cwd: parent, env, encoding: 'utf8'});
+    assert.notEqual(tested.status, 0);
+    assert.ok(tested.stderr.includes(`cannot hand \`bun test\` to this checkout's Bun; run ${pinned} test ${file}`), tested.stderr);
+    assert.ok(!tested.stdout.includes('pinned Bun ran'), tested.stdout);
+  } finally {rmSync(parent, {recursive: true, force: true});}
+});
+
 // LLP 1153 D1.2: a native verb names its platform only after that platform's setup rows, and writes nothing when one
 // is missing, the report could not be read, or the machine cannot build it at all.
 test('a native verb refuses before writing when its platform\'s setup is missing, and names it otherwise', async () => {

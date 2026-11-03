@@ -20,6 +20,8 @@ export function ensureBun(pin) {
   process.env.BUN = selected;
   process.env.PATH = [dirname(selected), ...(process.env.PATH ?? '').split(delimiter).filter(p => p !== dirname(selected))].join(delimiter);
   if (selected !== realpathSync(process.execPath)) {
+    // A test file runs only under `bun test`, whose verb and flags process.argv does not carry: name the Bun to run it with.
+    if (/[._](?:test|spec)\.[cm]?[jt]sx?$/.test(Bun.main)) throw new Error(`Bun ${process.versions.bun} cannot hand \`bun test\` to this checkout's Bun; run ${selected} test ${Bun.main}`);
     // The pinned Bun takes this environment as the one it was given: what Bun loaded from `.env` files is noted first.
     noteBunLoaded();
     const child = spawnSync(selected, process.argv.slice(1), {stdio: 'inherit', env: process.env});
