@@ -99,6 +99,10 @@ pub struct Block {
     pub width: u32,
     /// See `width`.
     pub height: u32,
+    /// The CSS `text-align` the `align` of a `<p>` or `<div>` around the
+    /// block gives it (`left`, `right`, `center` or `justify`), or empty
+    /// for the reader's own ([`html::Line`]).
+    pub align: String,
 }
 
 /// A parsed document.
@@ -160,8 +164,23 @@ pub struct Html<'a> {
     pub schemes: &'a [&'a str],
     /// The run an image inside a line of text becomes, given its sources as
     /// written; with none, its alt text, as a Markdown image inside a line
-    /// is its alt text in a reader that draws images only as blocks.
+    /// is its alt text in a reader that draws images only as blocks. With
+    /// one, images that HTML draws side by side are a paragraph of such
+    /// runs, and an image may sit inside an `<a href>`.
     pub inline: Option<&'a dyn Fn(html::Image) -> Run>,
+    /// The URL schemes an `<a>`'s `href` around images may name besides a
+    /// scheme-less URL; one naming another is dropped and its images are
+    /// drawn with no link, as the sanitizer drops it.
+    pub links: &'a [&'a str],
+}
+
+impl Html<'_> {
+    /// The schemes an `<a>` around images may name, when one is read: only
+    /// with `inline`, as a reader that draws images as blocks would lose
+    /// its link.
+    pub(crate) fn links(&self) -> Option<&[&str]> {
+        self.inline.map(|_| self.links)
+    }
 }
 
 impl std::fmt::Debug for Html<'_> {
@@ -170,6 +189,7 @@ impl std::fmt::Debug for Html<'_> {
             .field("images", &self.images)
             .field("schemes", &self.schemes)
             .field("inline", &self.inline.is_some())
+            .field("links", &self.links)
             .finish()
     }
 }
@@ -180,12 +200,14 @@ impl Html<'static> {
         images: true,
         schemes: &["http", "https"],
         inline: None,
+        links: &["http", "https", "irc", "ircs", "mailto", "xmpp"],
     };
     /// Every line of raw HTML shown as written.
     pub const LITERAL: Html<'static> = Html {
         images: false,
         schemes: &[],
         inline: None,
+        links: &[],
     };
 }
 
@@ -232,13 +254,25 @@ pub fn parse_with(
         }
         lines.push(line);
     }
-    // The elements image markup left open, whose end tags draw nothing.
-    let mut open = Vec::new();
+    // The elements image markup left open, whose end tags draw nothing,
+    // with the `text-align` each gives what it holds.
+    let mut open: Vec<(String, String)> = Vec::new();
+    // The blocks from `aligned` on take `align`, an open `<div>`'s.
+    let (mut aligned, mut align) = (0, String::new());
+    // The line of images the next image markup may go on with.
+    let mut going: Option<Pending> = None;
     let mut at = 0;
     while at < lines.len() {
         if context.scan.cancelled() {
             return None;
         }
+        inherit(&mut doc.blocks[aligned..], &align);
+        aligned = doc.blocks.len();
+        align = open
+            .iter()
+            .rev()
+            .find(|(name, align)| name == "div" && !align.is_empty())
+            .map_or_else(String::new, |(_, align)| align.clone());
         let line = lines[at];
         let trimmed = line.trim_start();
         let indent = line.len() - trimmed.len();
@@ -291,14 +325,48 @@ pub fn parse_with(
             at += 1;
             continue;
         }
-        if let Some((images, next, left_open)) = html_images(&lines, at, &context) {
-            let image = |image| image_block(image, context.link);
-            doc.blocks.extend(images.into_iter().map(image));
+        if let Some((images, boxes, next, left_open)) = html_images(&lines, at, &context) {
+            for (
+                index,
+                html::Line {
+                    start,
+                    end,
+                    align,
+                    continues,
+                    open: left,
+                },
+            ) in boxes.into_iter().enumerate()
+            {
+                let mut images = images[start..end].to_vec();
+                let mut align = align;
+                // A line left open goes on, a blank line or not, until a block comes.
+                if let Some(before) = going
+                    .take()
+                    .filter(|p| index == 0 && continues && p.end == doc.blocks.len())
+                {
+                    doc.blocks.truncate(before.start);
+                    images[0].spaced = true;
+                    images.splice(0..0, before.images);
+                    if align.is_empty() {
+                        align = before.align;
+                    }
+                }
+                let start = doc.blocks.len();
+                doc.blocks
+                    .extend(line_blocks(images.clone(), &align, &context));
+                going = left.then_some(Pending {
+                    start,
+                    end: doc.blocks.len(),
+                    images,
+                    align,
+                });
+            }
             open.extend(left_open);
             at = next;
             continue;
         }
         if closes_open(trimmed, &mut open) {
+            going = None;
             at += 1;
             continue;
         }
@@ -313,7 +381,59 @@ pub fn parse_with(
         }
         at = paragraph(&lines, at, &context, &mut doc);
     }
+    inherit(&mut doc.blocks[aligned..], &align);
     (!context.scan.cancelled()).then_some(doc)
+}
+
+/// A line of images the image markup after it may go on with (see
+/// [`html::Line`]): its blocks are `doc.blocks[start..end]`.
+struct Pending {
+    start: usize,
+    end: usize,
+    images: Vec<html::Image>,
+    align: String,
+}
+
+/// `align` for each block that has none of its own: a `<div align>` left
+/// open holds them, as HTML's tree does.
+fn inherit(blocks: &mut [Block], align: &str) {
+    if align.is_empty() {
+        return;
+    }
+    for block in blocks.iter_mut().filter(|b| b.align.is_empty()) {
+        block.align = align.to_string();
+    }
+}
+
+/// The blocks of one line of images. A reader that draws images inside a
+/// line gets one paragraph of its runs, a space between two images that
+/// white space parts, for two images or more, or one inside a link; any
+/// other draws each image as a block, one under the other.
+fn line_blocks(images: Vec<html::Image>, align: &str, context: &Context<'_>) -> Vec<Block> {
+    match context.html.inline {
+        Some(run) if images.len() > 1 || images.iter().any(|i| !i.link.is_empty()) => {
+            let mut runs = Vec::with_capacity(images.len() * 2);
+            for (index, image) in images.into_iter().enumerate() {
+                if index > 0 && image.spaced {
+                    runs.push(Run::text(" "));
+                }
+                runs.push(run(image));
+            }
+            vec![Block {
+                kind: Kind::Paragraph,
+                runs,
+                align: align.to_string(),
+                ..Block::default()
+            }]
+        }
+        _ => images
+            .into_iter()
+            .map(|image| Block {
+                align: align.to_string(),
+                ..image_block(image, context.link)
+            })
+            .collect(),
+    }
 }
 
 /// The fence a line opens (its character and its length), or none.
@@ -640,7 +760,8 @@ fn paragraph(lines: &[&str], at: usize, context: &Context<'_>, doc: &mut Documen
 }
 
 /// The `<img>` and `<picture>` markup that starts line `at`: its images,
-/// the line after it, and the elements its end left open. The
+/// their line boxes, the line after it, and the elements its end left open
+/// with their `text-align`. The
 /// markup may run over several lines, up to the next blank one, and its last
 /// element must end its line; the lines after that element are the rest of
 /// the document's. The blank line or the document's end closes what is still
@@ -648,12 +769,19 @@ fn paragraph(lines: &[&str], at: usize, context: &Context<'_>, doc: &mut Documen
 ///
 /// A paragraph ends before such a line, which CommonMark would read as inline
 /// HTML in the paragraph: a reader of blocks draws an image only as one.
+#[allow(clippy::type_complexity)]
 fn html_images(
     lines: &[&str],
     at: usize,
     context: &Context<'_>,
-) -> Option<(Vec<html::Image>, usize, Vec<String>)> {
-    if !context.html.images || !html::starts_element(lines[at].trim_start()) {
+) -> Option<(
+    Vec<html::Image>,
+    Vec<html::Line>,
+    usize,
+    Vec<(String, String)>,
+)> {
+    let links = context.html.links();
+    if !context.html.images || !html::starts_element(lines[at].trim_start(), links.is_some()) {
         return None;
     }
     let mut text = String::new();
@@ -672,37 +800,65 @@ fn html_images(
         text.push_str(line);
     }
     let mut images = Vec::new();
+    let mut boxes: Vec<html::Line> = Vec::new();
     let mut found = None;
     let mut offset = 0;
     loop {
         if context.scan.cancelled() {
             return None;
         }
-        offset += text[offset..].len() - text[offset..].trim_start().len();
-        let Some(markup) = html::element(&text[offset..], context.html.schemes, ends) else {
+        let skipped = text[offset..].len() - text[offset..].trim_start().len();
+        offset += skipped;
+        let Some(markup) = html::element(&text[offset..], context.html.schemes, links, ends) else {
             break;
         };
         offset += markup.len;
-        images.extend(markup.images);
+        let base = images.len();
+        for (index, mut line) in markup.lines.into_iter().enumerate() {
+            line.start += base;
+            line.end += base;
+            match boxes.last_mut() {
+                // Elements one after another, with no block between, share a line.
+                Some(last) if index == 0 && line.continues && last.open => {
+                    last.end = line.end;
+                    last.open = line.open;
+                }
+                _ => boxes.push(line),
+            }
+        }
+        let mut drawn = markup.images;
+        if let Some(first) = drawn.first_mut() {
+            first.spaced |= skipped > 0;
+        }
+        images.extend(drawn);
         let line_end = text[offset..].find('\n').map_or(text.len(), |n| offset + n);
         if text[offset..line_end].trim().is_empty() {
             let line = at + text[..line_end].matches('\n').count();
-            found = Some((images.len(), line + 1, markup.open));
+            found = Some((images.len(), boxes.clone(), line + 1, markup.open));
         }
     }
-    let (count, next, open) = found?;
+    let (count, mut boxes, next, open) = found?;
     images.truncate(count);
-    Some((images, next, open))
+    // Inline HTML is a paragraph of its own, which no image outside it shares a line with.
+    if !html::starts_block(lines[at]) {
+        if let Some(first) = boxes.first_mut() {
+            first.continues = false;
+        }
+        if let Some(last) = boxes.last_mut() {
+            last.open = false;
+        }
+    }
+    Some((images, boxes, next, open))
 }
 
 /// Whether `line` is the end tags of elements image markup left open, which
 /// close them and draw nothing, as T3 Code's HTML parser reads them.
-fn closes_open(line: &str, open: &mut Vec<String>) -> bool {
+fn closes_open(line: &str, open: &mut Vec<(String, String)>) -> bool {
     let Some(names) = html::end_tags(line) else {
         return false;
     };
     let closes =
-        names.len() <= open.len() && names.iter().zip(open.iter().rev()).all(|(a, b)| a == b);
+        names.len() <= open.len() && names.iter().zip(open.iter().rev()).all(|(a, b)| *a == b.0);
     if closes {
         open.truncate(open.len() - names.len());
     }
@@ -712,14 +868,15 @@ fn closes_open(line: &str, open: &mut Vec<String>) -> bool {
 /// Whether `line` starts with an image that the paragraph it opens draws
 /// inline, with text after it on the line: CommonMark's inline HTML.
 fn inline_image(line: &str, context: &Context<'_>) -> bool {
-    if !context.html.images || !html::starts_image(line) {
+    let links = context.html.links();
+    if !context.html.images || !html::starts_image(line, links.is_some()) {
         return false;
     }
     let mut limit = line.len().min(html::MARKUP_LIMIT);
     while !line.is_char_boundary(limit) {
         limit -= 1;
     }
-    html::element(&line[..limit], context.html.schemes, false).is_some()
+    html::element(&line[..limit], context.html.schemes, links, false).is_some()
 }
 
 fn image_block(image: html::Image, link: &dyn Fn(&str) -> String) -> Block {

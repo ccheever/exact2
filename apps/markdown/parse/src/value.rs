@@ -92,6 +92,7 @@ impl Values {
             self.string(&b.dark),
             Value::Number(b.width as f64),
             Value::Number(b.height as f64),
+            self.string(&b.align),
         ])
     }
 
@@ -115,6 +116,7 @@ impl Values {
             self.string(""),
             Value::Number(0.0),
             Value::Number(0.0),
+            self.string(""),
         ])
     }
 }
