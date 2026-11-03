@@ -7,6 +7,16 @@ fn here(source: &str) -> Vec<Block> {
     parse(source, &|target: &str| target.to_string()).blocks
 }
 
+fn with_schemes(source: &str, schemes: &[&str]) -> Vec<Block> {
+    let html = Html {
+        schemes,
+        ..Html::GITHUB
+    };
+    parse_with(source, &str::to_string, &|| false, html)
+        .unwrap()
+        .blocks
+}
+
 fn image(href: &str, alt: &str) -> Block {
     Block {
         kind: Kind::Image,
@@ -45,8 +55,6 @@ fn a_picture_moves_its_colour_scheme_sources_onto_its_image() {
             "</picture>",
             "",
             r#"<picture><source media="(prefers-color-scheme: light)" srcset="javascript:alert(1)"><img src="docs/dark.webp"></picture>"#,
-            "",
-            r#"<picture><source media="(prefers-color-scheme: dark)" srcset="C:\shots\dark.png"><img src="C:\shots\light.png"></picture>"#,
         ]
         .join("\n"),
     );
@@ -59,11 +67,17 @@ fn a_picture_moves_its_colour_scheme_sources_onto_its_image() {
             },
             // The refused light source is gone, and nothing takes its place.
             image("docs/dark.webp", ""),
-            Block {
-                dark: r"C:\shots\dark.png".into(),
-                ..image(r"C:\shots\light.png", "")
-            },
         ]
+    );
+    // A drive path in a source is a `file:` URL to the sanitizer.
+    let drive = r#"<picture><source media="(prefers-color-scheme: dark)" srcset="C:\shots\dark.png"><img src="C:\shots\light.png"></picture>"#;
+    assert_eq!(here(drive), [image(r"C:\shots\light.png", "")]);
+    assert_eq!(
+        with_schemes(drive, &["http", "https", "file"]),
+        [Block {
+            dark: r"C:\shots\dark.png".into(),
+            ..image(r"C:\shots\light.png", "")
+        }]
     );
     // A light source alone: the image's own source is the dark appearance's.
     let blocks = here(
@@ -92,18 +106,11 @@ fn a_source_naming_another_scheme_loads_nothing() {
             image("a/b:c.png", "")
         ]
     );
-    let file = Html {
-        images: true,
-        schemes: &["http", "https", "file"],
-    };
-    let doc = parse_with(
+    let blocks = with_schemes(
         "<img src=\"file:///tmp/a.png\">",
-        &str::to_string,
-        &|| false,
-        file,
-    )
-    .unwrap();
-    assert_eq!(doc.blocks, [image("file:///tmp/a.png", "")]);
+        &["http", "https", "file"],
+    );
+    assert_eq!(blocks, [image("file:///tmp/a.png", "")]);
 }
 
 #[test]
@@ -129,11 +136,16 @@ fn an_image_line_ends_the_paragraph_above_it() {
 #[test]
 fn markup_holding_anything_else_stays_literal() {
     for source in [
-        "<img src=\"a.png\"> and a caption",
         "<picture><img src=\"a.png\"><span>x</span></picture>",
-        "<picture><img src=\"a.png\">",
         "<img src=\"a.png",
         "<image src=\"a.png\">",
+        "<div>x</div>",
+        "<div><img src=\"a.png\">x</div>",
+        "<a href=\"https://example.com\"><img src=\"a.png\"></a>",
+        "<span><img src=\"a.png\"></span>",
+        "<div><source srcset=\"a.png\"><img src=\"a.png\"></div>",
+        "<div><img src=\"a.png\"></p></div>",
+        "<strong></strong>",
     ] {
         let blocks = here(source);
         assert_eq!(blocks[0].kind, Kind::Html, "{source}");
@@ -195,4 +207,185 @@ fn image_markup_reads_ahead_a_bounded_distance() {
         "<picture>\n{sources}<img src=\"a.png\"></picture>"
     ));
     assert_eq!(blocks, [image("a.png", "")]);
+}
+
+#[test]
+fn an_img_inside_a_line_of_text_is_drawn_where_it_stands() {
+    let doc = parse(
+        "See <img src=\"a.png\" alt=\"the panel\"> here, not `<img src=\"b.png\">`.",
+        &str::to_string,
+    );
+    assert_eq!(doc.blocks.len(), 1);
+    assert_eq!(doc.blocks[0].kind, Kind::Paragraph);
+    // A reader that draws images only as blocks shows its alt text, as it
+    // shows a Markdown image inside a line.
+    assert_eq!(
+        markdown_parse::plain(&doc.blocks[0].runs),
+        "See the panel here, not <img src=\"b.png\">."
+    );
+    // Text after an image on its line makes the line a paragraph, as
+    // CommonMark reads it, and so does a picture.
+    for source in [
+        "<img src=\"a.png\" alt=\"x\"> and a caption",
+        "<picture><img src=\"a.png\" alt=\"x\"></picture> and a caption",
+    ] {
+        let blocks = here(source);
+        assert_eq!(blocks[0].kind, Kind::Paragraph, "{source}");
+        assert_eq!(markdown_parse::plain(&blocks[0].runs), "x and a caption");
+    }
+    // The caller may draw it: its run is given the image's sources as written.
+    let draw = |image: markdown_parse::html::Image| markdown_parse::Run {
+        text: format!("[{}]", image.alt),
+        href: format!("{}|{}|{}", image.src, image.dark, image.width),
+        ..markdown_parse::Run::default()
+    };
+    let html = Html {
+        inline: Some(&draw),
+        ..Html::GITHUB
+    };
+    let source =
+        "**Before <img src=\"a.png\" alt=\"A\" width=\"20\" data-dark-src=\"d.png\"> after**";
+    let doc = parse_with(source, &|t| format!("/{t}"), &|| false, html).unwrap();
+    let runs = &doc.blocks[0].runs;
+    assert_eq!(markdown_parse::plain(runs), "Before [A] after");
+    let drawn = runs.iter().find(|r| r.text == "[A]").unwrap();
+    assert_eq!(drawn.href, "a.png|d.png|20");
+    assert!(drawn.bold);
+    // Literal HTML keeps it as written.
+    let doc = parse_with(
+        "See <img src=\"a.png\" alt=\"x\">",
+        &str::to_string,
+        &|| false,
+        Html::LITERAL,
+    )
+    .unwrap();
+    assert_eq!(
+        markdown_parse::plain(&doc.blocks[0].runs),
+        "See <img src=\"a.png\" alt=\"x\">"
+    );
+}
+
+#[test]
+fn an_img_inside_elements_that_draw_nothing_is_an_image() {
+    for source in [
+        "<div><img src=\"a.png\"></div>",
+        "<p align=\"center\">\n  <img src=\"a.png\">\n</p>",
+        "<center><strong><img src=\"a.png\"></strong><br></center>",
+        "<figure><!-- shot --><em><img src=\"a.png\"></em></figure>",
+        // A `<div>` start closes an open `<p>`; an end tag that closes
+        // nothing is ignored.
+        "<p><div><img src=\"a.png\"></span></div>",
+    ] {
+        assert_eq!(here(source), [image("a.png", "")], "{source}");
+    }
+    let blocks = here(
+        "<div>\n<picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"d.png\"><img src=\"l.png\"></picture>\n<img src=\"b.png\" width=\"20\">\n</div>",
+    );
+    assert_eq!(
+        blocks,
+        [
+            Block {
+                dark: "d.png".into(),
+                ..image("l.png", "")
+            },
+            Block {
+                width: 20,
+                ..image("b.png", "")
+            },
+        ]
+    );
+    // Blank lines inside the element: its start tag and its end tag draw
+    // nothing, and what lies between is the document's.
+    let blocks = here("<div align=\"center\">\n\n<img src=\"a.png\">\n\nText\n\n</div>\n\n</div>");
+    assert_eq!(blocks.len(), 3);
+    assert_eq!(blocks[0], image("a.png", ""));
+    assert_eq!(markdown_parse::plain(&blocks[1].runs), "Text");
+    // An end tag that closes nothing the markup left open stays as written.
+    assert_eq!(blocks[2].kind, Kind::Html);
+    assert_eq!(blocks[2].text, "</div>");
+}
+
+#[test]
+fn an_unclosed_picture_is_closed_by_the_blank_line_or_the_end() {
+    let picture = "<picture>\n<source media=\"(prefers-color-scheme: dark)\" srcset=\"d.png\">\n<img src=\"l.png\" alt=\"Shot\">";
+    let drawn = Block {
+        dark: "d.png".into(),
+        ..image("l.png", "Shot")
+    };
+    assert_eq!(here(picture), std::slice::from_ref(&drawn));
+    let blocks = here(&format!("{picture}\n\nAfter."));
+    assert_eq!(blocks[0], drawn);
+    assert_eq!(markdown_parse::plain(&blocks[1].runs), "After.");
+    // A picture's end tag after the blank line closes it and draws nothing.
+    assert_eq!(here(&format!("{picture}\n\n</picture>")), [drawn]);
+    // So does the end of a paragraph, for a picture inside a line.
+    let doc = parse(
+        "Shot: <picture><img src=\"l.png\" alt=\"Shot\">",
+        &str::to_string,
+    );
+    assert_eq!(markdown_parse::plain(&doc.blocks[0].runs), "Shot: Shot");
+    // An unfinished tag is not repaired.
+    assert_eq!(here("<picture><img src=\"l.png\"")[0].kind, Kind::Html);
+}
+
+#[test]
+fn character_references_decode_before_a_source_is_checked() {
+    let blocks = here(
+        &[
+            r#"<img src="javascript&colon;alert(1)" alt="&copy; 2026 &amp &notit; &not;x">"#,
+            r#"<img src="java&Tab;script:alert(1)">"#,
+            r#"<img src="&#x6A;avascript:alert(1)">"#,
+            r#"<img src="a.png?x=1&ampy=2&amp=3&lt;&#0;&#x80;&#X1F600">"#,
+        ]
+        .join("\n"),
+    );
+    assert_eq!(
+        blocks,
+        [
+            image("", "\u{a9} 2026 & &notit; \u{ac}x"),
+            image("", ""),
+            image("", ""),
+            image("a.png?x=1&ampy=2&amp=3<\u{fffd}\u{20ac}\u{1f600}", ""),
+        ]
+    );
+}
+
+#[test]
+fn an_imgs_own_dark_light_and_local_sources_are_read() {
+    let blocks = here(
+        &[
+            r#"<img src="l.png" data-dark-src="d.png">"#,
+            r#"<img src="x.png" data-light-src="l.png">"#,
+            r#"<img src="l.png" data-dark-src="javascript:x" data-light-src="C:\l.png">"#,
+            r#"<img src="a.png" data-local-src="b.png">"#,
+            r#"<img src="C:\a.png" data-local-src="b.png">"#,
+            // The image's own source wins over a `<source>`, even one the
+            // sanitizer refuses.
+            r#"<picture><source media="(prefers-color-scheme: dark)" srcset="s.png"><img src="l.png" data-dark-src="javascript:x"></picture>"#,
+            r#"<picture><source media="(prefers-color-scheme: dark)" srcset="s.png"><img src="l.png" data-dark-src="o.png"></picture>"#,
+        ]
+        .join("\n"),
+    );
+    assert_eq!(
+        blocks,
+        [
+            Block {
+                dark: "d.png".into(),
+                ..image("l.png", "")
+            },
+            // A light source alone: the image's own source is the dark appearance's.
+            Block {
+                dark: "x.png".into(),
+                ..image("l.png", "")
+            },
+            image("l.png", ""),
+            image("b.png", ""),
+            image(r"C:\a.png", ""),
+            image("l.png", ""),
+            Block {
+                dark: "o.png".into(),
+                ..image("l.png", "")
+            },
+        ]
+    );
 }
