@@ -101,12 +101,12 @@ test('a gated check is skipped on a pass under its inputs, and runs when the gat
 });
 
 test('the lane tests in-repo game pins outside the engine workspace', () => {
-  const steps = checks('new', 'old', { lane: [], apple: false, glue: [] });
+  const steps = checks('new', 'old', { lane: [], glue: [] });
   expect(steps.find(([name]) => name === 'game-pins')).toEqual(['game-pins', 'bun', ['game/app/shells.mjs', '--test']]);
 });
 
 test('the wasm viewport integration runs against the prepared dist outside the fast glue step', () => {
-  const steps = checks('new', 'old', { lane: [], apple: false, glue: [] });
+  const steps = checks('new', 'old', { lane: [], glue: [] });
   const [, command, args] = steps.find(([name]) => name === 'web-ax-test');
   expect(command).toBe('env');
   expect(args).toContain('./host/web/tests/zero-viewport.test.mjs');
@@ -116,7 +116,7 @@ test('the wasm viewport integration runs against the prepared dist outside the f
 });
 
 test("the lane runs the game scaffold's standing tests, the cheap ones apart from the one that builds", () => {
-  const steps = checks('new', 'old', { lane: [], apple: false, glue: [] });
+  const steps = checks('new', 'old', { lane: [], glue: [] });
   const scaffold = steps.find(([name]) => name === 'game-scaffold');
   expect(scaffold[2]).toEqual(expect.arrayContaining(['game/proof-game.test.mjs', 'game/new.test.mjs']));
   expect(scaffold[2].at(-1)).not.toContain('assets scaffold');
@@ -124,7 +124,7 @@ test("the lane runs the game scaffold's standing tests, the cheap ones apart fro
 });
 
 test('the semantics run as four gated checks, and only a finished run is an outcome', () => {
-  const steps = checks('new', 'old', { lane: [], apple: false, glue: [] });
+  const steps = checks('new', 'old', { lane: [], glue: [] });
   expect(steps.filter(step => step[3]).map(([name]) => name)).toEqual(['lean', 'vm-extract', 'difftest', 'difftest-js']);
   const byName = Object.fromEntries(semanticsChecks({ HOME: '/h', PATH: '/p', EXACT_AGENT: '1' }).map(s => [s[0], s]));
   expect(byName.difftest[3].env).toEqual({ HOME: '/h', PATH: '/h/.elan/bin:/p', HERMES_LEAN_SYS_OFFLINE: '1', DIFFTEST_CACHE: '1' });
@@ -147,7 +147,7 @@ test('async help exits before creating or checking out its worktree', () => {
 
 test('the existing glue step runs Mac widget packaging, signing and migration tests', () => {
   const glue = glueTests(join(import.meta.dir, '..'));
-  const step = checks('new', 'old', { lane: [], apple: false, glue }).find(([name]) => name === 'glue');
+  const step = checks('new', 'old', { lane: [], glue }).find(([name]) => name === 'glue');
   for (const file of ['scripts/app-apple.test.mjs', 'scripts/app-keychain.test.mjs', 'scripts/app-manifest.test.mjs', 'scripts/exact.test.mjs', 'host/apple/link.test.mjs', 'host/apple/cloak.test.mjs', 'scripts/agent-drag.test.mjs']) {
     expect(glue).toContain('./' + file);
     expect(step[2].at(-1)).toContain('./' + file);

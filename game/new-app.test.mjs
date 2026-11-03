@@ -8,7 +8,7 @@ import { basename, relative, resolve } from 'node:path';
 import { outsideWorkspaceProblems, pathFrom, readManifest, resolveApp } from '../scripts/app.mjs';
 import { bringPlatform, ensureShells, namePlatform, platformOf, shellCrates, withoutPlatformKeys } from '../scripts/app-shells.mjs';
 import { authoredWorkspace } from '../scripts/cargo-check.mjs';
-import { appVerbs } from '../scripts/app-cli.mjs';
+import { appVerbs, beforeBuild } from '../scripts/app-cli.mjs';
 import { namesNative, nativePlatforms } from '../scripts/deploy.mjs';
 import { applyPattern, authoredApp, createApp, createGame, patternFiles, patterns, rosterSeeds, wireSnapback, withoutMember } from './new.mjs';
 
@@ -253,6 +253,165 @@ test('the app\'s own verbs live in app.json, so update keeps them', () => {
     assert.throws(() => readManifest(dir, 'field-log'), /commands\.seed: fewer than 1 items/);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 60_000); // Two offline Cargo resolutions.
+
+// A verb added to exact.mjs decides whether it reads what before_build makes, rather than skipping it unasked.
+test('every verb of exact.mjs says whether it runs before_build first', () => {
+  const verbs = new Set([false, true].flatMap((game) => Object.keys(appVerbs('app', '/app', { game }))));
+  assert.deepEqual([...verbs].filter((verb) => !(verb in beforeBuild)), [], 'verbs app-cli.mjs\'s beforeBuild does not name');
+  assert.deepEqual(Object.keys(beforeBuild).filter((verb) => !verbs.has(verb)), [], 'names in beforeBuild that are no verb');
+});
+
+// Landscapes: its photos are Apple's, which its repository may not hold, so its own script fetches them into a folder
+// Git ignores, and every build needs them there.
+test('app.json\'s before_build runs before each command that builds, and its failure stops the build', async () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const dir = resolve(parent, 'gallery'), game = resolve(parent, 'block-hop'), sdk = resolve(parent, 'sdk');
+    createApp(dir);
+    createGame(game);
+    withCli(sdk);
+    // Each fake step appends a line to the app's runs.log; the web build says whether the photo was there, and the
+    // drive replies on stdout as `--json` does.
+    const step = (line) => `import { appendFileSync, existsSync } from 'node:fs'; appendFileSync(process.env.EXACT_APP_DIR + '/runs.log', ${line} + '\\n');`;
+    for (const file of ['host/web/build.mjs', 'host/web/serve.mjs', 'scripts/exact.mjs', 'game/app/shells.mjs', 'snapback4/web/device-build.mjs']) mkdirSync(resolve(sdk, file, '..'), { recursive: true });
+    writeFileSync(resolve(sdk, 'host/web/build.mjs'), step('`build ${existsSync(process.env.EXACT_APP_DIR + "/assets/photo.jpg")}`'));
+    writeFileSync(resolve(sdk, 'scripts/agent.mjs'), `${step("'drive'")} console.log('{"drove":true}');`);
+    writeFileSync(resolve(sdk, 'scripts/share.mjs'), step("'share'"));
+    writeFileSync(resolve(sdk, 'host/web/serve.mjs'), step("'serve'"));
+    writeFileSync(resolve(sdk, 'scripts/exact.mjs'), step('`exact ${process.argv.slice(2, 4).join(" ")}`'));
+    writeFileSync(resolve(sdk, 'game/app/shells.mjs'), step('`shells ${process.argv.slice(3).join(" ")}`'));
+    // The Snapback device's preflight, before the Contract's compile, reads app files the preparation may make.
+    writeFileSync(resolve(sdk, 'snapback4/web/device-build.mjs'), `import { appendFileSync, existsSync } from 'node:fs';
+      export function devicePreflight({ dir }) { appendFileSync(dir + '/runs.log', \`preflight \${existsSync(dir + '/assets/photo.jpg')}\n\`); }`);
+    const fetch = `${step('`fetch ${process.argv.slice(2).join(" ")} in ${process.cwd() === process.env.EXACT_APP_DIR ? "app" : process.cwd()}`')}
+      import { mkdirSync, writeFileSync } from 'node:fs';
+      console.log('fetched');
+      if (process.env.FETCH_HOLD) { process.on('SIGTERM', () => process.exit(0)); writeFileSync('holding', ''); setTimeout(() => process.exit(9), 20_000); }
+      else { mkdirSync('assets', { recursive: true }); writeFileSync('assets/photo.jpg', ''); process.exit(Number(process.env.FETCH_EXIT ?? 0)); }`;
+    for (const app of [dir, game]) writeFileSync(resolve(app, 'fetch.mjs'), fetch);
+    const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    const declare = (before_build, more = {}) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, before_build, ...more }, null, 2));
+    declare(['bun', 'fetch.mjs', '--small']);
+    readManifest(dir, 'gallery');
+    const exact = (args, env = {}, app = dir) => spawnSync(process.execPath, [resolve(app, 'exact.mjs'), ...args], { cwd: parent, env: { ...process.env, EXACT2: sdk, ...env }, encoding: 'utf8' });
+    const runs = (app = dir) => { const log = resolve(app, 'runs.log'), lines = existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : []; rmSync(log, { force: true }); return lines; };
+    const built = exact(['web-build']);
+    assert.equal(built.status, 0, built.stderr);
+    assert.deepEqual(runs(), ['fetch --small in app', 'build true']);
+    assert.equal(built.stdout, '');
+    assert.match(built.stderr, /fetched/);
+    // A drive that builds first prepares before that build, and its stdout is its reply alone.
+    const driven = exact(['agent', 'web']);
+    assert.equal(driven.status, 0, driven.stderr);
+    assert.equal(driven.stdout, '{"drove":true}\n');
+    assert.deepEqual(runs(), ['fetch --small in app', 'build true', 'drive']);
+    // A Contract subcommand that compiles or checks the app prepares, before the device's preflight, as do the Tamber
+    // ones that compile its design and a pattern added to it; a verb that compiles and checks nothing does not.
+    rmSync(resolve(dir, 'assets'), { recursive: true });
+    assert.equal(exact(['contract', 'build', 'app.contract']).status, 0);
+    assert.deepEqual(runs(), ['fetch --small in app', 'preflight true', 'exact contract build']);
+    const preparing = [['contract', 'types'], ['contract', 'verify'], ['contract', 'lean'], ['contract', 'symbols'], ['tamber', 'check'], ['tamber', 'gen'], ['tamber', 'tool'], ['tamber', 'import', 'css'], ['pattern', 'card']];
+    for (const args of preparing) assert.equal(exact(args).status, 0, args.join(' '));
+    assert.deepEqual(runs(), preparing.flatMap((args) => ['fetch --small in app', `exact ${args.slice(0, 2).join(' ')}`]));
+    const reading = [['contract', 'fmt'], ['contract', 'vocab'], ['contract', 'sources'], ['contract', 'migrate'], ['docs', 'padding'], ['tamber', 'fmt'], ['tamber', 'op'], ['tamber', 'pair'], ['tamber', 'tool', '--via', 'http://localhost:1'], ['pattern'], ['hatch'], ['backend'], ['update']];
+    for (const args of reading) assert.equal(exact(args).status, 0, args.join(' '));
+    assert.deepEqual(runs().filter((line) => line.startsWith('fetch')), []);
+    // share builds the iPhone app it publishes.
+    assert.equal(exact(['share']).status, 0);
+    assert.deepEqual(runs(), ['fetch --small in app', 'share']);
+    // Under `contract build --json` its output is dropped, so stdout is the compiler's array alone and stderr is
+    // empty; a failure is one diagnostic there.
+    const quiet = exact(['contract', 'build', 'app.contract', '--json']);
+    assert.equal(quiet.status, 0, quiet.stderr);
+    assert.deepEqual([quiet.stdout, quiet.stderr], ['', '']);
+    assert.deepEqual(runs(), ['fetch --small in app', 'preflight true', 'exact contract build']);
+    const loud = exact(['contract', 'build', 'app.contract', '--json'], { FETCH_EXIT: '3' });
+    assert.equal(loud.status, 1);
+    assert.equal(loud.stderr, '');
+    const [diagnostic, ...others] = JSON.parse(loud.stdout);
+    assert.deepEqual(others, []);
+    assert.equal(diagnostic.id, 'app-before-build');
+    assert.equal(diagnostic.severity, 'error');
+    assert.match(diagnostic.message, /exited 3 in .*, so contract did not run: fetched/);
+    assert.deepEqual(runs(), ['fetch --small in app']);
+    // share's and verify's `--json` report a failure in their own shapes.
+    const shared = exact(['share', '--json'], { FETCH_EXIT: '3' });
+    assert.equal(shared.status, 1);
+    assert.deepEqual(Object.keys(JSON.parse(shared.stdout)), ['code', 'error']);
+    assert.equal(JSON.parse(shared.stdout).code, 'before_build');
+    const verified = exact(['verify', '--json'], { FETCH_EXIT: '3' });
+    assert.equal(verified.status, 1);
+    assert.equal(JSON.parse(verified.stdout).exit, 1);
+    assert.match(JSON.parse(verified.stdout).error, /exited 3 in .*, so verify did not run; what it said is on stderr/);
+    assert.deepEqual(runs(), ['fetch --small in app', 'fetch --small in app']);
+    // serve rebuilds a site whose sources changed, so it prepares too.
+    assert.equal(exact(['serve']).status, 0);
+    assert.deepEqual(runs(), ['fetch --small in app', 'serve']);
+    // An app's own `check` is its own command, not a game's compile: it runs without preparing.
+    declare(['bun', 'fetch.mjs', '--small'], { commands: { check: ['bun', 'lint.mjs'] } });
+    writeFileSync(resolve(dir, 'lint.mjs'), step("'lint'"));
+    assert.equal(exact(['check']).status, 0);
+    assert.deepEqual(runs(), ['lint']);
+    declare(['bun', 'fetch.mjs', '--small']);
+    // A flag the command's script refuses is refused before anything runs, a drive's included.
+    for (const args of [['web-build'], ['serve'], ['share'], ['agent', 'web']]) {
+      const flagged = exact([...args, '--bogus']);
+      assert.equal(flagged.status, 2, args.join(' '));
+      assert.match(flagged.stderr, /unknown flag --bogus/);
+    }
+    assert.deepEqual(runs(), []);
+    // exact.mjs run by the preparation prepares nothing again.
+    declare(['bun', 'exact.mjs', 'web-build']);
+    assert.equal(exact(['web-build']).status, 0);
+    assert.deepEqual(runs(), ['build true', 'build true']);
+    // One that cannot start says why and what to do.
+    declare(['exact-no-such-command']);
+    const missing = exact(['web-build']);
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /before_build \["exact-no-such-command"\] could not start in .*: install exact-no-such-command or put it on PATH, so web-build did not run/);
+    const missingQuiet = exact(['contract', 'build', 'app.contract', '--json']);
+    assert.equal(missingQuiet.status, 1);
+    assert.equal(missingQuiet.stderr, '');
+    assert.match(JSON.parse(missingQuiet.stdout)[0].message, /could not start in .*, so contract did not run/);
+    assert.deepEqual(runs(), []);
+    declare(['bun', 'fetch.mjs', '--small']);
+    // A failure stops the build and is the command's status.
+    rmSync(resolve(dir, 'assets'), { recursive: true });
+    const failed = exact(['web-build'], { FETCH_EXIT: '4' });
+    assert.equal(failed.status, 4);
+    assert.deepEqual(runs(), ['fetch --small in app']);
+    assert.match(failed.stderr, /app\.json before_build \["bun","fetch\.mjs","--small"\] exited 4 in .*, so web-build did not run; what it said is above/);
+    // A signal passed on stops the command even when the preparation then exits 0.
+    const held = spawn(process.execPath, [resolve(dir, 'exact.mjs'), 'web-build'], { cwd: parent, env: { ...process.env, EXACT2: sdk, FETCH_HOLD: '1' }, stdio: 'ignore' });
+    const ended = new Promise((done) => held.on('exit', (code, signal) => done({ code, signal })));
+    for (let i = 0; i < 800 && !existsSync(resolve(dir, 'holding')); i++) await Bun.sleep(25);
+    assert.ok(existsSync(resolve(dir, 'holding')), 'the preparation started');
+    held.kill('SIGTERM');
+    assert.deepEqual(await ended, { code: 143, signal: null });
+    assert.deepEqual(runs(), ['fetch --small in app']);
+    // One that is not a command as argv refuses a build, and only a build; the manifest's schema refuses it too.
+    declare('bun fetch.mjs');
+    const refused = exact(['web-build']);
+    assert.equal(refused.status, 2);
+    assert.match(refused.stderr, /app\.json before_build is "bun fetch\.mjs"; it must be a command as argv/);
+    const malformed = exact(['contract', 'build', 'app.contract', '--json']);
+    assert.equal(malformed.status, 1);
+    assert.match(JSON.parse(malformed.stdout)[0].message, /it must be a command as argv/);
+    assert.equal(exact(['docs', 'padding']).status, 0);
+    assert.deepEqual(runs(), ['exact docs padding']);
+    assert.throws(() => readManifest(dir, 'gallery'), /before_build/);
+    // A game's compile prepares too, from the app.json it may have; its own `verify` (not one of a game's verbs) does not.
+    writeFileSync(resolve(game, 'app.json'), JSON.stringify({ before_build: ['bun', 'fetch.mjs', '--sounds'], commands: { verify: ['bun', 'lint.mjs'] } }));
+    writeFileSync(resolve(game, 'lint.mjs'), step("'lint'"));
+    const tested = exact(['test-rust'], {}, game);
+    assert.equal(tested.status, 0, tested.stderr);
+    assert.deepEqual(runs(game), ['fetch --sounds in app', 'shells --test']);
+    assert.equal(exact(['shells'], {}, game).status, 0);
+    assert.deepEqual(runs(game), ['shells']);
+    assert.equal(exact(['verify'], {}, game).status, 0);
+    assert.deepEqual(runs(game), ['lint']);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 60_000);
 
 test('a new app and a new game get VS Code tasks over their own verbs, and update writes only a missing file', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
