@@ -25,7 +25,7 @@ final class ProgressContextsIOSTests: XCTestCase {
         let spinner = try XCTUnwrap(s.presenter.controls.spinners[owner.id], name, file: file, line: line)
         XCTAssertNotNil(spinner.window, name, file: file, line: line)
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        spinner.color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        spinner.color.resolvedColor(with: spinner.traitCollection).getRed(&r, green: &g, blue: &b, alpha: &a)
         for (got, want) in zip([r, g, b, a].map { Double($0) * 255 }, [0.0, 200, 0, 255]) {
             XCTAssertEqual(got, want, accuracy: 0.01, name, file: file, line: line)
         }

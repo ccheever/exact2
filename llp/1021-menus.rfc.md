@@ -1262,7 +1262,9 @@ the existing chord filing and Settings label remain unchanged. A declared
 Items retain the existing destination ordering: Edit keeps its standard
 replacement and paste-variant positions, Go its history before destinations;
 other commands follow declaration order. App items follow About;
-View, Window and Help items precede the host commands. Go appears while it
+View and Window items precede the host commands; Help items follow the
+menu's own (2026-11-04): AppKit leads Help with Send *App* Feedback to Apple
+and a separator, as in any Mac app, then Help ▸ *App* Help. Go appears while it
 has an item. Help remains `NSApp.helpMenu`, with AppKit's search field above
 the authored items (the field is outside `NSMenu.items`).
 
@@ -1352,7 +1354,10 @@ otherwise list; author over platform (LLP 1115).
 `develop` (the Develop menu of a development build), `paste-and-match-style`,
 `find`, `spelling-and-grammar`, `substitutions`, `transformations` (Edit's
 template items, LLP 1115 D8; a removed submenu's items are removed with it,
-and an app command that would stand in inside Find follows Select All), `app-help` (Help ▸ *App* Help; AppKit's search
+and an app command that would stand in inside Find follows Select All; with all
+four removed, Speech moves ahead of them, since AppKit places Writing Tools after
+Find, hidden or not, and Edit then reads Speech, Writing Tools, AutoFill as a
+menu built without them does, 2026-11-04), `app-help` (Help ▸ *App* Help; AppKit's search
 field stays), and `actual-size`, `zoom-in`, `zoom-out` below. The host finds
 its own submenus and Develop by item identifiers it sets, the rest by action,
 never by title. `develop` takes the menu off the bar and leaves its chords:

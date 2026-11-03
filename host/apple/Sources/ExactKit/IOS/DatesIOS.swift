@@ -28,9 +28,9 @@ extension ControlHost {
         owner.focusForPress(target: owner)?.dispatched()
     }
 
-    func configureDate(_ picker: UIDatePicker, _ owner: NodeView, accent: UIColor?) {
+    func configureDate(_ picker: UIDatePicker, _ owner: NodeView) {
         let kind = kinds[owner.id] ?? "date"
-        assign(picker, \.tintColor, accent)
+        assign(picker, \.tintColor, owner.ownTintColor("accent_color"))
         assign(picker, \.minimumDate, owner.props["min"].flatMap { DateValue.parse(kind, $0) })
         assign(picker, \.maximumDate, owner.props["max"].flatMap { DateValue.parse(kind, $0) })
         let bound = owner.props["value"] ?? ""
@@ -54,7 +54,7 @@ extension ControlHost {
         guard presenter.views[id] != nil, let kind = kinds[id] else { return }
         (picker as? BoundDatePicker)?.empty = false
         presenter.controlValue(id, DateValue.format(kind, picker.date), input: true, change: true)
-        if let owner = presenter.views[id] { configureDate(picker, owner, accent: picker.tintColor) }
+        if let owner = presenter.views[id] { configureDate(picker, owner) }
     }
 
     /// The agent's `type <id> <value>` (D9): the value a pick reports, in
@@ -73,7 +73,7 @@ extension ControlHost {
         picker.setDate(date, animated: false)
         (picker as? BoundDatePicker)?.empty = false
         presenter.controlValue(node.id, text, input: true, change: true)
-        if let owner = presenter.views[node.id] { configureDate(picker, owner, accent: picker.tintColor) }
+        if let owner = presenter.views[node.id] { configureDate(picker, owner) }
         // What it shows, as the web's reply says: the choice, or what the
         // action wrote over it.
         return ["typed": Int(node.id), "value": DateValue.shown(kind, picker), "delivery": "host-activation", "native": "control"]

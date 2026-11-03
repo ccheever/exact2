@@ -58,12 +58,15 @@ final class Viewport: ScrollView {
     var pageMargins = UIEdgeInsets.zero
     /// The control bars over its page's scrollers, each by its edge (`ControlBars.sync`, LLP 1131).
     var controlBars: [ObjectIdentifier: ControlBars.Weak] = [:]
-    /// Its tint undimmed, for the nodes mounted here (`RestsTint`)
-    var restingTint: UIColor { probe.tintColor }
-    private let probe = TintProbe()
+    /// Its tint as UIKit last gave it undimmed (its window's, or an embedder's), which a dimmed
+    /// view cannot read (`NodeView.carriedTint`)
+    private(set) var restingTint: UIColor?
+    override func tintColorDidChange() {
+        super.tintColorDidChange()
+        if tintAdjustmentMode != .dimmed { restingTint = tintColor }
+    }
     override init(frame: CGRect) {
         super.init(frame: frame)
-        addSubview(probe)
         #if os(iOS)
         // The page's own scroller takes the keyboard down with a drag that
         // reaches it, as a scroller's unsaid `keyboardDismissMode` does
@@ -93,7 +96,7 @@ final class Viewport: ScrollView {
 }
 /// Bound focus search to a native route or modal presentation, as the
 /// document viewport does (LLP 1123 D2).
-final class PresentationMount: RestingTintView {
+final class PresentationMount: UIView {
     #if os(iOS)
     /// Relay a modal presentation's events to its logical ancestors (`MountRelay`).
     var relay: MountRelay?

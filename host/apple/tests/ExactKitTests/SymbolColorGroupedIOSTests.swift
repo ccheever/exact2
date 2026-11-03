@@ -11,7 +11,7 @@ import XCTest
 /// colour configures the row again.
 final class SymbolColorGroupedIOSTests: GroupedListFixture {
     private func rgb(_ p: Presenter, _ id: UInt32) throws -> [CGFloat]? {
-        guard let tint = (try cell(p, id).contentConfiguration as? UIListContentConfiguration)?.imageProperties.tintColor else { return nil }
+        guard let tint = (try cell(p, id) as? GroupedCell)?.imageInk else { return nil }
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         tint.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)).getRed(&r, green: &g, blue: &b, alpha: &a)
         return [r, g, b, a]
