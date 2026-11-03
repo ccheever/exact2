@@ -353,14 +353,30 @@ export const turnSeeded = (turn, thread) => (turn.approval ? !!thread?.pendingRu
  * only way to its "Completed" status. An `approval` turn runs in the runtime mode
  * "approval-required" and is waited for until the stand-in's permission request is pending.
  */
-async function seedTurn(conn, projectId, { title, prompt, approval = false, hold = false }, existing, { timeoutMs = 30_000 } = {}) {
+/**
+ * Each of `images` ({ name, mimeType, bytes }) uploaded as the composer uploads one (attachments.createUploadUrl,
+ * then the bytes to its URL), as the message's attachments.
+ */
+async function uploadImages(conn, images) {
+  const attachments = [];
+  for (const { name, mimeType, bytes } of images) {
+    const minted = await conn.request("attachments.createUploadUrl", { type: "image", name, mimeType, sizeBytes: bytes.length });
+    const response = await fetch(`${conn.origin}${minted.relativeUrl}`, { method: "POST", body: bytes,
+      headers: { ...conn.auth, "x-t3-orchestration-protocol": "2", Accept: "application/json", "Content-Type": mimeType } });
+    if (!response.ok) throw new Error(`upload ${name}: HTTP ${response.status}`);
+    attachments.push({ type: "image", id: minted.attachmentId, name, mimeType, sizeBytes: bytes.length });
+  }
+  return attachments;
+}
+
+async function seedTurn(conn, projectId, { title, prompt, approval = false, hold = false, images = [] }, existing, { timeoutMs = 30_000 } = {}) {
   const threadId = existing ?? crypto.randomUUID();
   if (!existing) await conn.request("orchestration.dispatchCommand", {
     type: "thread.create", commandId: crypto.randomUUID(), createdBy: "user", creationSource: "web", threadId, projectId, title,
     modelSelection: { instanceId: STANDIN_INSTANCE, model: "default" }, runtimeMode: approval ? "approval-required" : "full-access", interactionMode: "default", branch: null, worktreePath: null,
   });
   await conn.request("orchestration.dispatchCommand", {
-    type: "message.dispatch", commandId: crypto.randomUUID(), threadId, messageId: crypto.randomUUID(), text: prompt, attachments: [],
+    type: "message.dispatch", commandId: crypto.randomUUID(), threadId, messageId: crypto.randomUUID(), text: prompt, attachments: await uploadImages(conn, images),
     createdBy: "user", creationSource: "web", deliveryIntent: "auto", dispatchMode: { type: "start_immediately" },
   });
   const started = Date.now();

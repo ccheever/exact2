@@ -3,6 +3,7 @@
 // driver to list it, prepare it, probe it, sign it in and out, and run a turn. It talks to no
 // service and keeps no credential; its only state is `state.json` ({ signedIn }) beside this file.
 //
+// It takes images in a prompt (`promptCapabilities.image`) and reads only the prompt's text.
 // A turn (`session/prompt`, https://agentclientprotocol.com/protocol/prompt-turn) is answered at
 // once with one `agent_message_chunk` update, "Stand-in reply: <the first line of the user's words>", a
 // `usage_update` (so the thread has a context meter), and the stop reason `end_turn`, so a fixture
@@ -33,6 +34,8 @@
 //                                   n seconds later (0 by default), a sequence diagram, a table and two display
 //                                   formulas, so a drive sees a closed fence drawn while the reply streams
 //   "Show the italic sample"        replies with emphasis (ITALIC_SAMPLE), so a font's italic face is drawn
+//   "Show the plan sample"          sends a proposed plan (`plan_update`, Markdown) and a to-do list (`plan`, three
+//                                   entries, one done, one in progress) before a one-line reply (PLAN_SAMPLE)
 //   "Show the HTML image sample"    writes four PNGs under shots/ in the session's directory and replies with raw HTML
 //                                   images (HTML_IMAGE_SAMPLE): one inside a line, one in a <div>, a refused source,
 //                                   data-dark-src and a <picture> left open
@@ -78,6 +81,12 @@ export const MARKDOWN_SAMPLE = [
     + "The energy of a body at rest:\n\n$$\nE = mc^2\n$$\n\nThe sum of the first n integers:\n\n\\[\n\\sum_{k=1}^{n} k = \\frac{n(n+1)}{2}\n\\]\n",
 ];
 
+/** "Show the plan sample": the proposed plan's Markdown and the to-do list's entries. */
+export const PLAN_SAMPLE = {
+  markdown: "# Move the notes\n\n1. Write the outline in `notes/outline.ts`.\n2. Move the plan to `notes/plan.md`.\n3. Link the plan from the README.\n\nRisks: old links break until the redirect lands.",
+  entries: [{ content: "Write the outline", priority: "high", status: "completed" }, { content: "Move the plan into notes/", priority: "high", status: "in_progress" },
+    { content: "Link the plan from the README", priority: "medium", status: "pending" }],
+};
 /** "Show the italic sample": emphasis with both markers, in prose and in a list. */
 export const ITALIC_SAMPLE = "Italic in an answer: *the notes stay in one place*, and _each plan has an owner_.\n\n- A list item with *emphasis*\n- **Bold and *italic* together**\n";
 /** "Show the prose sample": every common Markdown block once. */
@@ -147,7 +156,7 @@ if (process.argv.includes("--fixture-login")) {
   const handlers = {
     initialize: () => ({
       protocolVersion: 1,
-      agentCapabilities: { loadSession: true, promptCapabilities: { image: false, audio: false, embeddedContext: false }, ...(mode.logout ? { auth: { logout: {} } } : {}) },
+      agentCapabilities: { loadSession: true, promptCapabilities: { image: true, audio: false, embeddedContext: false }, ...(mode.logout ? { auth: { logout: {} } } : {}) },
       agentInfo: { name: "fixture-acp-standin", title: "ACP stand-in", version: "0.0.1" },
       authMethods: methods,
     }),
@@ -236,6 +245,10 @@ if (process.argv.includes("--fixture-login")) {
         update(sessionId, { sessionUpdate: "tool_call_update", toolCallId: toolCall.toolCallId, status: "completed" });
         update(sessionId, { sessionUpdate: "usage_update", used: 12480, size: 200000 });
         return { stopReason: "end_turn" };
+      } else if (/^show the plan sample/i.test(first)) {
+        update(sessionId, { sessionUpdate: "plan_update", plan: { type: "markdown", planId: "standin-proposed", content: PLAN_SAMPLE.markdown } });
+        update(sessionId, { sessionUpdate: "plan", entries: PLAN_SAMPLE.entries });
+        text = "Stand-in reply: the plan is above.";
       } else if (/^show the italic sample/i.test(first)) {
         text = ITALIC_SAMPLE;
       } else if (cwd && /^show the html image sample/i.test(first)) {
