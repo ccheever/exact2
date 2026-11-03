@@ -216,7 +216,16 @@ fn every_contract_example_in_the_guides_compiles_and_every_test_parses() {
                 // A design shown before it in its section is the app's.
                 let tamber = dir.join("app.tamber");
                 match &block.design {
-                    Some(design) => std::fs::write(&tamber, design).unwrap(),
+                    Some(design) => {
+                        std::fs::write(&tamber, design).unwrap();
+                        // An icon's SVG the design names is a one-colour
+                        // triangle here (the compiler reads it).
+                        for src in design.split("svg \"").skip(1) {
+                            let file = dir.join("assets").join(src.split('"').next().unwrap());
+                            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+                            std::fs::write(&file, ICON_SVG).unwrap();
+                        }
+                    }
                     None => {
                         let _ = std::fs::remove_file(&tamber);
                     }
@@ -530,6 +539,9 @@ fn fill_route(app: &str, name: &str, route: &str) -> Option<String> {
     s.push('\n');
     Some(s)
 }
+
+/// A one-colour icon: one filled path under its viewBox.
+const ICON_SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>"#;
 
 /// A 10 ms, 48 kHz, 16-bit mono WAV of silence.
 fn wav() -> Vec<u8> {
