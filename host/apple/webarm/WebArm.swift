@@ -471,7 +471,8 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         // iframe's does on the web (@ref LLP 1020 D1). On macOS only the
         // private `drawsBackground` gives that: `underPageBackgroundColor`,
         // an `isOpaque` override and the view's layer leave WebKit's white
-        // page background (measured on macOS 27.2).
+        // page background (measured on macOS 27.2). A named exception to
+        // the ruling that no private API ships (LLP 1020 §12).
         #if os(macOS)
         webView.setValue(false, forKey: "drawsBackground")
         if #available(macOS 12.0, *) { webView.underPageBackgroundColor = .clear }

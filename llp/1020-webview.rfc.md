@@ -649,5 +649,7 @@ in a window whose titlebar is transparent, are not affected.
 A page that draws no background shows the node under it, as an iframe's
 does on the web. On macOS only WKWebView's private `drawsBackground` gives
 that; `underPageBackgroundColor`, an `isOpaque` override and the view's
-layer leave WebKit's white page background (macOS 27.2). The arm still
-sets it, awaiting a ruling: without it every such frame turns opaque.
+layer leave WebKit's white page background (macOS 27.2). Without it every
+such frame turns opaque. **Ruled (Daehyeon Mun, 2026-11-03):** the arm
+keeps `drawsBackground`, a named exception to that day's no-private-API
+ruling, as Web Inspector's private calls are (LLP 1020.002 D11).
