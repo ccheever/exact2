@@ -1468,8 +1468,11 @@ component Composer
   negative inside the pill) and `text-decoration-line` (`underline`, the
   label's), each also in a `:hover` block (the pointer over the pill) and a
   `:checked` block (the selection exactly the atom, as a press leaves it); and
-  on its own, `padding-inline` (px or em, both sides) and `border` (`1px solid
-  <colour>`, or `border-width` with `border-style="solid"`). Unsaid, each is the
+  on its own, `padding-inline` (px or em, both sides), `-exact-icon-size` (px or
+  em, the icon's side; unsaid, the cap height), `gap` (px or em, between the icon
+  and the label; unsaid, a quarter em) and `border` (`1px solid <colour>`, or
+  `border-width` with `border-style="solid"`). The icon is centred on half the cap
+  height above the baseline. Unsaid, each is the
   platform's token's. A pill keeps its line's height: its border's top and
   bottom are drawn inside it, and a ring takes no room (on Apple one that would
   reach past the pill is cut at its edge). Anything else is `lower-atom-style`.

@@ -307,18 +307,20 @@ fn an_atoms_style_and_states_reach_its_tables() {
     outline="2px solid light-dark(#2563eb, #60a5fa)"
     outline-offset="-2px"
     border-radius="6px"
-atom skill prefix="$" padding-inline="0.25em"
+atom skill prefix="$" padding-inline="0.25em" -exact-icon-size="1em" gap="0.2em"
+atom file link="relative" -exact-icon-size="14px" gap="0"
 component App
   state d = ""
   view
-    textarea value=d markup="markdown" atoms="mention skill" testId="editor"
+    textarea value=d markup="markdown" atoms="mention skill file" testId="editor"
 "##;
     let runner = boot(source);
     assert_eq!(
         json_prop(&runner, "editor", PropId::Atoms),
         json!([
             {"name": "mention", "prefix": "@", "padding": "0px", "border": 1.0},
-            {"name": "skill", "prefix": "$", "padding": "0.25em"},
+            {"name": "skill", "prefix": "$", "padding": "0.25em", "iconSize": "1em", "gap": "0.2em"},
+            {"name": "file", "link": "relative", "iconSize": "14px", "gap": "0px"},
         ])
     );
     let styles = json_prop(&runner, "editor", PropId::AtomStyles);
@@ -379,6 +381,8 @@ fn the_compiler_refuses_what_an_atom_cannot_be() {
         (field("atom a link=\"x:\" padding-inline=\"10%\"", "atoms=\"a\""), "lower-atom-style"),
         (field("atom a link=\"x:\" border-radius=\"4px 2px\"", "atoms=\"a\""), "lower-atom-style"),
         (field("atom a link=\"x:\" padding=\"0\"", "atoms=\"a\""), "lower-atom-style"),
+        (field("atom a link=\"x:\" -exact-icon-size=\"50%\"", "atoms=\"a\""), "lower-atom-style"),
+        (field("atom a link=\"x:\" gap=\"-1px\"", "atoms=\"a\""), "lower-atom-style"),
         (field("atom a link=\"x:\" text-decoration-line=\"line-through\"", "atoms=\"a\""), "lower-atom-style"),
         // A line with no style draws none, as CSS's initial `none`: refused, not ignored.
         (field("atom a link=\"x:\" outline=\"2px #2563eb\"", "atoms=\"a\""), "lower-atom-style"),
@@ -387,6 +391,7 @@ fn the_compiler_refuses_what_an_atom_cannot_be() {
         (field("atom a link=\"x:\" outline=\"2px solid notacolour\"", "atoms=\"a\""), "lower-attr-value"),
         // A state paints; what moves the text is the atom's own.
         (field("atom a link=\"x:\"\n  :hover\n    padding-inline=\"2px\"", "atoms=\"a\""), "lower-atom-style"),
+        (field("atom a link=\"x:\"\n  :hover\n    -exact-icon-size=\"2em\"", "atoms=\"a\""), "lower-atom-style"),
         (field("atom a link=\"x:\"\n  :checked\n    border=\"1px solid red\"", "atoms=\"a\""), "lower-atom-style"),
         (field("atom a link=\"x:\"\n  :active\n    color=\"red\"", "atoms=\"a\""), "lower-atom-style"),
         (field("atom a link=\"x:\"\n  :hover\n    role=\"link\"", "atoms=\"a\""), "lower-atom-style"),

@@ -29,8 +29,9 @@ function sheetOf(el) {
   return entry;
 }
 
-/** A kind's look (D3, D4) as a class on `el`'s root: its measured `padding`
- * and `border` (the kind's row in `atoms`), then its own paint, its
+/** A kind's look (D3, D4) as a class on `el`'s root: its measured `padding`,
+ * `border`, `iconSize` and `gap` (the kind's row in `atoms`; the icon's
+ * through custom properties its picture reads), then its own paint, its
  * `:hover` paint, and its `:checked` paint while the selection is exactly
  * the atom (`data-atom-selected`), each CSS text from `atomStyles`. A border
  * keeps the line's height: its top and bottom are taken back in the margin. */
@@ -38,6 +39,9 @@ export function atomLook(el, kind = {}, own = '', hover = '', checked = '') {
   let metrics = '';
   if (kind?.padding) metrics += `padding-inline:${kind.padding};`;
   if (kind?.border > 0) metrics += `border:${kind.border}px solid;margin-block:-${kind.border}px;`;
+  // An icon of the kind's size is centred on half the cap height above the baseline, as Apple's is.
+  if (kind?.iconSize) metrics += `--exact-atom-icon:${kind.iconSize};--exact-atom-icon-align:calc(.5cap - ${kind.iconSize} / 2);`;
+  if (kind?.gap) metrics += `--exact-atom-gap:${kind.gap};`;
   const entry = sheetOf(el);
   // No sheet to hold it: the platform's look and the kind's own paint on the pill.
   if (!entry) return { inline: PLATFORM + metrics + (own ?? '') };
@@ -97,7 +101,8 @@ export function atomBox(a, look = '', editing = false) {
     const img = box.appendChild(document.createElement('img'));
     img.src = a.icon; img.alt = ''; img.setAttribute('aria-hidden', 'true');
     // Inline before the label, over the page's `img { display: block }` (index.html).
-    img.style.cssText = 'display:inline-block;width:.75em;height:.75em;margin-inline-end:.25em;vertical-align:baseline;object-fit:contain';
+    img.style.cssText = 'display:inline-block;width:var(--exact-atom-icon,.75em);height:var(--exact-atom-icon,.75em);'
+      + 'margin-inline-end:var(--exact-atom-gap,.25em);vertical-align:var(--exact-atom-icon-align,baseline);object-fit:contain';
   }
   box.append(a.label);
   return box;

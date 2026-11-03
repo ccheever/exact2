@@ -2240,8 +2240,9 @@ accessible name when the drawn label is not what a screen reader should say,
 ([inline atoms](contract-grammar.md#inline-atoms-atom-atoms-atomfaces-atompress)).
 Unsaid, a pill is the platform's token; when the design draws its chips another
 way, write that on the `atom` as CSS (`padding-inline`, `border`,
-`border-radius`, a ring in a `:checked` block, an underline in a `:hover`
-block) and leave the rest to the platform.
+`border-radius`, an icon's size and the gap after it with `-exact-icon-size` and
+`gap`, a ring in a `:checked` block, an underline in a `:hover` block) and leave
+the rest to the platform.
 Keep them out of your own rules over `setSelectionRange` and `beforeinput`: the
 editor keeps a caret out of an atom and deletes it whole. An editor where
 Arabic or Hebrew lines sit beside English ones gives each line its base
