@@ -102,6 +102,21 @@ test('working status changes crossfade and the capsule reflows as labels change'
   expect(source).toContain('WorkingStatus(data=data, colors=colors, reducedMotion=reducedMotion)');
 });
 
+test('working control lifts above an expanded pending-input card', () => {
+  const source = readFileSync(new URL('./working-control.contract', import.meta.url), 'utf8');
+  expect(source).toContain('lift: number');
+  expect(source).toContain('derive liftTranslate = `0px ${0 - lift}px`');
+  expect(source).toContain('translate=liftTranslate transition=controlTransition');
+});
+
+test('working control entry and exit fades are reduced-motion aware', () => {
+  const source = readFileSync(new URL('./working-control.contract', import.meta.url), 'utf8');
+  expect(source).toContain('keyframes workingControlEnter');
+  expect(source).toContain('keyframes workingControlExit');
+  expect(source).toContain('animation=(reducedMotion ? "none" : "workingControlEnter 180ms ease-out both")');
+  expect(source).toContain('-exact-exit-animation="workingControlExit 120ms ease-in both"');
+});
+
 test('connecting and reconnecting preserve the pinned connection-error retry copy', () => {
   const client = fixture();
   for (const phase of ['connecting', 'reconnecting']) {

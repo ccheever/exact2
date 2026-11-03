@@ -23,7 +23,7 @@ test('scroll-facing snapshots use sampled clocks instead of a frame clock', () =
 });
 
 test('feed scrollports measure authored padding and avoid animating stream corrections', () => {
-  const app = appText('mobile/app.contract'), home = appText('mobile/home.contract'), thread = appText('mobile/thread.contract'), work = appText('mobile/thread-work.contract');
+  const app = appText('mobile/app.contract'), home = appText('mobile/home.contract'), thread = appText('mobile/thread.contract'), work = appText('mobile/thread-work.contract'), route = appText('mobile/route-content.contract'), pending = appText('mobile/pending-input.contract');
   expect(home).toContain('list id=listId appearance="none" flex=1 min-height=0 box-sizing="border-box"');
   expect(home).toContain('min-width=0\n        virtualized=true\n        estimated-item-height=88');
   expect(home).toContain('box position="relative" min-width=0 overflow="hidden"');
@@ -33,9 +33,13 @@ test('feed scrollports measure authored padding and avoid animating stream corre
   expect(thread).toContain('min-width=0 box-sizing="border-box" overflow-x="hidden" overscroll-behavior="contain" keyboardDismissMode="none" touch-action="pan-y" virtualized=true');
   expect(thread).toContain('scroll-start="end" scrollFollowEnd=endFollowEnabled scroll=historyScroll');
   expect(thread).not.toContain('scroll-start="end" scrollFollowEnd=true scroll=historyScroll');
-  const route = appText('mobile/route-content.contract');
   expect(route).toContain('derive threadScrollToEndVisible = not threadEndFollowEnabled and threadData.loaded and not threadData.loading and threadData.error == "" and threadData.rows.length > 0');
   expect(route).toContain('(workingControl.visible or threadScrollToEndVisible) ? 48.5 : 0');
+  expect(route).toContain('derive workingControlLift = (threadData.pendingInput.active and pendingInputCoverageOwner == threadData.pendingInput.cardId) ? pendingInputCoverage : 0');
+  expect(route).toContain('lift=workingControlLift');
+  expect(route).toContain('reducedMotion=viewport.prefersReducedMotion, act=pendingInputAct');
+  expect(pending).toContain('reducedMotion: bool');
+  expect(pending).toContain('transition=(reducedMotion ? "none" : "translate 220ms ease-out")');
   expect(thread).not.toContain('scroll-behavior="smooth"');
   expect(work).toContain('button appearance="none" press=toggleDetail');
   expect(work).toContain('row align-items="center" gap=3.5 width="100%" min-width=0');
