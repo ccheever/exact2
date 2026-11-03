@@ -44,6 +44,7 @@ impl Acquisition {
     pub fn reset(&mut self) {
         *self = Self {
             compatible: self.compatible,
+            hint: self.hint.take(),
             ..Self::default()
         };
     }
@@ -91,8 +92,8 @@ impl Acquisition {
         }
         self.started = true;
         let mut acquire = json!({"cursor": s["acquisition_cursor"], "skip": self.served});
-        if let Some(hint) = self.hint.take().filter(|h| !self.served.contains(h)) {
-            acquire["hint"] = hint;
+        if let Some(hint) = self.hint.as_ref().filter(|h| !self.served.contains(h)) {
+            acquire["hint"] = hint.clone();
         }
         Some(json!({"acquire": acquire}))
     }
@@ -245,6 +246,30 @@ mod tests {
             compatible: Some(true),
             ..Default::default()
         }
+    }
+    #[test]
+    fn reset_keeps_the_last_eligible_hint_and_clears_walk_bookkeeping() {
+        let mut walk = walk();
+        let hint = json!({"table": "messages", "group": ["foreground"]});
+        walk.hint(Some(hint.clone()));
+        assert_eq!(
+            walk.request(&cold(), false).unwrap()["acquire"]["hint"],
+            hint
+        );
+        walk.applied(
+            &json!({"acquire": {"unit": {"tier": 2, "table": "messages", "group": ["foreground"]}}}),
+            true,
+        );
+        walk.hint(None);
+        walk.reset();
+        let request = walk.request(&cold(), false).unwrap();
+        assert_eq!(request["acquire"]["hint"], hint);
+        assert_eq!(request["acquire"]["skip"], json!([]));
+        assert!(walk.applied(&json!({"more": false}), true));
+        assert_eq!(
+            walk.request(&cold(), false).unwrap()["acquire"]["hint"],
+            hint
+        );
     }
     #[test]
     fn drains_deferred_pages_then_yields_after_four_published_pages() {

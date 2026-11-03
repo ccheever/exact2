@@ -261,6 +261,7 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
     let mut catching_up = false;
     let mut publication_outstanding = false;
     let mut restarting_snapshot = false;
+    let mut recovering_acquisition = false;
     let mut page_limit = PAGE;
     // Keep a shrinking request's hint and cursor; reads may change the next hint
     // while this exchange is in flight.
@@ -371,7 +372,7 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
         }
         if let Some(why) = &refused {
             if !generation_changed && !too_large(why) && !acquire_bound {
-                if progressive {
+                if progressive || recovering_acquisition {
                     shared
                         .lock()
                         .unwrap_or_else(|p| p.into_inner())
@@ -452,13 +453,20 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
             continue;
         }
         if let Some(why) = refused {
-            if acquire_bound && !too_large(&why) {
+            if acquire_bound && (!too_large(&why) || page_limit == 1) {
+                // A group may exceed acquisition bounds while its rows fit a
+                // staged snapshot. Publish no partial floor while rescuing it.
+                acquisition_request = None;
+                recovering_acquisition = true;
+                restarting_snapshot = true;
+                after = None;
+                catching_up = false;
                 shared
                     .lock()
                     .unwrap_or_else(|p| p.into_inner())
                     .acquisition
-                    .refuse(&why);
-                return Err(self::refused(why));
+                    .reset();
+                continue;
             }
             if page["snapshot"] == true
                 && page_limit == 1
@@ -479,7 +487,7 @@ async fn sync(io: &Io, shared: &Mutex<Shared>) -> Result<bool> {
                 page_limit = (page_limit / 2).max(1);
                 continue;
             }
-            if progressive {
+            if progressive || recovering_acquisition {
                 shared
                     .lock()
                     .unwrap_or_else(|p| p.into_inner())

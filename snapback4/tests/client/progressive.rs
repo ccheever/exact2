@@ -44,12 +44,6 @@ struct Server {
 }
 impl Server {
     fn start() -> Self {
-        let bound = snapback4_lang::compile(&[("schema.q".into(), SCHEMA.replace("\n ", "\n"))]);
-        assert!(bound.diagnostics.is_empty(), "{:?}", bound.diagnostics);
-        let programs: Vec<_> = bound.programs.into_iter().map(|p| p.program).collect();
-        let mut engine = Engine::memory(bound.schema.clone(), programs.clone()).unwrap();
-        let backend = json!({"generation": engine.generation(), "schema": bound.schema,
-            "programs": programs, "device_compatibility": snapback4_core::device_protocol::compatibility(engine.schema())});
         let mut rows = Vec::new();
         for group in 0..GROUPS {
             let id = format!("g{group:02}");
@@ -62,6 +56,15 @@ impl Server {
                 rows.push(("messages", json!({"id": format!("{id}-{at:03}"), "conversation": id, "body": format!("{at}"), "at": at})));
             }
         }
+        Self::seeded(SCHEMA, rows)
+    }
+    fn seeded(source: &str, rows: Vec<(&str, Value)>) -> Self {
+        let bound = snapback4_lang::compile(&[("schema.q".into(), source.replace("\n ", "\n"))]);
+        assert!(bound.diagnostics.is_empty(), "{:?}", bound.diagnostics);
+        let programs: Vec<_> = bound.programs.into_iter().map(|p| p.program).collect();
+        let mut engine = Engine::memory(bound.schema.clone(), programs.clone()).unwrap();
+        let backend = json!({"generation": engine.generation(), "schema": bound.schema,
+            "programs": programs, "device_compatibility": snapback4_core::device_protocol::compatibility(engine.schema())});
         let rows: Vec<(String, snapback4_core::value::Value)> = rows
             .into_iter()
             .map(|(table, row)| {
@@ -118,19 +121,24 @@ impl Server {
                 .map(|h| serde_json::from_value(h.clone()).unwrap());
             let skip: Vec<snapback4_core::partition::AcquisitionGroup> =
                 serde_json::from_value(acquire["skip"].clone()).unwrap();
-            let answer = self
-                .engine
-                .acquisition_page_at(
-                    VIEWER,
-                    acquire["cursor"].as_str(),
-                    hint.as_ref(),
-                    &skip,
-                    from,
-                    limit,
-                    1000,
-                    &pending,
-                )
-                .unwrap();
+            let answer = match self.engine.acquisition_page_at(
+                VIEWER,
+                acquire["cursor"].as_str(),
+                hint.as_ref(),
+                &skip,
+                from,
+                limit,
+                1000,
+                &pending,
+            ) {
+                Ok(answer) => answer,
+                Err(error) => {
+                    let body = json!({"denied": error.refusal(), "store_id": "progressive-fixture",
+                        "generation": self.backend["generation"], "watermark": from});
+                    self.pages.push(body.clone());
+                    return json!({"status": 200, "body": body});
+                }
+            };
             let mut page = self.stream(answer.page);
             page["acquire"] = serde_json::to_value(answer.acquire).unwrap();
             page["acknowledged"] = json!(answer.acknowledged);
@@ -329,21 +337,74 @@ fn absent_advertisement_uses_staged_snapshot_even_for_a_resumed_walk() {
 }
 
 #[test]
-fn indivisible_bound_is_latched_until_reopen_and_does_not_claim_completion() {
+fn heap_bound_acquisition_row_recovers_through_staged_replacement() {
+    let mut server = Server::seeded(
+        "use personas alice\ntable payloads:\n  body: json <=20000000\n  public 'fixture'\n  sync\n",
+        vec![("payloads", json!({"id": "large", "body": vec![0; 1_000_000]}))],
+    );
+    server.limit = 1;
+    let mut device = Device::new("alice");
+    server.open(&mut device);
+    let done = server.sync(&mut device);
+    assert_eq!(done["ok"], true, "{done}");
+    assert_eq!(done["acquired"], true);
+    assert!(done["acquisition"].get("failure").is_none());
+    let why = &server
+        .pages
+        .iter()
+        .find(|p| p.get("denied").is_some())
+        .unwrap()["denied"];
+    assert_eq!(why["code"], "E_BOUND");
+    assert_eq!(why["family"], "bound");
+    assert!(why["message"].as_str().unwrap().contains("heap"));
+    assert!(server.requests.iter().any(|r| r["path"] == "/sync"
+        && r["body"].get("acquire").is_none()
+        && r["body"]["stream"] == false
+        && r["body"]["from"] == 0));
+    let snapshot = server.pages.iter().find(|p| p["snapshot"] == true).unwrap();
+    assert_eq!(
+        snapshot["events"][0]["data"]["body"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1_000_000
+    );
+    device.reopen();
+    assert!(device.open(1));
+    let offline = drive(&mut device, |_| json!({"error": "offline"}));
+    assert_eq!(offline["acquired"], true);
+}
+
+#[test]
+fn indivisible_replacement_is_latched_until_reopen_and_does_not_claim_completion() {
     let mut server = Server::start();
     let mut device = Device::new("alice");
     server.open(&mut device);
-    let why = json!({"code": "E_BOUND", "family": "bound", "message": "atomic group exceeds heap", "retryable": false});
+    let acquire_why = json!({"code": "E_BOUND", "family": "bound", "message": "atomic group exceeds heap", "retryable": false});
+    let why = json!({"code": "E_BOUND", "family": "bound", "message": "the HTTP JSON response exceeds 16 MiB; request a smaller page or return fewer values", "retryable": false});
+    let mut requests = Vec::new();
     let done = drive(&mut device, |fetch| {
         if fetch["path"] == "/sync" {
-            assert!(fetch["body"].get("acquire").is_some());
-            json!({"status": 200, "body": {"denied": why, "store_id": "progressive-fixture", "generation": server.backend["generation"], "watermark": 0}})
+            let body = &fetch["body"];
+            requests.push(body.clone());
+            json!({"status": 200, "body": {"denied": if body.get("acquire").is_some() { &acquire_why } else { &why },
+                "store_id": "progressive-fixture", "generation": server.backend["generation"], "watermark": body["from"]}})
         } else {
             server.fetch(fetch)
         }
     });
     assert_eq!(done["ok"], false);
     assert_eq!(done["acquired"], false);
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|r| r.get("acquire").is_some())
+            .count(),
+        1
+    );
+    assert!(requests
+        .iter()
+        .any(|r| r.get("acquire").is_none() && r["from"] == 0 && r["limit"] == 1));
     assert_eq!(done["acquisition"]["failure"], why);
     assert_eq!(
         device.call(json!({"op": "status"}))["acquisition"]["failure"],
