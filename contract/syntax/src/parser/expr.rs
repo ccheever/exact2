@@ -298,7 +298,7 @@ impl Parser {
                     let below = self.last;
                     self.expect_punct("{")?;
                     self.expect_word("case")?;
-                    self.expect_word("some")?;
+                    self.case_word("some")?;
                     self.expect_punct("(")?;
                     let var = self.named_ident(span)?;
                     self.expect_punct(")")?;
@@ -307,7 +307,7 @@ impl Parser {
                     let below = below.max(self.last);
                     self.expect_punct(",")?;
                     self.expect_word("case")?;
-                    self.expect_word("none")?;
+                    self.case_word("none")?;
                     self.expect_punct("=>")?;
                     let none = self.expr()?;
                     self.built(below.max(self.last), span)?;

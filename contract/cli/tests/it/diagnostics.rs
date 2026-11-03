@@ -1424,6 +1424,25 @@ fn refusals_from_the_app_diaries_name_the_fix() {
         "type-refused-idiom",
         "write `x.length`, of text or of a list",
     );
+    // A switch's value pattern in `match`, inline, in a view and in an action.
+    let not_a_switch = |found: &str| {
+        format!("a `match` case is `some(x)` or `none`, found {found}: `match` takes an option; to choose by a value, compare it: `x == \"a\" ? a : x == \"b\" ? b : c`")
+    };
+    says(
+        "fn label(f: string): string = match f { case \"unread\" => \"Unread\", case _ => \"All\" }\ncomponent App\n  view\n    text (label(\"unread\"))\n",
+        "syntax-expected",
+        &not_a_switch("a string"),
+    );
+    says(
+        "component App\n  state f = 1\n  view\n    match f\n      case 1\n        text \"one\"\n      case none\n        text \"none\"\n",
+        "syntax-expected",
+        &not_a_switch("number 1"),
+    );
+    says(
+        "component App\n  state f = \"a\"\n  state n = 0\n  action go\n    match f\n      case some(x)\n        n = 1\n      case _\n        n = 2\n  view\n    button \"go\" press=go\n",
+        "syntax-expected",
+        &not_a_switch("`_`"),
+    );
     let idiom = |call: &str| {
         refused(&format!("component App\n  state s = \"a\"\n  state xs = []\n  action go\n    xs = {call}\n  view\n    text s\n"))
     };
