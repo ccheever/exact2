@@ -17,7 +17,10 @@
  * for any host), so in it only a path into one app or package counts; and a module that another unit imports is
  * loaded, not driven: its imports count, and of its names only those its top level reads. `GLOBAL` lists the files
  * every suite reads, and `suites` lists by hand the roots of the XCTests, touch smoke, Apple compiles, Harmony and
- * conformance, from the scripts that run them.
+ * conformance, from the scripts that run them. Code other than a test names a directory of tests to run the tests
+ * there, and the suite that runs them has that directory among its roots, so in such code the name does not count; a
+ * file there that it names (a fixture, a script) does. An XCTest suite selected by its own Swift files alone runs only
+ * the classes they reach (`xctestClasses`).
  *
  * It reads the source, so a read that nothing names (a walk of the whole repository) escapes it; the async lane runs
  * every step in full at least daily (`scripts/async.mjs`), and `--audit` runs a suite with the units outside its
@@ -26,9 +29,10 @@
  *   bun scripts/affected.mjs [--base <rev>] [--why <suite>] [--json] [--run] [--audit <suite>]
  *     --base    the commit to compare with (default: the merge base with origin/main); the working tree's changes,
  *               untracked files included, count too
- *     --why     each changed input that selects the suite, with the chain of references that reaches it
- *     --json    the changed files, the suites selected (each with up to five of the files that select it) and the
- *               commands, as one object
+ *     --why     each changed input that selects the suite, with the chain of references that reaches it, and the
+ *               XCTest classes it runs alone
+ *     --json    the changed files, the suites selected (each with up to five of the files that select it, and the
+ *               XCTest classes it runs alone) and the commands, as one object
  *     --run     run the selected Cargo packages' and Bun files' tests (the other suites are listed with their commands)
  *     --audit   run a suite under `sandbox-exec` with the files of every unit outside its inputs unreadable (macOS; a
  *               sandboxed process cannot run a setuid program such as `ps`, which `scripts/test-children.mjs` and
@@ -41,6 +45,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, normalize, relative, resolve } from 'node:path';
 import { parseAst } from 'rolldown/parseAst';
+import { classesReached } from '../host/apple/xctest.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
 
@@ -72,8 +77,9 @@ const WORKSPACES = ['Cargo.toml', 'game/Cargo.toml', 'apps/harmony/app/Cargo.tom
 const APP_HOSTS = { web: ['web'], apple: ['macos', 'ios'], linux: ['linux'], windows: ['windows'], android: ['android'] };
 
 /**
- * The changed files that select each suite: `[{ suite, because: [file, …] }]`, in catalogue order. `changed` is a
- * list of repository paths.
+ * The changed files that select each suite: `[{ suite, because: [file, …], only? }]`, in catalogue order. `changed`
+ * is a list of repository paths. An XCTest suite selected by its own Swift files alone runs only the classes they reach
+ * (`only`, `xctestClasses`), and is left out when they compile nothing on its platform.
  */
 export function select(graph, changed, catalogue = suites(graph.repo)) {
   const global = changed.filter(f => GLOBAL.includes(f));
@@ -81,9 +87,22 @@ export function select(graph, changed, catalogue = suites(graph.repo)) {
   for (const suite of catalogue) {
     const { via } = graph.closure(suite.roots);
     const because = global.length ? global : changed.filter(f => via.has(f));
-    if (because.length) out.push({ suite, because });
+    if (!because.length) continue;
+    const only = suite.kind === 'xctest' ? xctestClasses(graph.repo.root, suite.host, because) : null;
+    if (only?.length === 0) continue;
+    out.push(only ? { suite, because, only } : { suite, because });
   }
   return out;
+}
+
+const XCTESTS = 'host/apple/tests/ExactKitTests/';
+
+/** The test classes of an XCTest suite on `host` that `because`, the changed inputs that select it, can reach
+ * (`classesReached` in host/apple/xctest.mjs): null when one of them is not a Swift file directly in the tests'
+ * directory (the host's Swift, a fixture, a script, a resource) or can reach any class. */
+export function xctestClasses(root, host, because) {
+  if (!because.every(f => f.startsWith(XCTESTS) && f.endsWith('.swift') && !f.slice(XCTESTS.length).includes('/'))) return null;
+  return classesReached(resolve(root, XCTESTS), host === 'ios' ? 'iOS' : 'macOS', because.map(f => f.slice(XCTESTS.length)));
 }
 
 /**
@@ -115,14 +134,16 @@ export function suites(repo) {
       }
     }
   }
-  // `build.mjs` links the Swift tests against Caltrain's archive (its default app) and compiles the fixtures with
-  // `contract`; the iOS run also builds native-fixture's plan and modules (`host/apple/build.mjs`, `test`).
-  const apple = ['dir:host/apple', 'tests:host/apple/tests', 'platform:apple', 'js:host/apple/build.mjs', 'pkg:caltrain-apple', 'pkg:contract'];
-  const xctest = [...apple, 'pkg:exact-canvas-vello', 'dir:scripts/fixtures'];
+  // An Apple build reads the platform's hosts but their tests (the Rust crate's test modules, the Bun files, the
+  // XCTests); touch smoke also runs `link.test.mjs` over the app it built. `build.mjs --test` adds the XCTests,
+  // links them against Caltrain's archive (its default app) and compiles the fixtures with `contract`; the iOS run
+  // also builds native-fixture's plan and modules (`host/apple/build.mjs`, `test`).
+  const apple = ['platform:apple', 'js:host/apple/build.mjs', 'pkg:caltrain-apple', 'pkg:contract'];
+  const xctest = ['dir:host/apple/tests', 'tests:host/apple/tests', ...apple, 'pkg:exact-canvas-vello', 'dir:scripts/fixtures'];
   out.push({ id: 'xctest:macos', kind: 'xctest', host: 'macos', roots: xctest });
   out.push({ id: 'xctest:ios', kind: 'xctest', host: 'ios', roots: [...xctest, 'appsrc:apps/native-fixture', 'pkg:native-fixture-apple'] });
   const caltrain = appBuild(repo, 'apps/caltrain', ['apple']);
-  out.push({ id: 'touch:ios', kind: 'touch', host: 'ios', roots: [...apple, 'js:scripts/smoke-touch.mjs', ...caltrain] });
+  out.push({ id: 'touch:ios', kind: 'touch', host: 'ios', roots: [...apple, 'js:scripts/smoke-touch.mjs', 'test:host/apple/link.test.mjs', ...caltrain] });
   for (const host of ['tvos', 'watchos']) out.push({ id: `compile:${host}`, kind: 'compile', host, roots: [...apple, ...caltrain] });
   out.push({ id: 'harmony', kind: 'harmony', roots: ['app:apps/harmony', 'js:scripts/memory-backend-test.mjs', 'platform:web', 'pkg:exact-web-js', 'pkg:contract'] });
   for (const app of WEB_APPS) {
@@ -538,6 +559,9 @@ function references(graph, file, literals, pkgDir, as) {
         // (`tamber tool` serves apps/design-tool, a path into one app; a table of hosts names each platform's, and a
         // tool for games names game/ to make one)
         if (!reaches(target) && !/^(?:apps|examples|packages)\//.test(unitOf(target)) && !/^include_(?:str|bytes)!$/.test(call)) return;
+        // Skip a directory of tests named by code other than a test: it names it to run the tests there (`build.mjs
+        // --test`), and the suite that runs them has it among its roots. A file there that it names still counts.
+        if (!test && repo.dirs.has(target) && PLATFORM_TEST.test(`${target}/`)) return;
         if (repo.fileSet.has(target)) { add(`${test ? 'script' : 'file'}:${target}`, word); return; }
         // (An app's directory is its files to code that reads it, and the whole app, its crates too, to a test.)
         if (repo.dirs.has(target)) { add(repo.apps.has(target) ? `${test ? 'app' : 'appsrc'}:${target}` : `dir:${target}`, word); return; }
@@ -772,9 +796,9 @@ export function commands(selected) {
   }
   const bun = selected.filter(s => s.suite.kind === 'bun').map(s => `./${s.suite.file}`);
   if (bun.length) out.push(['bun', 'test', '--isolate', ...bun]);
-  for (const { suite: s } of selected) {
+  for (const { suite: s, only } of selected) {
     if (s.kind === 'app') for (const f of s.files) out.push(['bun', 'scripts/agent.mjs', s.host, '--app', s.app, '--test', f]);
-    else if (s.kind === 'xctest') out.push(['bun', 'host/apple/build.mjs', '--test', ...(s.host === 'ios' ? ['--ios'] : [])]);
+    else if (s.kind === 'xctest') out.push(['bun', 'host/apple/build.mjs', '--test', ...(s.host === 'ios' ? ['--ios'] : []), ...(only ? ['--only', only.join(',')] : [])]);
     else if (s.kind === 'touch') out.push(['bun', 'scripts/smoke-touch.mjs', '--build']);
     else if (s.kind === 'compile') out.push(['bun', 'host/apple/build.mjs', `--${s.host}`, '--no-install']);
     else if (s.kind === 'harmony') out.push(['bun', 'scripts/memory-backend-test.mjs', 'apps/harmony/app'], ['cargo', 'check', '--manifest-path', 'apps/harmony/app/Cargo.toml', '--all-targets', '--keep-going']);
@@ -889,7 +913,13 @@ if (import.meta.main) {
   const selected = select(graph, changed, catalogue);
   if (option('--why')) {
     const hit = selected.find(s => s.suite.id === option('--why'));
-    if (!hit) { console.log(`${option('--why')}: not selected (${catalogue.some(s => s.id === option('--why')) ? 'no changed file is among its inputs' : 'no such suite'})`); process.exit(0); }
+    if (!hit) {
+      const suite = catalogue.find(s => s.id === option('--why'));
+      const reached = suite && changed.some(f => graph.closure(suite.roots).via.has(f));
+      console.log(`${option('--why')}: not selected (${!suite ? 'no such suite' : reached ? 'the test files that changed compile nothing on its platform' : 'no changed file is among its inputs'})`);
+      process.exit(0);
+    }
+    if (hit.only) console.log(`runs ${hit.only.join(', ')} (--only): the test files that changed reach no other class`);
     for (const file of hit.because) {
       console.log(file);
       for (const { node, why } of graph.chain(hit.suite.roots, file) ?? []) console.log(`  <- ${node}  (${why})`);
@@ -897,7 +927,7 @@ if (import.meta.main) {
     process.exit(0);
   }
   if (argv.includes('--json')) {
-    console.log(JSON.stringify({ changed, selected: selected.map(s => ({ id: s.suite.id, because: s.because.slice(0, 5) })), commands: commands(selected) }, null, 2));
+    console.log(JSON.stringify({ changed, selected: selected.map(s => ({ id: s.suite.id, because: s.because.slice(0, 5), ...(s.only ? { only: s.only } : {}) })), commands: commands(selected) }, null, 2));
     process.exit(0);
   }
   const counts = kind => `${selected.filter(s => s.suite.kind === kind).length} of ${catalogue.filter(s => s.kind === kind).length}`;

@@ -141,6 +141,14 @@ test('async runs a check only for the suites selected, its Rust tests built as a
   expect(asyncLane.covers('test', selection)).toEqual(['cargo:exact-linux']);
   expect(asyncLane.covers('conform-webkit', selection)).toEqual(['conform:caltrain']);
   expect(asyncLane.covers('ios', selection)).toBe(null);
+  // The iOS classes its test files reach run alone, and a failure of one is that class's
+  const classes = {...selection, iosOnly:['ATests', 'BTests']};
+  expect(asyncLane.checks('new', 'old', classes).find(([n]) => n === 'ios')[2]).toEqual(['host/apple/build.mjs', '--test', '--ios', '--only', 'ATests,BTests']);
+  expect(asyncLane.covers('ios', classes)).toEqual(['xctest:ios:ATests', 'xctest:ios:BTests']);
+  expect(owners('ios', '', ['ios: ExactKitTests.CTests testC failed', 'ios: exit 65 (see log)'])).toEqual({'ios: ExactKitTests.CTests testC failed': ['xctest:ios:CTests']});
+  const ranTwo = {checks:{ios:{status:0, covers:asyncLane.covers('ios', classes)}}, failures:[]};
+  retainSkippedFailures(['ios: ExactKitTests.ATests testA failed', 'ios: ExactKitTests.CTests testC failed', 'ios: exit 65 (see log)'], ranTwo, {'ios: ExactKitTests.ATests testA failed': ['xctest:ios:ATests'], 'ios: ExactKitTests.CTests testC failed': ['xctest:ios:CTests']});
+  expect(ranTwo.failures).toEqual(['ios: ExactKitTests.CTests testC failed', 'ios: exit 65 (see log)']);
   const full = asyncLane.checks('new', 'old', {lane:[], glue:['./x.test.mjs']});
   expect(full.find(([n]) => n === 'test')[2]).toEqual(expect.arrayContaining(['cargo', 'test', '--workspace']));
   for (const name of ['ios', 'ios-touch', 'tvos', 'watchos', 'harmony', 'game', 'web-ax-test', 'conform']) expect(full.some(([n]) => n === name)).toBe(true);

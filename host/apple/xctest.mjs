@@ -292,6 +292,52 @@ function chosen(classes, only, platform) {
  *  platform out by `os()` or `canImport(UIKit|AppKit)`. A condition that names anything else is taken
  *  to hold either way. */
 export function testClasses(dir, platform) {
+  return declarations(dir, platform).tests;
+}
+
+/** The test classes of `platform` that a change to `files` (names in `dir`) can reach, to run
+ *  alone (`--only`): those the files declare or extend, the classes of each file that names one
+ *  reached (a subclass, an extension, a use of a member), and those derived from one. Null when any
+ *  class can be reached: a file is gone, or it, or a file that names a class reached, declares at
+ *  its top level, not `private`, something else other files can use (a function, a type that is no
+ *  test class, an extension of one), as the shared helpers do; or when the files reach no class yet
+ *  compile something on the platform (a `private extension` of a test class, a fixture renamed),
+ *  whose error only a build would show. */
+export function classesReached(dir, platform, files) {
+  const { parents, tests, perFile } = declarations(dir, platform);
+  const reached = new Set();
+  for (const file of files) {
+    const own = perFile.get(file);
+    if (!own || own.shared) return null;
+    for (const name of own.classes) reached.add(name);
+  }
+  // Reach the classes of each file that names a class reached; every class when that file is shared
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const own of perFile.values()) {
+      if (![...own.names].some(name => reached.has(name))) continue;
+      if (own.shared) return null;
+      const before = reached.size;
+      for (const name of own.classes) reached.add(name);
+      grew ||= reached.size > before;
+    }
+  }
+  // Reach a class declared indented (nested, or within `#if`) through the class it derives from
+  const reaches = (name, seen = new Set()) => reached.has(name) || (parents.has(name) && !seen.has(name) && reaches(parents.get(name), seen.add(name)));
+  const out = tests.filter(name => reaches(name));
+  return out.length || !files.some(file => perFile.get(file).compiles) ? out : null;
+}
+
+/** A line that declares and compiles nothing: an import, a diagnostic directive (`#warning`), attributes. */
+const DECLARES_NOTHING = /^\s*(?:(?:@\w+(?:\([^)]*\))?\s+)*import\b|#(?:warning|error|sourceLocation)\b|(?:@\w+(?:\([^)]*\))?\s*)+$)/;
+
+/** What the Swift files in `dir` declare for `platform`: each class's parent (`parents`), the
+ *  test classes (`tests`, sorted), and per file the classes it declares or extends at its top level,
+ *  not `private` (`classes`), the capitalized names it uses (`names`), whether it compiles anything
+ *  on the platform but what `DECLARES_NOTHING` matches or a block comment holds (`compiles`), and
+ *  whether it declares at its top level, not `private`, anything else other files can use
+ *  (`shared`). */
+function declarations(dir, platform) {
   const ios = platform === 'iOS';
   // 'yes', 'no' or 'maybe' for a condition, worked out with each condition it names that does not
   // depend on the platform taken first as true and then as false
@@ -309,10 +355,14 @@ export function testClasses(dir, platform) {
     const [one, two] = [as(true), as(false)];
     return one === two ? (one ? 'yes' : 'no') : 'maybe';
   };
-  const declared = new Map();
+  const parents = new Map(), perFile = new Map();
   for (const file of readdirSync(dir).filter(f => f.endsWith('.swift'))) {
-    const branches = [];
+    const branches = [], own = { classes: [], names: new Set(), compiles: false, shared: false };
+    perFile.set(file, own);
+    let comment = false;
     for (const line of readFileSync(resolve(dir, file), 'utf8').split('\n')) {
+      // Skip a block comment, from the line that opens it to the one that closes it
+      if (comment || /^\s*\/\*/.test(line)) { comment = !line.includes('*/'); continue; }
       const directive = /^\s*#(if|elseif|else|endif)\b\s*(.*)/.exec(line);
       if (directive) {
         const [, word, condition] = directive, top = branches.at(-1);
@@ -324,17 +374,33 @@ export function testClasses(dir, platform) {
         }
         continue;
       }
-      const declaration = !/^\s*\/\//.test(line) && /\bclass (\w+)\s*:\s*(\w+)/.exec(line);
-      if (declaration && branches.every(b => b.now !== 'no')) declared.set(declaration[1], declaration[2]);
+      if (/^\s*\/\//.test(line) || branches.some(b => b.now === 'no')) continue;
+      for (const name of line.match(/\b[A-Z]\w*/g) ?? []) own.names.add(name);
+      if (/\S/.test(line) && !DECLARES_NOTHING.test(line)) own.compiles = true;
+      const declaration = /\bclass (\w+)\s*:\s*(\w+)/.exec(line);
+      if (declaration) parents.set(declaration[1], declaration[2]);
+      // Read a declaration at the file's top level (unindented), after its attributes and modifiers
+      const top = /^(?:@\w+(?:\([^)]*\))?\s+)*((?:\w+\s+)*?)(extension|func|struct|enum|protocol|class|actor|let|var|typealias)\s+(\w+)/.exec(line);
+      // Mark the file shared at a top-level line the pattern does not read (an operator,
+      // `private(set) var`): it may declare what other files use
+      if (!top) { if (/^[^\s}\])]/.test(line) && !DECLARES_NOTHING.test(line)) own.shared = true; continue; }
+      if (/\b(private|fileprivate)\b/.test(top[1])) continue;
+      // Count an extension of a class as that class's own, as its body is
+      if (top[2] === 'class' || top[2] === 'extension') own.classes.push(top[3]);
+      else own.shared = true;
     }
   }
   const isTest = (name, seen = new Set()) => {
-    const parent = declared.get(name);
+    const parent = parents.get(name);
     if (!parent || seen.has(name)) return false;
     return parent === 'XCTestCase' || /Fixture$/.test(parent) || isTest(parent, seen.add(name));
   };
+  // Mark a file shared when it declares or extends a class that is no test class or fixture: other
+  // files can use that type
+  for (const own of perFile.values()) if (own.classes.some(name => !isTest(name))) own.shared = true;
   // A fixture is a base the test classes share, with no tests of its own
-  return [...declared.keys()].filter(name => isTest(name) && !name.endsWith('Fixture')).sort();
+  const tests = [...parents.keys()].filter(name => isTest(name) && !name.endsWith('Fixture')).sort();
+  return { parents, tests, perFile };
 }
 
 /** The tests in `dir` that need what only an app gives them, `ExactKitTests/<Class>/<test>`:
