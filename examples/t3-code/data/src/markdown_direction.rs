@@ -436,8 +436,9 @@ mod direction_tests {
             blocks
                 .iter()
                 .map(|block| match block {
+                    // `dir`, before the parser's image fields (ChatBlock).
                     Value::Record(fields) => fields
-                        .last()
+                        .get(19)
                         .and_then(Value::as_str)
                         .unwrap_or("")
                         .to_string(),

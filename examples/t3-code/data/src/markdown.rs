@@ -660,20 +660,14 @@ fn chat_document(
     let text = image_chip_links(text);
     // An image inside a line of text is a media run.
     let text = strike_marks(&inline_image_links(&text)).into_owned();
-    let mut doc = markdown_parse::parse(&text, &|href| image_link(&link_href, href));
+    let link = |href: &str| image_link(&link_href, href);
+    let mut doc = markdown_parse::parse_with(&text, &link, &|| false, chat_html(raw_html))
+        .unwrap_or_default();
     linked_images(&mut doc.blocks, &|href| image_link(&link_href, href));
     if inert {
         inert_blocks(&mut doc.blocks);
     }
-    // An image alone on its line is a block the parser resolved as a link: its source resolves as media.
-    for block in &mut doc.blocks {
-        if matches!(block.kind, markdown_parse::Kind::Image)
-            && block.href != NO_HREF
-            && !block.href.starts_with(FILE_LINK)
-        {
-            block.href = media_href(&block.href);
-        }
-    }
+    doc.blocks.iter_mut().for_each(image_sources);
     if !cwd {
         links_without_cwd(&mut doc.blocks);
     }
@@ -689,12 +683,7 @@ fn chat_document(
         tasks.iter_mut().for_each(|task| task.1 = -1.0);
     }
     for block in &mut doc.blocks {
-        // An image's emptied source loads nothing, nor does a fragment (media-views.ts markdownImageHref).
-        if matches!(block.kind, markdown_parse::Kind::Image)
-            && (block.href == NO_HREF || block.href.starts_with('#'))
-        {
-            block.href.clear();
-        }
+        unloadable_sources(block);
         block.runs = skill_runs(&block.runs, &skills);
         for cell in &mut block.cells {
             *cell = skill_runs(cell, &skills);
@@ -732,6 +721,7 @@ fn chat_document(
             if let Value::Record(fields) = &table {
                 let mut fields = fields.to_vec();
                 fields.push(Value::str(directions[index]));
+                fields.extend([Value::str(""), Value::Number(0.0), Value::Number(0.0)]);
                 table = Value::record(fields);
             }
             blocks.push(table);
@@ -743,6 +733,8 @@ fn chat_document(
             unreachable!()
         };
         let mut fields = fields.to_vec();
+        // The parser's `dark`, `width` and `height` follow the chat block's own fields (ChatBlock).
+        let image = fields.split_off(9);
         fields.push(Value::Number(gap));
         let flow = flow_tokens(block);
         if let Some(tokens) = &flow {
@@ -773,6 +765,7 @@ fn chat_document(
                     line_fields.extend(task_fields(task));
                     line_fields.push(Value::Number(gutters[index]));
                     line_fields.push(Value::str(directions[index]));
+                    line_fields.extend(image.iter().cloned());
                     blocks.push(Value::record(line_fields));
                 }
                 continue;
@@ -817,6 +810,7 @@ fn chat_document(
         fields.extend(task_fields(tasks[index]));
         fields.push(Value::Number(gutters[index]));
         fields.push(Value::str(directions[index]));
+        fields.extend(image);
         blocks.push(Value::record(fields));
     }
     Value::record(vec![id, Value::list(blocks)])

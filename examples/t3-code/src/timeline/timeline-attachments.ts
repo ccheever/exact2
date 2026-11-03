@@ -268,8 +268,8 @@ export function imagePreviewAction(client: T3Client, op: string, id: string, val
   }
   // The key identifies the source; the parsed document's occurrence selects this image even when a URL repeats.
   if (op === 'image-md-open') {
-    const [owner = '', opener = '', occurrence = ''] = value.split('\n'), index = Number(occurrence);
-    const document = markdownDocument(owner), items = document ? markdownGallery(document) : [];
+    const [owner = '', opener = '', occurrence = '', scheme = 'light'] = value.split('\n'), index = Number(occurrence);
+    const document = markdownDocument(owner), items = document ? markdownGallery(document, scheme) : [];
     if (!document || !opener || !occurrence || !Number.isInteger(index) || items[index]?.key !== id) throw new ClientError('That image is no longer available.');
     previews.set(client, null); mediaPreviews.set(client, null);
     galleries.set(client, { threadId: client.threadId, signThread: client.threadId || draftThreadId(client), text: document.text, root: document.root, scope: document.scope, items, index,

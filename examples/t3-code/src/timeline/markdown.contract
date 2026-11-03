@@ -81,6 +81,9 @@ shape ChatBlock
   gutter: number
   // The block's own words' direction (markdown_direction.rs): "rtl", "ltr", or "" without letters.
   dir: string
+  dark: string // an image's `prefers-color-scheme: dark` source; `href` holds the light one (markdown-parse Html)
+  width: number // an HTML image's authored size in px, 0 when unsaid
+  height: number
   findParts: FindPart[]
   // A code block's find part each line starts in, then its last part (markdown_find.rs find_lines); none for one part.
   findLines: number[]
@@ -207,8 +210,7 @@ component ChatMarkdown
   view
     EnvBlocks(document=document, local=local, code=code, prose="light-dark(#18181be6, #f5f5f5e6)", fit=false, env=env)
 
-// An answer or plan in the transcript: its settled Mermaid fences draw as
-// diagrams, painted for the colour scheme.
+// An answer or plan in the transcript: its settled Mermaid fences draw as diagrams, painted for the colour scheme.
 component AnswerMarkdown
   inject
     // The open citation comment's answer (its bare message id) and quote, and the quote's start in
@@ -321,8 +323,7 @@ component UserMarkdown
   view
     DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose=ink, fit=true, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=urls, source="", cite=noCite, markStart=-1, markEnd=-1)
 
-// Markdown blocks at the stock settings (13pt code, wrapped), for a document
-// with no MarkdownEnv of its own.
+// Markdown blocks at the stock settings (13pt code, wrapped), for a document with no MarkdownEnv of its own.
 component MarkdownBlocks
   inject
     rem: number
@@ -446,6 +447,7 @@ component DiagramBlocks
 component BlockBody
   inject
     rem: number
+    markdownScheme: string
   props
     block: ChatBlock
     // The document's id: a heading's element id is `md-<scope>-<its id>` (headingNode).
@@ -464,6 +466,7 @@ component BlockBody
     // The cited text in this block's offsets while its comment is open (-1: none).
     ms: number
     me: number
+  derive imageHref = markdownScheme == "dark" and block.dark != "" ? block.dark : block.href
   // A paragraph or another block of plain prose.
   derive plain = not ["heading", "item", "rule", "table-row", "table", "image", "quote"].includes(block.kind)
   view
@@ -504,11 +507,11 @@ component BlockBody
       MarkdownTable(block=block, scope=scope, source=source, prose=prose, fit=fit, chips=chips, urls=urls, local=local, copied=(copiedText == block.markdown or copiedText == block.csv ? copiedNonce : 0))
     if block.kind == "image"
       // An image line draws through its media chip (media-views.ts markdownMediaChips).
-      if chips.filter((c) => c.kind == "media" and c.href == block.href).length > 0
-        for chip in chips.filter((c) => c.kind == "media" and c.href == block.href) key=chip.id
-          MarkdownMedia(alt=block.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, link="", linkLabel="", favicon=false, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`, label=chip.label, menu=chip.menu)
+      if chips.filter((c) => c.kind == "media" and c.href == imageHref).length > 0
+        for chip in chips.filter((c) => c.kind == "media" and c.href == imageHref) key=chip.id
+          MarkdownMedia(alt=block.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, link="", linkLabel="", favicon=false, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`, label=chip.label, menu=chip.menu, imageWidth=block.width, imageHeight=block.height)
       else
-        image block.href aria-label=block.text max-width="100%" object-fit="contain"
+        image imageHref aria-label=block.text width=(block.width > 0 ? `${block.width}px` : "auto") height=(block.height > 0 ? `${block.height}px` : "auto") max-width="100%" max-height="30rem" object-fit="contain"
     if plain and not block.flow
       text width=(fit ? "auto" : "100%") max-width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" line-height="1.421875rem" overflow-wrap="anywhere" color=prose
         ChatRuns(runs=block.runs, size=14, weight=400, ms=ms, me=me)
@@ -715,7 +718,7 @@ component FlowRuns
         // link's favicon leads it when the image starts the link.
         if run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0
           for chip in chips.filter((chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
-            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`, label=chip.label, menu=chip.menu)
+            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`, label=chip.label, menu=chip.menu, imageWidth=0, imageHeight=0)
         // With no media chip (a pull request's text) an image inside a link's text is the link's word, its alt text.
         if run.kind == "media" and run.link != "" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length == 0 and webLink(run.link)
           link href=run.link press=open(run.link) contextmenu=linkMenu(run.link) contextPopover="chat-link-menu" aria-label=(run.label != "" ? run.label : run.text) cursor="pointer" text-decoration-line="none" flex-shrink=0 title=""
@@ -844,7 +847,6 @@ component PrLinkRun
         text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=weight font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color="light-dark(#1447e6, #50a2ff)"
           FindParts(parts=run.findParts)
 
-
 // A composer context reference in a sent message (ContextChip) the message carries no record view for: its kind's
 // glyph (a file's Pierre icon) and label in the kind's ink, with no pill.
 component ContextChipBox
@@ -897,12 +899,10 @@ component FileChipFace
         else
           text label
 
-// One chip with its record view (message-chips.ts): a file link's full
-// path in a code tooltip; a mention's path; an attachment's name and size
-// (an image previews on click, its thumbnail leading); a skill's `$name`; a
-// thread that opens; a reference whose record is gone drawn dashed with
-// "This context is no longer available."; terminal, element and review
-// references and an assistant quote open their details above the chip.
+// One chip with its record view (message-chips.ts): a file link's full path in a code tooltip; a mention's path; an
+// attachment's name and size (an image previews on click, its thumbnail leading); a skill's `$name`; a thread that
+// opens; a reference whose record is gone drawn dashed with "This context is no longer available."; terminal, element
+// and review references and an assistant quote open their details above the chip.
 component InlineFileChip
   props
     run: ChatRun
@@ -1140,9 +1140,8 @@ component ChipDetails
 // A plain-text fence (any case); extractFenceLanguage reads one with no language as "text".
 fn plainFence(language: string): bool = language == "" or ["text", "txt", "plain", "plaintext"].includes(language.toLowerCase())
 
-// chat-markdown-codeblock: a 10pt bordered card, a header with the language and
-// the wrap/copy toolbar, and 13pt code on 17.875pt lines. A plain-text fence's code
-// takes the surrounding prose colour.
+// chat-markdown-codeblock: a 10pt bordered card, a header with the language and the wrap/copy toolbar, and 13pt code
+// on 17.875pt lines. A plain-text fence's code takes the surrounding prose colour.
 component CodeBlock
   props
     canRun: bool
@@ -1440,7 +1439,7 @@ component CellRuns
           ContextChipBox(run=run, color=color)
         if not run.mono and run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0
           for chip in chips.filter((chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
-            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=false, link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${nodePrefix}-${run.id}`, label=chip.label, menu=chip.menu)
+            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=false, link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${nodePrefix}-${run.id}`, label=chip.label, menu=chip.menu, imageWidth=0, imageHeight=0)
         if not run.mono and run.kind != "file" and not contextRun(run.kind) and not (run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0)
           text min-width=0 font-size="0.875rem" line-height=1.625 white-space=(nowrap ? "pre" : "pre-wrap") font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color=color
             FindParts(parts=run.findParts)

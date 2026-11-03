@@ -427,7 +427,7 @@ mod find_tests {
             panic!()
         };
         assert_eq!(
-            parts(&code[20]),
+            parts(&code[23]),
             [
                 ("needle".into(), 1.0, 0.0),
                 (" = ".into(), 0.0, 6.0),
@@ -441,14 +441,14 @@ mod find_tests {
             panic!()
         };
         assert_eq!(
-            lines[21],
+            lines[24],
             Value::list([0.0, 1.0, 3.0, 3.0, 3.0].map(Value::Number).to_vec())
         );
         // A block without a match is one part, and has no lines' index.
         let Value::Record(plain) = &blocks("```ts\nplain\ntext\n```")[0] else {
             panic!()
         };
-        assert_eq!(plain[21], Value::list(Vec::new()));
+        assert_eq!(plain[24], Value::list(Vec::new()));
         // A run's count from the run's start, not the block's.
         let Value::Record(prose) = &blocks("**bold** needle")[0] else {
             panic!()
@@ -500,9 +500,9 @@ mod find_tests {
             assert!(blocks
                 .iter()
                 .all(|block| matches!(block, Value::Record(fields)
-                    if fields.len() == 22 && matches!(fields[18], Value::Number(_))
-                        && fields[19].is_str() && matches!(fields[20], Value::List(_))
-                        && matches!(fields[21], Value::List(_)))));
+                    if fields.len() == 25 && matches!(fields[18], Value::Number(_))
+                        && fields[19].is_str() && matches!(fields[23], Value::List(_))
+                        && matches!(fields[24], Value::List(_)))));
         }
     }
     #[test]
@@ -538,11 +538,11 @@ mod find_tests {
         let Value::Record(block) = &blocks[0] else {
             panic!("block")
         };
-        assert_eq!(block.len(), 22);
+        assert_eq!(block.len(), 25);
         assert!(matches!(block[18], Value::Number(_)));
         assert!(block[19].is_str());
-        assert!(matches!(block[20], Value::List(_)));
-        assert!(matches!(block[21], Value::List(_)));
+        assert!(matches!(block[23], Value::List(_)));
+        assert!(matches!(block[24], Value::List(_)));
         let Value::List(runs) = &block[7] else {
             panic!("runs")
         };

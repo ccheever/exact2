@@ -143,10 +143,12 @@ component T3Code
   derive inlineDocumentViewportWidth = viewport.width
   derive inlineDocumentViewportHeight = viewport.height
   members "./src/browser/server-browser-members.contract"
+  derive markdownScheme = scheme
   provide
     interacted
     pickerAnnounce
     modelPickTaken
+    markdownScheme
     workspaceEntered // F6's workspace areas (src/shell/shell-members.contract)
     confirmationFocused // the confirmation that holds the focus (src/shell/shell-members.contract)
     confirmationClosed

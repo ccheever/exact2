@@ -29,9 +29,11 @@ import { notePullRequestLinks } from './pull-link-registry';
 import { chipInks } from '../composer/composer-chip-presentation';
 import { pullRequestChipHover } from '../pull-requests/pr-chip-preview';
 
+const LTR = { labelDir: 'ltr', quoteDir: 'ltr', commentDir: 'ltr' };
 export interface ChipView {
   id: string; href: string; kind: string; label: string; size: string; tip: string;
   detail: string; icon: string; target: string; owner: string;
+  /** A citation's text directions (citationChip); every other chip is "ltr" (LTR), as markdown.contract's ChipView requires all three. */
   labelDir?: string; quoteDir?: string; commentDir?: string;
   /** A file link's menu rows (file-link-menu.ts withFileLinkMenus); a pull request chip's PullRequestContextDetails lines
    *  (pr-chip-preview.ts); [] for every other chip. */
@@ -201,10 +203,11 @@ export function shouldCollapseUserMessage(text: string): boolean {
 /** Every chip a message's Markdown draws, by the href its run keeps (markdown.rs chat_run); `media`: where its media resolve. */
 export function messageChips(item: Obj, root: string, threads: Obj[], owner = '', media: MediaScope = {}, client?: T3Client): ChipView[] {
   const text = str(item.text), chips: ChipView[] = [];
+  if (item.type === 'user_message') media = { ...media, rawHtml: false };
   const records = new Map(arr(obj(item.context).records).map(record => [str(record.contextId), record]));
   const attachments = new Map(arr(item.attachments).map(attachment => [str(attachment.id), attachment]));
   const seen = new Set<string>();
-  const add = (chip: Omit<ChipView, 'id' | 'owner' | 'menu'> & Partial<Pick<ChipView, 'menu'>>) => { if (seen.has(chip.href)) return; seen.add(chip.href); chips.push({ id: `chip-${chips.length}`, menu: [], ...chip, owner }); };
+  const add = (chip: Omit<ChipView, 'id' | 'owner' | 'menu'> & Partial<Pick<ChipView, 'menu'>>) => { if (seen.has(chip.href)) return; seen.add(chip.href); chips.push({ id: `chip-${chips.length}`, menu: [], ...LTR, ...chip, owner }); };
   // The thread's provider skills for its workspace, as the composer's `$` menu reads them (a sketch of a client has none).
   const skills = client?.config && client.projection ? workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills') : [];
   for (const link of contextLinks(text)) {
@@ -243,7 +246,7 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
     add({ href: `t3-inline-code:${code}`, kind: 'link', label: `${name}${position ? ` · L${position[1]}` : ''}`, size: '', tip: target, detail: '', icon: fileIconToken(path), target: workspaceLookupPath(candidate, fromRoot ? cwd : root, cwd) });
   }
   // An image's chip (kind "media") is matched by href and kind, so a link to the same file keeps its own.
-  for (const chip of markdownMediaChips(text, root, media)) chips.push({ id: `chip-${chips.length}`, ...chip, owner, menu: [] });
+  for (const chip of markdownMediaChips(text, root, media)) chips.push({ id: `chip-${chips.length}`, ...LTR, ...chip, owner, menu: [] });
   if (client) for (const chip of chips) {
     if (chip.kind === 'link' || chip.kind === 'mention') chip.icon = workspaceFileIcon(client, chip.kind === 'link' ? chip.href.slice('t3-file:'.length) : chip.tip, root);
   }

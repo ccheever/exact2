@@ -371,6 +371,41 @@ fn image_link(link: &dyn Fn(&str) -> String, href: &str) -> String {
     }
 }
 
+/// ChatMarkdown's image protocols (markdownPipeline.ts, T3 Code 5d3d78ab93).
+/// UserMessageBody uses `parseRawHtml={false}` and keeps HTML literal.
+fn chat_html(raw_html: bool) -> markdown_parse::Html<'static> {
+    if raw_html {
+        markdown_parse::Html {
+            images: true,
+            schemes: &["http", "https", "file", "t3-context"],
+        }
+    } else {
+        markdown_parse::Html::LITERAL
+    }
+}
+
+/// Resolve both picture variants through the media path (media-views.ts markdownImageHref).
+fn image_sources(block: &mut markdown_parse::Block) {
+    if matches!(block.kind, markdown_parse::Kind::Image) {
+        for href in [&mut block.href, &mut block.dark] {
+            if !href.is_empty() && *href != NO_HREF && !href.starts_with(FILE_LINK) {
+                *href = media_href(href);
+            }
+        }
+    }
+}
+
+/// An image's emptied source loads nothing, nor does a fragment (media-views.ts markdownImageHref).
+fn unloadable_sources(block: &mut markdown_parse::Block) {
+    if matches!(block.kind, markdown_parse::Kind::Image) {
+        for href in [&mut block.href, &mut block.dark] {
+            if *href == NO_HREF || href.starts_with('#') {
+                href.clear();
+            }
+        }
+    }
+}
+
 /// AttachmentFilePreview's ChatMarkdown has no `cwd`: resolveMarkdownFileLinkTarget finds
 /// no folder for a relative destination, so the anchor is a plain one, which the desktop window opens nowhere (its
 /// window-open handler passes only safe external URLs): link-coloured text with no target, as an emptied anchor is. An
@@ -571,6 +606,30 @@ mod media_tests {
     }
     fn run(kind: &str, alt: &str, href: &str, icon: &str) -> (String, String, String, String) {
         (kind.into(), alt.into(), href.into(), icon.into())
+    }
+
+    #[test]
+    fn raw_images_keep_sanitized_sources_dimensions_and_user_text() {
+        let markup = r#"<picture>
+<source media="(prefers-color-scheme: dark)" srcset="dark.png 2x">
+<source media="(prefers-color-scheme: light)" srcset="light.png">
+<img src="fallback.png" alt="A &amp; B" width="120" height="60" onerror="alert(1)">
+</picture>
+
+<img src="javascript:alert(1)" alt="blocked">"#;
+        let Value::Record(doc) = document(Value::str("m"), markup) else { panic!() };
+        let Value::List(blocks) = &doc[1] else { panic!() };
+        let Value::Record(image) = &blocks[0] else { panic!() };
+        assert_eq!(image[1], Value::str("image"));
+        assert_eq!(image[4], Value::str("A & B"));
+        assert_eq!(image[5], Value::str("t3-file:light.png"));
+        assert_eq!(image[20], Value::str("t3-file:dark.png"));
+        assert_eq!(&image[21..23], &[Value::Number(120.0), Value::Number(60.0)]);
+        let Value::Record(blocked) = &blocks[1] else { panic!() };
+        assert_eq!(blocked[5], Value::str(""));
+        let Value::Record(user) = user_document(Value::str("u"), markup, None) else { panic!() };
+        let Value::List(blocks) = &user[1] else { panic!() };
+        assert!(blocks.iter().all(|block| !matches!(block, Value::Record(fields) if fields[1].as_str() == Some("image"))));
     }
 
     #[test]

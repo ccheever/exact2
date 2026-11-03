@@ -8,6 +8,7 @@
 //   anything else is the "Image unavailable · <alt>" label), ChatMarkdownAssetImage and
 //   ChatMarkdownVideo;
 // - a video's `error` (MediaVideoPlayer onError) and Retry (onRetry, "Retrying…" while it runs);
+import { markdownHtmlImages } from './media-html';
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
@@ -310,7 +311,9 @@ export function markdownInlineImages(text: string): InlineImage[] {
   return out;
 }
 /** A message's image lines and inline images, each with the href its block or run keeps. */
-const allImages = (text: string) => [...markdownImages(text), ...markdownInlineImages(text)];
+const allImages = (text: string, rawHtml = true) => [...markdownImages(text), ...markdownInlineImages(text),
+  ...(rawHtml ? markdownHtmlImages(text) : []).flatMap(image => [...new Set([image.src, image.dark || image.src, image.light || image.src])]
+    .map(src => ({ alt: image.alt, src, href: markdownImageHref(src) })))];
 
 /**
  * Where a document's media resolve (ChatMarkdown's props): `root` is `imageBaseDir ?? cwd`, the folder a relative
@@ -318,7 +321,7 @@ const allImages = (text: string) => [...markdownImages(text), ...markdownInlineI
  * viewer"; FileMarkdownPreview passes the workspace while `imageBaseDir` is the file's folder); `thread` whether there is
  * a thread to sign a host path through (AttachmentFilePreview's ChatMarkdown has none: such media is unavailable).
  */
-export type MediaScope = { cwd?: string; thread?: boolean };
+export type MediaScope = { cwd?: string; thread?: boolean; rawHtml?: boolean };
 /**
  * `kind` "audio" is a sound (InlineAudioPreview: its `resource` signed for a host file, else a direct `key`); "file" a file
  * that is no media, drawn as its file chip (`file`).
@@ -378,7 +381,7 @@ function markdownFileChip(src: string, resolved: string, root: string, cwd: stri
 export type MarkdownDocument = { text: string; root: string; scope: MediaScope };
 const documents = new Map<string, MarkdownDocument>();
 export function noteMarkdownDocument(owner: string, text: string, root: string, scope: MediaScope = {}): void {
-  if (!owner || !text.includes('![')) return;
+  if (!owner || (!text.includes('![') && !/<(?:img|picture)[\s/>]/i.test(text))) return;
   documents.delete(owner);
   documents.set(owner, { text, root, scope });
   if (documents.size > 256) documents.delete(documents.keys().next().value!);
@@ -387,8 +390,17 @@ export const markdownDocument = (owner: string): MarkdownDocument | null => docu
 export type GalleryImage = { key: string; name: string; access: MarkdownMedia['access']; source: MediaActionSource };
 /** markdownImageGallery: the document's images in order (an image that can load, not a video, a table cell's too; not one
  *  inside a link's text, whose press is the link's), each as ExpandedImagePreview names it (`alt.trim() || "image"`). */
-export function markdownGallery(document: MarkdownDocument): GalleryImage[] {
-  return markdownInlineImages(document.text).filter(image => !image.linked).flatMap(image => {
+export function markdownGallery(document: MarkdownDocument, scheme = 'light'): GalleryImage[] {
+  const images: { alt: string; src: string; href: string; linked?: boolean }[] = [];
+  let offset = 0;
+  for (const image of document.scope.rawHtml === false ? [] : markdownHtmlImages(document.text)) {
+    images.push(...markdownInlineImages(document.text.slice(offset, image.offset)));
+    const src = (scheme === 'dark' ? image.dark : image.light) || image.src;
+    images.push({ alt: image.alt, src, href: markdownImageHref(src) });
+    offset = image.offset;
+  }
+  images.push(...markdownInlineImages(document.text.slice(offset)));
+  return images.filter(image => !image.linked).flatMap(image => {
     const media = markdownMedia(image.alt, image.src, image.href, document.root, document.scope);
     return media.kind === 'image' && media.access !== 'blocked' && media.source ? [{ key: media.key, name: image.alt.trim() || 'image', access: media.access, source: media.source }] : [];
   });
@@ -397,7 +409,7 @@ export function markdownGallery(document: MarkdownDocument): GalleryImage[] {
 /** The chips that carry a message's media to markdown.contract (matched by the image block's or media run's href). */
 export function markdownMediaChips(text: string, root: string, scope: MediaScope = {}): { href: string; kind: string; label: string; size: string; tip: string; detail: string; icon: string; target: string }[] {
   const seen = new Set<string>();
-  return allImages(text).flatMap(image => {
+  return allImages(text, scope.rawHtml).flatMap(image => {
     if (seen.has(image.href)) return [];
     seen.add(image.href);
     const media = markdownMedia(image.alt, image.src, image.href, root, scope);
@@ -425,8 +437,8 @@ export async function markdownMediaUrls(client: T3Client, native: Native, root: 
   if (!threadId) return out;
   const wanted = new Map<string, MarkdownMedia>();
   // A rendered Markdown file passes its own text (FileMarkdownPreview's images).
-  for (const text of texts ?? arr(client.projection.visibleTurnItems).map(row => str(obj(row.item).text))) {
-    for (const image of allImages(text)) {
+  for (const item of texts ? texts.map(text => ({ text, type: '' })) : arr(client.projection.visibleTurnItems).map(row => obj(row.item))) {
+    for (const image of allImages(str(item.text), scope.rawHtml !== false && item.type !== 'user_message')) {
       const media = markdownMedia(image.alt, image.src, image.href, root, scope);
       if (media.access === 'environment' && media.resource) wanted.set(media.key, media);
     }
