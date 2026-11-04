@@ -120,6 +120,18 @@ final class TextAreaLeadingMacTests: XCTestCase {
         XCTAssertEqual(try inkTop(input), typed, accuracy: 0.5, "an input's text on the same line")
     }
 
+    /// An input's text rounds its line box in the window's device pixels,
+    /// as a textarea's does: on a 21 px line, 14 px text has its baseline on
+    /// a half point at 2x (2 of half-leading over a 13.5 ascent), where the
+    /// line box rounded in points put it half a point lower.
+    func testAnInputsTextIsOnATextareasDevicePixelRow() throws {
+        XCTAssertEqual(window.backingScaleFactor, 2, "a 2x display's half point")
+        let area = try XCTUnwrap(node("textarea", ["value": "Hx"], height: 21, line: "21px").textArea)
+        let typed = try inkTop(area)
+        let input = try XCTUnwrap(node("input", ["value": "Hx"], height: 21, line: "21px").field)
+        XCTAssertEqual(try inkTop(input), typed, accuracy: 0.01, "the input's glyphs on the textarea's device pixel row")
+    }
+
     /// A line height below the font's keeps its pitch: the lines are
     /// forced to it, as TextKit 2 sets no negative spacing between some
     /// paragraphs.
