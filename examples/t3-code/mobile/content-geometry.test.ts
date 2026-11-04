@@ -146,6 +146,11 @@ test('route geometry exposes only a right-edge occlusion reservation', () => {
   const fns = contractFns('mobile/content-geometry.contract', [], { first: (values: unknown[]) => values[0] });
   expect(fns.contentGeometryTrailingReservation(metrics())).toBe(26);
   expect(fns.contentGeometryTrailingReservation({ ...metrics(), reservedRegions: [{ kind: 'division', x: 450, y: 10, width: 50, height: 60 }] })).toBe(0);
+  expect(fns.contentGeometryTrailingReservation({ ...metrics(), reservedRegions: [{ kind: 'occlusion', x: 300, y: 10, width: 176, height: 60 }] })).toBe(176);
+  expect(fns.contentGeometryTrailingReservation({ ...metrics(), reservedRegions: [
+    { kind: 'occlusion', x: 300, y: 10, width: 176, height: 60 },
+    { kind: 'occlusion', x: 450, y: 10, width: 26, height: 60 },
+  ] })).toBe(176);
   expect(fns.contentGeometryTrailingReservation({ ...metrics(), state: 'unavailable' })).toBe(0);
 });
 
