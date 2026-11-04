@@ -4,9 +4,10 @@
 import QuartzCore
 
 extension CALayer {
-    /// A new layer of this one's kind with its geometry, look, contents
-    /// (shared) and shadow, and its shape's or gradient's own values. Not its
-    /// sublayers, mask, `zPosition`, visibility or animations.
+    /// A new layer with this one's geometry, look, contents (shared) and
+    /// shadow: a shape, gradient or transform layer with its own values where
+    /// this is one, else a plain layer. Not its sublayers, mask, `zPosition`,
+    /// visibility or animations.
     /// `CALayer(layer:)` is the subclass copy initializer Core Animation uses;
     /// called directly, it gives an empty layer, so the values go one by one.
     func valueCopy() -> CALayer {

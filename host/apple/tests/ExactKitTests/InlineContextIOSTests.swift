@@ -1,6 +1,8 @@
 #if os(iOS)
 import UIKit
 import XCTest
+import IOSurface
+import CoreVideo
 @testable import ExactKit
 
 final class InlineContextIOSTests: XCTestCase {
@@ -360,7 +362,11 @@ final class InlineContextIOSTests: XCTestCase {
         let page = try XCTUnwrap(card.superview), away = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
         away.frame = CGRect(x: 0, y: 600, width: 40, height: 40)
         page.insertSubview(away, at: 0)
-        for i in 0..<200 { page.insertSubview(UIView(frame: CGRect(x: CGFloat(i % 10) * 30, y: 500 + CGFloat(i / 10) * 8, width: 20, height: 4)), at: 0) }
+        for i in 0..<200 {
+            let far = UIView(frame: CGRect(x: CGFloat(i % 10) * 30, y: 500 + CGFloat(i / 10) * 8, width: 20, height: 4))
+            far.addSubview(UIView(frame: far.bounds))
+            page.insertSubview(far, at: 0)
+        }
         let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
         let preview = try lift(p, node, at: try XCTUnwrap(rects.first))
         let area = textLines(rects, in: node).area
@@ -376,7 +382,7 @@ final class InlineContextIOSTests: XCTestCase {
         until("the blur is shown") { blur.layer.presentation() != nil }
         let screen = try lift(p, node, at: try XCTUnwrap(rects.first))
         let shown = onScreen(screen.view)
-        let band = pixel(shown, at: CGPoint(x: 2, y: area.height / 2)), inside = pixel(shown, at: CGPoint(x: 12, y: area.height / 2))
+        let band = pixel(shown, at: CGPoint(x: 2, y: area.height / 2)), inside = pixel(shown, at: CGPoint(x: 13.5, y: area.height / 2))
         XCTAssertTrue(band.count == 4 && zip(band, inside).allSatisfy { abs(Int($0) - Int($1)) <= 3 } && band[1] > 60,
                       "the blur past the card, blurred and as beside it (\(band) beside \(inside)), none of the page")
     }
@@ -401,7 +407,7 @@ final class InlineContextIOSTests: XCTestCase {
         let padding = try XCTUnwrap(preview.view.subviews.first)
         XCTAssertTrue(padding.isScreens && !(padding.layer.sublayers ?? []).filter { $0.contents != nil }.isEmpty, "the screen's picture, with strips of it over the band")
         let shown = onScreen(preview.view)
-        let band = pixel(shown, at: CGPoint(x: 2, y: area.height / 2)), inside = pixel(shown, at: CGPoint(x: 12, y: area.height / 2))
+        let band = pixel(shown, at: CGPoint(x: 2, y: area.height / 2)), inside = pixel(shown, at: CGPoint(x: 13.5, y: area.height / 2))
         XCTAssertTrue(band.count == 4 && zip(band, inside).allSatisfy { abs(Int($0) - Int($1)) <= 3 } && band != [255, 255, 255, 255],
                       "the card's edge stretched past it (\(band) beside \(inside)), none of the page")
     }
@@ -496,6 +502,51 @@ final class InlineContextIOSTests: XCTestCase {
         let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
         let preview = try lift(p, node, at: try XCTUnwrap(rects.first))
         XCTAssertTrue(try XCTUnwrap(preview.view.subviews.first).isScreens, "the screen's picture, no copy of the view's backing store")
+    }
+
+    func testAParagraphsOwnContentsLeaveItsPaddingCopied() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let node = try XCTUnwrap(p.views[2])
+        until("the paragraph is drawn") { node.snapshotView(afterScreenUpdates: false) != nil }
+        // Contents that are no bitmap, as a paragraph that draws its own text has: never shared, as only its fill is copied
+        node.layer.contents = IOSurface(properties: [.width: 4, .height: 4, .bytesPerElement: 4, .pixelFormat: kCVPixelFormatType_32BGRA])
+        let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
+        let padding = try XCTUnwrap(lift(p, node, at: try XCTUnwrap(rects.first)).view.subviews.first)
+        XCTAssertTrue(!padding.isScreens && (padding.layer.sublayers?.isEmpty ?? true), "one flat color, as the page is, with none of the text beside the run")
+    }
+
+    func testABorderedCardExtendsItsFillNotItsBorder() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let (node, card) = try cardAround(p, margin: 4)
+        // A yellow card with a red border, 2 pt wide, inside the room UIKit's padding reaches past
+        // Square, so no corner keeps `inner` off the border
+        (card.backgroundColor, card.layer.cornerRadius) = (UIColor(red: 1, green: 0.84, blue: 0.04, alpha: 1), 0)
+        (card.layer.borderWidth, card.layer.borderColor) = (2, UIColor.red.cgColor)
+        let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
+        let preview = try lift(p, node, at: try XCTUnwrap(rects.first))
+        // Just past the card's edge, which a reflection from the border's inner side would make red
+        let edge = card.convert(card.bounds, to: node.superview).minX - textLines(rects, in: node).area.minX
+        let band = pixel(onScreen(preview.view), at: CGPoint(x: edge - 1, y: textLines(rects, in: node).area.height / 2))
+        XCTAssertTrue(band[0] > 220 && band[1] > 180 && band[2] < 80, "the card's yellow past its edge, not its border's red: \(band)")
+    }
+
+    func testAnOverflowingChildOfATranslucentParentLiftsTranslucent() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let node = try XCTUnwrap(p.views[2]), page = try XCTUnwrap(node.superview)
+        // A half-transparent parent away from the run, whose red child reaches under it
+        let parent = UIView(frame: CGRect(x: 0, y: node.frame.maxY + 200, width: 20, height: 20))
+        parent.alpha = 0.5
+        let child = UIView(frame: CGRect(x: node.frame.minX - 10, y: node.frame.minY - parent.frame.minY - 6, width: node.frame.width + 20, height: node.frame.height + 12))
+        child.backgroundColor = .red
+        parent.addSubview(child)
+        page.insertSubview(parent, belowSubview: node)
+        until("the paragraph is drawn") { node.snapshotView(afterScreenUpdates: false) != nil }
+        let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
+        let preview = try lift(p, node, at: try XCTUnwrap(rects.first))
+        XCTAssertLessThan(difference(preview, over: rects, of: node), 8, "the child's copy at its parent's opacity, as the window shows it")
     }
 
     func testARunOverAFilteredLayerLiftsTheScreen() throws {
