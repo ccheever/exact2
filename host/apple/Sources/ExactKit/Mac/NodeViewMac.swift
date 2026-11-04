@@ -1323,8 +1323,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     func fitScroll() {
         guard let scroll, let document = scroll.documentView else { return }
         let visible = scroll.contentView.bounds.size, origin = scroll.kernelDocumentOrigin, o = grid?.origin ?? .zero, s = presenter?.gridScale ?? 1
-        // Ending where its last edge is drawn, so the furthest offset reaches it (`PixelGridMac.swift`).
-        let size = CGSize(width: max(PixelGrid.length(content.width, from: o, vertical: false, scale: s) - origin.x, visible.width), height: max(PixelGrid.length(content.height, from: o, vertical: true, scale: s) - origin.y, visible.height))
+        let size = CGSize(width: max(PixelGrid.length(content.width, from: o, vertical: false, scale: s) - origin.x, visible.width), height: max(PixelGrid.length(content.height, from: o, vertical: true, scale: s) - origin.y, visible.height)) // ending where its last edge is drawn (`PixelGridMac.swift`)
         if document.frame.size != size { document.setFrameSize(size) }
     }
 
