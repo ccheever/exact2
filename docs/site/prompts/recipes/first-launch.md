@@ -4,9 +4,9 @@ Add a welcome screen to the Exact app in this folder: it shows until the person 
 1. If this folder is not an Exact app (it has no exact.mjs and app.contract), stop and tell me.
 2. If I did not give the welcome's headline and one line under it, write them from what the app does and show them to me in your report. Keep it one short screen.
 3. In app.contract, add `state welcomed = false persist` to the root and an action that sets it to true. In the root route's branch, show the main screen while `welcomed` is true, and the welcome (`navigationBar="none"`, a Continue button with `testId="continue"`) while it is false. Do not make the welcome a route of its own, and do not leave it with a `task`.
-4. Every test starts on a fresh install, so each existing test in app.test.contract now opens on the welcome: start each one with `tap "continue"`. Change nothing else in them.
-5. Add the recipe's test: the welcome shows until Continue, Continue shows the main screen, and after `reload` the welcome does not show again.
+4. Every test starts on a fresh install, so each existing test in app.test.contract now opens on the welcome: start each one with `tap "continue"`, after its `size` line if it has one (a `size` line must come first). Change nothing else in them.
+5. Add the recipe's test: the welcome shows until Continue, Continue shows the main screen, and after `reload` the welcome does not show again. To find the main screen, check an element it always shows, even with no data.
 6. Run `bun exact.mjs test web`, then `bun exact.mjs verify` until it passes. Fix the app, not the test. If a finding stays after three rounds of fixes, or the app had it before you changed anything, record it (step 7) and report it; do not keep trying.
 7. When a doc was wrong or missing, or a step needed a workaround, record it: `bun exact.mjs feedback note "<what happened>"`. Do not send the notes; tell me how many you recorded.
-8. Tell me the welcome's text, what the tests and verify reported, and how to see it by hand: `bun exact.mjs agent web --storage s1 "tap continue"`, then `bun exact.mjs agent web --storage s1 --keep-storage tree` opens on the main screen.
+8. Tell me the welcome's text, what the tests and verify reported, and how to see it by hand: `bun exact.mjs agent web --storage welcome "tap continue"`, then `bun exact.mjs agent web --storage welcome --keep-storage tree` opens on the main screen. If the app already used the storage name `welcome`, use another new name.
 ```
