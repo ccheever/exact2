@@ -1,0 +1,42 @@
+// The sidebar under 768 CSS px (ui/sidebar.tsx Sidebar's isMobile arm, ui/sheet.tsx SheetPopup side "left"; MIT, see
+// LICENSE-T3): a modal Base UI Dialog over the window, named "Threads", full height at the left edge. Its width is its
+// content's: SIDEBAR_WIDTH_MOBILE rides on a style Base UI's popup replaces, so `w-(--sidebar-width)` names a variable
+// the portal does not inherit and the popup is shrink-to-fit in its flex viewport, at most the window's width. No
+// backdrop is drawn (the sheet passes no SheetBackdrop); Base UI's outside press layer takes a press beside it and
+// closes it. It fades in from 32pt to the left over 200 ms ease-in-out (data-starting-style:-translate-x-8 opacity-0)
+// and leaves the same way. Escape closes it, unless the thread search holds Escape (Sidebar.tsx stops it to clear the
+// search). Tab stays inside (dialog-trap.contract FocusGuard); the caller's DialogFinalFocus gives the focus back.
+use FocusGuard, DialogOpenFocus from "../shared/dialog-trap.contract"
+
+keyframes sidebarSheetIn
+  from opacity=0 translate="-32px 0px"
+keyframes sidebarSheetOut
+  to opacity=0 translate="-32px 0px"
+
+component SidebarSheet
+  inject
+    dialogEntered: action
+    dialogFallback: action
+  props
+    // The first stop, which takes the focus as the sheet opens, and the last: Tab wraps between them.
+    first: string
+    last: string
+    escape: bool
+    dismiss: action
+    // The laid-out sheet's width and height, for what the window draws beside it (SidebarOverlays).
+    measured: action
+  slot
+  derive dialogTargets = [first, last]
+  action key(k: string, e: KeyboardEvent)
+    if k == "Escape" and escape and not e.isComposing
+      dismiss()
+    else
+      dialogFallback("sidebar-sheet", dialogTargets, k, e)
+  view
+    box position="absolute" left=0 top=0 width="100%" height="100%" press=dismiss aria-hidden=true testId="sidebar-sheet-backdrop"
+    // shadow-lg/5.
+    column position="absolute" left=0 top=0 bottom=0 max-width="100%" box-shadow="0 10px 15px -3px #0000000d, 0 4px 6px -4px #0000000d" role="dialog" aria-label="Threads" tabindex=-1 id="sidebar-sheet" testId="sidebar-sheet" data-dialog-focus="open" focusin=dialogEntered("sidebar-sheet") key=key resize=measured animation="sidebarSheetIn 200ms cubic-bezier(0.4, 0, 0.2, 1) both" -exact-exit-animation="sidebarSheetOut 200ms cubic-bezier(0.4, 0, 0.2, 1) both"
+      FocusGuard(guardId="sidebar-sheet-guard-start", targets=dialogTargets, popup="sidebar-sheet")
+      DialogOpenFocus(target=first)
+      children
+      FocusGuard(guardId="sidebar-sheet-guard-end", targets=dialogTargets, popup="sidebar-sheet")

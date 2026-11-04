@@ -449,7 +449,7 @@ describe('the details row merges a checks answer as the PR page does', () => {
     const state = { prRowChecksNow: 0 };
     root.call('prRowChecksTick', state, { performanceNow: () => 46_000 }, []);
     const detailsCall = (() => { const line = declared('resource details = '); return line.slice('resource details = '.length, line.indexOf(' as shape ShellDetails')); })();
-    const args = value(detailsCall, { shellDetails: (...values: unknown[]) => values, detailsShown: true, data: { threadId: 't1', revision: 0, sidebarOpen: false }, conversationWidth: 800, wallTime: { epochAtZero: 0 },
+    const args = value(detailsCall, { shellDetails: (...values: unknown[]) => values, detailsShown: true, data: { threadId: 't1', revision: 0 }, sidebarInline: false, conversationWidth: 800, wallTime: { epochAtZero: 0 },
       shellClock: 30_000, prRowChecksNow: state.prRowChecksNow, viewport: { width: 1280 }, sidebarWidth: 0, page: { hasFocus: false, visibilityState: 'visible' }, lineageWorkflows: [], lineagePhasesOpen: [],
       lineagePhasesClosed: [], max: Math.max, floor: Math.floor }) as unknown[];
     // The card's clock is the later of the shell's and the row timer's; the window counts as visible without the focus.

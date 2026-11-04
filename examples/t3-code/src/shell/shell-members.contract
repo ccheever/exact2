@@ -31,7 +31,7 @@ members T3Code
     every(45000, prRowChecksTick)
   task prRowChecksSettled when details.prRows.checksPoll == "settled" key=details.prRows.checksKey
     every(60000, prRowChecksTick)
-  resource details = shellDetails(detailsShown, data.threadId, data.revision, conversationWidth >= 1012, wallTime.epochAtZero + max(shellClock, prRowChecksNow), floor(viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - conversationWidth), page.hasFocus and page.visibilityState == "visible", lineageWorkflows, lineagePhasesOpen, lineagePhasesClosed, page.visibilityState == "visible") as shape ShellDetails
+  resource details = shellDetails(detailsShown, data.threadId, data.revision, conversationWidth >= 1012, wallTime.epochAtZero + max(shellClock, prRowChecksNow), floor(viewport.width - (sidebarInline ? sidebarWidth : 0) - conversationWidth), page.hasFocus and page.visibilityState == "visible", lineageWorkflows, lineagePhasesOpen, lineagePhasesClosed, page.visibilityState == "visible") as shape ShellDetails
   state canvasGestureValue = ""
   action canvasGesture(value: string)
     canvasGestureValue = value

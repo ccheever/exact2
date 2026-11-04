@@ -142,7 +142,7 @@ describe('a collapsing sidebar hands its focus to its toggle (ui/sidebar.tsx)', 
   const window = contractComponent('src/shell/app-window.contract', 'T3Window');
   function toggle(state: Env, settingsOpen: boolean) {
     const calls: string[] = [];
-    window.call('toggleSidebar', state, { data: { sidebarOpen: true }, settingsOpen, releaseUndoClaim: () => calls.push('release'),
+    window.call('toggleSidebar', state, { data: { sidebarOpen: true }, settingsOpen, sidebarSheetMode: false, releaseUndoClaim: () => calls.push('release'),
       focus: (id: string) => calls.push(`focus ${id}`), command: (...args: unknown[]) => calls.push(`command ${args[2]}`) }, []);
     return calls;
   }
@@ -153,6 +153,15 @@ describe('a collapsing sidebar hands its focus to its toggle (ui/sidebar.tsx)', 
   // Settings is a modal over the window with a nav of its own (3faeb9e6f9): the thread sidebar's flag moves nothing.
   test('a flag the thread sidebar left set moves nothing while Settings is open', () => {
     expect(toggle({ sidebarFocused: true }, true)).toEqual(['release', 'command closed']);
+  });
+  test('under 768 CSS px the toggle opens and closes the sheet and leaves the row\'s state alone', () => {
+    for (const shown of [false, true]) {
+      const calls: string[] = [];
+      window.call('toggleSidebar', { sidebarFocused: true }, { data: { sidebarOpen: true }, settingsOpen: false, sidebarSheetMode: true, sidebarSheetShown: shown,
+        releaseUndoClaim: () => calls.push('release'), sidebarSheetSet: (open: boolean) => calls.push(`sheet ${open}`), focus: (id: string) => calls.push(`focus ${id}`),
+        command: (...args: unknown[]) => calls.push(`command ${args[2]}`) }, []);
+      expect(calls).toEqual(['release', `sheet ${!shown}`]);
+    }
   });
   test('the thread sidebar reports the focus inside it', () => {
     const state: Env = { sidebarFocused: false };

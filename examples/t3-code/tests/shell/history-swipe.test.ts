@@ -36,7 +36,7 @@ describe('the history swipe arrow', () => {
     expect(root).toContain('historyswipe=historySwiped');
     const window = contractComponent('app-window.contract', 'T3Window');
     const state = { historySwipe: fns.historySwipeIdle() };
-    window.call('historySwiped', state, { data: { sidebarOpen: true }, sidebarWidth: 256, viewport: { width: 1280, height: 840 }, historySwipeStep: fns.historySwipeStep }, [at('began', 0.125)]);
+    window.call('historySwiped', state, { sidebarInline: true, sidebarWidth: 256, viewport: { width: 1280, height: 840 }, historySwipeStep: fns.historySwipeStep }, [at('began', 0.125)]);
     expect(state.historySwipe).toMatchObject({ shown: true, left: 256, width: 1024, height: 840, progress: 0.5 });
   });
 

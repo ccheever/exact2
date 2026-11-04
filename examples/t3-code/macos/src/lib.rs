@@ -33,3 +33,6 @@ mod timeline_hooks_tests;
 
 #[cfg(test)]
 mod contract_keys_tests;
+
+#[cfg(test)]
+mod sidebar_sheet_tests;

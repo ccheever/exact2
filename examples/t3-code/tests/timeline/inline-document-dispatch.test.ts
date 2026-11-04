@@ -10,7 +10,7 @@ test('a configured guest sidebar key invokes the existing button operation witho
   const name = documentShortcutCommand({ keybindings: [{ command: 'sidebar.toggle', shortcut: { key: 'arrowdown' } }] }, key);
   expect(name).toBe('sidebar.toggle');
   const calls: unknown[][] = [];
-  const scope = { inlineDocumentKeysBlocked: false, modal: false, paletteOpen: false, settingsOpen: false, shortcuts: [], command: (...args: unknown[]) => calls.push(args) };
+  const scope = { inlineDocumentKeysBlocked: false, modal: false, paletteOpen: false, settingsOpen: false, sidebarSheetMode: false, shortcuts: [], command: (...args: unknown[]) => calls.push(args) };
   root.call('inlineDocumentShortcut', {}, { ...scope, data: { sidebarOpen: true } }, [name]);
   root.call('inlineDocumentShortcut', {}, { ...scope, data: { sidebarOpen: false } }, [name]);
   expect(calls).toEqual([['sidebar', '', 'closed', 0], ['sidebar', '', 'open', 0]]);
@@ -19,6 +19,12 @@ test('a configured guest sidebar key invokes the existing button operation witho
   }
   root.call('inlineDocumentShortcut', {}, scope, ['composer.send']);
   expect(calls).toHaveLength(2);
+  // Under 768 CSS px the key toggles the sheet's own open state and leaves the row's alone (ui/sidebar.tsx toggle).
+  const state = { sidebarSheetOpen: false };
+  root.call('inlineDocumentShortcut', state, { ...scope, sidebarSheetMode: true, data: { sidebarOpen: true } }, [name]);
+  expect([state.sidebarSheetOpen, calls.length]).toEqual([true, 2]);
+  root.call('inlineDocumentShortcut', state, { ...scope, sidebarSheetMode: true, data: { sidebarOpen: true } }, [name]);
+  expect(state.sidebarSheetOpen).toBe(false);
 });
 
 test('inert guest messages cannot bypass global confirmations or preview overlays', () => {
