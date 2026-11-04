@@ -277,6 +277,7 @@ describe('the window root takes ⌘Q ahead of the menu', () => {
   const scope = (calls: string[], clock: { now: number }): Env => {
     const env: Env = {
       ...fns, preventDefault: () => calls.push('preventDefault'), stopPropagation: () => {}, close: () => calls.push('close'),
+      exitFullscreen: () => calls.push('exitFullscreen'), setWindowOpacity: (o: number) => calls.push(`opacity ${o}`),
       performanceNow: () => clock.now, releaseUndoClaim: () => {},
       ...contractFns('src/shell/shortcut-modifiers.contract', ['ShortcutModifierState']),
       ShortcutModifierState: (record: unknown) => record,
@@ -284,7 +285,7 @@ describe('the window root takes ⌘Q ahead of the menu', () => {
     return env;
   };
   const run = (state: Env, env: Env, name: string, args: unknown[]) => root.call(name, state, env, args);
-  test('a press shows the hold hint, a completed hold closes the window at Q\'s release, and the hint goes', () => {
+  test('a press shows the hold hint, a completed hold leaves full screen, turns the window transparent and closes it at Q\'s release', () => {
     const calls: string[] = [], clock = { now: 1000 }, state = rootState(), env = scope(calls, clock);
     const apply = (next: unknown) => run(state, env, 'quitApply', [next]);
     env.quitApply = apply;
@@ -294,7 +295,8 @@ describe('the window root takes ⌘Q ahead of the menu', () => {
     expect(state.quitHintMode).toBe('hold');
     for (let t = 100; t <= HOLD_MS + 100; t += 100) { clock.now = 1000 + t; run(state, env, 'modifierKey', [true, event({ isAutoRepeat: true }), false]); }
     expect(state.quitHintMode).toBe('');
-    expect(calls.filter(call => call === 'close')).toEqual([]);
+    // concealPendingQuitWindow: once, when the hold completes.
+    expect(calls.filter(call => call !== 'preventDefault')).toEqual(['exitFullscreen', 'opacity 0']);
     run(state, env, 'modifierKey', [false, event({ type: 'keyUp' }), false]);
     expect(calls.at(-1)).toBe('close');
   });

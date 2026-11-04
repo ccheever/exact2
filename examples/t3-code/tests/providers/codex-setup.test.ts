@@ -136,7 +136,7 @@ describe('managed Codex setup (CodexSetupSection)', () => {
     expect(externalOpensForTests()).toEqual([authorizationUrl]);
     // The receiver binds the redirect's port with the request's state; its callback completes the flow.
     expect(await fake.receive()).toBe('received');
-    expect(sessions).toEqual([{ url: authorizationUrl, callback: `http://127.0.0.1:${port}/auth/callback`, state }]);
+    expect(sessions).toEqual([{ url: authorizationUrl, callback: `http://127.0.0.1:${port}/auth/callback`, state, message: 'Your sign-in response has been received. T3 Code is finishing the connection. You can close this tab.' }]);
     expect(fake.receiving()).toBe('');
     expect(fake.methods('provider.auth.complete')).toEqual([{ method: 'provider.auth.complete', payload: { instanceId, flowId: 'flow-1', callbackUrl } }]);
     fake.emit('auth', auth({ phase: 'verifying', flowId: 'flow-1' })); await fake.prepare();

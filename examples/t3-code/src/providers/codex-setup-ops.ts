@@ -26,7 +26,9 @@ import { letGo } from '../client/let-go';
 export const RECEIVE_FAILED = 'Could not finish sign-in on this computer. Try again or paste the redirect URL below.';
 /** receiveCodexAuthCallback's bound: a sign-in whose browser has not called back in five minutes expires. */
 export const RECEIVE_MS = 300_000;
-declare function openAuthSession(url: string, options: { callback: string; state: string }): Promise<string>;
+declare function openAuthSession(url: string, options: { callback: string; state: string; message?: string }): Promise<string>;
+/** The callback page's sentence (codexAuthCallback.ts), under the host's "Return to <app>". */
+const CALLBACK_PAGE = 'Your sign-in response has been received. T3 Code is finishing the connection. You can close this tab.';
 const SETUP_FAILED = 'Codex setup failed. Try again.';
 import { HANDOFF_KEY, handoffHosts } from './codex-handoff-events';
 import { openExternal as openSystem } from '../client/external-open';
@@ -121,7 +123,7 @@ export async function receiveCallback(context: CodexContext, url: string): Promi
   if (!request) return fail();
   let callbackUrl: string;
   try {
-    callbackUrl = await openAuthSession(url, { callback: request.redirectUri, state: request.state });
+    callbackUrl = await openAuthSession(url, { callback: request.redirectUri, state: request.state, message: CALLBACK_PAGE });
     codexCallbackUrl(callbackUrl, request.redirectUri, request.state);
   } catch (error) { if (letGo(error)) throw error; return fail(); }
   if (flow.receiving !== url) return 'gone';

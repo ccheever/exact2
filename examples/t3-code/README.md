@@ -501,12 +501,14 @@ filed were moved there or closed). The gaps someone using this app runs into:
   prompt links, whose switch to another machine's Scratch project polls (`fragmentChanged`, queued).
   Time is still an argument, and work outside an answer (the transport's tick, the sidebar's
   graces) is Contract tasks.
-- A completed ⌘Q hold leaves the window as it is until the keys go quiet: the reference leaves full
-  screen and turns the window transparent first (concealPendingQuitWindow), and Contract has neither.
 - Edit › Undo chosen from the menu while the undo notice claims ⌘Z is thread.undo, also with a field
   focused, where the reference's menu item undoes the field's text (its ⌘Z is thread.undo then too).
 - Check for Updates… shows in every build. In a build with an update store its press would do nothing (the
   module has no hook into the host's check); no build has one while `deploy.store` is `"0"`.
+- The managed policy's update keys are a known difference (the user, 2026-11-04). The clone is an open-source app
+  built on exact2, not T3 Code's product run for an organization, so it has no administrator and no in-app updates
+  (`deploy.store` `"0"`). The policy's `limits.updates` `mode: "off"` already matches, since nothing checks;
+  `feedUrl` has no effect, since nothing updates.
 - A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);
   main keeps the limit), so the Usage page's segment popover is opaque where the reference's glass shows the page
   through it. The composer's glass is a layer of its own in the chat column, placed at the card's box as last measured
@@ -514,9 +516,6 @@ filed were moved there or closed). The gaps someone using this app runs into:
 - The Usage page draws a segment's popover in its scroll area, so the area clips it: a popover that v0.1.6 opens above
   its segment over the page's header (a weekly window's, near the top) opens below it here, and one at the area's edge
   is shifted inside the area, not the window.
-- A ChatGPT sign-in's browser page, once the callback is in, reads "Return to T3 Code (Exact)" and "You can close
-  this tab." (the host's page, LLP 1133.005 D9), where the reference's adds "Your sign-in response has been received.
-  T3 Code is finishing the connection."
 - Two ChatGPT sign-ins wait at once, each on its port, as the reference's do; a third waits for one of them to end
   (the window's two receivers, `codex-setup-host.ts` `LOOPBACK_SLOTS`), where the reference receives any number.
 - The notification sounds are WAV copies of the reference's two MP3s, since `playSound` reads WAV.
@@ -718,9 +717,8 @@ Differences that belong to the app:
   Chromium's drawing tools (Draw, Undo, Redo) are not there. Present fills the tab, not the screen. Neither viewer
   has a find bar (Electron draws none). A PDF from another origin loads only when its server
   lets the page fetch it (CORS), as the T3 server does. A rendered HTML preview is a sandboxed `iframe` (LLP 1020.002):
-  a right-click shows WebKit's menu, not the desktop shell's, and a `window.open` with features opens the platform's
-  popup window, where the reference opens every new window in the default browser (a `target="_blank"` link or ⌘-click
-  still does).
+  a right-click shows WebKit's menu, not the desktop shell's. Every new window it asks for opens in the default
+  browser, as the reference's do.
 - The host opens the first window before the embedded server is ready (#117 was closed as not
   planned), so the window shows the connecting state first.
 - The launch's landing waits for every switched-on environment's shell (`home-landing.ts`), where the

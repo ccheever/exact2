@@ -917,8 +917,8 @@ component T3Code
   action quitHintHide
     quitHintLingers = false
     quitHintMode = ""
-  // notify(): the overlay's QUIT_SHORTCUT_CHANNEL listener. concealPendingQuitWindow turns the window transparent until
-  // the keys are let go; Contract has no window opacity, so only the hint goes. `close()` ends the one-window app.
+  // notify(): the overlay's QUIT_SHORTCUT_CHANNEL listener. concealPendingQuitWindow leaves full screen and turns the
+  // window transparent until the keys go quiet; the hint goes with it. `close()` ends the one-window app.
   action quitApply(next: QuitHoldState)
     quitHold = next
     if next.signal == "down"
@@ -928,6 +928,9 @@ component T3Code
     else if next.signal == "conceal" or (next.signal == "up" and quitHintPressed == "double-click")
       quitHintMode = ""
       quitHintLingers = false
+    if next.signal == "conceal"
+      exitFullscreen()
+      setWindowOpacity(0)
     else if next.signal == "up"
       quitHintSerial = quitHintSerial + 1
       quitHintLingers = true
