@@ -1446,8 +1446,18 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
 
 ### Progressive history
 
-Pass Contract's `now` to `db.sync({ now })`, and to `Snapback.open({ ...options,
-now })` for implicit rounds. A round older than `staleRoundMs` (default 30,000
+Native page application, backend adoption, store replacement and prediction
+replay run through `native.later`, off the source thread. Exact allows 100 ms
+per source turn; a large page must not spend that turn applying SQLite rows.
+The module serializes device access. Cheap reads normally answer synchronously;
+one that meets background work retries off-turn after that work releases the
+device. A device-call rejection releases the round queue immediately. The next
+live answer cancels the failed round before starting another, including when
+its apply finished after the original answer ended.
+
+Pass Contract's `now` on every call that accepts it: `db.sync({ now })`,
+`read(name, args, now)`, `write(name, args, now)`, `status(now)`, and
+`Snapback.open({ ...options, now })` for implicit rounds. A round older than `staleRoundMs` (default 30,000
 milliseconds) is abandoned when new sync, read, or write work arrives with newer
 time. Exact data modules have no timers or ambient clock: a fetch lost when the
 host suspends or forgets its call may never settle. Abandonment cancels the device
@@ -1471,15 +1481,19 @@ limits acquisition requests to 400 rows; a product normally leaves it unset.
 The default is 10,000. Open refuses values outside the integer range 1–10,000
 with typed `E_CLIENT`. It applies when the shared partition is first opened;
 ordinary stream pages keep their 10,000-row budget. Server bounds may cut a
-page sooner, and a group that cannot fit uses staged replacement.
+page sooner, and a group that cannot fit uses staged replacement. A horizoned
+group is served whole regardless of the row budget, so `acquireLimit` cannot
+bound apply time. Tune it for transfer size and time between progress updates,
+using measured apply time on the target device; it is not a way to satisfy the
+100 ms source budget. Leave headroom for decoding and index/prediction work.
 
 Keep calling `sync()` in the app's background loop while `round.acquired` is
 false. To wait for full acquisition explicitly:
 
 ```ts
-const round = await db.sync({ until: 'acquired' });
+const round = await db.sync({ until: 'acquired', now });
 // Offline or refusal can end the loop with round.acquired === false.
-const progress = round.acquisition ?? (await db.status()).acquisition;
+const progress = round.acquisition ?? (await db.status(now)).acquisition;
 ```
 
 Each turn releases the round queue, so reads and writes remain interleavable.
@@ -1592,14 +1606,24 @@ outside this adapter's camera contract.
 Natively the device is the app's native module; link it in the app's Rust:
 
 ```rust
-struct Snapback(exact_snapback4::Module);
-impl exact_js::NativeModule for Snapback {
-    fn configure_storage(&mut self, data: PathBuf, cache: PathBuf, temporary: PathBuf) -> Result<(), String> {
-        self.0.configure_storage(data, cache, temporary)
-    }
-    fn call(&mut self, request: &serde_json::Value) -> Result<serde_json::Value, String> { self.0.call(request) }
+fn snapback(_source: &str) -> Box<dyn exact_js::NativeModule> {
+    Box::new(exact_snapback4::Module::new(APP, GRANTS).expect("baked Snapback authority"))
+}
+// Attach with exact_js::Module::new(...).with_native(snapback).
+```
+
+`Module` implements `NativeModule`, including `later`. If an app keeps its own
+wrapper, it must forward `later` too:
+
+```rust
+fn later(&mut self) -> Option<exact_js::LaterHandler> {
+    exact_js::NativeModule::later(&mut self.0)
 }
 ```
+
+Without that handler, Exact's `native.later` falls back to `call` and large
+applies can exceed the source budget. Rebuild the native binary after changing
+the wrapper; a TypeScript update cannot install a Rust handler.
 
 The native module holds one partition at a time: an app that switches
 persona closes the one client, once its work in flight is done, before
@@ -1619,7 +1643,8 @@ it; `denied.code == "E_AUTH"` means sign in again. For an `auth` opening, the dr
 ## From Rust
 
 ```rust
-let (client, host) = module.parts();
+let mut parts = module.parts()?;                     // nonblocking exclusive device guard
+let (client, host) = parts.split();
 let client = client.expect("opened");                  // after {op:"open", path, origin, viewer}
 let mut step = client.sync(host);
 while let Step::Fetch(fetch) = step {

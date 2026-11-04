@@ -16,7 +16,8 @@ for (const device of [false, true]) test(`${device ? 'device' : 'online'} catalo
     return Response.json(malformed ? {generation} : {generation, ops: generation === 2 ? [{name: 'newFeature', kind: 'mutation', args: {}}] : [], tables: []}, {headers: {'x-snapback-generation': String(generation)}});
   }});
   const options = {origin: `http://127.0.0.1:${server.port}/`, headers: () => ({'x-snapback-persona': 'alice'})};
-  const db = device ? await Device.open({...options, app: 'release-test', name: 'release', viewer: 'dev:alice', native: {call: () => ({ok: {opened: true}})}}) : new Online(options);
+  const native = {call: () => ({ok: {opened: true}}), later: async () => ({ok: {opened: true}})};
+  const db = device ? await Device.open({...options, app: 'release-test', name: 'release', viewer: 'dev:alice', native}) : new Online(options);
   try {
     const unsubscribe = db.subscribeGeneration(g => generations.push(g));
     const current = await db.release();

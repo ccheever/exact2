@@ -28,6 +28,7 @@ publish = false
 description = "App-scoped Snapback4 native device, behind Exact's data seam."
 
 [dependencies]
+exact-js = { path = "../js" }
 exact-plan = { path = "../plan" }
 exact-runner = { path = "../runner" }
 ibex2 = { path = "../vendor/ibex/crates/ibex2", default-features = false }

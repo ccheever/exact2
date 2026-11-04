@@ -1562,12 +1562,20 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 - **The Mac or iOS app says `Snapback4: the native module is not available: …
   link exact_snapback4::Module`.** `exact new --snapback` wires the web's wasm
-  device only. Fix: in `apple/src/lib.rs` and `linux/src/main.rs`, wrap
-  `exact_snapback4::Module::new(APP, GRANTS)` in a struct implementing
-  `exact_js::NativeModule` (`configure_storage`, `call`), attach it with
+  device only. Fix: in `apple/src/lib.rs` and `linux/src/main.rs`, return
+  `exact_snapback4::Module::new(APP, GRANTS).expect("Snapback authority")`
+  boxed from the native factory, attach it with
   `.with_native(factory)` on the `exact_js::Module`, add `exact-snapback4` and
   `serde_json` to those crates' `Cargo.toml`, then `bun exact.mjs lock`.
   (Harmony, 2026-10-21.)
+
+- **A Snapback sync exceeds the 100 ms source budget while applying history.**
+  The native module must supply `NativeModule::later`; `native.later` falls
+  back to a synchronous call when its Rust handler is absent. Use
+  `exact_snapback4::Module` directly, or forward `later` from an app wrapper
+  as well as `call` and `configure_storage` (snapback4/README.md, "From
+  TypeScript"). Rebuild the device binary. Lowering `acquireLimit` cannot
+  bound the apply: a horizoned group is served whole. (Chat, 2026-11-03.)
 
 - **The web build refuses every brand token (`color="ink.light"` is not a valid
   `color`) that `contract build` accepted a moment ago.** Cause: a later line

@@ -458,7 +458,8 @@ fn a_rust_source_drives_the_typed_client_through_host_requests() {
         })
     };
     let round = |device: &mut Device| {
-        let (client, host) = device.module.parts();
+        let mut parts = device.module.parts().unwrap();
+        let (client, host) = parts.split();
         let client = client.expect("opened");
         let mut step = client.sync(host);
         loop {
@@ -472,14 +473,17 @@ fn a_rust_source_drives_the_typed_client_through_host_requests() {
         }
     };
     assert_eq!(round(&mut erin)["ok"], true);
-    let (client, host) = erin.module.parts();
+    let mut parts = erin.module.parts().unwrap();
+    let (client, host) = parts.split();
     let written = client
         .unwrap()
         .write(host, "send", json!({"body": "typed"}), now(), None)
         .unwrap();
     assert_eq!(written["state"], "pending");
+    drop(parts);
     assert_eq!(round(&mut erin)["ok"], true);
-    let (client, host) = erin.module.parts();
+    let mut parts = erin.module.parts().unwrap();
+    let (client, host) = parts.split();
     let client = client.unwrap();
     assert_eq!(
         client
@@ -617,6 +621,41 @@ fn a_reply_is_delivered_only_to_the_exchange_that_asked() {
     let mut rows = bodies(&gina.inbox());
     rows.sort();
     assert_eq!(rows, [("first".into(), false), ("second".into(), false)]);
+}
+
+#[test]
+fn a_round_owner_cancels_after_a_lost_reply_advanced_its_exchange() {
+    let server = Server::start();
+    let mut gina = Device::new("gina");
+    gina.open(server.port);
+    let first = gina.call(json!({"op": "sync", "round": "old-answer"}))["fetch"].clone();
+    let reply = server.fetch("gina", &first);
+    let next = gina.call(json!({"op": "deliver", "exchange": first["exchange"], "reply": reply}));
+    assert!(next["fetch"].is_object(), "{next}");
+    assert_ne!(next["fetch"]["exchange"], first["exchange"]);
+    assert_eq!(
+        gina.call(json!({"op": "cancel", "exchange": first["exchange"]})),
+        false
+    );
+    assert_eq!(
+        gina.call(json!({"op": "cancel", "round": "other-answer"})),
+        false
+    );
+    assert_eq!(
+        gina.call(json!({"op": "cancel", "round": "old-answer"})),
+        true
+    );
+    let fresh = gina.call(json!({"op": "sync", "round": "live-answer"}));
+    assert!(fresh["fetch"].is_object(), "{fresh}");
+    assert_eq!(
+        gina.call(json!({"op": "cancel", "round": "old-answer"})),
+        false
+    );
+    assert_eq!(
+        gina.call(json!({"op": "cancel", "round": "live-answer"})),
+        true
+    );
+    assert_eq!(gina.sync(&server, false)["ok"], true);
 }
 
 /// A receipt the device kept outranks its outbox: a write the server

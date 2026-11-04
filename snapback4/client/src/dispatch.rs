@@ -19,7 +19,9 @@
 //! - `sync`, then `deliver {exchange, reply:{status, body}|{error}}` while the
 //!   answer is `{fetch:{method, path, body?, exchange}}`; `{done:{ok, offline?,
 //!   retry?, denied?}}` ends the round. `cancel {exchange}` abandons it. A
-//!   reply or cancel naming another exchange is refused (`done.stale`).
+//!   reply naming another exchange is refused (`done.stale`); cancel returns
+//!   false. An optional `round` on `sync` lets `cancel {round}` cancel that
+//!   round even if native work advanced its exchange after its answer ended.
 //! - `changes {wait}` → `{fetch}`; `changed {exchange, reply}` → whether to sync.
 //! - `refresh` → `{fetch}`; `refreshed {exchange, reply, now}` → the
 //!   replacement session, or why not.
@@ -151,9 +153,20 @@ pub fn dispatch(
             client.hold(request.get("held").unwrap_or(&Json::Null));
             Json::Null
         }
-        "sync" => client.sync(core).to_json(),
+        "sync" => client
+            .sync_owned(
+                core,
+                request
+                    .get("round")
+                    .and_then(Json::as_str)
+                    .map(str::to_owned),
+            )
+            .to_json(),
         "deliver" => client.deliver(core, exchange()?, reply("reply")?).to_json(),
-        "cancel" => json!(client.cancel(exchange()?)),
+        "cancel" => match request.get("round").and_then(Json::as_str) {
+            Some(owner) => json!(client.cancel_owned(owner)),
+            None => json!(client.cancel(exchange()?)),
+        },
         "changes" => {
             let wait = request.get("wait").and_then(Json::as_u64).unwrap_or(25) as u32;
             json!({"fetch": client.changes(core, wait)?.to_json()})

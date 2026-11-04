@@ -1841,6 +1841,7 @@ dependencies = [
 name = "exact-snapback4"
 version = "0.1.0"
 dependencies = [
+ "exact-js",
  "exact-plan",
  "exact-runner",
  "exact-snapback4-client",

@@ -563,7 +563,7 @@ test('a round its answer could not finish is cancelled by the next round, so the
   const native = { call: (request: Record<string, unknown>) => {
     if (ended) throw new Error('native call outside an answer');
     return device.call(request as never);
-  } };
+  }, later(request: Record<string, unknown>) { return Promise.resolve(this.call(request)); } };
   const una = await Snapback.open({ app: 'test.exact.snapback4', name: 'inbox', origin, viewer: 'dev:una',
     headers: () => ({ 'x-snapback-persona': 'una' }), storage: page, native, wasm: `file://${wasm}` });
   expect(await una.sync()).toMatchObject({ ok: true });
@@ -600,7 +600,7 @@ test('Snapback.switcher waits for the other persona\'s write in flight before cl
     const answer = await open.call(request as never);
     if (request.op === 'close') { await open.close?.(); open = undefined; }
     return answer;
-  } };
+  }, later(request: Record<string, unknown>) { return this.call(request); } };
   expect(await personas.use('alice', page, native, db => db.sync())).toMatchObject({ ok: true });
   expect(personas.key).toBe('alice');
   // Alice's write is on the network when the app switches to Bob.
@@ -919,7 +919,7 @@ test('password accounts on serve: signup, reopen, refresh, login, logout and iso
       const answer = await nativeDevice.call(request as never);
       if (request.op === 'close') { await nativeDevice.close?.(); nativeDevice = undefined; }
       return answer;
-    } };
+    }, later(request: Record<string, unknown>) { return this.call(request); } };
     const nativeOptions = { ...options, name: 'native-account', native, auth: { store, key: 'native-session', now: Date.now() } };
     const owner = await Snapback.open(nativeOptions);
     expect((await owner.login('alice@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
@@ -944,7 +944,7 @@ test('password accounts on serve: signup, reopen, refresh, login, logout and iso
     // An auth source opened before sign-in owns no partition; a data source
     // signs in later, and a third source uses manually supplied credentials.
     const fromAnswer = () => ({ ...nativeOptions,
-      native: { call: (request: Record<string, unknown>) => native.call(request) },
+      native: { call: (request: Record<string, unknown>) => native.call(request), later: (request: Record<string, unknown>) => native.later(request) },
       auth: { ...nativeOptions.auth, store: {
         get: (key: string) => store.get(key), set: (key: string, value: string) => store.set(key, value),
         forget: (key: string) => store.forget(key),

@@ -6,9 +6,9 @@
 //! host directories using [`Module::configure_storage`], and calls it only after
 //! first pixel. Construction and configuration do no I/O; the first `open`
 //! creates directories and opens SQLite, and requires `sqlite.open` for its
-//! path. A validation candidate must receive no storage configuration. Neither
-//! a JavaScript VM nor a transport is linked here: the client hands each HTTP
-//! exchange to its driver (`ts/snapback.ts` over `fetch`, or a Rust source's
+//! path. A validation candidate must receive no storage configuration. The
+//! client hands each HTTP exchange to its driver (`ts/snapback.ts` over
+//! `fetch`, or a Rust source's
 //! `Answer::Later`). The JSON call is [`exact_snapback4_client::dispatch`]'s.
 //! The embedder must keep one writer per partition path.
 
@@ -27,6 +27,9 @@ use ibex2::{
 use serde_json::{json, Value as Json};
 use snapback4_device::{ffi, native::Device, opening::Opening};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
+
+mod native;
 
 struct OpenPartition {
     device: Device,
@@ -45,11 +48,31 @@ pub struct Host {
 
 /// One native partition and its client, owned by one application session.
 pub struct Module {
-    host: Host,
-    client: Option<Client>,
+    state: Arc<Mutex<PartitionState>>,
+    app_id: String,
     grant_text: String,
     active: bool,
+}
+
+struct PartitionState {
+    host: Host,
+    client: Option<Client>,
     validation: bool,
+    #[cfg(test)]
+    before_call: Option<BeforeCall>,
+}
+
+#[cfg(test)]
+type BeforeCall = Box<dyn FnOnce(&Json) + Send>;
+
+/// Exclusive access for a Rust caller; drop it before calling the module again.
+pub struct Parts<'a>(MutexGuard<'a, PartitionState>);
+
+impl Parts<'_> {
+    pub fn split(&mut self) -> (Option<&mut Client>, &mut Host) {
+        let state = &mut *self.0;
+        (state.client.as_mut(), &mut state.host)
+    }
 }
 
 impl Module {
@@ -59,19 +82,24 @@ impl Module {
             return Err("Snapback4 requires the app's baked identity".into());
         }
         Ok(Self {
-            host: Host {
-                app_id: app_id.into(),
-                // The I/O lines only: the device lines are the OS's and the
-                // capability's (`exact_runner::io_grants`), which ibex2's
-                // parser does not know.
-                grants: GrantSet::parse(&exact_runner::io_grants(grants))?,
-                paths: None,
-                partition: None,
-            },
-            client: None,
+            app_id: app_id.into(),
+            state: Arc::new(Mutex::new(PartitionState {
+                host: Host {
+                    app_id: app_id.into(),
+                    // The I/O lines only: the device lines are the OS's and the
+                    // capability's (`exact_runner::io_grants`), which ibex2's
+                    // parser does not know.
+                    grants: GrantSet::parse(&exact_runner::io_grants(grants))?,
+                    paths: None,
+                    partition: None,
+                },
+                client: None,
+                validation: false,
+                #[cfg(test)]
+                before_call: None,
+            })),
             grant_text: grants.into(),
             active: false,
-            validation: false,
         })
     }
 
@@ -82,25 +110,50 @@ impl Module {
         cache: PathBuf,
         temporary: PathBuf,
     ) -> Result<(), String> {
-        if self.host.partition.is_some() {
+        let mut state = self.parts()?;
+        if state.0.host.partition.is_some() {
             return Err("close the Snapback4 partition before changing storage roots".into());
         }
         let paths = [data, cache, temporary];
         if paths.iter().any(|path| !path.is_absolute()) {
             return Err("app storage roots must be absolute".into());
         }
-        self.host.paths = Some(paths);
+        state.0.host.paths = Some(paths);
         Ok(())
     }
 
     /// The client and the device it drives, for a Rust caller.
-    pub fn parts(&mut self) -> (Option<&mut Client>, &mut Host) {
-        (self.client.as_mut(), &mut self.host)
+    pub fn parts(&mut self) -> Result<Parts<'_>, String> {
+        self.state.try_lock().map(Parts).map_err(|e| match e {
+            TryLockError::WouldBlock => "E_BUSY: Snapback4 device work is still running".into(),
+            TryLockError::Poisoned(_) => {
+                "Snapback4 device owner panicked; reopen the module".into()
+            }
+        })
     }
 
     /// Dispatch after first pixel; the host is responsible for this ordering.
     /// Identity probes need no storage; partition operations require configured roots.
     pub fn call(&mut self, request: &Json) -> Result<Json, String> {
+        match self.state.try_lock() {
+            Ok(mut state) => state.call(request),
+            Err(TryLockError::WouldBlock) => Ok(json!({"denied": {
+                "code": "E_BUSY", "family": "store", "retryable": true,
+                "message": "Snapback4 device work is still running; retry through native.later"
+            }})),
+            Err(TryLockError::Poisoned(_)) => {
+                Err("Snapback4 device owner panicked; reopen the module".into())
+            }
+        }
+    }
+}
+
+impl PartitionState {
+    fn call(&mut self, request: &Json) -> Result<Json, String> {
+        #[cfg(test)]
+        if let Some(before) = self.before_call.take() {
+            before(request);
+        }
         if matches!(
             request["op"].as_str(),
             Some("engine_info" | "engine_headers")
@@ -275,7 +328,7 @@ impl DataSource for Module {
     }
 
     fn activate_for_validation(&mut self) -> Result<(), DataError> {
-        self.validation = true;
+        self.parts().map_err(DataError::Unavailable)?.0.validation = true;
         self.active = true;
         Ok(())
     }
@@ -304,7 +357,7 @@ impl DataSource for Module {
     }
 
     fn app_id(&self) -> &str {
-        &self.host.app_id
+        &self.app_id
     }
 
     fn grants(&self) -> &str {

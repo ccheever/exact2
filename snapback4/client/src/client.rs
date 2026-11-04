@@ -276,6 +276,8 @@ type Round = Pin<Box<dyn Future<Output = Json> + Send>>;
 struct Running {
     future: Round,
     io: Io,
+    /// The driver's round, even when its last native reply was lost.
+    owner: Option<String>,
     /// The exchange whose reply the round awaits, if it awaits one.
     awaiting: Option<String>,
 }
@@ -625,6 +627,7 @@ impl Client {
         self.round = Some(Running {
             future,
             io,
+            owner: None,
             awaiting: None,
         });
         match self.advance(core, None) {
@@ -810,6 +813,11 @@ impl Client {
     /// and run it to its first exchange. A round already running is resumed
     /// only by [`Client::deliver`]; asking again reports it busy.
     pub fn sync(&mut self, core: &mut dyn Core) -> Step {
+        self.sync_owned(core, None)
+    }
+
+    /// Start a round whose driver can cancel it after losing an exchange reply.
+    pub fn sync_owned(&mut self, core: &mut dyn Core, owner: Option<String>) -> Step {
         if self.round.is_some() {
             return Step::Done(json!({"ok": false, "busy": true}));
         }
@@ -822,6 +830,7 @@ impl Client {
         self.round = Some(Running {
             future,
             io,
+            owner,
             awaiting: None,
         });
         self.advance(core, None)
@@ -858,6 +867,21 @@ impl Client {
             return true;
         }
         owns
+    }
+
+    /// Cancel only this driver's round, including a round whose next exchange
+    /// was produced by native work after the answer that requested it ended.
+    pub fn cancel_owned(&mut self, owner: &str) -> bool {
+        if self
+            .round
+            .as_ref()
+            .is_some_and(|round| round.owner.as_deref() == Some(owner))
+        {
+            self.round = None;
+            true
+        } else {
+            false
+        }
     }
 
     fn advance(&mut self, core: &mut dyn Core, mut back: Option<Back>) -> Step {

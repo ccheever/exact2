@@ -1,6 +1,7 @@
 export { pick } from './projection.ts';
 import { ReleaseTracker, type ReleaseSnapshot } from './release.ts';
 import { staleRound } from './round-time.ts';
+import { nativeDevice } from './native.ts';
 export type { ReleaseSnapshot } from './release.ts';
 // Snapback4 for an Exact app's TypeScript: the client in Rust
 // (`exact-snapback4-client`), driven here over `fetch`. Natively it is the
@@ -194,6 +195,7 @@ function unreached(error: unknown): Refusal {
 /** Exact's native module, when the app links `exact_snapback4::Module`. */
 export interface NativeModule {
   call(request: Request): unknown;
+  later?(request: Request): Promise<unknown>;
   /** False at bake (and on a host that configured no module): the device's
    * fact, not the build's. */
   readonly available?: boolean;
@@ -261,10 +263,6 @@ function clock(now: number): number {
   return Math.floor(now);
 }
 
-function nativeDevice(native: NativeModule): Device {
-  return { async call(request) { return native.call(request) as Request; } };
-}
-
 /** A partition as this page holds it: one device per file, whatever number
  * of clients opened it. Exact's storage locks an open database's file, so a
  * second device on the same file would be refused as busy; every client of
@@ -284,8 +282,8 @@ interface Partition {
   active?: RunningRound;
   now?: number;
   staleRoundMs: number;
-  /** The exchange of a round that stopped and could not be cancelled then. */
-  abandoned?: string;
+  /** A failed round to cancel from the next live answer. */
+  abandoned?: { round: string; exchange?: string };
   refreshing?: Promise<Refreshed>;
   /** The change poll in flight: a second `poll()` shares it (a second poll
    * would supersede the first, whose reply the client then refuses). */
@@ -301,6 +299,7 @@ interface Partition {
 }
 
 interface RunningRound {
+  id: string;
   since?: number;
   exchange?: string;
   abandoned: boolean;
@@ -318,6 +317,7 @@ interface Page { partitions: Map<string, Promise<Partition>>; closing: Map<strin
 const pages = new WeakMap<object, Page>();
 // A native executor owns one module for this app; every answer gets a new facade.
 const nativePages = new Map<string, Page>();
+let nextRound = 0;
 function pageOf(options: Options): Page {
   const owner = options.storage as object;
   let page = options.native ? nativePages.get(options.app) : pages.get(owner);
@@ -814,7 +814,7 @@ export class Snapback {
     if (!staleRound(active.since, at, partition.staleRoundMs)) return false;
     active.abandoned = true;
     active.cancel = (async () => {
-      if (active.exchange !== undefined) active.cancelled = await this.cancelRound(partition, active.exchange);
+      active.cancelled = await this.cancelRound(partition, { round: active.id, exchange: active.exchange });
       const status = await partition.device.call({ op: 'status' }).then(answer => ok<Status>(answer)).catch(() => undefined);
       partition.routes.clear();
       active.finish({ ok: false, stale: true, abandoned: true, ...(status ? {
@@ -825,12 +825,12 @@ export class Snapback {
     return active.cancel;
   }
 
-  private async cancelRound(partition: Partition, exchange: string): Promise<boolean> {
+  private async cancelRound(partition: Partition, abandoned: { round: string; exchange?: string }): Promise<boolean> {
     try {
-      ok(await partition.device.call({ op: 'cancel', exchange }));
-      if (partition.abandoned === exchange) partition.abandoned = undefined;
+      ok(await partition.device.call({ op: 'cancel', ...abandoned } as Request));
+      if (partition.abandoned?.round === abandoned.round) partition.abandoned = undefined;
       return true;
-    } catch { partition.abandoned = exchange; return false; }
+    } catch { partition.abandoned = abandoned; return false; }
   }
 
   /** One round: publish an acquisition page, drain ordinary changes, send the outbox.
@@ -851,7 +851,7 @@ export class Snapback {
       check();
       let finish!: (done: Round) => void;
       const abandoned = new Promise<Round>(resolve => { finish = resolve; });
-      const active: RunningRound = { since: at === undefined ? undefined : partition.now, abandoned: false, finish };
+      const active: RunningRound = { id: String(++nextRound), since: at === undefined ? undefined : partition.now, abandoned: false, finish };
       partition.active = active;
       const work = this.round(active).then(
         done => active.abandoned ? abandoned : done,
@@ -888,7 +888,7 @@ export class Snapback {
         const exchange = (answer.ok as { fetch?: Request } | undefined)?.fetch?.exchange;
         if (typeof exchange === 'string') active.exchange = exchange;
         if (active.abandoned) {
-          if (typeof exchange === 'string') await this.cancelRound(partition, exchange);
+          if (typeof exchange === 'string') await this.cancelRound(partition, { round: active.id, exchange });
           throw refusal('E_STALE', 'this round was abandoned');
         }
         check(); return answer;
@@ -898,40 +898,39 @@ export class Snapback {
     // first. Natively that is a superseded answer's round: its reply still
     // comes, but the device refuses calls once its answer has ended, and
     // left there the client would answer `busy` to every round after it.
-    const abandoned = partition.abandoned;
-    if (abandoned !== undefined) {
-      await call({ op: 'cancel', exchange: abandoned });
-      if (partition.abandoned === abandoned) partition.abandoned = undefined;
-    }
-    let step = ok<{ fetch?: Request; done?: Round }>(await call({ op: 'sync' }));
     let token: string | undefined;
     try {
+      const abandoned = partition.abandoned;
+      if (abandoned !== undefined) {
+        ok(await call({ op: 'cancel', ...abandoned } as Request));
+        if (partition.abandoned === abandoned) partition.abandoned = undefined;
+      }
+      let step = ok<{ fetch?: Request; done?: Round }>(await call({ op: 'sync', round: active.id }));
       while (step.fetch) {
         const exchange = step.fetch.exchange as string;
-        try {
-          token = this.session?.token;
-          const reply = await this.exchange(step.fetch, true, () => !active.abandoned && !partition.closing && !this.closed);
-          if (active.abandoned) {
-            await active.cancel;
-            // Only a confirmed cancellation may send a late reply to the device:
-            // it answers stale. A retired partition must never receive it.
-            if (active.cancelled && !partition.closing && !this.closed)
-              await partition.device.call({ op: 'deliver', exchange, reply }).catch(() => undefined);
-            return { ok: false, stale: true, abandoned: true };
-          }
-          step = ok(await call({ op: 'deliver', exchange, reply }));
-        } catch (error) {
-          // Only this round's own exchange can be cancelled; one that cannot
-          // be now is cancelled by the next round.
-          if (!active.abandoned) await call({ op: 'cancel', exchange }).catch(() => { partition.abandoned = exchange; });
-          throw error;
+        token = this.session?.token;
+        const reply = await this.exchange(step.fetch, true, () => !active.abandoned && !partition.closing && !this.closed);
+        if (active.abandoned) {
+          await active.cancel;
+          // Only a confirmed cancellation may send a late reply to the device:
+          // it answers stale. A retired partition must never receive it.
+          if (active.cancelled && !partition.closing && !this.closed)
+            await partition.device.call({ op: 'deliver', exchange, reply }).catch(() => undefined);
+          return { ok: false, stale: true, abandoned: true };
         }
+        step = ok(await call({ op: 'deliver', exchange, reply }));
       }
+      const done = step.done ?? { ok: false };
+      if (done.ok) partition.opened = true;
+      if (done.denied?.code === 'E_AUTH') this.invalidate(token);
+      return done;
+    } catch (error) {
+      // The answer may have ended. Do not await cleanup on its native facade:
+      // release the queue now and let the next live answer cancel by owner,
+      // even if off-turn work has advanced beyond the last known exchange.
+      if (!active.abandoned) partition.abandoned ??= { round: active.id, exchange: active.exchange };
+      throw error;
     } finally { if (!active.abandoned) partition.routes.clear(); }
-    const done = step.done ?? { ok: false };
-    if (done.ok) partition.opened = true;
-    if (done.denied?.code === 'E_AUTH') this.invalidate(token);
-    return done;
   }
 
   /** Wait up to `wait` seconds for the server's head to move. `true`: call
