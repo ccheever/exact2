@@ -14,12 +14,14 @@
 //   primary Add project button, "Nothing matches “…”" with Clear search and
 //   Check again, or "No pull requests" / "Nothing under these filters" with
 //   Check again.
-// Empty: flex-1, centred, p-12 and gap-6; the header is max-w-sm with a 20/28
+// Empty: flex-1, centred, p-6 md:p-12 and gap-6; the header is max-w-sm with a 20/28
 // semibold title and the 14/20 muted description 4pt below it. Buttons are
 // size sm (28pt; the 14pt glyph pulled in 2pt, 4pt from the label).
 use PgIcon from "../shared/pages-icons.contract"
 
 component PrEmptyState
+  inject
+    mediaWidth: number // the window's width as the reference's media queries see it (app.contract)
   props
     available: bool
     error: string
@@ -34,7 +36,7 @@ component PrEmptyState
   derive muted = scheme == "dark" ? "#a1a1a1" : "#71717b"
   derive failed = not available or error != ""
   view
-    column flex=1 width="100%" min-height=0 padding="3rem" box-sizing="border-box" align-items="center" justify-content="center" gap="1.5rem" text-wrap="balance" testId="pull-requests-empty"
+    column flex=1 width="100%" min-height=0 padding=(mediaWidth >= 768 ? "3rem" : "1.5rem") box-sizing="border-box" align-items="center" justify-content="center" gap="1.5rem" text-wrap="balance" testId="pull-requests-empty"
       if failed
         box width="2.25rem" height="2.25rem" position="relative" margin-bottom="1.5rem" flex-shrink=0
           box position="absolute" left=0 bottom=1 width="2.25rem" height="2.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" translate="-7.74px 0.48px" rotate=-10 scale=0.84

@@ -81,6 +81,7 @@ fn escapeFocusNext(current: string, field: string, focused: bool): string = focu
 // Settings: the navigation, top bar and each route's panel, then the theme and restore dialogs.
 component SettingsWindow
   inject
+    mediaWidth: number // the window's width as the reference's media queries see it (app.contract)
     rem: number
     workspaceEntered: action // Settings' page is a workspace area (shell-members.contract)
     routeKeyboard: RouteKeyboard
@@ -103,6 +104,7 @@ component SettingsWindow
     providerVisit: number // counts the root's provider links that changed the page's target
     paletteOpen: bool // the command palette over Settings owns Escape (its Dialog prevents it)
     chipOpen: bool // a skill chip's details over Settings own Escape (Base UI's Popover dismisses on it)
+    sheetOver: bool // the narrow window's sidebar sheet holds the keyboard and Escape over Settings (AppRouteModal `under`)
     editSettingsQueryRoot: action
     coreSearchKeyRoot: action
     corePickRoot: action
@@ -211,10 +213,15 @@ component SettingsWindow
   // Escape closes only itself. While one owns it, the close button gives up its Escape shortcut; with
   // none (a search left open with a query, the focus elsewhere), Escape leaves Settings. The When editor's and the
   // font list's popovers and the recorder are `aria-modal` too, and the dialogs make this view inert (below).
-  derive escapeOwned = routeKeyboard.phase != "" or settingsMenu != "" or modelsOpen or paletteOpen or chipOpen or themeInspecting or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen or (settingsRoute == "keybindings" and (keybindingRecording or escapeFocus == "keybindings-filter")) or (settingsRoute == "open-source-licenses" and licenseSearchOpen and escapeFocus == "license-search") or (settingsRoute == "providers" and (providerPage.escapeOwned or (modelAddingShown and escapeFocus == "custom-model-slug")))
+  derive escapeOwned = routeKeyboard.phase != "" or settingsMenu != "" or modelsOpen or paletteOpen or chipOpen or sheetOver or themeInspecting or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen or (settingsRoute == "keybindings" and (keybindingRecording or escapeFocus == "keybindings-filter")) or (settingsRoute == "open-source-licenses" and licenseSearchOpen and escapeFocus == "license-search") or (settingsRoute == "providers" and (providerPage.escapeOwned or (modelAddingShown and escapeFocus == "custom-model-slug")))
   // A Settings dialog is modal (Base UI Dialog): the page behind it is inert, so the close button's Escape is the dialog's.
   // "Remove from this device…" (EnvironmentRemoveDialog) counts here; Network access's confirmation does not, as it stays
   // asked for after its serial moves on, when no dialog shows. Both are `aria-modal` too.
+  // SettingsSidebarNav's icon rail under 768 CSS px (max-md) and its expanded search (compactSearchOpen).
+  derive navCompact = mediaWidth < 768
+  state navCompactSearch = false
+  action navCompactSet(open: bool)
+    navCompactSearch = open
   derive dialogShown = restEditor != "" or settingsCore.saOpen or settingsCore.archiveConfirm.id != "" or connectionsPage.environments.filter(environment => environment.key == connectionRemove).length > 0
   action editSettingsQuery(value: string)
     settingsEscapeHeld = false
@@ -295,8 +302,8 @@ component SettingsWindow
   view
     if settingsOpen
       // AppRouteModal label "Settings" over the window: the nav column, then the header and each route's panel.
-      AppRouteModal(label="Settings", modalId="settings-dialog", viewportWidth=viewport.width, canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas), border=settingsCore.palette.border, backdrop=settingsCore.palette.backdrop, inert=(connecting or dialogShown or (settingsThemeDialog != "" and settingsThemeDialog != "create" and settingsThemeDialog != "edit" and settingsThemeDialog != "duplicate") or settingsRestoreOpen or providerDialog != ""), first="settings-search", last="close-settings", close=leaveSettings)
-        SettingsNav(nav=settingsNavigation, route=settingsRoute, query=settingsQuery, pal=settingsCore.palette, active=0, edit=editSettingsQuery, onKey=coreSearchKey, pick=corePick, clear=coreClearSearch)
+      AppRouteModal(label="Settings", modalId="settings-dialog", canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas), border=settingsCore.palette.border, backdrop=settingsCore.palette.backdrop, inert=(connecting or dialogShown or (settingsThemeDialog != "" and settingsThemeDialog != "create" and settingsThemeDialog != "edit" and settingsThemeDialog != "duplicate") or settingsRestoreOpen or providerDialog != ""), under=sheetOver, first=(navCompact and not navCompactSearch ? "settings-search-open" : "settings-search"), last="close-settings", close=leaveSettings)
+        SettingsNav(nav=settingsNavigation, route=settingsRoute, query=settingsQuery, pal=settingsCore.palette, active=0, edit=editSettingsQuery, onKey=coreSearchKey, pick=corePick, clear=coreClearSearch, compact=navCompact, compactSearch=navCompactSearch, compactSet=navCompactSet)
         column flex=1 min-width=0 height="100%" box-sizing="border-box" position="relative"
           SettingsTopBar(route=settingsRoute, crumb=settingsCore.breadcrumb, pal=settingsCore.palette, busy=commandPending, restorable=(settingsCore.restoreCount > 0), escapeFree=(not escapeOwned and settingsQuery == ""), restore=coreRestoreOpen, close=closeModal)
           // Each page owns its scroller (SettingsPageContainer's `data-settings-page-scroll`): a new page opens at its top.
@@ -331,9 +338,9 @@ component SettingsWindow
                 // Both panels get the content column's width: the sheet less its border, the 15rem nav and the scroller's sides,
                 // held to the 56rem cap less its 1.5rem sides (readable SettingsPageContainer).
                 if settingsRoute == "connections" or settingsRoute == "access"
-                  ConnectionsPanel(view=settingsRoute, page=connectionsPage, width=min(896, routeModalWidth(viewport.width) - 2 - 240 - 12) - 48, busy=commandPending, error=(connecting or pendingModal != "" ? "" : modalError), add=openConnection, op=connectionOp, remove=connectionAskRemove, menu=connectionMenu, toggleMenu=connectionToggleMenu, addRoute=openRoute, still=viewport.prefersReducedMotion)
+                  ConnectionsPanel(view=settingsRoute, page=connectionsPage, width=min(896, routeModalWidth(viewport.width, mediaWidth) - 2 - (navCompact ? 56 : 240) - 12) - 48, busy=commandPending, error=(connecting or pendingModal != "" ? "" : modalError), add=openConnection, op=connectionOp, remove=connectionAskRemove, menu=connectionMenu, toggleMenu=connectionToggleMenu, addRoute=openRoute, still=viewport.prefersReducedMotion)
                 if settingsRoute == "providers"
-                  ProvidersPanel(page=providerPage, scheme=scheme, width=min(896, routeModalWidth(viewport.width) - 2 - 240 - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUiWindow("select"), op=providerOp, accent=providerAccent, ui=providerUiWindow, addingUi=modelAddingUi, modelAdding=modelAddingLive)
+                  ProvidersPanel(page=providerPage, scheme=scheme, width=min(896, routeModalWidth(viewport.width, mediaWidth) - 2 - (navCompact ? 56 : 240) - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUiWindow("select"), op=providerOp, accent=providerAccent, ui=providerUiWindow, addingUi=modelAddingUi, modelAdding=modelAddingLive)
                 if settingsRoute == "projects"
                   ProjectsPanel(data=projectsSettings, busy=commandPending, error=(restEditor == "" ? modalError : ""), choose=coreNoticeScope, rest=rest, restInput=restInput, raw=restRaw, open=restOpen)
                     for row in settingsCore.projectModel key=row.id

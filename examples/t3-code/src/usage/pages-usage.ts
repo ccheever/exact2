@@ -415,16 +415,17 @@ const kept = new WeakMap<object, Kept>();
 /** Prices or mappings changed: the next read re-aggregates (the server folds and prices on read). */
 export const forgetUsage = (client: object) => { forgetSummaries(usageState(client)); };
 
-/** The plot's width: the page container (max 1024, 24pt gutters), less the summary column at lg and the 64pt axis. */
-export function plotWidth(viewportWidth: number, sidebarWidth: number): number {
+/** The plot's width: the page container (max 1024, 24pt gutters), less the summary column at lg (`media`, the window's
+ * width as the reference's media queries see it) and the 64pt axis. */
+export function plotWidth(viewportWidth: number, sidebarWidth: number, media = viewportWidth): number {
   const content = Math.min(1024, Math.max(0, viewportWidth - sidebarWidth)) - 48;
-  const chartColumn = viewportWidth >= 1024 ? content - 288 - 24 : content;
+  const chartColumn = media >= 1024 ? content - 288 - 24 : content;
   return Math.max(40, Math.round(chartColumn - 64));
 }
 
 const providerLabel = (provider: string) => PROVIDERS[provider as ProviderKind]?.label ?? provider;
 
-type UsageInput = { open: boolean; metric: string; windowDays: number; breakdown: string; refresh: number; width: number; now: number; viewport?: number; sidebar?: number };
+type UsageInput = { open: boolean; metric: string; windowDays: number; breakdown: string; refresh: number; width: number; now: number; viewport?: number; sidebar?: number; media?: number };
 export async function usagePage(client: T3Client, native: Native | null | undefined, storage: Files | null, input: UsageInput) {
   const page = await usageView(client, native, storage, input);
   // The environment menu sizes to its widest row (Model prices included), as MenuPopup does.
@@ -476,7 +477,7 @@ async function usageView(client: T3Client, native: Native | null | undefined, _s
   page.environmentIcon = !limits && selected.some(status => status.error !== null || environmentStatusText(status, false) === 'Update required') ? 'issue' : '';
   if (!input.open || !native?.available || !state.window) return page;
   if (limits) {
-    page.pooled = pooledView(state, statuses, { barWidth: poolBarWidth(input.viewport ?? 1280, input.sidebar ?? 0), format: client.local.deviceSettings.timestampFormat,
+    page.pooled = pooledView(state, statuses, { barWidth: poolBarWidth(input.viewport ?? 1280, input.sidebar ?? 0, input.media ?? input.viewport ?? 1280), format: client.local.deviceSettings.timestampFormat,
       hiddenDrivers: new Set([...hidden].map(provider => PROVIDERS[provider as ProviderKind]?.driver ?? provider)) });
     return page;
   }

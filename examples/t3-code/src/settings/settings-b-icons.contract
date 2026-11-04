@@ -210,6 +210,7 @@ component ProjectIconEditor
 // ProjectFaviconPickerDialog: CommandDialog over the project's image files.
 component ProjectFaviconDialog
   inject
+    mediaWidth: number // the window's width as the reference's media queries see it (app.contract)
     dialogEntered: action
     dialogFallback: action
   props
@@ -236,7 +237,7 @@ component ProjectFaviconDialog
     if e.isIntersecting
       set("thumb", path)
   derive width = min(576, vw - 32)
-  derive top = vw >= 640 ? floor(vh * 0.1) : max(16, floor(vh * 0.04))
+  derive top = mediaWidth >= 640 ? floor(vh * 0.1) : max(16, floor(vh * 0.04))
   derive chosen = picker.files.filter((f) => f.index == highlight).map((f) => f.path).join("")
   derive dialogTargets = ["project-favicon-search", (data.iconPickExternal != "" and not busy ? "project-favicon-pick-external" : "project-favicon-search")]
   view

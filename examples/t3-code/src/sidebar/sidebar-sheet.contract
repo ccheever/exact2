@@ -28,7 +28,10 @@ component SidebarSheet
   slot
   derive dialogTargets = [first, last]
   action key(k: string, e: KeyboardEvent)
+    // The sheet's Escape is its own: a Settings or Usage modal drawn over it keeps its own Escape for the next one.
     if k == "Escape" and escape and not e.isComposing
+      preventDefault()
+      stopPropagation()
       dismiss()
     else
       dialogFallback("sidebar-sheet", dialogTargets, k, e)
