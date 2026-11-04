@@ -7,8 +7,8 @@ import AppKit
 
 public enum ExactWindowCommands {
     /// Run `exitFullscreen()` or `setWindowOpacity(opacity)` on `window`;
-    /// false for any other command. A refusal is a `log` line.
-    @MainActor
+    /// false for any other command. A refusal is a `log` line. Called on
+    /// the main thread, as the delegate's commands are.
     public static func perform(_ name: String, _ args: [Any], on window: NSWindow, log: (String) -> Void) -> Bool {
         switch name {
         case "exitFullscreen":
