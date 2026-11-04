@@ -893,6 +893,35 @@ impl Parser {
         let source = self.source_ident(span)?;
         self.expect_punct("(")?;
         let mut args = self.call_args()?;
+        // @ref LLP 1017.000 P4c (amended 2026-11-04) — one request for each
+        // element of a list, keyed as a `for` row is.
+        let each = if self.at_ident("for") {
+            let at = self.next().span;
+            let item = self.named_ident(at)?;
+            self.expect_word("in")?;
+            let list = self.expr()?;
+            let key = if self.at_ident("key") {
+                self.next();
+                self.expect_punct("=")?;
+                Some(self.expr()?)
+            } else {
+                None
+            };
+            if self.at_ident("with") {
+                return self.err(
+                    "syntax-resource-for-with",
+                    "a resource over a list takes no `with`: write the context among the call's arguments",
+                );
+            }
+            Some(ResourceEach {
+                item,
+                list,
+                key,
+                span: at,
+            })
+        } else {
+            None
+        };
         // @ref LLP 1027.005 D1/D6 — context remains ordinary source arguments.
         let identity = if self.at_ident("with") {
             self.next();
@@ -912,6 +941,12 @@ impl Parser {
         let shape = self.type_expr()?;
         // @ref LLP 1048.003 D6 — what shows until the source answers.
         let placeholder = if self.at_ident("else") {
+            if each.is_some() {
+                return self.err(
+                    "syntax-resource-for-else",
+                    "a resource over a list takes no `else`: each element shows its shape's zero until its answer",
+                );
+            }
             self.next();
             let at = self.peek().span;
             if !matches!(self.peek_kind(), TokenKind::Ident(_)) {
@@ -940,6 +975,7 @@ impl Parser {
             identity,
             shape,
             placeholder,
+            each,
             span,
         })
     }

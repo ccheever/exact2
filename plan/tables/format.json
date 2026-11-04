@@ -222,6 +222,11 @@
           "name": "placeholder_value",
           "codec": "bytes",
           "_comment": "@ref LLP 1054.000.002 D3: a declared `else empty(field=value, …)`, the compiler's constant (a value), shown while nothing is kept and the source has not answered. Empty bytes: none — an undeclared placeholder is the type's zero, which the runner computes (D1)."
+        },
+        {
+          "name": "each",
+          "codec": "range:args",
+          "_comment": "@ref LLP 1017.000 P4c (amended 2026-11-04): empty for one request; for `resource r = source(args) for x in list [key=k] as shape S`, two entries: the list, read as a derive is, then the key, which reads the element as its one parameter (the element itself when no `key=` is written). `args` then read the element as their one parameter too; the source is asked once for each element, keyed as a `for` row is; `ty` is `S[]`, and each request answers `S`."
         }
       ]
     },

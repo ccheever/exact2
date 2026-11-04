@@ -284,6 +284,7 @@ member        = "state" IDENT [ ":" type ] "=" expr [ "persist" ] NL
               | resource | mutation | action | task | sequence ;
 provider      = FIELD [ "=" expr ] NL ;
 resource      = "resource" IDENT "=" source-call
+                [ "for" IDENT "in" expr [ "key" "=" expr ] ]
                 [ "with" expr { "," expr } ] "as" "shape" type
                 [ "else" source-call ] NL ;
 mutation      = "mutation" IDENT "as" "shape" type [ "queue" ]
@@ -516,6 +517,21 @@ after its call arguments and before `as shape`. The source receives both lists
 in order; a change to either asks again. Only admission of an eligible persisted
 answer at boot compares the call arguments alone (LLP 1027.005). An empty call
 is valid; an empty `with` is not. `else` keeps its place after the shape.
+
+A resource over a list, `resource r = source(x) for x in list as shape S`,
+asks its source once for each element (LLP 1017.000 P4c, amended
+2026-11-04). Each request is keyed as a `for` row is: by `key=`, or, without
+it, by the element, which must then be a string, number or bool
+(`type-resource-for-key`). The arguments and the key read the element. An
+element that joins starts its request, one that leaves lets only its own
+request go, and the others go on. `r` reads as `S[]` in the list's order,
+each element its shape's zero until its answer; an element whose key
+repeats an earlier one's reads that one's answer. `pending(r)` and
+`failed(r)` are true when any element's request is pending or has failed,
+and `failure(r)` is the first failure. It takes no `with` or `else`
+(`syntax-resource-for-with`, `syntax-resource-for-else`), and asks a data
+source, not one the runner answers (`lower-resource-for-source`). A
+mutation's `refreshes r` asks every element again.
 
 A resource's `else` is a placeholder. `else empty()` is the resource type's zero,
 with `field=constant` overrides for a record. `else source(values…)` names a source

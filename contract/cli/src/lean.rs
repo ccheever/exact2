@@ -448,8 +448,21 @@ impl Emitter<'_> {
     ) -> Result<String, CompileError> {
         let mut resources = Vec::new();
         for (i, r) in root.resources.iter().enumerate() {
+            // Over a list (LLP 1017.000 P4c): its element's name, list and key.
+            let each = match &r.each {
+                Some(e) => format!(
+                    ", each := .some {{ item := {}, list := {}, key := {} }}",
+                    string(&e.item),
+                    self.expr(&e.list)?,
+                    match &e.key {
+                        Some(k) => format!("(.some {})", self.expr(k)?),
+                        None => ".none".into(),
+                    }
+                ),
+                None => String::new(),
+            };
             resources.push(format!(
-                "{{ name := {}, ty := {}, source := {}, args := {} }}",
+                "{{ name := {}, ty := {}, source := {}, args := {}{each} }}",
                 string(&r.name),
                 ty(&ct.resources[i]),
                 string(&r.source),

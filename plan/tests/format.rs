@@ -1010,13 +1010,13 @@ fn a_plan_without_compiled_values_keeps_every_other_data_range() {
 /// module's event the root hears, a wake event's budget (LLP 1133.017 D5),
 /// and `currententrychange`, `navigatesuccess` and `navigateerror` the event
 /// kinds (LLP 1020.002 D2); `atompress` joins them (LLP 1045.000 D7), then
-/// `newwindow` and `download` (LLP 1020.002 D5), then `capture` (D7), then `userpromptopened` (D9), then an image's `enterpictureinpicture`, `leavepictureinpicture` and `pictureinpictureerror` (LLP 1042 §9), then `historyswipe` (LLP 1115.000 D5.5). The `tools` table joins it (LLP 1133.023 D5, LLP 1111 D2), and the roster's `sharedFiles` (LLP 1133.024 D3), then `fragment` (LLP 1153 D5). Every host needs a new binary for this plan format. The format digest is pinned: a change to `tables/format.json`, a
+/// `newwindow` and `download` (LLP 1020.002 D5), then `capture` (D7), then `userpromptopened` (D9), then an image's `enterpictureinpicture`, `leavepictureinpicture` and `pictureinpictureerror` (LLP 1042 §9), then `historyswipe` (LLP 1115.000 D5.5). The `tools` table joins it (LLP 1133.023 D5, LLP 1111 D2), and the roster's `sharedFiles` (LLP 1133.024 D3), then `fragment` (LLP 1153 D5); a resource row's `each` (LLP 1017.000 P4c, a resource over a list). Every host needs a new binary for this plan format. The format digest is pinned: a change to `tables/format.json`, a
 /// comment included, moves it, and every host then needs a new binary (LLP
 /// 1030 D3a).
 #[test]
 fn the_format_digest_is_pinned() {
     assert_eq!(
-        FORMAT_DIGEST, 0x10f3eb485a37dcb5,
+        FORMAT_DIGEST, 0xd0b413e4c11bf913,
         "the plan format digest moved: if intended, name the break and the hosts that move"
     );
 }

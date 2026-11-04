@@ -96,7 +96,12 @@ impl<D: DataSource> Runner<D> {
     pub fn document_checkpoint(&self, location: &str) -> Checkpoint {
         let mut pending: Vec<String> = self.pending().into_iter().map(|(name, _)| name).collect();
         let mut answers = Vec::new();
+        let declared = self.declared_resources().len();
         for (i, (row, state)) in self.plan.resources.iter().zip(&self.resources).enumerate() {
+            // An element's answer is asked again by its list's page.
+            if i >= declared {
+                break;
+            }
             let name = self.plan.str(row.name);
             let source = self.plan.str(row.source);
             if self.device_answers(source) {

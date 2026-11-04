@@ -50,13 +50,14 @@ pub(super) struct Keeping {
 /// source's is.
 pub(super) fn kept_module(plan: &exact_plan::Plan, i: usize) -> bool {
     let source = plan.resources[i].source;
-    (plan.modules.iter()).any(|m| {
-        m.live
-            && !m.send
-            && plan.sources[m.source.0 as usize].name == source
-            && serde_json::from_str::<serde_json::Value>(plan.str(m.substitute))
-                .is_ok_and(|sub| sub["kept"] == true)
-    })
+    plan.resources[i].each.len == 0
+        && (plan.modules.iter()).any(|m| {
+            m.live
+                && !m.send
+                && plan.sources[m.source.0 as usize].name == source
+                && serde_json::from_str::<serde_json::Value>(plan.str(m.substitute))
+                    .is_ok_and(|sub| sub["kept"] == true)
+        })
 }
 
 /// Note that resource `i`'s kept answer, kept for `kept`, was refused
@@ -388,6 +389,10 @@ impl<D: DataSource> Runner<D> {
     /// Keep a store-reading resource's fresh answer for the next boot's
     /// first frame (LLP 1027 D4), when this source may not be ready then.
     pub(super) fn keep_answer(&mut self, i: usize, args: &[Value], value: &Value) {
+        // An element of a resource over a list is the launch's to ask.
+        if self.member(i).is_some() {
+            return;
+        }
         let module = self.keeping.modules && kept_module(&self.plan, i);
         if !module && (!self.keeping.on || !self.store_readers[i]) {
             return;

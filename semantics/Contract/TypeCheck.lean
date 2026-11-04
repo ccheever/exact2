@@ -386,10 +386,28 @@ def checkState (p : Program) (i : Nat) : Bool :=
   | .none => true
 
 def checkDerive (p : Program) (d : DeriveDecl) : Bool := inferLe p (settleScope p) [] d.body d.ty
+/-- A resource's arguments, and over a list its list and key (a string,
+number or bool: the compiler's `type-resource-for-key`), and its source's
+one signature. -/
 def checkResource (p : Program) (r : ResourceDecl) : Bool :=
-  match inferList p (settleScope p) [] r.args with
-  | .some ts => sourceOk p r.source ts r.ty
-  | .none => false
+  match r.each with
+  | .none =>
+    match inferList p (settleScope p) [] r.args with
+    | .some ts => sourceOk p r.source ts r.ty
+    | .none => false
+  | .some e =>
+    match infer p (settleScope p) [] e.list with
+    | .some (.list te) =>
+      let keyed : Ty → Bool := fun
+        | .string | .number | .bool => true
+        | _ => false
+      (match e.key with
+        | .some k => (infer p (settleScope p) [(e.item, te)] k).any keyed
+        | .none => keyed te) &&
+      match inferList p (settleScope p) [(e.item, te)] r.args with
+      | .some ts => sourceOk p r.source ts r.answer
+      | .none => false
+    | _ => false
 def checkAction (p : Program) (a : ActionDecl) : Bool := checkStmts p (compScope p) a.params.reverse a.body
 /-- A task's action exists and takes no parameters. -/
 def taskAction (p : Program) (t : TaskDecl) : Bool :=
@@ -951,8 +969,29 @@ theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
     have := hres r hr
     simp only [checkResource] at this
     split at this
-    · next ts hts => exact ⟨ts, inferList_sound _ hts, this⟩
-    · simp at this
+    · next he =>
+      split at this
+      · next ts hts =>
+        refine ⟨ts, ?_, ?_⟩
+        · simp only [ResTy, he]; exact inferList_sound _ hts
+        · simpa [ResourceDecl.answer, he] using this
+      · simp at this
+    · next e he =>
+      split at this
+      · next te hl =>
+        simp only [Bool.and_eq_true] at this
+        obtain ⟨hk, this⟩ := this
+        split at this
+        · next ts hts =>
+          refine ⟨ts, ?_, this⟩
+          simp only [ResTy, he]
+          refine ⟨te, infer_sound _ hl, inferList_sound _ hts, fun k hkey => ?_⟩
+          rw [hkey] at hk
+          simp only [Option.any_eq_true] at hk
+          obtain ⟨u, hu, -⟩ := hk
+          exact ⟨u, infer_sound _ hu⟩
+        · simp at this
+      · simp at this
   · intro a ha; exact checkStmts_sound _ (hacts a ha)
   · intro t ht
     simp only [checkTask, Bool.and_eq_true] at htasks

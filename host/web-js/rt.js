@@ -138,7 +138,7 @@ function endAll(rows) {
 // For loaded pieces (list.js): scopes, untracked reads, writes, the owner in
 // force, and a count of what commits changed (an edge's no-op, runner/collection.rs).
 export { scope, end, untracked, write, onEnd };
-export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTicket = () => ++Ticket;
+export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTicket = () => ++Ticket, stood = f => Out.push(f), restoring = () => Restoring; // `stood`: run `f` once this commit stands (each.js)
 /** A typed refusal: the commit rolls back (LLP 1005 §6 atomicity). */
 export class Refusal extends Error {}
 /** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`): one in a reply's commit lets its ticket go (`reply`). */
@@ -189,7 +189,7 @@ export function commit(f, what = "commit", finished) {
     ok = false;
     for (const [n, v] of undo.reverse()) write(n, v);
     if (Now.v !== was) { Now.v = was; for (const o of Now.obs) stale(o, DIRTY); } // nor its time: the clock's readers read as they did
-    Resources.forEach((r, k) => r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; }); Sched?.restore(queued); Ov.restore(writes);
+    Resources.forEach((r, k) => k < saved.length && r.restore(saved[k])); // a resource the commit made (an element's, each.js) has nothing to put back Mutations.forEach((m, k) => { m.ticket = held[k]; }); Sched?.restore(queued); Ov.restore(writes);
     Store.restore(store);
     for (const go of Out) go.refused?.(e?.message ?? e); Out = []; Commands = []; Landed = []; Refused = e; // what would have gone says so (ts-stream.js, ts-data.js)
     say(`refused ${what}: ${e.message}`); Why = why(step, e instanceof Refusal ? e.message : String(e)); // `String`: a TypeError's name too
@@ -1496,4 +1496,4 @@ export function language(slot) {
 }
 export * from "./router.js"; import { routerValid } from "./router.js"; // the router (LLP 1038), its own file
 export { queues, gated } from "./schedule.js"; // queued sends and gated tasks (LLP 1092), their own file
-export { timerWaits } from "./timer-waits.js";
+export { timerWaits } from "./timer-waits.js"; export { resEach } from "./each.js";

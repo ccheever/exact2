@@ -19,6 +19,8 @@ use std::fmt::Write as _;
 
 #[path = "answers.rs"]
 mod answers;
+#[path = "each.rs"]
+mod each;
 #[path = "list_options.rs"]
 mod list_options;
 #[path = "lower.rs"]
@@ -399,6 +401,10 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             let f = code::expression(plan, plan.code(plan.arg(a).expr), &top, &mut em.uses)
                 .map_err(|e| format!("resource {}: {e}", plan.str(r.name)))?;
             args.push(f);
+        }
+        if let Some(each) = each::resource(plan, i, &args, &top, &mut em.uses)? {
+            body.push_str(&each);
+            continue;
         }
         // What it shows while it waits with nothing kept (LLP 1048.003 D6,
         // 1054.000.002): an `else source()` row's value, a declared

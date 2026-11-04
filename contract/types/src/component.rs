@@ -137,7 +137,10 @@ pub(crate) fn check_component(
         ct.props.push(ty);
     }
     for r in &c.resources {
-        ct.resources.push(sink.keep(shapes.resolve(&r.shape)));
+        let t = sink.keep(shapes.resolve(&r.shape));
+        let over = r.each.is_some() && t != Ty::Unknown;
+        ct.resources
+            .push(if over { Ty::List(Box::new(t)) } else { t });
     }
     for m in &c.mutations {
         let t = sink.keep(shapes.resolve(&m.shape));
@@ -278,10 +281,13 @@ pub(crate) fn check_component(
     }
     let mut resource_args = Vec::with_capacity(c.resources.len());
     for r in &c.resources {
+        let (each, errors) = crate::each::args_scope(r, &scope, shapes);
+        errors.into_iter().for_each(|e| sink.push(e));
+        let scope = each.as_ref().unwrap_or(&scope);
         let args: Vec<Ty> = r
             .args
             .iter()
-            .map(|arg| sink.keep(crate::source_argument(arg, &r.source, &scope, shapes)))
+            .map(|arg| sink.keep(crate::source_argument(arg, &r.source, scope, shapes)))
             .collect();
         resource_args.push(args);
     }
@@ -352,6 +358,8 @@ pub(crate) fn check_component(
     {
         let scope = types.component_scope(c, &ct);
         for (i, r) in c.resources.iter().enumerate() {
+            let each = crate::each::args_scope(r, &scope, shapes).0;
+            let scope = each.as_ref().unwrap_or(&scope);
             // An argument that failed above is reported there, once.
             let params: Vec<Ty> = r
                 .args
@@ -360,7 +368,7 @@ pub(crate) fn check_component(
                 .map(|(arg, before)| match before {
                     Ty::Unknown => Ty::Unknown,
                     _ => {
-                        let t = infer(arg, &scope, shapes).unwrap_or(Ty::Unknown);
+                        let t = infer(arg, scope, shapes).unwrap_or(Ty::Unknown);
                         // Every write has now typed the slots; what is still
                         // `?` here has no plan type (a source's parameter
                         // is not filled in by another site).
@@ -378,7 +386,7 @@ pub(crate) fn check_component(
                     }
                 })
                 .collect();
-            let result = ct.resources[i].clone();
+            let result = crate::each::answer(r, &ct.resources[i]);
             sink.keep_unit(record_source(&mut ct, &r.source, params, result, r.span));
         }
         // @ref LLP 1048.003 D6 — a placeholder is a source call over values:
@@ -432,7 +440,7 @@ pub(crate) fn check_component(
                 .iter()
                 .map(|arg| sink.keep(crate::source_argument(arg, &p.source, &values, shapes)))
                 .collect();
-            let result = ct.resources[i].clone();
+            let result = crate::each::answer(r, &ct.resources[i]);
             sink.keep_unit(record_source(&mut ct, &p.source, params, result, p.span));
         }
     }

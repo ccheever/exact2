@@ -449,6 +449,22 @@ it is read, and a resource lives in the root). So settlement, which boot
 runs before the late slots are initialized, reads none of them. -/
 def settleScope (p : Program) : Scope := (compScope p).filter fun q => !lifted p q.1
 
+/-- A resource's arguments typed as `ts` in `G`. Over a list (LLP 1017.000
+P4c, amended 2026-11-04) the list is a list of some `te`, and the key and
+the arguments are typed with the element bound to `e.item` at `te`. -/
+def ResTy (p : Program) (G : Scope) (r : ResourceDecl) (ts : List Ty) : Prop :=
+  match r.each with
+  | .none => ListTy p G [] r.args ts
+  | .some e => ∃ te, HasTy p G [] e.list (.list te) ∧ ListTy p G [(e.item, te)] r.args ts ∧
+      ∀ k, e.key = .some k → ∃ u, HasTy p G [(e.item, te)] k u
+
+/-- What a resource's source answers each request: an element of `S[]`
+over a list, else the resource's type. -/
+def ResourceDecl.answer (r : ResourceDecl) : Ty :=
+  match r.each, r.ty with
+  | .some _, .list t => t
+  | _, t => t
+
 /-- The names a component declares. -/
 def compNames (p : Program) : List String :=
   p.states.map (·.name) ++ p.derives.map (·.name) ++ p.resources.map (·.name) ++
@@ -477,8 +493,8 @@ structure WellTyped (p : Program) : Prop where
     ∃ t, HasTy p (lateScope p i) [] st.init t ∧ t.le st.ty = true
   derives : ∀ d ∈ p.derives, ∃ t, HasTy p (settleScope p) [] d.body t ∧ t.le d.ty = true
   /-- A resource's arguments type, and meet its source's one signature. -/
-  resources : ∀ r ∈ p.resources, ∃ ts, ListTy p (settleScope p) [] r.args ts ∧
-    sourceOk p r.source ts r.ty = true
+  resources : ∀ r ∈ p.resources, ∃ ts, ResTy p (settleScope p) r ts ∧
+    sourceOk p r.source ts r.answer = true
   actions : ∀ a ∈ p.actions, StmtsTy p (compScope p) a.params.reverse a.body
   tasks : ∀ t ∈ p.tasks, ∃ u, HasTy p (compScope p) [] t.ms u ∧ u.le .number = true
   /-- A task names an action, which takes no parameters (the analyzer's

@@ -387,7 +387,22 @@ impl Rewriter<'_> {
         }
         for res in resources {
             self.scope.rename_source(&mut res.source);
+            // Over a list, the arguments and the key read the element.
+            let inner = match &mut res.each {
+                Some(each) => {
+                    self.expr(&mut each.list)?;
+                    let inner = self.bind([each.item.clone()]);
+                    if let Some(key) = &mut each.key {
+                        self.expr(key)?;
+                    }
+                    Some(inner)
+                }
+                None => None,
+            };
             self.exprs(&mut res.args)?;
+            if let Some(inner) = inner {
+                self.unbind(inner);
+            }
             self.ty(&mut res.shape)?;
             if let Some(p) = &mut res.placeholder {
                 self.exprs(&mut p.args)?;

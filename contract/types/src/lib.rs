@@ -25,6 +25,7 @@ mod calls;
 mod checks;
 mod component;
 mod decorations;
+mod each;
 mod enums;
 mod failure;
 mod frame;

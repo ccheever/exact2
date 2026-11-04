@@ -24,7 +24,7 @@ settled values satisfies `EnvOK` for `G`. -/
 structure SettleHyps (p : Program) (G : Scope) (slots : List (String × Value)) (now : F64) : Prop where
   prog : ProgOK p
   derives : ∀ d ∈ p.derives, ∃ t, HasTy p G [] d.body t
-  resources : ∀ r ∈ p.resources, ∃ ts, ListTy p G [] r.args ts
+  resources : ∀ r ∈ p.resources, ∃ ts, ResTy p G r ts
   env : ∀ st : Settled, SettledOK p st →
     EnvOK p G { prog := p, slots, derives := st.derives, resources := st.resources, now }
 
@@ -47,6 +47,53 @@ theorem SettledOK.addResource {p : Program} {st : Settled} {r : ResourceDecl} {v
   · simp only [List.mem_singleton, Prod.mk.injEq] at hx
     obtain ⟨rfl, rfl⟩ := hx
     exact ⟨r, hr, rfl, hv⟩
+
+/-- A row key is a key or a refusal. -/
+theorem rowKey_legit (v : Value) : GoodR (fun _ => True) (rowKey v) := by
+  cases v <;> simp only [rowKey] <;> (try split) <;> simp [GoodR, Legit]
+
+/-- A resource over a list's elements (LLP 1017.000 P4c, amended
+2026-11-04), its key and arguments typed with the element bound at `te`:
+each step fails only legitimately. -/
+theorem settleEachGo_good {p : Program} {o : Oracle} {env : Env} {r : ResourceDecl}
+    {e : ResourceEach} {prev : List Value} {forced : Bool} {G : Scope} {te : Ty} {ts : List Ty}
+    (hp : ProgOK p) (henv : EnvOK p G env) (hargs : ListTy p G [(e.item, te)] r.args ts)
+    (hkey : ∀ k, e.key = .some k → ∃ u, HasTy p G [(e.item, te)] k u) :
+    ∀ (xs out held : List Value), ValTys p xs te →
+      GoodR (fun _ => True) (settleEachGo p o env r e prev forced xs out held)
+  | [], out, held, _ => by simp [settleEachGo, GoodR]
+  | x :: xs, out, held, hxs => by
+    simp only [ValTys] at hxs
+    have hl : LocalsOK p [(e.item, te)] [(e.item, x)] := LocalsOK.nil.cons hxs.1
+    rw [settleEachGo]
+    have hk : GoodR (fun _ => True) (eachKey env e x) := by
+      unfold eachKey
+      split
+      · next k hk =>
+        obtain ⟨u, hu⟩ := hkey k hk
+        exact (eval_sound_ty (n := fuel) hp henv hl hu).mono fun _ _ => trivial
+      · trivial
+    refine GoodR.bind hk fun v _ => GoodR.bind (rowKey_legit v) fun k _ => ?_
+    split
+    · exact settleEachGo_good hp henv hargs hkey xs _ _ hxs.2
+    · refine GoodR.bind ((evalList_sound_ty (n := fuel) hp henv hl hargs).mono fun _ _ => trivial)
+        fun args _ => GoodR.bind (P := fun _ => True) ?_ fun w _ => settleEachGo_good hp henv hargs hkey xs _ _ hxs.2
+      unfold eachAnswer
+      split
+      · trivial
+      · exact GoodR.of_goodW ((ask_legit o r.source args r.name).mono (fun _ h => h.1) fun _ h => h)
+
+theorem settleEach_good {p : Program} {o : Oracle} {env : Env} {r : ResourceDecl}
+    {e : ResourceEach} {prev : List Value} {forced : Bool} {G : Scope}
+    (hp : ProgOK p) (henv : EnvOK p G env) (hty : ResTy p G r ts) (he : r.each = .some e) :
+    GoodR (fun _ => True) (settleEach p o env r e prev forced) := by
+  simp only [ResTy, he] at hty
+  obtain ⟨te, hlist, hargs, hkey⟩ := hty
+  unfold settleEach
+  refine GoodR.bind (eval_sound_ty (n := fuel) hp henv LocalsOK.nil hlist) fun v hv => ?_
+  split
+  · next xs => exact settleEachGo_good hp henv hargs hkey xs [] [] hv
+  · trivial
 
 theorem settle_pass_good {p : Program} {o : Oracle} {slots now prev force} {G : Scope} {H : Prop}
     (hN : distinct (p.resources.map (·.name)) = true)
@@ -83,6 +130,24 @@ theorem settle_pass_good {p : Program} {o : Oracle} {slots now prev force} {G : 
       split
       · exact hs
       split
+      · next e heach =>
+        split
+        · next vs held hok =>
+          split
+          · simp [bind, Except.bind, throw, throwThe, MonadExceptOf.throw, GoodW, Legit]
+          · next hc => exact hs.addResource hr (by simpa using hc)
+        · exact hs
+        · next err hne herr =>
+          simp only [bind, Except.bind, throw, throwThe, MonadExceptOf.throw, GoodW]
+          refine ⟨fun hHy => ?_, hne⟩
+          have HH := hH hHy
+          obtain ⟨ts, ht⟩ := HH.resources r hr
+          have := settleEach_good (o := o) (prev := ((prev.args.find? (·.1 == r.name)).map (·.2)).getD [])
+            (forced := force.contains r.name) HH.prog (HH.env s.1 hs) ht heach
+          rw [herr] at this
+          exact this
+      rename_i heach
+      split
       · next args hargs =>
         split
         · next k hk =>
@@ -107,6 +172,7 @@ theorem settle_pass_good {p : Program} {o : Oracle} {slots now prev force} {G : 
         refine ⟨fun hHy => ?_, hne⟩
         have HH := hH hHy
         obtain ⟨ts, ht⟩ := HH.resources r hr
+        simp only [ResTy, heach] at ht
         have := evalList_sound_ty (n := fuel) HH.prog (HH.env s.1 hs) LocalsOK.nil ht
         rw [he] at this
         exact this

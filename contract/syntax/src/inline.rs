@@ -56,7 +56,10 @@ pub const DEVICE_FACTS: &[&str] = &["exactViewport", "exactPage"];
 
 /// Whether `r` reads a device fact, as a child may declare.
 pub fn reads_device(r: &ResourceDecl) -> bool {
-    DEVICE_FACTS.contains(&r.source.as_str()) && r.args.is_empty() && r.placeholder.is_none()
+    DEVICE_FACTS.contains(&r.source.as_str())
+        && r.args.is_empty()
+        && r.placeholder.is_none()
+        && r.each.is_none()
 }
 
 /// The root's name for child `component`'s device-fact resource `name`:

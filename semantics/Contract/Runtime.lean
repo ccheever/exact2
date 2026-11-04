@@ -241,6 +241,74 @@ partial def Value.rustEq : Value → Value → Bool
 def argsEq (xs ys : List Value) : Bool :=
   xs.length == ys.length && (xs.zip ys).all fun (a, b) => Value.rustEq a b
 
+/-- A row key as the runner identifies it (`key_text`): a string, a bool,
+or a finite number with `-0` read as `0`. -/
+def rowKey : Value → Result Value
+  | .str t => .ok (.str t)
+  | .bool b => .ok (.bool b)
+  | .num f =>
+    if Number.isFinite f then .ok (.num (if f == 0 then 0 else f))
+    else .error (.refused "a row key that is not finite")
+  | _ => .error (.refused "a row key that is not a string, number or bool")
+
+/-! ### A resource over a list (LLP 1017.000 P4c, amended 2026-11-04) -/
+
+/-- Whether `h`, an element's request as settlement holds it
+(`.list [key, .list args, answer]`), is keyed `k`. -/
+def heldKeyed (k : Value) : Value → Bool
+  | .list [k', _, _] => Value.same k k'
+  | _ => false
+
+/-- A held request's answer. -/
+def heldAnswer : Value → Value
+  | .list [_, _, v] => v
+  | v => v
+
+/-- A held request's answer when it was asked at `args`. -/
+def heldAt (args : List Value) : Value → Option Value
+  | .list [_, .list old, v] => if argsEq old args then .some v else .none
+  | _ => .none
+
+/-- An element's key before `rowKey` reads it: its `key=`, read with the
+element bound to `e.item`, or the element itself. -/
+def eachKey (env : Env) (e : ResourceEach) (x : Value) : Result Value :=
+  match e.key with
+  | .some k => eval fuel env false [(e.item, x)] k
+  | .none => .ok x
+
+/-- An element's answer: the one held for it, or the oracle's. -/
+def eachAnswer (o : Oracle) (r : ResourceDecl) (args : List Value) : Option Value → Result Value
+  | .some v => .ok v
+  | .none => o.ask r.source args r.name
+
+/-- The elements' requests, in the list's order, as the runner's members
+(`runner/src/runner/each.rs`): each element's key (`rowKey`), then, for a
+key not yet seen this pass, its arguments, read with the element bound to
+`e.item`, and an answer: the one an earlier settlement held for that key
+at equal arguments, unless forced, or the oracle's. An element whose key
+repeats an earlier one's reads that one's answer. -/
+def settleEachGo (p : Program) (o : Oracle) (env : Env) (r : ResourceDecl) (e : ResourceEach)
+    (prev : List Value) (forced : Bool) :
+    List Value → List Value → List Value → Result (List Value × List Value)
+  | [], out, held => .ok (out, held)
+  | x :: xs, out, held => do
+    let k ← rowKey (← eachKey env e x)
+    match held.find? (heldKeyed k) with
+    | .some h => settleEachGo p o env r e prev forced xs (out ++ [heldAnswer h]) held
+    | .none =>
+      let args ← evalList fuel env false [(e.item, x)] r.args
+      let v ← eachAnswer o r args
+        (if forced then Option.none else (prev.find? (heldKeyed k)).bind (heldAt args))
+      settleEachGo p o env r e prev forced xs (out ++ [v]) (held ++ [.list [k, .list args, v]])
+
+/-- A resource over a list: its answers in the list's order, and its
+elements' requests, which the next settlement reads as `prev`. -/
+def settleEach (p : Program) (o : Oracle) (env : Env) (r : ResourceDecl) (e : ResourceEach)
+    (prev : List Value) (forced : Bool) : Result (List Value × List Value) := do
+  match ← eval fuel env false [] e.list with
+  | .list xs => settleEachGo p o env r e prev forced xs [] []
+  | _ => .error (.refused s!"resource `{r.name}`: its `for` reads no list")
+
 /-- Settle every derive and resource against the slots: evaluate each
 whose inputs have settled, until all have. A derive or resource that reads
 one not yet settled waits (`pending`); a pass with no progress is a cycle.
@@ -271,6 +339,17 @@ def settle (p : Program) (o : Oracle) (slots : List (String × Value)) (now : F6
       for r in p.resources do
         if (lookup r.name st.resources).isSome then continue
         let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now }
+        match r.each with
+        | .some e =>
+          let held := ((prev.args.find? (·.1 == r.name)).map (·.2)).getD []
+          match settleEach p o env r e held (force.contains r.name) with
+          | .ok (vs, held) =>
+            if !conforms p (.list vs) r.ty then throw (.refused s!"resource `{r.name}` of the wrong shape")
+            st := { st with resources := st.resources ++ [(r.name, .list vs)], args := st.args ++ [(r.name, held)] }
+            progress := true
+          | .error .pending => waiting := true
+          | .error err => throw err
+        | .none =>
         match evalList fuel env false [] r.args with
         | .ok args =>
           let kept : Option (Value × List Value) :=
@@ -340,16 +419,6 @@ structure RenderCx where
   store : RowStore
   rows : List RowId := []
   tabs : TabCx := {}
-
-/-- A row key as the runner identifies it (`key_text`): a string, a bool,
-or a finite number with `-0` read as `0`. -/
-def rowKey : Value → Result Value
-  | .str t => .ok (.str t)
-  | .bool b => .ok (.bool b)
-  | .num f =>
-    if Number.isFinite f then .ok (.num (if f == 0 then 0 else f))
-    else .error (.refused "a row key that is not finite")
-  | _ => .error (.refused "a row key that is not a string, number or bool")
 
 /-- An element's text: the first positional argument, displayed, of a tag
 whose positional is its text (`text`, `tspan`, `option`). -/

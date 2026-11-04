@@ -2147,3 +2147,50 @@ component App
     column
       dd
         text "a"
+---
+== syntax-resource-for-with
+shape G
+  phase: string
+component A
+  state urls = ["a"]
+  resource got = receive(u) for u in urls with "x" as shape G
+  view
+    text "a"
+---
+== syntax-resource-for-else
+shape G
+  phase: string
+component A
+  state urls = ["a"]
+  resource got = receive(u) for u in urls as shape G else empty()
+  view
+    text "a"
+---
+== type-resource-for-list
+shape G
+  phase: string
+component A
+  state url = "a"
+  resource got = receive(u) for u in url as shape G
+  view
+    text "a"
+---
+== type-resource-for-key
+shape G
+  phase: string
+shape R
+  id: number
+component A
+  state rows = [R(id=1)]
+  resource got = receive(r.id) for r in rows as shape G
+  view
+    text "a"
+---
+== lower-resource-for-source
+shape T
+  epochAtZero: number
+component A
+  state zones = ["a"]
+  resource time = exactTime() for z in zones as shape T
+  view
+    text "a"
