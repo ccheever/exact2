@@ -3,10 +3,10 @@ import { join, resolve } from 'node:path';
 import { site } from '../constants/site.ts';
 
 // Checks the Markdown that tools/postbuild.ts wrote into dist, as an agent reads it: one .md file for each
-// page and nothing else, each with its frontmatter, the llms.txt pointer and an H1, closed code fences, no
-// HTML or CSS leaked into the prose, and links and images that reach a file in dist. llms.txt lists every
-// page. Exits 1 on the first build that breaks one. docs.expo.dev's scripts/check-markdown-pages.ts is
-// the model.
+// page and nothing else, each with its frontmatter, the llms.txt pointer, an H1 with the feedback block
+// below it, closed code fences, no HTML or CSS leaked into the prose, and links and images that reach a
+// file in dist. llms.txt lists every page. Exits 1 on the first build that breaks one. docs.expo.dev's
+// scripts/check-markdown-pages.ts is the model.
 
 const SITE = resolve(import.meta.dir, '..');
 const DIST = resolve(SITE, process.argv[2] ?? 'dist');
@@ -65,6 +65,7 @@ for (const p of pages) {
   if (!body.includes(`> Fetch the complete documentation index at: ${ORIGIN}/llms.txt`)) fail(where, 'no llms.txt pointer');
   const lines = prose(where, body);
   if (!lines.some(line => /^# \S/.test(line))) fail(where, 'no H1');
+  if (!new RegExp(`^# .*\\n\\n<AgentInstructions>\\n[\\s\\S]*--subject "Exact docs: ${(ORIGIN + p.path).replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}"[\\s\\S]*?\\n</AgentInstructions>\\n`, 'm').test(body)) fail(where, 'no feedback block naming this page below the H1');
   if (lines.filter(line => line.trim()).length < 3) fail(where, 'nothing below the pointer and the H1');
   lines.forEach(line => {
     const html = line.match(LEAKED_HTML);
