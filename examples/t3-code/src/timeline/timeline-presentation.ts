@@ -69,6 +69,7 @@ import { liveEnvironment } from '../client/live-streams';
 import { noteAudioPlaying } from './timeline-kept-rows';
 import { sleep } from '../client/command-waits';
 import { timelinePendingApprovals, type TimelineApprovalView } from './timeline-approvals';
+import { setWindowZoom } from '../browser/browser-viewport';
 
 /** formatShortTimestamp: the wall-clock time alone, in the selected format. */
 export function shortTime(value: unknown, format: string): string {
@@ -134,6 +135,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op === 'external-open-answer') { answerExternalOpen(Number(id), value); return ''; } // `openURL`'s answer (external-open.ts)
   if (op.startsWith('inline-doc-')) { await inlineDocumentEvent(client, id, op.slice(11), value, native, storage, image => openInlineDocumentImage(client, image.src, image.name, `inline-frame-${id}`)); return ''; }
   if (op === 'run-terminal' && storage) { await runTerminalCommand(client, native, storage, value.trim(), '', 'preserve'); return ''; }
+  if (op === 'window-zoom') { setWindowZoom(client, Number(value)); return ''; } // View's zoom (app.contract zoomTo)
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // the right panel's surfaces (window chatLocal)
   if (op === 'link-open') return openLinkFromUi(client, native, id, value); // "Open links in" (browser-links.ts)
   if (op === 'ref-scroll-end') { noteRefScrollEnd(client, id); return ''; } // a ref list scrolled toward its end (ref-paging.contract)

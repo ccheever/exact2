@@ -372,7 +372,7 @@ extension NodeView {
 final class RangeClipView: NSClipView {
     override func scroll(to newOrigin: NSPoint) {
         guard let document = documentView?.frame else { return super.scroll(to: newOrigin) }
-        let pixel = 1 / max(1, window?.backingScaleFactor ?? 1), inset = contentInsets, size = bounds.size
+        let pixel = 1 / max(1, pixelScale ?? 1), inset = contentInsets, size = bounds.size
         func clamp(_ origin: CGFloat, _ low: CGFloat, _ high: CGFloat) -> CGFloat {
             let high = max(low, high)
             if origin < low, low - origin < pixel { return low }

@@ -261,6 +261,7 @@ final class DialogHost {
         fitSheets()
         for entry in entries where entry.sheet == nil {
             entry.backdrop.frame = presenter.viewport.bounds
+            presenter.zoomOverPage(entry.backdrop)
             var frame = entry.frame
             // Without authored insets the HTML modal is centred in its viewport.
             let style = entry.dialog.style

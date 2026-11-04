@@ -375,8 +375,7 @@ export class T3Client {
     // A ref list scrolled toward its end asks its source again for the next page (ref-paging.ts).
     const scrolled = JSON.stringify(obj(value.presentation).scrollEnds ?? {}) !== JSON.stringify(this.presentation.scrollEnds ?? {});
     // A Browser tab's page as its hatch reports it (T3BrowserPage.swift: its size, separate window and recording).
-    const browsed = JSON.stringify(obj(value.presentation).browserPages ?? {}) !== JSON.stringify(this.presentation.browserPages ?? {})
-      || obj(value.presentation).browserWindowZoom !== this.presentation.browserWindowZoom; // the window's zoom lays the tabs out again
+    const browsed = JSON.stringify(obj(value.presentation).browserPages ?? {}) !== JSON.stringify(this.presentation.browserPages ?? {});
     this.presentation = obj(value.presentation);
     if (scrolled || browsed) this.changed();
     if (moved) {

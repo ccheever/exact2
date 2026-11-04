@@ -75,7 +75,7 @@ final class IconShapeView: NSView {
     }
 
     private func redraw() {
-        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        let scale = pixelScale ?? NSScreen.main?.backingScaleFactor ?? 2
         group.frame = square; group.contentsScale = scale
         // The group's own coordinates start at the square's corner.
         let local = placement.concatenating(CGAffineTransform(translationX: -square.minX, y: -square.minY))

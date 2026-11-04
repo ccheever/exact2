@@ -1,6 +1,6 @@
-// View › Actual Size, Zoom In and Zoom Out (settings-shortcuts.contract ViewZoom, app.contract rootFontApply): the
-// reference's half Chromium zoom levels (DesktopWindow.ts zoomWindow: setZoomLevel(level ± 0.5), a factor of 1.2^level),
-// as the root font size.
+// View › Actual Size, Zoom In and Zoom Out (settings-shortcuts.contract ViewZoom, app.contract zoomTo): the reference's
+// half Chromium zoom levels (DesktopWindow.ts zoomWindow: setZoomLevel(level ± 0.5), a factor of 1.2^level), as the
+// window's page zoom (LLP 1021 §5.3.1).
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { contractFns } from '../support/contract-fn-fixture';
@@ -15,13 +15,14 @@ describe('View zoom', () => {
     expect(zoomFactor(1)).toBeCloseTo(1.0954, 4); // 109.5%, where Safari's next level is 115%
     expect(zoomFactor(18)).toBe(1);
   });
-  test('the app\'s ⌘0, ⌘= and ⌘- take the host items\' places, ⇧⌘= is a hidden Zoom In, and the root font follows the step', () => {
+  test('the app\'s ⌘0, ⌘= and ⌘- take the host items\' places, ⇧⌘= is a hidden Zoom In, and the page zoom follows the step', () => {
     const source = readFileSync(appPath('src/settings/settings-shortcuts.contract'), 'utf8');
     for (const chord of ['"Meta+0"', '"Meta+="', '"Meta+-"']) expect(source).toContain(chord);
     expect(source).toMatch(/button -exact-menu="none" press=zoomKey\("meta\+shift\+=", min\(17, step \+ 1\)\) aria-keyshortcuts=\(taken.includes\("meta\+shift\+="\) \? "" : "Meta\+Shift\+="\)/);
     const root = appText('app.contract');
-    expect(root).toContain('setRootFontSize((data.look.fontSize > 0 ? data.look.fontSize : 16) * zoomFactor(zoomStep))');
-    expect(root).toContain('task rootFont key=`${data.look.fontSize}|${zoomStep}`');
+    expect(root).toContain('setPageZoom(zoomFactor(step))');
+    expect(root).toContain('setRootFontSize(data.look.fontSize > 0 ? data.look.fontSize : 16)');
+    expect(root).toContain('task rootFont key=`${data.look.fontSize}`');
   });
   test('over a shown Browser page, ⌘R and the zoom chords ask the data module first; ⇧⌘R is always the window\'s', () => {
     const asked: unknown[][] = [], run = (component: string, action: string, page: string, args: unknown[] = []) => {

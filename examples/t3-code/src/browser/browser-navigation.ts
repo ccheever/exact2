@@ -45,8 +45,8 @@ function nav(client: T3Client): Nav {
   return value;
 }
 
-/** The main window's zoom (View › Zoom In), 1 until the module reports it. */
-export const windowZoomFactor = (client: T3Client): number => readWindowZoom(client.presentation);
+/** The main window's zoom (View › Zoom In), 1 until the window tells it. */
+export const windowZoomFactor = (client: T3Client): number => readWindowZoom(client);
 /** The module's zoom and appearance for a tab (desktopOverlay.zoomFactor/colorScheme); 100% and System until it reports. */
 export const tabZoom = (tab: NativeTab | null): number => normalizeZoomFactor(tab?.zoomFactor ?? 1);
 export const tabColorScheme = (tab: NativeTab | null): 'system' | 'light' | 'dark' => tab?.colorScheme === 'light' || tab?.colorScheme === 'dark' ? tab.colorScheme : 'system';
