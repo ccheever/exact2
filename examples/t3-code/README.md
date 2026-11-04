@@ -698,8 +698,9 @@ Differences that belong to the app:
   store, so a site that keeps its sign-in there asks again once. A hidden tab is not displayed: WebKit runs its timers
   about once a second and draws no animation frames, where the reference's tabs keep running (LLP 1020.002 §9); one
   that is recorded or shown in its separate window stays laid out, transparent, and keeps drawing. With
-  the page focused, ⌘R reloads it and the zoom chords zoom it (the page is asked `document.hasFocus()`, since a frame
-  reports no focus) and ⌘L puts the focus in the address bar, selecting the address; ⇧⌘R reloads the window, as the
+  the page focused, ⌘R reloads it, the zoom chords zoom nothing, neither the page nor the window, as in v0.1.6 (the
+  page is asked `document.hasFocus()`, since a frame reports no focus), and ⌘L puts the focus in the address bar,
+  selecting the address; ⇧⌘R reloads the window, as the
   reference's menu does. A page's dialog while
   an agent request runs on its tab is answered at once (OK for `alert`, Cancel for `confirm` and `prompt`); one left
   from an agent's run shows over the page as Chromium's tab-modal dialog and takes the person's answer. The console,
@@ -850,8 +851,10 @@ above.
 - Some raw HTML image lines and the command menu sit off by device pixels at 2×, light: in "HTML images" the line with
   "Image unavailable · colon entity" and its image 7 lower; in "HTML image layout" the rows under the first image row 1
   to 2 higher; the command menu's rows 4 lower and about 2 right (2026-11-04 real-input session).
-- Return in the Browser's address bar lets go of the field but loads nothing: no request reached the server (0 of 2,
-  with and without `http://`). The reference loads the page (2026-11-04 real-input session).
+- With the focus in a server tab's page on this Mac (a press on its stream), ⌘=, ⌘- and ⌘0 zoom the window; the
+  reference draws those tabs natively and zooms nothing. After the press the focus is on the right panel's region, not
+  on the stream's key field (`server-browser.contract`), so the chord reaches View ▸ Zoom In. A desktop tab's page,
+  which holds the focus itself, zooms nothing, as in the reference (2026-11-05).
 
 **Not failures:**
 
@@ -1662,7 +1665,8 @@ sign-ins, Kotoeri's ⌃K, Reduce motion and trackpad momentum by a person, and G
 **Next real-input session:**
 
 - ⇧⌘P in the hero's project menu, and the two-finger swipe on a trackpad.
-- The Browser address bar's Return, once it loads the page again (Known differences).
+- The Browser address bar's Return after a click in a shown address: the click selects the whole address and Return
+  loads what was typed (exact2 #1467; 3 of 3 with real keys on 2026-11-05).
 - A terminal excerpt's details, once a fixture sends one.
 - The fallback model notice. A hub cannot reach it: v0.1.6 reads the default provider's own usage limits
   (`resolveNewThreadModelSelection`), never a hub's pools. It shows on a new thread's draft with no model chosen when the

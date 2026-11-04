@@ -70,8 +70,8 @@ const configuredUrls = (client: T3Client): ReadonlyArray<string> =>
 const canParse = (url: string): boolean => { try { new URL(url); return true; } catch { return false; } };
 
 // ── The projection's part-2 fields ──────────────────────────────────────────────────────────────
-export type BrowserRecent = { url: string; title: string; subtitle: string; favicon: string; fallback: string; removeLabel: string };
-export type BrowserServer = { key: string; title: string; description: string; url: string; favicon: string; fallback: string };
+export type BrowserRecent = { url: string; title: string; subtitle: string; favicon: string; removeLabel: string };
+export type BrowserServer = { key: string; title: string; description: string; url: string; favicon: string };
 export type BrowserPresetChoice = { id: string; label: string; detail: string };
 export type BrowserNavigationView = {
   /** windowZoom: the main window's zoom, which a desktop tab's layout divides its own by (useBrowserLayoutZoomFactor). */
@@ -98,10 +98,10 @@ export function previewKeys(client: T3Client): string {
 /** A View chord the window's menu took while the panel shows a Browser page (settings-shortcuts.contract ViewReload and
  *  ViewZoom: `chord`, its ARIA name; `step`, the window zoom step it would set). A partitioned frame reports no focus
  *  (clone/issues/browser-frame-focus-chords.md), so the page is asked, `document.hasFocus()` as a read. While it holds the
- *  focus, ⌘R reloads it (Manager.ts isPreviewRefreshShortcut) and a chord bound to a preview command under `previewFocus`
- *  runs that command (Manager.ts forwardedShortcuts), Focus URL by asking the address bar to take the focus; otherwise the
- *  window does what the chord does there, through the root's `window` frame command, and ⌘L, which the window binds to
- *  nothing, does nothing. */
+ *  focus, ⌘R reloads it (Manager.ts isPreviewRefreshShortcut), Focus URL asks the address bar to take the focus, and a
+ *  zoom chord zooms nothing, neither the page nor the window, as in v0.1.6 (measured with real keys on 2026-11-05,
+ *  though Manager.ts forwardedShortcuts would run preview.zoomIn); otherwise the window does what the chord does there,
+ *  through the root's `window` frame command, and ⌘L, which the window binds to nothing, does nothing. */
 export async function browserKey(client: T3Client, frameIds: string, packed: string): Promise<void> {
   const q = new URLSearchParams(packed), chord = (q.get('chord') ?? '').replaceAll(' ', '+').toLowerCase(); // the View items send `meta+r` unencoded
   const bound = [...previewWinners(client)].find(([candidate]) => candidate.toLowerCase() === chord)?.[1] ?? '';
@@ -114,8 +114,7 @@ export async function browserKey(client: T3Client, frameIds: string, packed: str
     catch (error) { if (letGo(error)) throw error; }
   }
   if (focused && command === 'refresh') commandFrame(client, focused.runtimeId, 'refresh');
-  else if (focused && (command === 'zoom-in' || command === 'zoom-out')) setFrame(client, focused.runtimeId, { zoomStep: command === 'zoom-in' ? 'in' : 'out' });
-  else if (focused && command === 'reset-zoom') setFrame(client, focused.runtimeId, { zoom: 1 });
+  else if (focused && (command === 'zoom-in' || command === 'zoom-out' || command === 'reset-zoom')) { /* zooms nothing */ }
   else if (focused && command === 'focus-url') { const state = nav(client); state.focusUrl.set(focused.runtimeId, ++state.focusUrlCount); }
   else if (chord !== 'meta+l') enqueue(client, { kind: 'window', id: '', url: '', delta: Number(q.get('step')) || 0, flag: chord === 'meta+r' });
   client.revision++;
@@ -129,15 +128,15 @@ export function focusUrlTaken(client: T3Client, runtimeId: string, serial: numbe
   client.revision++;
 }
 
-/** A recent site's or a local server's icon: a Browser tab's captured icon of that origin, the public service, the globe. */
-function siteIcon(client: T3Client, url: string): { favicon: string; fallback: string } {
+/** A recent site's or a local server's icon (PreviewFaviconIcon): a Browser tab's captured icon of that origin, else ""
+ *  for the page drawing (browser-surface.contract BrowserSiteIcon). Unlike a tab's, it asks no public favicon service. */
+function siteIcon(client: T3Client, url: string): { favicon: string } {
   const status: PreviewNavStatus = { _tag: 'Success', url, title: '' };
-  let captured = '';
   for (const tab of Object.values(nativeTabs(client))) {
     const icon = browserTabFavicon(status, tab.favicon);
-    if (icon.captured) { captured = icon.captured; break; }
+    if (icon.captured) return { favicon: icon.captured };
   }
-  return { favicon: captured, fallback: browserTabFavicon(status, null).fallback };
+  return { favicon: '' };
 }
 
 export function navigationView(client: T3Client, ref: ScopedThreadRef, runtimeId: string, tab: NativeTab | null, snapshot: PreviewSessionSnapshot | null, empty: boolean, at: number): BrowserNavigationView {
@@ -165,8 +164,7 @@ export function navigationView(client: T3Client, ref: ScopedThreadRef, runtimeId
   });
   const discovery = discoveredServers(client);
   view.servers = previewableServers(ref.environmentId, discovery.servers, configuredUrls(client), discovery.configuredUrlProbing, preparedConnection(client)).map(server => {
-    const icon = siteIcon(client, server.requestedUrl);
-    return { key: `${server.host}:${server.port}`, title: server.processName ?? 'Listening', description: `${server.host}:${server.port}`, url: server.requestedUrl, favicon: icon.favicon, fallback: icon.fallback };
+    return { key: `${server.host}:${server.port}`, title: server.processName ?? 'Listening', description: `${server.host}:${server.port}`, url: server.requestedUrl, ...siteIcon(client, server.requestedUrl) };
   });
   return view;
 }
