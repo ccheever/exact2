@@ -175,6 +175,10 @@ impl<D: DataSource> Presenter<D> {
                     eprintln!("exact: requestPictureInPicture unsupported on the headless/DRM host");
                     floats.extend(c.args.first().and_then(exact_plan::Value::as_str).map(str::to_owned));
                 }
+                // A window that fades or leaves full screen is the Mac's so far (LLP 1069.010).
+                name @ ("exitFullscreen" | "setWindowOpacity") => self
+                    .host
+                    .log(format!("{name} refused: the window's full screen and opacity are on the Mac host only")),
                 // A page zoom is the Mac's so far (LLP 1021 §5.3.1).
                 "setPageZoom" => self
                     .host

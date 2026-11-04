@@ -30,6 +30,9 @@ pub struct Callback {
     pub state: String,
     /// The app's name, for the page.
     pub app: String,
+    /// The page's sentence when the app gives one, else "You can close this
+    /// tab." (LLP 1133.005 D9).
+    pub message: Option<String>,
 }
 
 /// Why the receiver could not start.
@@ -201,7 +204,7 @@ fn step(p: &mut Pending, callback: &Callback) -> Step {
     let head = String::from_utf8_lossy(&p.head[..end]).into_owned();
     match check(&head, callback) {
         Ok(target) => {
-            reply(&mut p.stream, 200, "", Some(&callback.app));
+            reply(&mut p.stream, 200, "", Some(callback));
             let url = format!("http://{}:{}{}", callback.host, callback.port, target);
             Step::Answered(Some(url))
         }
@@ -293,18 +296,28 @@ fn escape(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// Write the reply within 5 s, or abandon it with its connection.
-fn reply(stream: &mut TcpStream, status: u16, sentence: &str, app: Option<&str>) {
-    let (reason, kind, body) = match app {
-        Some(app) => {
-            let app = escape(app);
-            let page = format!(
-                "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>Return to {app}</title>\
-                 <style>body{{font:16px system-ui,sans-serif;margin:4em auto;max-width:30em;padding:0 1em}}</style>\
-                 <h1>Return to {app}</h1><p>You can close this tab.</p></html>"
-            );
-            ("OK", "text/html; charset=utf-8", page)
-        }
+/// The page the browser shows once the callback is in: never the URL or
+/// the code.
+fn page(callback: &Callback) -> String {
+    let app = escape(&callback.app);
+    let sentence = escape(
+        callback
+            .message
+            .as_deref()
+            .unwrap_or("You can close this tab."),
+    );
+    format!(
+        "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>Return to {app}</title>\
+         <style>body{{font:16px system-ui,sans-serif;margin:4em auto;max-width:30em;padding:0 1em}}</style>\
+         <h1>Return to {app}</h1><p>{sentence}</p></html>"
+    )
+}
+
+/// Write the reply within 5 s, or abandon it with its connection: the page
+/// for the callback, else `sentence`.
+fn reply(stream: &mut TcpStream, status: u16, sentence: &str, callback: Option<&Callback>) {
+    let (reason, kind, body) = match callback {
+        Some(callback) => ("OK", "text/html; charset=utf-8", page(callback)),
         None => {
             let reason = if status == 431 {
                 "Request Header Fields Too Large"
@@ -353,6 +366,7 @@ mod tests {
             path: "/auth/callback".into(),
             state: "s 1".into(),
             app: "T3 <Code>".into(),
+            message: None,
         };
         let (tx, rx) = mpsc::channel();
         let receiver = open(callback.clone(), Box::new(move |url| tx.send(url).unwrap())).unwrap();
@@ -403,7 +417,19 @@ mod tests {
             path: "/cb".into(),
             state: "s A".into(),
             app: "App".into(),
+            message: None,
         }
+    }
+
+    /// The page says the app's sentence when it gives one, escaped, and the
+    /// host's own otherwise.
+    #[test]
+    fn the_page_says_the_app_s_sentence() {
+        let mut given = callback(1);
+        assert!(page(&given).contains("<h1>Return to App</h1><p>You can close this tab.</p>"));
+        given.message = Some("Received <b>here</b>. You can close this tab.".into());
+        assert!(page(&given)
+            .contains("<p>Received &lt;b&gt;here&lt;/b&gt;. You can close this tab.</p>"));
     }
 
     #[test]

@@ -48,7 +48,8 @@ final class LoopbackSheet: AuthSheet {
             return AuthFailure(status: 501, message: "this build carries no listener for a loopback callback: rebuild with its auth.callback grant")
         }
         let host = loopback["host"] as? String ?? "", port = (loopback["port"] as? NSNumber)?.intValue ?? 0
-        let config = Array([host, String(port), loopback["path"] as? String ?? "", state, ExactEnv.appName].joined(separator: "\0").utf8)
+        let config = Array([host, String(port), loopback["path"] as? String ?? "", state, ExactEnv.appName, loopback["message"] as? String ?? ""]
+            .joined(separator: "\0").utf8)
         var error: Int32 = 0
         let context = Unmanaged.passUnretained(self).toOpaque()
         receiver = config.withUnsafeBufferPointer { library.open($0.baseAddress, $0.count, { ctx, bytes, count in

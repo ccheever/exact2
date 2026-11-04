@@ -271,6 +271,7 @@ mod vscode_grammar;
 mod wakelock;
 mod warnings;
 mod warnings_screens;
+mod window_commands;
 mod windows_shortcuts;
 
 mod properties;
