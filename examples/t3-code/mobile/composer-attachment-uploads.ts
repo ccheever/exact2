@@ -216,12 +216,12 @@ export function mobileComposerAttachmentUploadsStart(client: T3Client, native: N
 
 /** Explicit Retry action for a failed tile. */
 export function mobileComposerAttachmentUploadRetry(client: T3Client, native: Native | null | undefined,
-  storage: Files, id: string): boolean {
+  storage: Files, id: string, draftKey = client.draftKey): boolean {
   // The public attachment action performs the captured target check before
   // reaching this queue operation. Keep this module free of composer-target's
   // route import so the upload queue cannot form a target/attachment cycle.
-  const runtime = runtimes.get(client)?.get(client.draftKey);
-  if (!runtime || runtime.draftKey !== client.draftKey || runtime.owner !== owner(client, runtime.draftKey)) return false;
+  const runtime = runtimes.get(client)?.get(draftKey);
+  if (!runtime || runtime.draftKey !== draftKey || runtime.owner !== owner(client, draftKey)) return false;
   const state = runtime.entries.get(id);
   if (!state || state.state !== 'failed') return false;
   runtime.native = native ?? runtime.native; runtime.storage = storage; state.error = ''; state.progress = 0;

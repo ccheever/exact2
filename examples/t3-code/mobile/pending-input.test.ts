@@ -11,7 +11,7 @@ const gate = () => { let resolve!: () => void; const promise = new Promise<void>
 function fixture(client = new T3Client(), saved: Obj = {}) {
   Object.assign(client, { origin: 'https://one.test', environmentId: 'env', threadId: 'thread', projectId: 'project', generation: 1,
     connection: 'connected', configLive: true, shellLive: true, threadLive: true, scopes: ['orchestration:operate'] });
-  client.config = { environment: { capabilities: { serverResolvedCommandContext: true } } };
+  client.config = { environment: { capabilities: { serverResolvedCommandContext: true, attachmentUploads: true, questionAttachments: true } } };
   client.local.drafts[client.draftKey] = 'Keep ordinary draft';
   const question = (id: string, extra: Obj = {}) => ({ id, header: id, question: `${id}?`, options: [{ label: 'One', value: 'one' }, { label: ' Two ' }], ...extra });
   client.thread = { projection: { thread: { id: 'thread' }, runs: [{ id: 'run', status: 'running' }],
@@ -21,6 +21,7 @@ function fixture(client = new T3Client(), saved: Obj = {}) {
   const calls: Obj[] = [], payloads: Obj[] = [];
   let serial = 0, consumeSuccess = true, persistentSaveFailure = false;
   let disk: Obj = structuredClone(saved), fail = false, outcomeSaveFailure = false, retainedSuccess = false, retainedCommand = 'command';
+  let pickedFiles: Obj[] = [], failUpload = false;
   let onNative = async (_: Obj) => {}, onSave = async (_: Obj) => {}, beforeSave = async (_: Obj) => {};
   const initialize = () => {
     disk.mobileQuestionCommands ??= {}; disk.mobileQuestionMetadata ??= { epoch: 'epoch', process: 'fixture-process', revision: 0, commands: {}, prepared: {}, tombstones: {}, mutations: {} };
@@ -30,6 +31,14 @@ function fixture(client = new T3Client(), saved: Obj = {}) {
     const r = obj(raw); calls.push(structuredClone(r)); await onNative(r); initialize();
     const records = obj(disk.mobileQuestionCommands), journal = obj(disk.mobileQuestionMetadata), commands = obj(journal.commands);
     if (r.op === 'ids') return { ok: true, generation: client.generation, value: [serial++ ? `command-${serial}` : 'command'] };
+    if (r.op === 'composerAttachPick') return { ok: true, generation: client.generation, value: { files: structuredClone(pickedFiles) } };
+    if (r.op === 'snapshotDraftRead') return { ok: true, generation: client.generation, value: { base64: 'aGV5', sizeBytes: 3 } };
+    if (r.method === 'attachments.createUploadUrl') return { ok: true, generation: client.generation, value: { attachmentId: `upload-${serial++}`, relativeUrl: '/api/attachments/upload/test' } };
+    if (r.op === 'uploadAttachment') {
+      if (failUpload) return { ok: false, generation: client.generation, error: { kind: 'HTTP', message: 'Upload failed', uncertain: false } };
+      return { ok: true, generation: client.generation, value: {} };
+    }
+    if (r.method === 'attachments.delete') return { ok: true, generation: client.generation, value: {} };
     if (r.op === 'mobileQuestionJournal') {
       const id = str(r.commandId), action = str(r.action), record = obj(records[id]), metadata = obj(commands[id]);
       if (action === 'read' && retainedSuccess) {
@@ -79,6 +88,7 @@ function fixture(client = new T3Client(), saved: Obj = {}) {
   questionJournalStatus(client, { origin: client.origin, homeOrigin: 'https://one.test', environmentId: 'env' }, client.generation);
   if (Object.keys(saved).length) questionJournalHydrate(client, state());
   return { client, native, storage, route, calls, payloads, view, act, fill, disk: () => structuredClone(disk),
+    pick: (files: Obj[]) => { pickedFiles = structuredClone(files); }, failUploads: (value = true) => { failUpload = value; },
     intercept: (fn: typeof onNative) => { onNative = fn; }, duringSave: (fn: typeof onSave) => { onSave = fn; }, beforeSave: (fn: typeof beforeSave) => { beforeSave = fn; },
     changeDisk: (fn: (value: Obj) => void) => { fn(disk); },
     fail: () => { fail = true; }, failOutcome: (persistent = false) => { outcomeSaveFailure = true; persistentSaveFailure = persistent; },
@@ -86,6 +96,42 @@ function fixture(client = new T3Client(), saved: Obj = {}) {
 }
 
 describe('actual question core and native operation boundary', () => {
+  const image = (n: number, extra: Obj = {}) => ({ id: `aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStart(12, '0')}`, name: `question-${n}.png`, mimeType: 'image/png', sizeBytes: 3, ...extra });
+  const questionKey = (request = 'request', question = 'custom') => `env:question:thread:${JSON.stringify([request, question])}`;
+
+  test('exposes each question attachment with its upload state and attach capability', () => {
+    const f = fixture(); f.client.local.snapshotDrafts[questionKey()] = [image(1, { uploadId: 'uploaded', uploadEnvironmentId: 'env' })];
+    expect(f.view().questions[2]).toMatchObject({ canAttach: true, attachments: [{ id: image(1).id, name: 'question-1.png', uploadState: 'ready' }] });
+  });
+
+  test('an attachment-only custom answer submits its question attachment map', async () => {
+    const f = fixture(); f.client.local.snapshotDrafts[questionKey()] = [image(1, { uploadId: 'uploaded', uploadEnvironmentId: 'env' })];
+    await f.act('option', 'multi', 'one'); await f.act('option', 'first', 'Two'); await f.act('submit');
+    expect(f.payloads[0]).toMatchObject({ answers: { first: 'Two', multi: ['one'], custom: '' }, attachmentsByQuestionId: { custom: [{ type: 'image', id: 'uploaded', name: 'question-1.png', mimeType: 'image/png', sizeBytes: 3 }] } });
+  });
+
+  test('uploading and failed question attachments both block submit', async () => {
+    const f = fixture(); f.pick([{ kind: 'image', ...image(1) }]); f.failUploads();
+    await f.act('pick', 'custom');
+    expect(f.view().canSubmit).toBe(false);
+    for (let i = 0; i < 20 && f.view().questions[2]!.attachments[0]!.uploadState !== 'failed'; i++) await new Promise<void>(resolve => setTimeout(resolve, 0));
+    expect(f.view().questions[2]!.attachments[0]).toMatchObject({ uploadState: 'failed', uploadError: 'Upload failed' });
+    expect(f.view().canSubmit).toBe(false);
+    f.failUploads(false); await f.act('retry-image', 'custom', image(1).id);
+    for (let i = 0; i < 20 && f.view().questions[2]!.attachments[0]!.uploadState !== 'ready'; i++) await new Promise<void>(resolve => setTimeout(resolve, 0));
+    expect(f.view().questions[2]!.attachments[0]!.uploadState).toBe('ready');
+  });
+
+  test('picker keeps supported images and releases rejected staged files', async () => {
+    const f = fixture(), good = image(1), bad = image(2, { name: 'bad.svg', mimeType: 'image/svg+xml' }), file = { kind: 'file', id: 'bbbbbbbb-bbbb-4bbb-8bbb-000000000002', name: 'notes.txt', mimeType: 'text/plain', sizeBytes: 3 };
+    f.pick([{ kind: 'image', ...good }, bad, file]); await f.act('pick', 'custom');
+    expect(f.client.local.snapshotDrafts[questionKey()]?.map(row => row.id)).toEqual([good.id]);
+    expect(f.calls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ op: 'snapshotDraftRemove', id: bad.id }),
+      expect.objectContaining({ op: 'composerAttachRemove', id: file.id }),
+    ]));
+  });
+
   test('all answers produce one immutable marked request and preserve ordinary draft', async () => {
     const f = fixture(); await f.fill(); await f.act('option', 'multi', 'Two'); await f.act('option', 'multi', 'one'); await f.act('submit');
     expect(f.payloads).toEqual([{ type: 'runtime-request.respond', threadId: 'thread', requestId: 'request', answers: { first: 'Two', multi: ['Two'], custom: 'exact café 🧪' }, commandId: 'command' }]);

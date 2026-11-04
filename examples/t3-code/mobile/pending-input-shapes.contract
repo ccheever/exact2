@@ -18,6 +18,13 @@ shape PendingInputQuestion
   customAllowed: bool
   answer: string
   options: PendingInputOption[]
+  attachments: PendingInputAttachment[]
+  canAttach: bool
+shape PendingInputAttachment
+  id: string
+  name: string
+  uploadState: string
+  uploadError: string
 shape PendingInputView
   cardId: string
   owner: string
