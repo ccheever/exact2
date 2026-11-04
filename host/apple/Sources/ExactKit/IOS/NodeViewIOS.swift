@@ -989,7 +989,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         return style["pointer_events"]?.string == "none" || cssVisibilityHidden ? nil : self
     }
 
-
     /// The box on screen, through the placement of the placed child this
     /// node is (or is under), for assistive technology — the same box the
     /// agent's `layout` reports.
