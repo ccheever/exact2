@@ -624,6 +624,25 @@ fn a_live_region_says_whether_it_is_announced_whole() {
     assert_eq!(out.get("aria-atomic").map(String::as_str), Some("true"));
 }
 
+/// A paged table keeps its complete coordinates in the DOM so assistive
+/// technology can place a mounted cell in the source table.
+#[test]
+fn a_table_writes_row_and_column_coordinates() {
+    let out = written_props(
+        NodeType::View,
+        &[
+            (PropId::AccessibilityRowCount, PropValue::Int(12)),
+            (PropId::AccessibilityColumnCount, PropValue::Int(3)),
+            (PropId::AccessibilityRowIndex, PropValue::Int(5)),
+            (PropId::AccessibilityColumnIndex, PropValue::Int(2)),
+        ],
+    );
+    assert_eq!(out.get("aria-rowcount").map(String::as_str), Some("12"));
+    assert_eq!(out.get("aria-colcount").map(String::as_str), Some("3"));
+    assert_eq!(out.get("aria-rowindex").map(String::as_str), Some("5"));
+    assert_eq!(out.get("aria-colindex").map(String::as_str), Some("2"));
+}
+
 /// @ref LLP 1020.002 D5 — every frame grants its guest fullscreen, sandboxed
 /// or not; no other element is told.
 #[test]
