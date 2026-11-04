@@ -12,6 +12,7 @@ import { withLook } from '../web/look.mjs';
 
 const SOURCE = `component App
   state stack = ["a", "sheet"]
+  derive top = match stack.at(-1) { case some(r) => r, case none => "" }
   action replace
     stack = ["b"]
   action pop
@@ -24,9 +25,9 @@ const SOURCE = `component App
       button "Replace" press=replace testId="replace"
       button "Pop" press=pop testId="pop"
       button "Save" press=save testId="save"
-      column position="relative" height=300
+      main navigationKey=top navigationBack="" position="relative" height=300
         for r in stack key=r
-          column navigationPresentation=(r == "sheet" ? "modal" : "") testId=\`route-\${r}\` position="absolute" top=0 right=0 bottom=0 left=0
+          column navigationKey=r navigationPresentation=(r == "sheet" ? "modal" : "") testId=\`route-\${r}\` position="absolute" top=0 right=0 bottom=0 left=0
             text r
             if r != "a"
               input id="name" testId=\`name-\${r}\` aria-label="Name"
@@ -38,19 +39,37 @@ const DECORATED = `decoration mention color="red"
 
 component App
   state stack = ["a", "sheet"]
+  derive top = match stack.at(-1) { case some(r) => r, case none => "" }
   derive ranges = TextDecorations(value="hi @al", spans=[TextDecorationSpan(name="mention", start=3, end=6)])
   action pop
     stack = ["a"]
   view
     column
       button "Pop" press=pop testId="pop"
-      column position="relative" height=300
+      main navigationKey=top navigationBack="" position="relative" height=300
         for r in stack key=r
-          column navigationPresentation=(r == "sheet" ? "modal" : "") testId=\`route-\${r}\` position="absolute" top=0 right=0 bottom=0 left=0
+          column navigationKey=r navigationPresentation=(r == "sheet" ? "modal" : "") testId=\`route-\${r}\` position="absolute" top=0 right=0 bottom=0 left=0
             text r
             if r != "a"
               textarea testId="field" aria-label="Field" value="hi @al" decorations=ranges width=200 height=60
 `;
+
+/** Presses `testId`'s button and reads the sheet as the commit leaves it, in the frame it lands: `null` once it is
+ * gone, else whether its exit animates, the animation paused so that no later step sees it end. (The sheet covers the
+ * page, so the press is the button's own click.) */
+const press = (page, testId) => page.evaluate(async (testId) => {
+  document.querySelector(`[data-testid="${testId}"]`).click();
+  for (let frame = 0; frame < 60; frame++) {
+    const sheet = document.querySelector('[data-testid="route-sheet"]');
+    if (!sheet || sheet.hasAttribute('data-exiting')) {
+      const animations = sheet?.getAnimations() ?? [];
+      for (const a of animations) a.pause();
+      return sheet && animations.length > 0;
+    }
+    await new Promise((r) => requestAnimationFrame(r));
+  }
+  return 'the sheet stayed';
+}, testId);
 
 /** `source` compiled for the JS target and served with the shell's style: `run(url, browser)`. */
 async function served(source, run) {
@@ -84,23 +103,21 @@ async function served(source, run) {
 }
 
 test('a sheet the JS runtime removes slides down, beside a kept row and when the loop replaces every row', () => served(SOURCE, async (url, browser) => {
-  for (const [press, kept] of [['pop', 'route-a'], ['replace', 'route-b'], ['save', 'route-b']]) for (const reducedMotion of ['no-preference', 'reduce']) {
+  for (const [button, kept] of [['pop', 'route-a'], ['replace', 'route-b'], ['save', 'route-b']]) for (const reducedMotion of ['no-preference', 'reduce']) {
     const context = await browser.newContext({ viewport: { width: 400, height: 700 }, reducedMotion });
     const page = await context.newPage();
     await page.goto(url);
     await page.getByTestId('route-sheet').waitFor({ state: 'attached' });
-    // (The sheet covers the page, so the press is the button's own click.)
-    await page.evaluate((press) => document.querySelector(`[data-testid="${press}"]`).click(), press);
+    const leaving = await press(page, button);
     await page.getByTestId(kept).waitFor({ state: 'attached' });
-    const leaving = await page.evaluate(() => { const s = document.querySelector('[data-testid="route-sheet"]'); return s && [s.hasAttribute('data-exiting'), s.getAnimations().length > 0]; });
-    expect([press, reducedMotion, leaving]).toEqual([press, reducedMotion, reducedMotion === 'reduce' ? null : [true, true]]);
-    if (press === 'save') expect([reducedMotion, await page.evaluate(() => document.activeElement?.dataset.testid)]).toEqual([reducedMotion, 'name-b']);
+    expect([button, reducedMotion, leaving]).toEqual([button, reducedMotion, reducedMotion === 'reduce' ? null : true]);
+    if (button === 'save') expect([reducedMotion, await page.evaluate(() => document.activeElement?.dataset.testid)]).toEqual([reducedMotion, 'name-b']);
     const gone = await page.evaluate(async () => {
       await Promise.all(document.querySelector('[data-testid="route-sheet"]')?.getAnimations().map((a) => (a.finish(), a.finished)) ?? []);
       await new Promise((r) => setTimeout(r));
       return document.querySelector('[data-testid="route-sheet"]') === null;
     });
-    expect([press, reducedMotion, gone]).toEqual([press, reducedMotion, true]);
+    expect([button, reducedMotion, gone]).toEqual([button, reducedMotion, true]);
     await context.close();
   }
 }), 120000);
@@ -110,7 +127,5 @@ test('a sheet the JS runtime removes, holding a field whose decorations the brow
   await page.goto(url);
   await page.waitForFunction(() => document.querySelector('[data-testid="field"]')?.exactDecorations?.applied);
   const painted = await page.evaluate(() => document.querySelector('[data-testid="field"]').exactDecorations.painted);
-  await page.evaluate(() => document.querySelector('[data-testid="pop"]').click());
-  await page.getByTestId('route-a').waitFor({ state: 'attached' });
-  expect([painted, await page.evaluate(() => document.querySelector('[data-testid="route-sheet"]') === null)]).toEqual([true, true]);
+  expect([painted, await press(page, 'pop')]).toEqual([true, null]);
 }), 120000);
