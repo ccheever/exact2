@@ -4366,14 +4366,17 @@ editor keep the bare text-input box or their existing specialised control.
 A focused field shows the platform's ring: the OS's on a native field, Exact's
 on a bare one (LLP 1104 D6). `outline="none"` (or `outline-style="none"`)
 takes it off on every host, for a field whose focus you draw yourself, such as
-a ring on the card around a composer: the card's `focusin` and `focusout`
+a ring on the card around a composer. It does the same on any other element
+that takes the focus (a `button`, a `link`, a native control, a `tabindex`
+box), as CSS's does; tvOS keeps its focus effect, which is how a remote
+moves. The card's `focusin` and `focusout`
 handlers hear the field's focus on every host without making the card a Tab
 stop. `focusout` also fires when focus moves between descendants and when the
 focused node is removed; use its `FocusEvent.relatedTarget` to identify a
 subtree exit. `stopPropagation()` stops a focus event at its current handler;
 autofocus delivers these events too, with IDs read when focus moves.
-A field with no visible focus fails WCAG 2.4.7. Tab still reaches the field and its accessibility is unchanged. Only
-`none` is admitted, and only on a text field or a `textarea`.
+An element with no visible focus fails WCAG 2.4.7. Tab still reaches it and its accessibility is unchanged. Only
+`none` is admitted.
 
 `textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
 height and `field-sizing="content"` override it. `maxlength=80` on text inputs

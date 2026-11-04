@@ -41,18 +41,6 @@ fn field(tag: &str, attrs: &[Attr]) -> bool {
     }
 }
 
-/// `outline="none"` takes a text field's focus ring off (LLP 1104 D6), and
-/// only a text field's: no host removes another element's ring yet (a
-/// button's, a checkbox's, a `tabindex` box's), so the name is refused there
-/// rather than honoured on the web alone. A Markdown editor is a `textarea`.
-pub(crate) fn outline_refusal(name: &str, tag: &str, control: Option<&str>) -> Option<String> {
-    let field = control == Some("field") || tag == "textarea";
-    (matches!(name, "outline" | "outline-style") && !field).then(|| {
-        let what = control.filter(|_| tag == "input").map_or(format!("`{tag}`"), |c| format!("an `input` of type `{c}`"));
-        format!("`{name}` takes a text field's focus ring off (`input` of a text type, `textarea`), and nothing else's yet: no host removes the ring of {what}")
-    })
-}
-
 /// `::placeholder`'s `color` (LLP 1104 D3) colours a text field's
 /// placeholder, and only a text field has one.
 pub(crate) fn placeholder_refusal(name: &str, tag: &str, control: Option<&str>) -> Option<String> {
