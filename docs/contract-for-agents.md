@@ -4152,7 +4152,7 @@ input only when the selection changes. URL inputs trim surrounding ASCII
 whitespace. Markdown editors, Windows, Android and terminal do not support it yet. Field `selectionchange` reports caret moves through `InputEvent`, and
 `beforeinput` reports the proposed edit's `inputType` and optional `data`.
 Call `preventDefault()` to reject a cancelable edit; composition events
-are noncancelable. See the [form controls](contract-grammar.md#form-controls)
+are noncancelable. See the [form controls](contract-grammar.md#form-controls-radio-inputevent-setselectionrange)
 section for host limits.
 See [form controls](contract-grammar.md#form-controls-radio-inputevent-setselectionrange).
 
