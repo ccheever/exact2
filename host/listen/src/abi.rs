@@ -200,7 +200,9 @@ struct Sendable(*mut c_void);
 unsafe impl Send for Sendable {}
 
 /// Bind the loopback receiver (D9) and start answering; null when it could
-/// not, with `*error` 1 for a port in use and 2 for anything else. `done`
+/// not, with `*error` 1 for a port in use and 2 for anything else. `config`
+/// is the callback's host, port, path and `state`, the app's name and the
+/// page's sentence (empty for the host's own), separated by NULs. `done`
 /// runs once, from its own thread, unless it is closed first.
 ///
 /// # Safety
@@ -217,13 +219,16 @@ pub unsafe extern "C" fn exact_listen_loopback_open(
     let text = String::from_utf8_lossy(std::slice::from_raw_parts(config, len)).into_owned();
     let parts: Vec<&str> = text.split('\0').collect();
     let callback = match parts.as_slice() {
-        [host, port, path, state, app] => port.parse().ok().map(|port| crate::loopback::Callback {
-            host: host.to_string(),
-            port,
-            path: path.to_string(),
-            state: state.to_string(),
-            app: app.to_string(),
-        }),
+        [host, port, path, state, app, message] => {
+            port.parse().ok().map(|port| crate::loopback::Callback {
+                host: host.to_string(),
+                port,
+                path: path.to_string(),
+                state: state.to_string(),
+                app: app.to_string(),
+                message: (!message.is_empty()).then(|| message.to_string()),
+            })
+        }
         _ => None,
     };
     let Some(callback) = callback else {

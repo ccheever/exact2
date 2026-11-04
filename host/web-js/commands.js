@@ -58,6 +58,9 @@ export const commands = (say, agentMode = () => false) => ({
   // follow it; checked here, where no runner checked it first.
   // (A size the app may not set is no choice: the last one stands, and the call refuses as ever.)
   setRootFontSize: v => v === "medium" || (typeof v === "number" && Math.fround(v) > 0 && Number.isFinite(Math.fround(v))) || (typeof v === "string" && /^[+-]?(\d+|\d*\.\d+)(e[+-]?\d+)?%$/i.test(v) && ((h) => Math.fround(parseFloat(v) / 100 * h) > 0 && Number.isFinite(Math.fround(parseFloat(v) / 100 * h)))(parseFloat(getComputedStyle(document.documentElement).fontSize) || 16)) ? asked('rootFontSize', v, () => appRootFontSize(v, say)) : appRootFontSize(v, say),
+  // The document's own full screen ends, as `document.exitFullscreen()`; a page cannot fade its window (LLP 1069.010).
+  exitFullscreen: () => { if (document.fullscreenElement) document.exitFullscreen().catch(e => say(`exitFullscreen: refused: ${e.name}`)); },
+  setWindowOpacity: () => say("setWindowOpacity refused: a page cannot change its window's opacity"),
   // A page cannot set the browser's zoom, which is the person's (LLP 1021 §5.3.1).
   setPageZoom: () => say("setPageZoom refused: the browser's zoom is the person's; a page cannot set it"),
   // A recording of frames is the Apple hosts'; the browser's performance panel records the page.
