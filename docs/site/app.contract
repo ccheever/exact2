@@ -164,6 +164,8 @@ routes nav
 // "On this page" from 1280px, and the top bar with its Menu below 960px, so the page needs no runtime
 // to fit its window. The not-found page resolves its URL through constants/redirects.ts (app.ts) and
 // replaces it once the page shows, so a moved page and a trailing slash land on their page.
+fn inSidebar(nav: Nav, route: string): bool = nav.groups.filter(g => g.items.filter(i => i.route == route).length > 0).length > 0
+
 component App
   resource page = loadPage(top(nav).name) as shape Page else empty()
   resource site = loadNav() as shape Nav else empty()
@@ -192,7 +194,16 @@ component App
     voted = ""
     visible = []
     active = ""
-    nav = go(nav, url)
+    let next = go(nav, url)
+    nav = next
+    // The sidebar scrolls to the page's own item when the navigation leaves it out of view, and only then.
+    if inSidebar(site, top(next).name)
+      scrollIntoView(`nav-${top(next).name}`, block="nearest", behavior="smooth")
+  task revealing mount
+    after(300, revealAtLoad)
+  action revealAtLoad
+    if inSidebar(site, top(nav).name)
+      scrollIntoView(`nav-${top(nav).name}`, block="center", behavior="instant")
   action vote(answer: string)
     voted = answer
   action toggle(id: string)

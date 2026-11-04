@@ -13,11 +13,11 @@ component NavLink
     prefix: string
   view
     if item.route == current
-      link href=item.href aria-current="page" testId=`${prefix}nav-${item.route}` class=Item flex=1 min-width=0 padding-left=(12 + item.depth * 14) background-color="var(--color-background-selected)"
+      link href=item.href aria-current="page" id=`${prefix}nav-${item.route}` testId=`${prefix}nav-${item.route}` class=Item flex=1 min-width=0 padding-left=(12 + item.depth * 14) background-color="var(--color-background-selected)"
         row
           text item.title font-size="var(--text-sm)" color=(item.depth == 0 ? "var(--color-text-default)" : "var(--color-text-secondary)")
     else
-      link href=item.href testId=`${prefix}nav-${item.route}` class=Item flex=1 min-width=0 padding-left=(12 + item.depth * 14)
+      link href=item.href id=`${prefix}nav-${item.route}` testId=`${prefix}nav-${item.route}` class=Item flex=1 min-width=0 padding-left=(12 + item.depth * 14)
         row
           text item.title font-size="var(--text-sm)" color=(item.depth == 0 ? "var(--color-text-default)" : "var(--color-text-secondary)")
 
