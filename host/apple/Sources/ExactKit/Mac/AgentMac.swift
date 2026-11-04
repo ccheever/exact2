@@ -322,7 +322,7 @@ extension Agent {
         let local = presenter.inlineText(UInt32(id)).map { host.inlineBounds($0) ?? .zero } ?? host.bounds
         let b = presenter.inlineFrame(UInt32(id)) ?? box(host, region: local)
         var space: [String: Any] = ["viewport": rect(b), "local": ["w": Agent.r2(local.width), "h": Agent.r2(local.height)],
-                                    "capture": ["scale": Agent.r2(host.window?.backingScaleFactor ?? 1)]]
+                                    "capture": ["scale": Agent.r2(host.pixelScale ?? 1)]]
         if let w = host.window, let content = w.contentView {
             let inWindow = host.convert(local, to: nil)
             space["window"] = rect(NSRect(x: inWindow.origin.x, y: content.frame.height - inWindow.maxY, width: inWindow.width, height: inWindow.height))
@@ -635,7 +635,7 @@ extension Agent {
             guard let point = tapPoint(req, node: node) else {
                 return ["error": "tap #\(req["id"] ?? node.id): no visible text fragment; scroll it into view first"]
             }
-            if !CGRect(origin: .zero, size: presenter.viewport.bounds.size).contains(point) {
+            if !CGRect(origin: .zero, size: presenter.viewportSize).contains(point) {
                 return ["error": "tap #\(node.id): its middle is outside the viewport; scroll it into view first"]
             }
         }

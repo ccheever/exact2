@@ -61,12 +61,7 @@ extension ExactSession {
         #endif
         let bits = PageFacts.bits(pageWindow, page: view?.window, readsOnLine: reads.value)
         let font = PageFacts.rootFontSize, scale = PageFacts.displayScale(presenter.viewport)
-        var calls: [(Runtime) -> Batch] = [{ $0.setPage(bits) }, { $0.setRootFontSize(font) }, { $0.setDisplayScale(scale) }]
-        #if os(macOS)
-        let zoom = rootZoom
-        if zoom != 1 { calls.insert({ $0.setRootFontZoom(zoom) }, at: 2) } // View ▸ Zoom In (ZoomMac.swift)
-        #endif
-        tellSoon(calls)
+        tellSoon([{ $0.setPage(bits) }, { $0.setRootFontSize(font) }, { $0.setDisplayScale(scale) }])
     }
 
     /// @ref LLP 1061 D5 — told after every boot, as the date is, and on each

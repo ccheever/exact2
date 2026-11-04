@@ -86,7 +86,7 @@ extension NodeView {
         // The copy stands where the node does in its parent: here it is the wash's own box, whole and unshadowed.
         tree.transform = CATransform3DIdentity
         tree.opacity = 1; tree.isHidden = false; tree.shadowOpacity = 0; tree.mask = nil
-        let scale = window?.backingScaleFactor ?? layer.contentsScale
+        let scale = pixelScale ?? layer.contentsScale
         guard let picture = Capture.picture(of: tree, size: layer.bounds.size, scale: scale) else { return }
         let wash = CALayer(), ink = CALayer()
         wash.name = Self.washName

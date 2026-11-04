@@ -1265,7 +1265,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // display, so a new filtered box is not pictured empty.
         if layerBoxEligible, !Capture.capturing { applyLayerPaint() }
         setPaintPosition(paintZPosition)
-        f.render(layer, clip: resolvedClipMask(), scale: window?.backingScaleFactor ?? 2, dark: drawsDark,
+        f.render(layer, clip: resolvedClipMask(), scale: pixelScale ?? 2, dark: drawsDark,
                  node: id, fresh: fresh, shown: window == nil || !visibleRect.isEmpty) { [weak self] in
             if let self { presenter?.boxFilters.landed(self) }
         }

@@ -70,6 +70,25 @@ final class TextParityMacTests: XCTestCase {
         ], scale: 2)
     }
 
+    // A page zoom's (LLP 1021 §5.3.1): Chrome 156 at 125% on a 2x display,
+    // whose device scale is then 2.5 (`devicePixelRatio`), rounds each line
+    // box to 0.4 px, one of those device pixels.
+    func testNormalLineHeightIsChromesAt2xZoomedTo125() {
+        assertChromeNormal([
+            (400, 11, 13.2, 10.8), (400, 12, 14, 11.6), (400, 13, 15.2, 12.4), (400, 14, 16.4, 13.6), (400, 15, 17.6, 14.4),
+            (400, 16, 18.8, 15.6), (400, 17, 20, 16.4), (400, 20, 23.6, 19.2), (400, 24, 28.4, 23.2), (400, 28, 33.2, 27.2),
+            (400, 34, 40, 32.8), (600, 13, 15.2, 12.4), (600, 15, 17.6, 14.4), (600, 16, 18.8, 15.6), (600, 17, 20, 16.4),
+        ], scale: 2.5)
+    }
+
+    func testASetLineHeightCentresChromesContentAreaAt2xZoomedTo125() {
+        assertChromeExplicit([
+            ("20px", 13, 20, 14.8), ("20px", 16, 20, 16), ("24px", 13, 24, 16.8), ("17px", 13, 17, 13.2),
+            ("17px", 16, 17, 14.4), ("1.5", 13, 19.5, 14.4), ("1.5", 17, 25.5, 18.8), ("16px", 12, 16, 12.4),
+            ("1.5", 14, 21, 15.6), ("28px", 18, 28, 20.8),
+        ], scale: 2.5)
+    }
+
     /// A paragraph measured at one scale is not the answer at another: the
     /// engine drops what it measured when its scale changes.
     func testALineScaleChangeMeasuresAgain() {

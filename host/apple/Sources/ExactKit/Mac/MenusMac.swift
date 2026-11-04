@@ -576,6 +576,7 @@ final class MenuHost: NSObject {
         }
         for entry in painted {
             entry.layer.frame = entry.layer.superview?.bounds ?? presenter.viewport.bounds
+            presenter.zoomOverPage(entry.layer)
             let anchor: NSRect = entry.source.map { self.anchor($0, in: entry.layer, run: entry.run) } ?? .zero
             var box = entry.frame
             // The page scrolls under a layer in its own window; a sheet's layer is its own extent.
