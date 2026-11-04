@@ -842,6 +842,16 @@ above.
 - A dropped or pasted file's MIME type comes from its extension, by the names macOS gives
   (`composer-attach-stage.ts`), where Chromium's `File.type` reads its own table first; a
   picked file's is the picker's.
+- A reply link that takes the focus by Tab shows no tooltip, and its ring surrounds only its last word ("plan" of "the
+  plan"); the reference rings the icon and the text and shows the URL. A picture inside a link is one Tab stop, the
+  link, and the ContextMenu key there opens the picture's menu; the reference has two stops, the link with its link
+  menu (Open in integrated browser, Open in system browser, Copy Link) and the picture with its path and media menu
+  (2026-11-04 real-input session).
+- Some raw HTML image lines and the command menu sit off by device pixels at 2×, light: in "HTML images" the line with
+  "Image unavailable · colon entity" and its image 7 lower; in "HTML image layout" the rows under the first image row 1
+  to 2 higher; the command menu's rows 4 lower and about 2 right (2026-11-04 real-input session).
+- Return in the Browser's address bar lets go of the field but loads nothing: no request reached the server (0 of 2,
+  with and without `http://`). The reference loads the page (2026-11-04 real-input session).
 
 **Not failures:**
 
@@ -1540,6 +1550,50 @@ the oracle on its own home and port):
   lighter than before (4078.6 to 3502.0 at 2×), now drawn as the reference draws its own (exact2 #1273, LLP 1019 D12's
   Fields).
 
+**Checked with real input (2026-11-04, the closeout round)** (the bundle of `26bd3b15f6`, a lane copy on its own bundle id
+and `HOME`; `second` seeded with `--turns --pull-request --more-turns`; the oracle at `5d3d78ab93` on its own home, paired
+with the same lane server; 1280 × 840 at 2×; macOS in Dark, the clone and the oracle set to Light for row 9; Keyboard
+Navigation off. Presses, drags, keys and pointer moves came from the HID event source; results were read from the
+screen, the accessibility tree, the saved draft, the server's trace and a test server's request log.) 10 rows: 7 hold
+and 3 fail.
+
+| Row | Clone | Oracle | Result |
+|---|---|---|---|
+| A folder dragged from Finder onto the composer, local server (#1456) | the draft holds `[notes-folder](/private/tmp/p2-1104-ri/drop/notes-folder) ` and a folder chip (1 of 1) | the same text and chip (1 of 1) | holds |
+| A completed ⌘Q hold in full screen (#1460) | after a 1.8 s hold the window leaves full screen (1352 × 878, then 1280 × 840), its alpha goes to 0, then the app quits (1 of 1) | the same (1 of 1) | holds |
+| `window.open(url, name, features)` in a rendered HTML preview (#1460) | the URL opens as a tab in Chrome, the default browser; the app opens no window (1 of 1) | the same (1 of 1) | holds |
+| A reply link's focus tooltip by Tab, a linked picture's menu by the Menu key (#1457) | the link "the plan" takes the focus with a ring on "plan" only and no tooltip; the linked picture is one Tab stop, the link, and the ContextMenu key there opens the picture's menu (Copy full path … Copy image) (2 of 2) | a ring on the icon and "the plan", and the tooltip "https://example.com/plan"; the linked picture is two stops: the link (Open in integrated browser, Open in system browser, Copy Link) and the picture (its path as a tooltip, then its menu) | **fails** |
+| The terminal button; a pointer move over the terminal (#1452) | a press opens the terminal drawer (1 of 1); after 55 s with no input, a move over the terminal sends `server.reportClientActivity` 0.38 s later, off the 25 s cadence (1 of 1) | the drawer opens; the report comes 0.28 s after the move (1 of 1) | holds |
+| View ▸ Zoom In, Actual Size; ⌘=, ⌘-, ⌘0; a Browser tab's own zoom (#1453, #1454) | each scales the whole page: sidebar, icons, the preview's page (1 of 1 each); a tab at 125% stays at 125% through the window's ⌘= and ⌘0 | the same | holds |
+| The narrow window (#1448) | both windows stop at 840 pt, so View's zoom (+1) made the page 700 CSS px wide. The sidebar is a sheet; with Settings open, the sheet over it closes on the first Escape and Settings on the second; Project settings from a row's menu opens Settings › Projects and closes the sheet (1 of 1 each) | the same (1 of 1 each) | holds |
+| Markdown formatting off: a folded long paste, then ⌘Z (#1445, #1446) | the first ⌘Z removes the 38 KB paste's chip, the second the typed text (1 of 1) | the same (1 of 1) | holds |
+| A look at 2× (#1449, #1461, #1420, #1425, #1457, #1436) | "Prose answer": the bubble, the prose, the list, the code block's lines, the placeholder and the search field on the same device rows as the oracle's. Off by device pixels: in "HTML images" the line with "Image unavailable · colon entity" and its image, 7 lower; in "HTML image layout" the rows under the first image row, 1 to 2 higher; the command menu's rows 4 lower (the last 2) and about 2 right. A work group's time stays after a press; Settings › Devices the same | — | **fails** (the offsets) |
+| The README's "Next real-input session" rows | ⇧⌘P in the sidebar's project filter pins the highlighted project and unpins it, and the pinned one is listed first (3 of 3). Return in the Browser's address bar lets go of the field (2 of 2) but loads nothing (0 of 2): no request reaches the server | ⇧⌘P the same (1 of 1); Return loads the page and lets go of the field (1 of 1) | **fails** (the address bar) |
+
+Not checked: ⇧⌘P in the draft hero's project menu; the two-finger swipe, which needs a trackpad; a terminal excerpt, the
+fallback model notice and the narrow-window Merge row, which these fixtures cannot reach; a ChatGPT sign-in's page and
+four waiting sign-ins, which need real accounts.
+
+Seen besides the rows, once each:
+
+- On a fresh home with Lane Second paired, the hero's "or start without a project" and ⌥⌘N did nothing; the
+  palette's New thread without a project opened the thread. The oracle opens it from the hero.
+- With the focus in a Browser tab's page, ⌘= zooms that tab to 125%; in the oracle it zooms nothing.
+- Closing the right panel while a Browser tab shows a page leaves a white box, about 250 by 160 pt, at the window's
+  lower right over the timeline; the oracle shows nothing there.
+- Opening the Files panel focuses "Search files" in the oracle, and nothing in the clone.
+- ⇧Tab from the composer: in the oracle the reply's Fork from this response and Copy message are stops, then the code
+  block, Copy code and Disable line wrap; in the clone the first stop was the last link (once) or the timeline's
+  scroll area (once), and in "HTML image layout" the last picture, not Copy message or Fork.
+- After the first Escape over Settings and the sheet, the oracle rings Settings' search button; the clone shows no
+  ring. With Settings opened over the sheet, the clone draws a ring at the window's top left, on the sheet's toggle
+  under Settings' dimming.
+- ⇧F10 opens no menu in either app: on the Mac, Chromium opens a context menu by the ContextMenu key.
+- The local server rows of a new Browser tab show a globe; the oracle's show a page icon.
+- Two mistakes in this session: the oracle's welcome wizard took a Codex sign-in press (its download was cancelled,
+  its ChatGPT page was closed in Chrome, nothing was signed in), and a Return meant for the clone's address bar sent
+  the composer's 38 KB paste to the stand-in in "Turn with file edits", which answered it (no model ran).
+
 **Fixed, not checked with real input or VoiceOver:**
 
 - Pairing a saved environment again reconnects it with the new credential, as the reference's
@@ -1607,8 +1661,8 @@ sign-ins, Kotoeri's ⌃K, Reduce motion and trackpad momentum by a person, and G
 
 **Next real-input session:**
 
-- ⇧⌘P in the project filter and the hero's project menu, and the two-finger swipe, once their causes are found.
-- The Browser address bar's Return, once the plan's size limit allows its fix.
+- ⇧⌘P in the hero's project menu, and the two-finger swipe on a trackpad.
+- The Browser address bar's Return, once it loads the page again (Known differences).
 - A terminal excerpt's details, once a fixture sends one.
 - The fallback model notice. A hub cannot reach it: v0.1.6 reads the default provider's own usage limits
   (`resolveNewThreadModelSelection`), never a hub's pools. It shows on a new thread's draft with no model chosen when the
