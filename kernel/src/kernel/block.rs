@@ -795,18 +795,17 @@ impl Kernel {
     }
 
     /// PROTO (rule 4, "Exact describes, UIKit drives"): the frames `view`'s
-    /// subtree would take with its clearance's top edge at `top`, in each
-    /// box's parent's space, for each box whose frame differs from the last
-    /// layout's by more than `slack` points: the box, its frame now, its
-    /// frame then. `view` holds a block and an
-    /// `Edges` clearance (an owner's root). Laid out by `measure_block`'s
-    /// path, in a copy of the arena and engine tree that is dropped after:
-    /// nothing the kernel holds changes.
+    /// subtree would take with its clearance's top edge `t` of the way from
+    /// where it is to `far`, in each box's parent's space: each box, its frame
+    /// now, its frame then. `view` holds a block and an `Edges` clearance (an
+    /// owner's root). Laid out by `measure_block`'s path, in a copy of the
+    /// arena and engine tree that is dropped after: nothing the kernel holds
+    /// changes.
     pub fn trial_clearance_frames(
         &mut self,
         view: ViewId,
-        top: f32,
-        slack: f32,
+        t: f32,
+        far: f32,
     ) -> Result<Vec<(ViewId, Frame, Frame)>, KernelError> {
         let slot = self
             .arena
@@ -818,6 +817,7 @@ impl Kernel {
         let Some(HostCover::Edges(mut edges)) = self.arena.cover(slot) else {
             return Ok(Vec::new());
         };
+        let top = edges[0] + (far - edges[0]) * t;
         if !top.is_finite() || top < 0.0 {
             return Err(LayoutError::InvalidOffer.into());
         }
@@ -851,11 +851,7 @@ impl Kernel {
         let mut out = Vec::new();
         let mut stack = vec![slot];
         while let Some(s) = stack.pop() {
-            let (now, far) = (relative(&self.arena, s), relative(&arena, s));
-            let apart = [now.x - far.x, now.y - far.y, now.width - far.width, now.height - far.height];
-            if apart.iter().any(|d| d.abs() > slack) {
-                out.push((self.arena.local_id(s), now, far));
-            }
+            out.push((self.arena.local_id(s), relative(&self.arena, s), relative(&arena, s)));
             stack.extend_from_slice(arena.children(s));
         }
         Ok(out)

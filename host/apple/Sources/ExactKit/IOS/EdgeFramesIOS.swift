@@ -13,16 +13,17 @@ import UIKit
 
 extension Presenter {
     /// A `far` op: its route's frames replaced (`property` "reset", `id` the route), or a
-    /// box's two frames (`property` "<route> x y w h", its frame now; the op's own frame,
+    /// box's frames along the edge's range (`property` "<route> x y w h[; t x y w h]…": its
+    /// frame now, then at each knot `t` of the way to the block's top; the op's own frame,
     /// with the edge at the block's top).
     func farFrame(_ op: BatchOp) {
-        if op.property == "reset" { edgeFrames[op.id] = [:]; return }
-        let words = op.property.split(separator: " ")
-        guard words.count == 5, let route = UInt32(words[0]) else { return }
-        let n = words.dropFirst().compactMap { Double($0) }
-        guard n.count == 4 else { return }
-        edgeFrames[route, default: [:]][op.id] = (rest: CGRect(x: n[0], y: n[1], width: n[2], height: n[3]),
-                                                  far: CGRect(x: op.x, y: op.y, width: op.w, height: op.h))
+        if op.property.hasPrefix("reset") { edgeFrames[op.id] = [:]; NSLog("PROTO rule4 far pass %@", op.property); return }
+        let parts = op.property.split(separator: ";").map { $0.split(separator: " ").compactMap { Double($0) } }
+        guard let first = parts.first, first.count == 5, parts.dropFirst().allSatisfy({ $0.count == 5 }) else { return }
+        let rect = { (n: ArraySlice<Double>) in CGRect(x: n[n.startIndex], y: n[n.startIndex + 1], width: n[n.startIndex + 2], height: n[n.startIndex + 3]) }
+        let inner: [(t: Double, frame: CGRect)] = parts.dropFirst().map { (t: $0[0], frame: rect($0.dropFirst())) }
+        edgeFrames[UInt32(first[0]), default: [:]][op.id] = [(t: 0, frame: rect(first.dropFirst()))] + inner + [(t: 1, frame: CGRect(x: op.x, y: op.y, width: op.w, height: op.h))]
+        if !inner.isEmpty { NSLog("PROTO rule4 knots %d for %u", inner.count, op.id) } // PROTO: how far the range was halved
     }
 
     /// After a batch, which places each box at its resting frame: each moving route's
@@ -44,13 +45,16 @@ extension Presenter {
         let t = Double(min(1, max(0, (c.restingTop - c.view.safeAreaInsets.top) / c.restingTop)))
         guard t != c.placedEdge else { return }
         c.placedEdge = t
-        for (id, f) in frames {
+        for (id, knots) in frames {
             guard let v = views[id], !reachesTop(v, under: c.node) else { continue }
+            // Between the neighbouring knots around `t`, along which the box is linear in the edge
+            let i = max(1, knots.firstIndex { $0.t >= t } ?? knots.count - 1)
+            let (a, b) = (knots[i - 1], knots[i]), u = b.t > a.t ? (t - a.t) / (b.t - a.t) : 0
             var op = BatchOp(op: .frame, nodeID: id)
-            op.x = f.rest.minX + (f.far.minX - f.rest.minX) * t
-            op.y = f.rest.minY + (f.far.minY - f.rest.minY) * t
-            op.w = f.rest.width + (f.far.width - f.rest.width) * t
-            op.h = f.rest.height + (f.far.height - f.rest.height) * t
+            op.x = a.frame.minX + (b.frame.minX - a.frame.minX) * u
+            op.y = a.frame.minY + (b.frame.minY - a.frame.minY) * u
+            op.w = a.frame.width + (b.frame.width - a.frame.width) * u
+            op.h = a.frame.height + (b.frame.height - a.frame.height) * u
             applyGeometry(op)
         }
         regridMoved()

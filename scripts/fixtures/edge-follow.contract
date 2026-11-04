@@ -1,6 +1,7 @@
 // PROTO (rule 4, "Exact describes, UIKit drives"): a large title over a scroller, and boxes
 // that depend on the route's top edge, which moves as the title collapses: a chip at
-// `top: 12px`, a panel pinned to both edges, and content centred in the route.
+// `top: 12px`, a panel pinned to both edges, a narrower one capped at a height its room passes
+// partway through the collapse (not linear in the edge), and content centred in the route.
 routes nav
   tab home "/"
     detail "/detail"
@@ -25,6 +26,7 @@ component EdgeFollow
                 box testId="chip" position="absolute" top="12px" left="16px" padding="4px 8px" background-color="#ffcc00" border-radius="12px" pointer-events="none"
                   text "Chip at top 12"
                 box testId="panel" position="absolute" top=0 bottom=0 right="16px" width="40px" background-color="rgba(0, 122, 255, 0.3)" pointer-events="none"
+                box testId="capped" position="absolute" top=0 bottom=0 right="64px" width="24px" max-height="640px" background-color="rgba(52, 199, 89, 0.4)" pointer-events="none"
                 column testId="centre" position="absolute" inset=0 display="flex" align-items="center" justify-content="center" pointer-events="none"
                   text "Centred" testId="centred" background-color="#ff2d55" color="white" padding="4px 8px"
       row role="tablist" testId="tabs"

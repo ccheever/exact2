@@ -711,7 +711,7 @@ package final class Presenter {
     // PROTO (rule 4, `EdgeFramesIOS.swift`): routes whose top edge moves, as told; each one's boxes' two frames
     var onMovingTops: (([(UInt32, Bool)]) -> Void)?
     var movingTops = Set<UInt32>(), deliveredMovingTops = Set<UInt32>()
-    var edgeFrames: [UInt32: [UInt32: (rest: CGRect, far: CGRect)]] = [:]
+    var edgeFrames: [UInt32: [UInt32: [(t: Double, frame: CGRect)]]] = [:]
     /// In `reset`: host state its views would move with no runtime to tell stays as it was (FocusEvents' focus,
     /// OwnersIOS' blocks, ExactView `fit`'s geometry; ResetGate).
     private(set) var resetting = false
