@@ -349,6 +349,17 @@ is the provider asked. The source opens as `readFile` opens it
 (`app_fs::document_file`, Unix and Windows) and the host copies its bytes, so
 no result envelope bounds them. Replay on a refresh.
 
+## Local patch 26, `realpath` of a chosen document on a desktop
+
+`stdlib/documents.rs` answers `realpath` of a `doc:` path on macOS, Linux and
+Windows (exact2 LLP 1069.010 D1, amended 2026-11-04): the item is opened as
+`stat` opens it, then the retained directory's current location
+(`fcntl(F_GETPATH)`, `/proc/self/fd/<n>`, `GetFinalPathNameByHandleW` without
+its `\\?\` prefix) is checked to hold that directory still (device and inode,
+or volume and file index) and joined with the names beneath it. A removed
+directory is `ENOENT`. Elsewhere the refusal is `NotSupportedError`, before
+the provider is asked. Replay on a refresh.
+
 ## Local patch 19, an app file staged in pieces and published whole
 
 `stdlib/app_fs_unix.rs` and `app_fs_windows.rs` add `AppDirectories::stage(grants,

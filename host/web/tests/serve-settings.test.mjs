@@ -1,7 +1,7 @@
 // serve.mjs serves a build as this environment's settings make it (LLP 1153 D4): a setting the environment changes is
 // built again, on the build's own target, when the app's sources are beside the build, and refused, naming both
 // values, when they are not.
-import { test, expect } from 'bun:test';
+import { afterAll, test, expect } from 'bun:test';
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -26,6 +26,12 @@ async function settingApp(root) {
   env.EXACT_BUN_LOADED = ''; // a value this test gives is the environment's, whatever a checkout's .env holds
   return { app, env };
 }
+
+// Share one app between the wasm-target tests, so the second compiles only what the first did not. Give its removal
+// a limit of its own, since a hook's default 5 s can be too short for a whole `target` on a loaded machine.
+const wasmRoot = mkdtempSync(resolve(import.meta.dir, '../../../target/serve-settings-'));
+afterAll(() => rmSync(wasmRoot, { recursive: true, force: true }), 300_000);
+const wasmApp = await settingApp(wasmRoot);
 
 const freePort = () => { const free = Bun.serve({ port: 0, fetch: () => new Response() }), { port } = free; free.stop(true); return port; };
 
@@ -85,19 +91,15 @@ test('serve builds a changed setting again beside its sources, and refuses a cop
 
 // A build on the wasm target says no target in its marker, and takes its settings from its paired module's receipt.
 // Delivery's bake (`--bake`) writes the same marker without linking the wasm.
-test('serve refuses a copied wasm-target build whose setting the environment changed', async () => {
-  const root = mkdtempSync(resolve(import.meta.dir, '../../../target/serve-settings-'));
-  try {
-    const { app, env } = await settingApp(root);
-    const dist = join(root, 'baked');
-    const built = spawnSync(process.execPath, [build, app, '--bake'], { env: { ...env, EXACT_WEB_DIST: dist, API_BASE_URL: 'http://a.example' }, encoding: 'utf8' });
-    expect(built.status, built.stderr).toBe(0);
-    const marker = JSON.parse(readFileSync(join(dist, '.exact-build.json'), 'utf8'));
-    expect([marker.target ?? null, marker.env]).toEqual([null, { API_BASE_URL: { value: 'http://a.example', source: 'environment' } }]);
-    const refused = spawnSync(process.execPath, [serve, '--port', String(freePort()), '--loopback', '--origin', dist], { env: { ...env, API_BASE_URL: 'http://b.example' }, encoding: 'utf8', timeout: 60_000 });
-    expect(refused.status).toBe(2);
-    expect(refused.stderr).toContain(`${changed}, and the app's sources are not beside this build`);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+test('serve refuses a copied wasm-target build whose setting the environment changed', () => {
+  const { app, env } = wasmApp, dist = join(wasmRoot, 'baked');
+  const built = spawnSync(process.execPath, [build, app, '--bake'], { env: { ...env, EXACT_WEB_DIST: dist, API_BASE_URL: 'http://a.example' }, encoding: 'utf8' });
+  expect(built.status, built.stderr).toBe(0);
+  const marker = JSON.parse(readFileSync(join(dist, '.exact-build.json'), 'utf8'));
+  expect([marker.target ?? null, marker.env]).toEqual([null, { API_BASE_URL: { value: 'http://a.example', source: 'environment' } }]);
+  const refused = spawnSync(process.execPath, [serve, '--port', String(freePort()), '--loopback', '--origin', dist], { env: { ...env, API_BASE_URL: 'http://b.example' }, encoding: 'utf8', timeout: 60_000 });
+  expect(refused.status).toBe(2);
+  expect(refused.stderr).toContain(`${changed}, and the app's sources are not beside this build`);
 }, 1_800_000);
 
 // Why the wasm target cannot link here, or null: the pinned nightly's own linker (WEB_TOOLCHAIN, scripts/app.mjs).
@@ -110,11 +112,9 @@ function wasmLinker() {
 }
 
 need('the web toolchain', wasmLinker())('serve builds a wasm-target build\'s changed setting again on the wasm target', async () => {
-  const root = mkdtempSync(resolve(import.meta.dir, '../../../target/serve-settings-'));
+  const { app, env } = wasmApp, dist = join(wasmRoot, 'wasm');
   let server;
   try {
-    const { app, env } = await settingApp(root);
-    const dist = join(root, 'wasm');
     const built = spawnSync(process.execPath, [build, app, '--wasm'], { env: { ...env, EXACT_WEB_DIST: dist, API_BASE_URL: 'http://a.example' }, encoding: 'utf8' });
     expect(built.status, built.stderr).toBe(0);
     const port = freePort();
@@ -127,6 +127,5 @@ need('the web toolchain', wasmLinker())('serve builds a wasm-target build\'s cha
     expect(await (await fetch(`http://127.0.0.1:${port}/app.js`)).text()).toContain('http://b.example');
   } finally {
     await stop(server?.child);
-    rmSync(root, { recursive: true, force: true });
   }
 }, 1_800_000);

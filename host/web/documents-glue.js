@@ -263,12 +263,14 @@ const STAT_DIR = { size: 0, isFile: false, isDirectory: true, modifiedMs: 0 };
  * grants), with the semantics of ibex2's `run_document`, which a native
  * host runs for both languages: `readFile` an ArrayBuffer, `rm` one file
  * or empty folder, `mkdir` with its parents, `rename` and `realpath`
- * refused, and `copyFile` refused except into an app file (`copyFile`
- * below). A Rust source reaches it through storage-request.js, a
+ * refused (a native desktop answers `realpath`), and `copyFile` refused
+ * except into an app file (`copyFile` below). A Rust source reaches it through storage-request.js, a
  * TypeScript one through `files`. */
 async function operate(op, path, bytes, scope, expect = null) {
   if (op === 'copyFile') throw failure('fs.copyFile copies a document only into an app:/ path');
-  if (['rename', 'realpath'].includes(op)) throw failure(`fs.${op} is not available on a document; read its bytes and write them`);
+  if (op === 'rename') throw failure('fs.rename is not available on a document; read its bytes and write them');
+  // A page has no native path to give (LLP 1069.010 D1, amended 2026-11-04).
+  if (op === 'realpath') throw failure(`NotSupportedError: realpath: this host has no native path for a document: ${path}`);
   const write = ['writeFile', 'atomicWriteFile', 'appendFile', 'mkdir', 'rm'].includes(op), grant = write ? 'fs.write' : 'fs.read';
   if (!coversPath(scope, grant, path)) throw failure(`denied: fs.${op} ${path}: needs \`${grant} doc:/\``, 'denied');
   // `mkdir` makes the folders above too, as `create_dir_all` does.
