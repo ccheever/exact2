@@ -243,6 +243,7 @@ include!("markdown_headings.rs");
 include!("markdown_runs.rs");
 include!("markdown_direction.rs");
 include!("markdown_math.rs");
+include!("markdown_gaps.rs");
 include!("markdown_breaks.rs");
 include!("markdown_inert.rs");
 include!("markdown_favicon.rs");
@@ -362,7 +363,11 @@ fn chat_run(value: Value, link_start: bool) -> Value {
     }
     fields.push(Value::str(kind));
     // A web link's first run names its favicon (markdown_favicon.rs).
-    fields.push(Value::str(&if kind == "link-start" { link_favicon(&href) } else { icon.to_string() }));
+    fields.push(Value::str(&if kind == "link-start" {
+        link_favicon(&href)
+    } else {
+        icon.to_string()
+    }));
     Value::record(fields)
 }
 fn context_kind(kind: &str) -> &'static str {
@@ -723,7 +728,12 @@ fn chat_document(
             if let Value::Record(fields) = &table {
                 let mut fields = fields.to_vec();
                 fields.push(Value::str(directions[index]));
-                fields.extend([Value::str(""), Value::Number(0.0), Value::Number(0.0), Value::str("")]);
+                fields.extend([
+                    Value::str(""),
+                    Value::Number(0.0),
+                    Value::Number(0.0),
+                    Value::str(""),
+                ]);
                 table = Value::record(fields);
             }
             blocks.push(table);
@@ -942,38 +952,6 @@ fn collapse_spaces(tokens: Vec<markdown_parse::Run>) -> Vec<markdown_parse::Run>
         collapsed.push(token);
     }
     collapsed
-}
-
-/// The collapsed vertical margin T3's `.chat-markdown` CSS leaves before a
-/// block: headings take 1.25rem, prose/lists/code .65rem, sibling list items
-/// .25rem, and the rows of one table none. A line of raw HTML images no `<p>`
-/// holds has no margins (`bare`), so the gap beside it is its neighbour's
-/// own: a heading's 1.25rem above and .5rem below, a rule's 0.5em (`hr`'s
-/// default; `.chat-markdown` sets none), any other block's .65rem.
-fn block_gap(
-    previous: Option<&markdown_parse::Block>,
-    block: &markdown_parse::Block,
-    index: usize,
-) -> f64 {
-    use markdown_parse::Kind;
-    let Some(previous) = previous.filter(|_| index > 0) else {
-        return 0.0;
-    };
-    if previous.bare || block.bare {
-        let margin = |b: &markdown_parse::Block, heading: f64| match b.kind {
-            _ if b.bare => 0.0,
-            Kind::Heading => heading,
-            Kind::Rule => 7.0,
-            _ => 10.4,
-        };
-        return f64::max(margin(previous, 8.0), margin(block, 20.0));
-    }
-    match (previous.kind, block.kind) {
-        (_, Kind::Heading) => 20.0,
-        (Kind::Item, Kind::Item) if previous.depth == block.depth => 4.0,
-        (Kind::TableRow, Kind::TableRow) => 0.0,
-        _ => 10.4,
-    }
 }
 
 #[cfg(test)]
@@ -1419,48 +1397,6 @@ mod tests {
             blocks.len()
         };
         assert_eq!((blocks(0), blocks(1)), (2, 1));
-    }
-
-    #[test]
-    fn gaps_follow_collapsed_chat_markdown_margins() {
-        let doc = markdown_parse::parse(
-            "Intro.\n\n## Section\n\n- One\n  - Nested\n- Two\n\n| a | b |\n|---|---|\n| 1 | 2 |",
-            &|href| href.to_string(),
-        );
-        let mut previous = None;
-        let gaps: Vec<f64> = doc
-            .blocks
-            .iter()
-            .enumerate()
-            .map(|(index, block)| {
-                let gap = block_gap(previous, block, index);
-                previous = Some(block);
-                gap
-            })
-            .collect();
-        assert_eq!(gaps, vec![0.0, 20.0, 10.4, 10.4, 10.4, 10.4, 0.0]);
-    }
-
-    #[test]
-    fn a_line_of_html_images_no_paragraph_holds_has_no_margins() {
-        // "Show the HTML image sample"'s shape: the top-level line sits right under the `<div>`'s image, as the
-        // reference draws it; a paragraph or a heading beside such a line keeps its own margin.
-        let doc = markdown_parse::parse(
-            "Intro.\n\n<div><img src=\"a.png\"></div>\n\n<img src=\"b.png\">\n\n## Next\n\n<img src=\"c.png\">\n\n<p><img src=\"d.png\"></p>\n\nAfter.",
-            &|href| href.to_string(),
-        );
-        let mut previous = None;
-        let gaps: Vec<f64> = doc
-            .blocks
-            .iter()
-            .enumerate()
-            .map(|(index, block)| {
-                let gap = block_gap(previous, block, index);
-                previous = Some(block);
-                gap
-            })
-            .collect();
-        assert_eq!(gaps, vec![0.0, 10.4, 0.0, 20.0, 8.0, 10.4, 10.4]);
     }
 
     #[test]
