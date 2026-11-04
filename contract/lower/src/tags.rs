@@ -767,6 +767,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
         "aria-current" => AttrTarget::Prop(p("accessibilityCurrent")), // Depot: a nav link's page
         "aria-sort" => AttrTarget::Prop(p("accessibilitySort")),
+        "aria-rowcount" => AttrTarget::Prop(p("accessibilityRowCount")),
+        "aria-colcount" => AttrTarget::Prop(p("accessibilityColumnCount")),
+        "aria-rowindex" => AttrTarget::Prop(p("accessibilityRowIndex")),
+        "aria-colindex" => AttrTarget::Prop(p("accessibilityColumnIndex")),
         // @ref LLP 1153 D7 — a table cell's, held to its tag by `tables::check`.
         "colspan" => AttrTarget::Prop(PropId::ColSpan),
         "rowspan" => AttrTarget::Prop(PropId::RowSpan),

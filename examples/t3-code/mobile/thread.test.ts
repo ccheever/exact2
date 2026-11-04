@@ -54,10 +54,13 @@ describe('bounded transcript Markdown reuse', () => {
     expect(source).toContain('text block.text markup="markdown" user-select="text"');
   });
 
-  test('thread Markdown tables expose table and header or body cell roles', () => {
+  test('thread Markdown tables expose table roles and stable row and column indices', () => {
     const source = appText('mobile/thread-markdown.contract');
     expect(source).toContain('view display="grid" role="table"');
+    expect(source).toContain('aria-rowcount=block.rows.length aria-colcount=block.columns');
+    expect(source).toContain('for item, rowIndex in block.rows key=item.id');
     expect(source).toContain('view role=(item.header ? "columnheader" : "cell")');
+    expect(source).toContain('aria-rowindex=(rowIndex + 1) aria-colindex=(index + 1)');
   });
 
   test('thread Markdown tables keep the pinned fixed column geometry for wide content', () => {
