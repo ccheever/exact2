@@ -16,6 +16,7 @@ mod forget;
 mod heap;
 mod inputs;
 mod interrupt;
+mod native_ended;
 mod overlay;
 mod pinned_engines;
 mod presence;

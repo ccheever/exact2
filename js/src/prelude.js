@@ -1212,7 +1212,7 @@
       journal("data: native.call() called from background work: it was never run");
       throw new Error("native.call() called from background work: it was never run. Call it inside an answer");
     }
-    if (!currentCall || currentCall.status !== "pending") throw new Error("native call outside an answer");
+    if (!currentCall || currentCall.status !== "pending" || currentCall.replied || currentCall.letGo) throw new Error("native call outside an answer");
     try { return JSON.parse(host(6, "call", JSON.stringify(request))); } // at bake, no module: storage's refusal (LLP 1067 D4)
     catch (e) { throw e && e.message === "bake" ? storageError("native.call() is unavailable during bake: the build links no native module", "bake") : e; }
   };
@@ -1251,6 +1251,7 @@
         // long calls answers through `call`, now.
         later: function (request) {
           if (overlaying) return Promise.reject(inOverlay("native.later()"));
+          if (!currentCall || currentCall.status !== "pending" || currentCall.replied || currentCall.letGo) return Promise.reject(new Error("native call outside an answer"));
           if (host(6, "later", "") !== "later") {
             try { return Promise.resolve(nativeCall(request)); } catch (e) { return Promise.reject(e); }
           }

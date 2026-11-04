@@ -19,6 +19,15 @@ const bytes = (value: string) => new Uint8Array(Array.from(value).map(c => c.cha
 // given before they land, and they must land all the same.
 function answer(source:string, args:unknown[], store:Store, storage:Storage, native:any) {
   const op = String(args[0]), value = String(args[1]);
+  if (op === 'ended-native') return (async () => {
+    try { await native.later({value}); }
+    catch (error) {
+      lastError = error.kind + ': ' + error.message;
+      try { native.call({value}); } catch (error) { lastError += '\n' + error.message; }
+      try { await native.later({value}); } catch (error) { lastError += '\n' + error.message; }
+    }
+    return {text:lastError};
+  })();
   if (op === "shared-live") {
     shared = fetch("https://example.test/shared").then(async () => {
       await storage.fs.atomicWriteFile(storage.fs.directories.data + "/shared", new Uint8Array([1]));
