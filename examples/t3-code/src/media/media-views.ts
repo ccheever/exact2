@@ -468,7 +468,7 @@ export async function markdownMediaUrls(client: T3Client, native: Native, root: 
  * authoredImageSizeStyle gives it, which apply where the source names no size: `media-width:<path>` its width,
  * `media-ratio:<path>` its aspect ratio and `media-max-width:<path>` its width bound under the 30rem height cap.
  */
-export function knownSizeUrls(path: string, size: { width: number; height: number }): { id: string; url: string }[] {
+function knownSizeUrls(path: string, size: { width: number; height: number }): { id: string; url: string }[] {
   return [{ id: `media-width:${path}`, url: `${size.width}px` }, { id: `media-ratio:${path}`, url: `${size.width} / ${size.height}` },
     { id: `media-max-width:${path}`, url: `min(100%, 30rem, ${30 * size.width / size.height}rem)` }];
 }
