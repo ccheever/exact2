@@ -60,6 +60,16 @@ describe('bounded transcript Markdown reuse', () => {
     expect(source).toContain('view role=(item.header ? "columnheader" : "cell")');
   });
 
+  test('thread Markdown tables keep the pinned fixed column geometry for wide content', () => {
+    const source = appText('mobile/thread-markdown.contract');
+    expect(source).toContain('width=(block.columns * 160 + 2)');
+    expect(source).toContain('min-width=(block.columns * 160 + 2)');
+    expect(source).toContain('grid-template-columns=`repeat(${block.columns}, 160px)`');
+    expect(source).toContain('width=160 min-width=160 max-width=160 flex-shrink=0');
+    expect(source).toContain('overflow-wrap="break-word"');
+    expect(source).not.toContain('fit-content(320px)');
+  });
+
   test('assistant image attachments keep the pinned separation and backing', () => {
     const source = appText('mobile/thread.contract');
     expect(source).toContain('margin-top=(user ? 0 : 5.25)');
