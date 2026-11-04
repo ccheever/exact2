@@ -172,6 +172,9 @@ final class ControlHost: NSObject {
             let mount = owner.controlMount
             if control.superview !== mount { mount.addSubview(control) }
             control.isHidden = owner.cssVisibilityHidden
+            // `outline: none` (LLP 1104 D6): AppKit draws the control no ring.
+            let ring: NSFocusRingType = owner.outlineNone ? .none : .default
+            if control.focusRingType != ring { control.focusRingType = ring; control.noteFocusRingMaskChanged() }
             let accent = owner.channels("accent_color").map { TextEngine.color($0) }
             if let b = control as? NativeButtonMac {
                 configureNative(b, owner, accent: accent)

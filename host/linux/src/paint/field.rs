@@ -256,9 +256,7 @@ impl Painter {
         let focused = walk.scene.focus == Some(node.id);
         let field_shape = native.then(|| self.text_field_chrome(node, surface, focused, ts));
         // Material's field shows its focus by its indicator, not a ring.
-        let ringed = focused
-            && !node.style.mask.has(exact_kernel::StyleId::OutlineStyle)
-            && (!native || look::neutral());
+        let ringed = focused && !control::ringless(node) && (!native || look::neutral());
         let content = if let Some(c) = node.field_content_rect() {
             (rect.0 + c.x, rect.1 + c.y, c.width, c.height)
         } else {

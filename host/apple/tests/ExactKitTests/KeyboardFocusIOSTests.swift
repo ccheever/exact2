@@ -451,6 +451,21 @@ final class KeyboardFocusIOSTests: XCTestCase {
         XCTAssertNil(first.focusRing, "a touch's focus shows no ring")
     }
 
+    /// LLP 1104 D6 (amended 2026-11-05): `outline: none` takes the ring off a
+    /// control Tab reached, which still takes the focus; unset, it is back.
+    func testOutlineNoneShowsNoRingOnAControlTabReached() {
+        let (p, first, _, _, _) = fixture()
+        first.applyStyle(["outline_style": .string("none")])
+        p.moveFocus(backward: false)
+        XCTAssertTrue(first.isFirstResponder)
+        XCTAssertNil(first.focusRing, "no ring for outline: none")
+        first.applyStyle([:])
+        first.showFocusRing(true)
+        XCTAssertNotNil(first.focusRing, "the ring without it")
+        first.applyStyle(["outline_style": .string("none")])
+        XCTAssertNil(first.focusRing, "a restyle takes it off")
+    }
+
     /// HTML's `tabindex` (LLP 1088 D7.3): an explicit value makes a plain box
     /// focusable and, ≥ 0, a Tab stop, positive first; a negative one takes
     /// the focus but not Tab; absent is never `0`; a disabled button stays

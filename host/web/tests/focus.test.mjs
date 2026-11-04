@@ -183,6 +183,9 @@ test('bare fields restore keyboard focus and a disabled native field is the look
         <input id="native" data-native disabled value="Disabled"><textarea id="native-area" data-native disabled>Disabled</textarea>
         <input id="authored" data-native disabled style="color:rgb(0,128,0)">
         <input id="quiet" style="outline-style:none"><textarea id="quiet-area" class="c1"></textarea><input id="quiet-native" data-native class="c1">
+        <button id="quiet-button" class="c1">Bare</button><button id="quiet-native-button" data-native class="c1">Native</button>
+        <a id="quiet-link" href="#a" class="c1">Link</a><div id="quiet-box" tabindex="0" style="outline-style:none">Box</div>
+        <input id="quiet-checkbox" type="checkbox" data-native class="c1"><select id="quiet-select" data-native class="c1"><option>A</option></select>
         <span id="gray" style="color:var(--exact-gray-text)"></span>
       </div>`);
       for (const id of ['bare', 'area']) {
@@ -204,8 +207,9 @@ test('bare fields restore keyboard focus and a disabled native field is the look
       expect(await page.$eval('#markdown', el => getComputedStyle(el).outlineStyle)).toBe('none');
       // `outline="none"` as the live host writes it (inline) and the JS
       // target does (its class): the author's row outranks the restore and,
-      // on a native field, the UA's ring; Tab still reaches each.
-      for (const id of ['quiet', 'quiet-area', 'quiet-native']) {
+      // on a native control, the UA's ring, on a field and on any other
+      // element that takes the focus (LLP 1104 D6); Tab still reaches each.
+      for (const id of ['quiet', 'quiet-area', 'quiet-native', 'quiet-button', 'quiet-native-button', 'quiet-link', 'quiet-box', 'quiet-checkbox', 'quiet-select']) {
         await page.keyboard.press('Tab');
         expect(await page.evaluate(() => document.activeElement.id)).toBe(id);
         expect(await page.$eval(`#${id}`, el => el.matches(':focus-visible') && getComputedStyle(el).outlineStyle)).toBe('none');

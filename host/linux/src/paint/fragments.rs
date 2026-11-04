@@ -107,7 +107,9 @@ impl Painter {
             .filter(|id| self.ringless != Some(*id))
             .and_then(|id| kernel.node(id))
             .filter(|n| {
-                n.node_type == NodeType::Text && n.props.bool(PropId::Disabled) != Some(true)
+                n.node_type == NodeType::Text
+                    && n.props.bool(PropId::Disabled) != Some(true)
+                    && !control::ringless(n)
             });
         let focus = focus.map(|focused| {
             (

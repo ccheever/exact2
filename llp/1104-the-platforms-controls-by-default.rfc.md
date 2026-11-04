@@ -293,6 +293,12 @@ Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constra
   This is what a browser does after `all: unset` with a focus restore (CSS UI 4 §7.2.2).
 - **Painted hosts** have no OS ring and paint one as part of their look (D7): `field_ring` for fields on Linux, and a new ring for buttons there and in the terminal.
 - **An author takes a field's ring off (Charlie's ruling on #302, 2026-10-08; built 2026-10-12, #459):** the rings above are defaults. `outline="none"` (or `outline-style="none"`, the one value admitted) on a text `input` or a `textarea`, native or bare, draws none on any host: no UA ring or restore on the web, neither AppKit's nor Exact's on macOS, no `field_ring` on Linux. Tab order and the accessibility tree stay, and replacing the look is the author's duty (WCAG 2.4.7); #283 (`focusin`/`focusout`, `issues/20261009-bubbling-focus-events.md`) is how a wrapper hears the focus, on every host. The rest of `outline`, and `outline` on any other element, stay refused (`issues/closed/20261009-field-outline-none.md`).
+
+  > **Amended 2026-11-05 (the user's ruling).** `outline="none"` (or `outline-style="none"`) takes the ring off any
+  > element that takes the focus, not only a text field: a `button`, a `link`, a pressable or `tabindex` box, a native
+  > control. No host draws its ring there (the web's, AppKit's, Exact's on iOS and Linux, Android's); tvOS keeps its
+  > focus effect, which is how a remote moves. Tab order and the accessibility tree stay, and the author draws the
+  > replacement (WCAG 2.4.7). The rest of `outline` stays refused.
 - **Retired:** `fieldStyle` (prop 253) and its `data-fieldstyle` mark. Prop numbers aren't reused.
 
 ### D7 — The painted hosts have a look of their own

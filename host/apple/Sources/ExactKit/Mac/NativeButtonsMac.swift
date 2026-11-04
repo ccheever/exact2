@@ -273,7 +273,6 @@ extension ControlHost {
         let button = NativeButtonMac(title: "", target: nil, action: nil)
         button.owner = node
         button.refusesFirstResponder = false
-        button.focusRingType = .default
         return button
     }
 

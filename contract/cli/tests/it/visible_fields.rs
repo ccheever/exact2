@@ -370,51 +370,40 @@ fn background_remains_a_refused_spelling_of_background_color() {
     assert!(e.message.contains("background-color"));
 }
 
-/// LLP 1104 D6: `outline="none"` (or `outline-style`) takes a text field's
-/// ring off. The row is set from the field's own attribute or a class, and
-/// an unset arm clears it; a field without it has no row, the platform's
-/// ring. Only `none` is admitted, and only on a text field or a textarea.
+/// LLP 1104 D6 (amended 2026-11-05): `outline="none"` (or
+/// `outline-style`) takes the focus ring off any element that takes the
+/// focus, as CSS's does: a field, a button, a link, a native control, a
+/// `tabindex` box. The row is set from the element's own attribute or a
+/// class, and an unset arm clears it; an element without it has no row, the
+/// platform's ring. Only `none` is admitted.
 #[test]
-fn outline_none_marks_a_text_field_and_nothing_else() {
+fn outline_none_takes_any_elements_ring_off() {
     let mut r = boot(
         "style Quiet\n  outline=\"none\"\n",
-        "input outline=\"none\" testId=\"input\"\ntextarea outline-style=\"none\" appearance=\"none\" testId=\"textarea\"\ntextarea markup=\"markdown\" outline=\"none\" testId=\"markdown\"\ninput class=Quiet background-color=\"red\" testId=\"class\"\ninput outline=(on ? \"none\" : none) testId=\"arm\"\ninput testId=\"plain\"\nbutton press=flip testId=\"flip\"\n  text \"Flip\"",
+        "input outline=\"none\" testId=\"input\"\ntextarea outline-style=\"none\" appearance=\"none\" testId=\"textarea\"\ntextarea markup=\"markdown\" outline=\"none\" testId=\"markdown\"\ninput class=Quiet background-color=\"red\" testId=\"class\"\ninput outline=(on ? \"none\" : none) testId=\"arm\"\ninput testId=\"plain\"\nbutton press=flip outline=\"none\" testId=\"button\"\n  text \"Go\"\nbutton \"Native\" appearance=\"auto\" press=flip outline=\"none\" testId=\"native\"\ninput type=\"checkbox\" outline=\"none\" testId=\"checkbox\"\nlink href=\"/a\" outline=\"none\" testId=\"link\"\n  text \"A\"\ncolumn tabindex=0 class=Quiet testId=\"box\"\nbutton press=flip testId=\"flip\"\n  text \"Flip\"",
     );
     let has = |r: &Runner<NoData>, name: &str| {
         let node = r.kernel().node(id(r, name)).unwrap();
         node.style.mask.has(StyleId::OutlineStyle)
     };
-    for name in ["input", "textarea", "markdown", "class", "arm"] {
+    for name in [
+        "input", "textarea", "markdown", "class", "arm", "button", "native", "checkbox", "link",
+        "box",
+    ] {
         assert!(has(&r, name), "{name} takes the ring off");
     }
-    assert!(
-        !has(&r, "plain"),
-        "a field without it keeps the platform's ring"
-    );
+    for name in ["plain", "flip"] {
+        assert!(!has(&r, name), "{name} keeps the platform's ring");
+    }
     r.dispatch(id(&r, "flip"), Event::Press).unwrap();
     assert!(!has(&r, "arm"), "an unset arm gives the ring back");
-    for (styles, body, refusal) in [
-        (
-            "",
-            "button press=flip outline=\"none\"\n  text \"Go\"",
-            "lower-attr-tag",
-        ),
-        (
-            "",
-            "input type=\"checkbox\" outline=\"none\"",
-            "lower-attr-tag",
-        ),
-        ("", "column tabindex=0 outline=\"none\"", "lower-attr-tag"),
-        (
-            "style Quiet\n  outline=\"none\"\n",
-            "column class=Quiet",
-            "lower-attr-tag",
-        ),
-        ("", "input outline=\"solid\"", "lower-attr-value"),
-        ("", "textarea outline=\"2px solid red\"", "lower-attr-value"),
+    for body in [
+        "input outline=\"solid\"",
+        "textarea outline=\"2px solid red\"",
+        "button outline=\"auto\"\n  text \"Go\"",
     ] {
-        let e = contract::compile(&app(styles, body)).unwrap_err();
-        assert_eq!(e.id, refusal, "{body}: {}", e.message);
+        let e = contract::compile(&app("", body)).unwrap_err();
+        assert_eq!(e.id, "lower-attr-value", "{body}: {}", e.message);
     }
 }
 
