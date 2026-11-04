@@ -22,7 +22,8 @@ export function mobileAttachmentMenu(data: AttachmentDocumentSnapshot, wrap: boo
   return { configuration: JSON.stringify({ identifier: data.identifier, actions }) };
 }
 export async function mobileAttachmentDocumentAction(event: string, scope: string, id: string, routeKey: string,
-  data: AttachmentDocumentSnapshot, nativeInput: Native | null | undefined, storage: Files, client: T3Client = mobileClient) {
+  data: AttachmentDocumentSnapshot, nativeInput: Native | null | undefined, storage: Files, client: T3Client = mobileClient,
+  presentationRouteKey = routeKey) {
   let value; try { value = obj(JSON.parse(event)); } catch { value = {}; }
   const result = (message = '', operation = '', removed = false, sourceJSON = '') => ({ identifier: data.identifier, message, operation, removed, sourceJSON });
   if (!data.identifier || str(value.identifier) !== data.identifier || !nativeInput?.available) return result();
@@ -48,7 +49,7 @@ export async function mobileAttachmentDocumentAction(event: string, scope: strin
     if (operation === 'share') {
       // Sharing always reauthorizes instead of depending on the preview's long-lived URL.
       mobileMediaForget(source.identifier, client);
-      const reply = await mobileMediaShare(scope, id, routeKey, nativeInput, client);
+      const reply = await mobileMediaShare(scope, id, routeKey, nativeInput, client, presentationRouteKey);
       return result(reply.message);
     }
     if (operation === 'remove' && scope === 'composer') {

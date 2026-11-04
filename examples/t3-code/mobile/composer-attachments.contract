@@ -24,3 +24,12 @@ component ComposerAttachmentStrip
               button press=remove(item.removeOperation == "remove-retained" ? "remove-retained" : item.removeOperation == "remove-snapshot" ? "remove-image" : "remove-file", item.id, data.contentOwner) disabled=item.disabled position="absolute" top=4 right=4 width=22 height=22 border-radius=11 padding=0 background-color="rgba(0,0,0,0.55)" aria-label=`Remove ${item.name}` testId=`composer-attachment-remove-${item.id}`
                 column width=22 height=22 align-items="center" justify-content="center"
                   t3-symbol symbol-name="xmark" symbol-weight="bold" symbol-tint="#ffffff" width=9 height=9
+              if item.uploadState == "uploading"
+                column position="absolute" inset=0 align-items="center" justify-content="center" background-color="rgba(0,0,0,0.58)" pointer-events="none" aria-label=`Uploading ${item.name}`
+                  text "Uploading…" font-size=10 line-height="13px" color="#ffffff"
+              else if item.uploadState == "failed"
+                column position="absolute" inset=0 align-items="center" justify-content="center" gap=3 background-color="rgba(0,0,0,0.62)"
+                  button press=remove("retry-upload", item.id, data.contentOwner) disabled=item.disabled width=32 height=28 padding=0 aria-label=`Retry upload for ${item.name}` testId=`composer-attachment-retry-${item.id}`
+                    t3-symbol symbol-name="arrow.clockwise" symbol-tint="#ffffff" width=15 height=15
+                  if item.uploadError != ""
+                    text item.uploadError width=64 text-align="center" line-clamp=1 text-overflow="ellipsis" font-size=8 line-height="10px" color="#ffffff"

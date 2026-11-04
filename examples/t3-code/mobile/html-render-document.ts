@@ -60,7 +60,7 @@ export async function mobileHtmlRenderDocument(client: T3Client, context: string
 
 /** Source, share and native-viewer operations never enter the ordinary media ID path. */
 export async function mobileHtmlRenderDocumentAction(client: T3Client, context: string, key: string, attachmentId: string,
-  event: string, data: AttachmentDocumentSnapshot, native: Native | null | undefined) {
+  event: string, data: AttachmentDocumentSnapshot, native: Native | null | undefined, presentationRouteKey = '') {
   const result = (message = '', operation = '', sourceJSON = '') => ({ identifier: data.identifier, message, operation, removed: false, sourceJSON });
   let value; try { value = obj(JSON.parse(event)); } catch { return result(); }
   if (!native?.available || !data.identifier || value.identifier !== data.identifier
@@ -78,7 +78,11 @@ export async function mobileHtmlRenderDocumentAction(client: T3Client, context: 
       const fresh = await mobileHtmlRenderDocumentSource(client, context, key, attachmentId, guarded, true);
       if (!fresh.ready) return result(fresh.error);
       if (operation === 'open-viewer') return result('', operation, fresh.sourceJSON);
-      const reply = await bridgeReply(guarded, { op: 'mobileMediaShare', sourceJSON: fresh.sourceJSON });
+      let routeKey = presentationRouteKey;
+      if (!routeKey) {
+        try { const value = JSON.parse(context); routeKey = Array.isArray(value) && typeof value[1] === 'string' ? value[1] : ''; } catch { /* Invalid context is already refused by the guarded native owner. */ }
+      }
+      const reply = await bridgeReply(guarded, { op: 'mobileMediaShare', ...(routeKey ? { routeKey } : {}), sourceJSON: fresh.sourceJSON });
       if (!reply.ok) throw new ClientError(reply.error!.message);
     }
     return result();

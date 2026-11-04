@@ -242,7 +242,7 @@ describe('pinned shared sources', () => {
         : name === 'shell-vcs.ts' ? 'c280acc1806c4e1fea5d4797b1278b99b5ee2ba0' : name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
         : ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
           ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
-      const adapted = ['client.ts', 'client-ops-composer.ts', 'composer-controls.ts', 'domain.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts', 'timeline-rows.ts', 'timeline-presentation.ts', 'protocol.ts', 'r5-composer-citation.ts'].includes(name);
+      const adapted = ['client.ts', 'client-ops-composer.ts', 'composer-controls.ts', 'domain.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts', 'composer-editor-files.ts', 'timeline-rows.ts', 'timeline-presentation.ts', 'protocol.ts', 'r5-composer-citation.ts', 'media-views.ts', 'timeline-attachments.ts'].includes(name);
       if (name === 'word-diff.ts') expect(local.slice(0, 3)).toEqual([
         '// GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.',
         '// Unchanged body from examples/t3-code/word-diff.ts; engine/span source extracted from',
@@ -361,6 +361,10 @@ describe('pinned shared sources', () => {
           .replace("async function editorView(client: T3Client, native: Native | null | undefined, now: number): Promise<Omit<ComposerEditorView, 'drawer'>> {\n  const entry = cache(client);", "async function editorView(client: T3Client, native: Native | null | undefined, now: number): Promise<Omit<ComposerEditorView, 'drawer'>> {\n  const pickStamp = contextPickStamp(client), entry = cache(client);")
           .replace('  entry.rows = rows;', "  entry.rows = rows;\n  entry.pickStamp = contextPickStamp(client) === pickStamp ? pickStamp : '';");
       }
+      if (name === 'composer-editor-files.ts') expected = expected
+        .replace('  attachmentId: string;\n', '  attachmentId: string; uploadEnvironmentId?: string;\n')
+        .replace(/attachmentId: str\(file\.attachmentId\), status:/,
+          'attachmentId: str(file.attachmentId), ...(str(file.uploadEnvironmentId) ? { uploadEnvironmentId: str(file.uploadEnvironmentId) } : {}),\n      status:');
       if (name === 'project-clones-live.ts') expected = "// Mobile 365aa87982 apps/mobile/src/state/projectClones.ts: failed subscriptions read as empty.\n" + expected
         .replace("  const clones = liveEnvironment(client, null, client.environmentId)?.clones.value ?? [];",
           "  const stream = liveEnvironment(client, null, client.environmentId)?.clones;\n  const clones = stream?.error ? [] : stream?.value ?? [];");
@@ -428,6 +432,16 @@ describe('pinned shared sources', () => {
           .replace(/^.*this.threadEpoch\+\+; \/\/ Mobile: a stream reset[^\n]*\n/gm, '')
           .replace(/^.*if \(this.openingThread\(\)\) return; \/\/ Mobile:[^\n]*\n/gm, '');
       }
+      if (name === 'timeline-attachments.ts') expected = expected
+        .replace("import { encodeMediaSource } from './media-actions';\n", "import { encodeMediaSource } from './media-actions';\nimport { workspaceMutationId } from '../workspace-mutation';\n")
+        .replace('(await markdownMediaUrls(client, native, root, now)).map', '(await markdownMediaUrls(client, native, root, now, workspaceMutationId(client))).map');
+      if (name === 'media-views.ts') expected = expected
+        .replace('export async function markdownMediaUrls(client: T3Client, native: Native, root: string, now: number): Promise<{ id: string; url: string }[]> {',
+          'export async function markdownMediaUrls(client: T3Client, native: Native, root: string, now: number,\n  mutationId?: string | null): Promise<{ id: string; url: string }[]> {')
+        .replace('export const mediaFailed = (client: T3Client, url: string): boolean => !!url && stateOf(client).failed.has(url);\n\n// Signed URLs',
+          "export const mediaFailed = (client: T3Client, url: string): boolean => !!url && stateOf(client).failed.has(url);\n\n// The workspace mutation each preview's image was last signed for. A disconnected client\n// records a null token so the next connected render signs again.\nconst handledMutations = new WeakMap<T3Client, Map<string, string | null>>();\nfunction refreshDue(client: T3Client, id: string, mutationId: string | null): boolean {\n  let handled = handledMutations.get(client);\n  if (!handled) { handled = new Map(); handledMutations.set(client, handled); }\n  if (client.connection !== 'connected') { handled.set(id, null); return false; }\n  const token = JSON.stringify(mutationId), last = handled.get(id);\n  if (last === token) return false;\n  handled.set(id, token);\n  if (handled.size > 256) handled.delete(handled.keys().next().value!);\n  return last !== undefined || mintedOf(client).has(id);\n}\n\n// Signed URLs")
+        .replace('    const entry = await mint(client, native, `md:${client.environmentId}|${client.threadId}|${key}`, resource, now);',
+          "    // A settled command or file change can rewrite the same path. Keep the key stable,\n    // and force a fresh signature only when the mutation token changes.\n    const id = `md:${client.environmentId}|${client.threadId}|${key}`;\n    const revisioned = mutationId !== undefined;\n    const entry = await mint(client, native, id, resource, now, revisioned && refreshDue(client, id, mutationId!));");
       if (name === 'r5-composer-citation.ts') {
         const history = `type CitedHistoryOutcome = 'found' | 'aborted' | { title: string; description: string };
 const MAX_CITATION_PAGES = 20;

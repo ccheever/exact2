@@ -6,6 +6,7 @@ import { mobileThreadForkObserveProjection, mobileThreadForkPresentation } from 
 // @ref examples/t3-code/mobile/docs/1130.000-mobile-app-layout.decision.md#shared-typescript
 // @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#mobile-adaptations
 import { mobileComposerTarget, mobileComposerTargetText } from './composer-target';
+import { mobileComposerAttachmentUploadSnapshot } from './composer-attachment-uploads';
 import { mobileAnswerFilesOwner, mobileAnswerFilesRequest, mobilePrepareAnswerFiles } from './thread-answer-files';
 import { mobileClient, mobileCommand, mobileNative } from './client';
 import { mobileProviderIconURL } from './environment-detail';
@@ -138,14 +139,18 @@ export function mobileThreadComposer(client: T3Client): ThreadComposerState {
   const model = arr(provider?.models).find(model => model.slug === client.modelId);
   const selection = { instanceId: client.providerId, model: client.modelId }, modelReady = mobileModelSelectionReady(client.config, selection);
   const modelUnavailable = client.connection === 'connected' && mobileModelSelectionUnavailable(client.config, selection);
+  const uploads = mobileComposerAttachmentUploadSnapshot(client);
+  const uploadPending = Object.values(uploads.states).some(state => state === 'uploading');
+  const uploadFailed = Object.values(uploads.states).some(state => state === 'failed');
   const requests = requestPresentation(client), followUp = running && !queue.canSteer ? 'queue' : followUpBehavior(client);
   const action = primaryAction(client, threadPhase(client.projection));
-  const blockedReason = edit.saving ? 'Saving…' : edit.uncertain ? 'Resolve the pending queued edit before sending.' : client.pending?.uncertain ? 'Check the synchronized thread before retrying.'
+  const blockedReason = uploadPending ? 'Wait for attachments to finish uploading.' : uploadFailed ? 'Retry or remove the failed attachment.'
+    : edit.saving ? 'Saving…' : edit.uncertain ? 'Resolve the pending queued edit before sending.' : client.pending?.uncertain ? 'Check the synchronized thread before retrying.'
     : edit.editing ? '' : requests.approvals.length ? 'Resolve this approval request to continue.' : requests.questions.length ? 'Answer the pending question to continue.'
     : action.sendStatus;
   const canOperate = client.writable, canStop = canOperate && !client.pending && !client.busy && running;
   // Offline-outbox admission is not the desktop transport's contract; preserve its real refusal until the mobile outbox exists.
-  const canSend = edit.editing ? edit.canSave && modelReady : canOperate && !client.pending && !client.busy && modelReady && !!client.projectId && !blockedReason && (!!client.draft.trim() || client.snapshotDrafts.length > 0);
+  const canSend = edit.editing ? edit.canSave && modelReady : canOperate && !client.pending && !client.busy && modelReady && !!client.projectId && !blockedReason && !uploadPending && !uploadFailed && (!!client.draft.trim() || client.snapshotDrafts.length > 0);
   const sendLabel = edit.editing ? 'Update queued message' : running ? followUp === 'steer' ? 'Steer' : 'Queue' : 'Send';
   return { editing: edit.editing, saving: edit.saving, canCancel: edit.canCancel, editNotice: edit.error, editNoticeDismissKey: mobileQueuedEditDismissKey(client), editPendingId: edit.pendingId, canRetryEdit: edit.canRetry, contentOwner: target.owner, draft: mobileComposerTargetText(client, target) ?? '', placeholder: 'Ask the repo agent, or run a command…', canSend, canStop, showStop: !client.draft.trim() && client.snapshotDrafts.length === 0 && canStop && !edit.editing,
     canOperate, showReadOnlyNotice: client.connection === 'connected' && !canOperate, sendLabel, sendSymbol: edit.editing ? 'checkmark' : running ? followUp === 'steer' ? 'arrow.turn.left.up' : 'list.number' : 'arrow.up',

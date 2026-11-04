@@ -481,7 +481,7 @@ component PrdCommentCard
     focused = on
   view
     column width="100%" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=prsBorder() background-color="light-dark(#fcfcfc, #000000)" role="article" hover=hover focusin=focusWithin(true) focusout=focusWithin(false) testId=`pull-request-comment-${card.id}`
-      row flex-wrap="wrap" align-items="baseline" gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-top-left-radius="0.5rem" border-top-right-radius="0.5rem" background-color="light-dark(#f4f4f540, #ffffff06)"
+      row flex-wrap="wrap" align-items="baseline" gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-top-left-radius="0.5rem" border-top-right-radius="0.5rem" background-color="light-dark(#fafafa40, #ffffff02)"
         row flex=1 min-width=0 flex-wrap="wrap" align-items="baseline" gap="0.5rem"
           PrdIdentity(card=card)
           if card.outcome != ""

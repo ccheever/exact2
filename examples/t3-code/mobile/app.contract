@@ -1040,7 +1040,7 @@ component App
   resource documentMenu = attachmentMenu(documentData, settingsAppearance.codeWordBreak) as shape AttachmentDocumentMenu
   mutation documentChanged as shape AttachmentDocumentAction refreshes data then didDocumentAction
   action documentAction(value: string)
-    send documentChanged = attachmentDocumentAction(value, mediaScope, top(nav).params.attachmentId, mediaRouteKey, documentData, taskGuardOwner, taskGuardRoute, htmlRenderContext.context, htmlRenderContext.key)
+    send documentChanged = attachmentDocumentAction(value, mediaScope, top(nav).params.attachmentId, mediaRouteKey, documentData, taskGuardOwner, taskGuardRoute, htmlRenderContext.context, htmlRenderContext.key, `${top(nav).id}`)
   action documentNativeEvent(value: string)
     send documentChanged = attachmentNativeEvent(value, documentData.identifier)
   action didDocumentAction

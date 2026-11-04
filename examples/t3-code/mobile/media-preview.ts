@@ -97,14 +97,17 @@ export async function mobileMediaPrepare(scope: string, id: string, routeKey: st
 
 /** Share original bytes using the same ownership checks; native keeps an independent copy until dismissed. */
 export async function mobileMediaShare(scope: string, id: string, routeKey: string, nativeInput: Native | null | undefined,
-  client: T3Client = mobileClient) {
+  client: T3Client = mobileClient, presentationRouteKey = routeKey) {
   const scopeOwner = owner(client, scope);
   const source = await mobileMediaPrepare(scope, id, routeKey, nativeInput, client);
   if (!source.ready || !nativeInput?.available) return { identifier: source.identifier, message: source.error };
   if (scopeOwner !== owner(client, scope) || !selected(client, scope, id)) return { identifier: source.identifier, message: 'The selected conversation changed.' };
   const native = letGoAware(mobileNative(nativeInput));
   try {
-    const reply = await bridgeReply(native, { op: 'mobileMediaShare', sourceJSON: source.sourceJSON });
+    // Keep the share sheet bound to the route that authorized the source. The
+    // native presenter uses this key to reject a late request after navigation
+    // instead of falling back to whichever controller is currently visible.
+    const reply = await bridgeReply(native, { op: 'mobileMediaShare', routeKey: presentationRouteKey || routeKey, sourceJSON: source.sourceJSON });
     if (!reply.ok) throw new ClientError(reply.error!.message);
     return { identifier: source.identifier, message: '' };
   } catch (error) { if (letGo(error)) throw error; return { identifier: source.identifier, message: error instanceof Error ? error.message : 'Could not share this file.' }; }

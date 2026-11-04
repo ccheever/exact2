@@ -352,6 +352,8 @@ shape DiffTreeRow
   status: string
   letter: string
   markdown: bool
+  // The file's Pierre icon (fileIconToken), as the Files tree draws it; none for a folder.
+  token: string
   expanded: bool
   selected: bool
 // A citation's View source (citation-source.ts): the transcript row whose answer goes under its top; each request a new nonce.

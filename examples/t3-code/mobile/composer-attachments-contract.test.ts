@@ -20,3 +20,10 @@ test('attachment actions expose source-specific labels, roles and stable test ta
   expect(source).toContain('disabled=item.disabled');
   expect(source).toContain('image item.preview width=72 height=72 object-fit="cover" aria-hidden=true');
 });
+
+test('attachment tiles expose truthful upload progress states and retry', () => {
+  expect(source).toContain('if item.uploadState == "uploading"');
+  expect(source).toContain('Uploading…');
+  expect(source).toContain('press=remove("retry-upload", item.id, data.contentOwner)');
+  expect(source).toContain('Retry upload for ${item.name}');
+});
