@@ -122,18 +122,21 @@ component T3Code
   action disconnectDelayElapsed
     disconnectDelayKey = data.serverUpdate.unavailable
   members "./src/transport/transport-members.contract"
-  task rootFont key=`${data.look.fontSize}|${zoomStep}` // Interface font size (appearanceFonts.ts applyAppearanceFontVariables): the root font size every rem follows, set at launch and on every change; `rem` is provided for lengths computed in px at 16.
+  task rootFont key=`${data.look.fontSize}` // Interface font size (appearanceFonts.ts applyAppearanceFontVariables): the root font size every rem follows, set at launch and on every change; `rem` is provided for lengths computed in px at 16.
     after(1, rootFontApply)
-  action rootFontApply // the reference's 16 before the data's first answer (the Mac host's own size is 13 since LLP 1115), times View's zoom
-    setRootFontSize((data.look.fontSize > 0 ? data.look.fontSize : 16) * zoomFactor(zoomStep))
-  // View's zoom (settings-shortcuts.contract ViewZoom): the main window's, not kept across a launch, as the reference's.
+  action rootFontApply // the reference's 16 before the data's first answer (the Mac host's own size is 13 since LLP 1115)
+    setRootFontSize(data.look.fontSize > 0 ? data.look.fontSize : 16)
+  // View's zoom (settings-shortcuts.contract ViewZoom): the main window's page zoom, as Electron's (LLP 1021 §5.3.1),
+  // not kept across a launch, as the reference's.
   state zoomStep = 0
   action zoomTo(step: number)
     zoomStep = step
-  // The window's width in the reference's CSS px, which its media queries compare (Tailwind's sm: md: lg:, the right
-  // panel's 980 and 760, the sidebar's 767): Electron's View zoom scales CSS px, where this one scales only the root
-  // font size. Every breakpoint reads this value, and only breakpoints do: lengths stay in points.
-  derive mediaWidth = viewport.width / zoomFactor(zoomStep)
+    setPageZoom(zoomFactor(step))
+    send windowZoomTold = command("chatlocal:window-zoom", "", `${zoomFactor(step)}`, 0) // the Browser tabs' layout divides by it (browser-viewport.ts)
+  derive windowZoom = zoomFactor(zoomStep)
+  // The window's width in CSS px, which the reference's media queries compare (Tailwind's sm: md: lg:, the right
+  // panel's 980 and 760, the sidebar's 767): under View's zoom the viewport is in CSS px already.
+  derive mediaWidth = viewport.width
   state codeCopyDone = 0 // #123: the copy whose check has run its time (MarkdownCodeBlock and MarkdownTable 1.2 s, CommandBlock 1.5 s); its button morphs back (MorphCopyCheck)
   state welcomeCopyDone = 0
   task codeCopyHold when data.codeCopyNonce > 0 key=data.codeCopyNonce
@@ -162,7 +165,8 @@ component T3Code
     renameHoldsKeys
     renameFocused
     inlineDocumentViewportWidth
-    mediaWidth // the window's width as the reference's media queries see it, at View's zoom
+    mediaWidth // the window's width as the reference's media queries see it
+    windowZoom // View's zoom, which a Browser tab's own zoom is drawn over (browser-frames.contract)
     sidebarSheetMode // the sidebar as a sheet under 768 CSS px, its open state and its setter (beside narrowDiff)
     sidebarSheetShown
     sidebarInline
@@ -612,6 +616,7 @@ component T3Code
   mutation inlineDocumentChanged as shape Change queue refreshes data
   mutation secretAnswered as shape Change queue refreshes data then dispatchTimelineReads
   mutation localChanged as shape Change refreshes data
+  mutation windowZoomTold as shape Change refreshes data
   mutation pickerAnnounced as shape Change queue refreshes shell // the model picker's shortcut announcements (pickerAnnounce)
   // A pull request surface's remembered tab (prSetTab); queued, so quick tab presses land in order.
   mutation prTabSaved as shape Change queue

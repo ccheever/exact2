@@ -276,13 +276,16 @@ describe('BrowserStage slot and the frame in it (clone)', () => {
     expect(derived(stage.state(), { ...view, windowZoom: 1.25, server: true }).z).toBe(1.25);
     const frame = contractComponent('browser-frames.contract', 'BrowserFrame');
     const f = { frameId: 'browser-frame-1', src: 'about:blank', partition: 'persist:p', zoom: 1.25, colorScheme: 'system', place: 'panel', pageWidth: 390, pageHeight: 844 };
-    const placed = frame.derives(frame.state(), { f, width: at125.vw, height: at125.vh, left: 0, top: 0, shown: true, scheme: 'light' });
+    const placed = frame.derives(frame.state(), { f, width: at125.vw, height: at125.vh, left: 0, top: 0, shown: true, scheme: 'light', windowZoom: 1 });
     expect([placed.layoutW, placed.layoutH]).toEqual([390 * 1.25, 844 * 1.25]);
-    const filled = frame.derives(frame.state(), { f: { ...f, pageWidth: 0, pageHeight: 0 }, width: 620, height: 560, left: 0, top: 0, shown: true, scheme: 'light' });
+    // Under View's page zoom the frame, in the page, is drawn at the tab's zoom over the window's (LLP 1021 §5.3.1).
+    const zoomed = frame.derives(frame.state(), { f, width: at125.vw, height: at125.vh, left: 0, top: 0, shown: true, scheme: 'light', windowZoom: 1.25 });
+    expect([zoomed.zoom, zoomed.layoutW, zoomed.layoutH]).toEqual([1, 390, 844]);
+    const filled = frame.derives(frame.state(), { f: { ...f, pageWidth: 0, pageHeight: 0 }, width: 620, height: 560, left: 0, top: 0, shown: true, scheme: 'light', windowZoom: 1 });
     expect([filled.layoutW, filled.layoutH, filled.fixed]).toEqual([620, 560, false]);
     const iframe = (await Bun.file(appPath('browser-frames.contract')).text()).split('\n').find(line => line.trim().startsWith('iframe id=f.frameId'))!;
     expect(iframe).toContain('scale=(fixed and layoutW > 0 ? width / layoutW : 1) transform-origin="0 0"');
-    expect(iframe).toContain('partition=f.partition zoom=f.zoom');
+    expect(iframe).toContain('partition=f.partition zoom=zoom');
   });
   // A hidden tab's box sits over the window (at the left edge while the panel is closed): unless it is not displayed, it is
   // hit before the timeline under it, and a hover, a press or a double-click there reaches nothing.

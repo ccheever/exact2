@@ -1,5 +1,5 @@
-// The narrow window: the breakpoints at View's zoom (app.contract mediaWidth), the sidebar sheet under the Settings and
-// Usage modals, which still hand it the keyboard, Settings' icon rail under 768 CSS px, and a project's settings that
+// The narrow window: the breakpoints in CSS px, which View's page zoom shrinks (app.contract mediaWidth), the sidebar
+// sheet under the Settings and Usage modals, which still hand it the keyboard, Settings' icon rail under 768 CSS px, and a project's settings that
 // close the sheet (Sidebar.tsx openProjectSettings).
 import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -14,9 +14,9 @@ const contracts = (dir: string): string[] => readdirSync(dir).flatMap(name => {
 });
 
 describe('breakpoints at View\'s zoom', () => {
-  test('one derive turns the window into the reference\'s CSS px, and no contract compares the raw window width', () => {
+  test('one derive names the window\'s CSS px width, and no contract compares the raw window width', () => {
     const root = appText('app.contract');
-    expect(root).toContain('derive mediaWidth = viewport.width / zoomFactor(zoomStep)');
+    expect(root).toContain('derive mediaWidth = viewport.width\n');
     expect(root).toContain('derive narrowDiff = mediaWidth <= 980');
     expect(root).toContain('derive sidebarSheetMode = mediaWidth < 768');
     expect(root).toContain('derive diffWidth = narrowDiff ? (mediaWidth <= 760 ?');
