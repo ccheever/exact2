@@ -525,7 +525,7 @@ final class InlineContextIOSTests: XCTestCase {
         host.view.frame = window.bounds
         host.view.addSubview(p.viewport)
         // The paragraph in a node with 4 pt of room: a yellow fill its layer does not hold (two corners rounded unequally,
-        // so its corners' fill layer has it) and a 4 pt red border, wider than the corners inset it. Its style makes it the box.
+        // so its corners' fill layer has it) and a 4 pt red border, wider than the corners' inset of `inner`. Its style makes it the box.
         p.apply(wireBatch([
             ["op": "create", "id": 5, "kind": "view", "style": ["background_color": [255, 214, 10, 255], "border_radius_top_left": 3, "border_radius_bottom_left": 5,
                                                               "border_width": 4, "border_color_top": [255, 0, 0, 255]]],
