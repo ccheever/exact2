@@ -826,14 +826,16 @@ impl Kernel {
         let started = std::time::Instant::now(); // PROTO: the trial's phases timed
         let (mut arena, mut trial) = (self.arena.trial_copy(), tree.clone());
         // Scrolled content the edge cannot change keeps its settled layout and is neither laid out nor collected
-        for s in trial.freeze_scroll_content(node) {
+        let frozen = trial.freeze_scroll_content(node);
+        for &s in &frozen {
             arena.set_children(s, Vec::new());
         }
+        let frozen = frozen.into_iter().map(|s| self.arena.local_id(s)).collect();
         TRIAL_PHASES.with(|p| {
             let (a, b, c, n) = p.get();
             p.set((a + started.elapsed().as_micros() as u64, b, c, n));
         });
-        Ok(ClearanceTrial { settled: &self.arena, measurer: self.measurer.as_mut(), arena, tree: trial, slot, node, block, edges, far })
+        Ok(ClearanceTrial { settled: &self.arena, measurer: self.measurer.as_mut(), arena, tree: trial, slot, node, block, edges, far, frozen })
     }
 
     /// PROTO (rule 4): the frames of one trial at `t`, `clearance_trial(view, far)?.frames(t)`.
@@ -859,9 +861,16 @@ pub struct ClearanceTrial<'a> {
     block: HostBlock,
     edges: [f32; 4],
     far: f32,
+    frozen: Vec<ViewId>,
 }
 
 impl ClearanceTrial<'_> {
+    /// The scrollers whose content keeps its settled layout in this trial: a layout confined to their content
+    /// changes nothing a trial lays out.
+    pub fn frozen(&self) -> &[ViewId] {
+        &self.frozen
+    }
+
     /// The frames the subtree takes with its top edge `t` of the way from where it is to the far end, in each
     /// box's parent's space: each box, its frame now, its frame then. A frozen scroller's content is not listed:
     /// it keeps its frame in its scroller.

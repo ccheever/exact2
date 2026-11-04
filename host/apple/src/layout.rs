@@ -71,6 +71,7 @@ impl<D: DataSource> Host<D> {
     pub(super) fn record_layout(&mut self, receipt: &exact_kernel::LayoutReceipt) {
         self.pending_layout
             .extend(receipt.updated.iter().chain(&receipt.flow_changed).copied());
+        self.pending_changed.extend_from_slice(&receipt.changed); // PROTO (rule 4)
     }
 
     pub(super) fn queue_layout(&mut self, id: ViewId) {
@@ -168,10 +169,14 @@ impl<D: DataSource> Host<D> {
         self.height_projection.clear();
         self.height_projection
             .extend_from_slice(&self.height_sampling);
+        // PROTO (rule 4): what this emission's layouts touched, for the far pass's trigger
+        let touched: Vec<NodeKey> = self.pending_layout.iter().copied().collect();
+        let changed = std::mem::take(&mut self.pending_changed);
         let before = batch.op_count();
         self.emit_layout(batch)?;
-        if batch.op_count() != before || std::mem::take(&mut self.far_owed) {
-            self.emit_far(batch);
+        let owed = std::mem::take(&mut self.far_owed);
+        if batch.op_count() != before || owed {
+            self.emit_far(batch, owed, &touched, &changed);
         }
         Ok(())
     }
@@ -190,13 +195,18 @@ impl<D: DataSource> Host<D> {
     /// with the edge at the block's top, and where a box is not linear in the
     /// edge, its frames at the knots that make it so (`halve`): the host moves
     /// those boxes along them as UIKit moves the edge.
-    fn emit_far(&mut self, batch: &mut Batch) {
+    fn emit_far(&mut self, batch: &mut Batch, owed: bool, touched: &[NodeKey], changed: &[NodeKey]) {
         for route in self.moving_tops.clone() {
+            // A layout confined to the content the last pass froze changes nothing a trial lays out
+            if !owed && !self.reaches_trial(route, touched, changed) {
+                continue;
+            }
             let started = std::time::Instant::now(); // PROTO: the far pass timed
             // One trial session per pass: the kernel copies once and lays out each place in the copy
             let Ok(mut trial) = self.runner.kernel_mut().clearance_trial(route, 0.0) else {
                 continue;
             };
+            self.far_frozen.insert(route, trial.frozen().to_vec());
             let Ok(all) = trial.frames(1.0) else {
                 continue;
             };
@@ -216,6 +226,40 @@ impl<D: DataSource> Host<D> {
                 batch.far(*id, route, rect(*now), rect(*f), &inner);
             }
         }
+    }
+
+    /// PROTO (rule 4): whether a box this emission touched lies under `route` outside the content its last far
+    /// pass froze, or is a frozen scroller whose own frame changed: then the route's far frames may have changed.
+    fn reaches_trial(&self, route: ViewId, touched: &[NodeKey], changed: &[NodeKey]) -> bool {
+        let Some(frozen) = self.far_frozen.get(&route) else {
+            return true;
+        };
+        let kernel = self.runner.kernel();
+        for &key in touched.iter().chain(changed) {
+            let Some(node) = kernel.node_by_key(key) else {
+                return true;
+            };
+            if frozen.contains(&node.id) {
+                if changed.contains(&key) {
+                    return true;
+                }
+                continue;
+            }
+            if node.id == route {
+                return true;
+            }
+            let mut at = node.parent;
+            while let Some(id) = at {
+                if frozen.contains(&id) {
+                    break;
+                }
+                if id == route {
+                    return true;
+                }
+                at = kernel.node(id).and_then(|n| n.parent);
+            }
+        }
+        false
     }
 
     /// @ref LLP 1083 D3 — each sticky node's constraint, when it changed.

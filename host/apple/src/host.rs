@@ -203,6 +203,10 @@ pub struct Host<D: DataSource> {
     /// PROTO (rule 4): routes whose clearance's top edge moves (`Host::emit_far`).
     moving_tops: Vec<ViewId>,
     far_owed: bool,
+    /// PROTO (rule 4): for each route with a moving top, the scrollers its last far pass froze
+    far_frozen: IdMap<ViewId, Vec<ViewId>>,
+    /// PROTO (rule 4): boxes whose absolute frame changed since the last emission
+    pending_changed: Vec<NodeKey>,
     /// Each sticky node's constraint as the presenter last heard it (LLP 1083).
     stickies: IdMap<ViewId, exact_kernel::StickyConstraint>,
     /// Each multi-column record as the presenter last heard it (LLP 1093 D7).
@@ -529,6 +533,8 @@ impl<D: DataSource> Host<D> {
             fit_routes: Vec::new(),
             moving_tops: Vec::new(),
             far_owed: false,
+            far_frozen: Default::default(),
+            pending_changed: Vec::new(),
             stickies: IdMap::default(),
             fragments: IdMap::default(),
             ranks: IdMap::default(),
