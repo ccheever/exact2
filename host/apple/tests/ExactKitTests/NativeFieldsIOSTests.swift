@@ -427,7 +427,6 @@ final class NativeFieldsIOSTests: XCTestCase {
         node.applyFieldContent(["rect": [7.0, 0.0, 226.0, 34.0]])
         window.layoutIfNeeded()
         CATransaction.flush()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         let image = UIGraphicsImageRenderer(bounds: node.bounds).image { ctx in
             UIColor.white.setFill(); ctx.fill(node.bounds)
             node.layer.render(in: ctx.cgContext)
@@ -464,7 +463,6 @@ final class NativeFieldsIOSTests: XCTestCase {
             node.applyFieldContent(["rect": rect])
             window.layoutIfNeeded()
             CATransaction.flush()
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
             let format = UIGraphicsImageRendererFormat()
             format.scale = 2
             let image = UIGraphicsImageRenderer(bounds: node.bounds, format: format).image { ctx in

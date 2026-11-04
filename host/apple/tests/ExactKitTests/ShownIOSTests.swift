@@ -45,8 +45,19 @@ final class ShownIOSTests: XCTestCase {
         XCTAssertTrue(open, "UIKit had an animation open")
     }
 
-    /// The turn ends and Core Animation commits it: a frame shows what it holds.
-    private func nextFrame() { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    /// Waits for a frame to show each of `ids` where it is, and what is above it.
+    private func waitForFrame(_ p: Presenter, showing ids: UInt32...) {
+        waitFor("a frame shows \(ids)") { ids.allSatisfy { p.views[$0].map(p.showed) ?? false } }
+    }
+
+    private func waitForFrame(hiding view: NodeView) {
+        waitFor("a frame shows it hidden") { view.layer.presentation()?.isHidden == true }
+    }
+
+    /// Waits 50 ms before a check that a held commit shows nothing: no event
+    /// marks a frame that does not come. With no hold a view shows within this
+    /// time, though on an iPhone Duo not within one turn of the run loop.
+    private func waitOutAFrame() { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
 
     /// Every layer under `layer` that has an animation, by its view's class or its own.
     private func moving(_ layer: CALayer) -> [String] {
@@ -70,7 +81,7 @@ final class ShownIOSTests: XCTestCase {
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 40.0],
         ]))
-        nextFrame()
+        waitForFrame(p, showing: 2)
         let shown = try XCTUnwrap(p.views[2])
         animating {
             p.apply(wireBatch([
@@ -115,8 +126,8 @@ final class ShownIOSTests: XCTestCase {
     }
 
     /// A commit an open explicit transaction holds back shows nothing: a view
-    /// made under it is not shown after a turn of the run loop, and takes its
-    /// place at once inside an animation.
+    /// made under it is not shown in a frame's time, and takes its place at
+    /// once inside an animation.
     func testAViewACommitHeldBackHasNotShown() throws {
         guard let scene = hostedWindowScene() else { throw missing("scene", "what the last frame showed is read in a scene's window") }
         let p = presenter("shown-held", in: scene)
@@ -125,14 +136,14 @@ final class ShownIOSTests: XCTestCase {
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
         ]))
-        nextFrame()
+        waitForFrame(p, showing: 1)
         CATransaction.begin()
         p.apply(wireBatch([
             ["op": "create", "id": 2, "kind": "text", "props": ["text": "Held"], "style": ["font_size": 20.0]],
             ["op": "children", "id": 1, "ids": [2]],
             ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 30.0],
         ]))
-        nextFrame()
+        waitOutAFrame()
         let made = try XCTUnwrap(p.views[2])
         XCTAssertFalse(p.showed(made), "not committed")
         animating {
@@ -140,8 +151,7 @@ final class ShownIOSTests: XCTestCase {
         }
         XCTAssertEqual(moving(made.layer), [])
         CATransaction.commit()
-        nextFrame()
-        XCTAssertTrue(p.showed(made), "committed")
+        waitForFrame(p, showing: 2)
     }
 
     /// A view that showed, taken out and put back under a held commit, with
@@ -158,21 +168,19 @@ final class ShownIOSTests: XCTestCase {
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 30.0],
         ]))
-        nextFrame()
+        waitForFrame(p, showing: 2)
         let view = try XCTUnwrap(p.views[2])
-        XCTAssertTrue(p.showed(view))
         CATransaction.begin()
         p.apply(wireBatch([["op": "children", "id": 1, "ids": []]]))
         p.apply(wireBatch([["op": "children", "id": 1, "ids": [2]], ["op": "frame", "id": 2, "x": 0.0, "y": 100.0, "w": 100.0, "h": 30.0]]))
-        nextFrame()
+        waitOutAFrame()
         XCTAssertFalse(p.showed(view), "its new place is not committed")
         animating {
             p.apply(wireBatch([["op": "frame", "id": 2, "x": 40.0, "y": 140.0, "w": 100.0, "h": 30.0]]))
         }
         XCTAssertEqual(moving(view.layer), [])
         CATransaction.commit()
-        nextFrame()
-        XCTAssertTrue(p.showed(view), "committed")
+        waitForFrame(p, showing: 2)
     }
 
     /// A view hidden in a frame and shown again in place under a held
@@ -189,22 +197,21 @@ final class ShownIOSTests: XCTestCase {
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 30.0],
         ]))
-        nextFrame()
+        waitForFrame(p, showing: 2)
         let view = try XCTUnwrap(p.views[2])
         p.apply(wireBatch([["op": "style", "id": 2, "style": ["font_size": 20.0, "display": "none"]]]))
-        nextFrame()
         XCTAssertTrue(view.isHidden)
+        waitForFrame(hiding: view)
         CATransaction.begin()
         p.apply(wireBatch([["op": "style", "id": 2, "style": ["font_size": 20.0]]]))
-        nextFrame()
+        waitOutAFrame()
         XCTAssertFalse(p.showed(view), "shown again, not committed")
         animating {
             p.apply(wireBatch([["op": "frame", "id": 2, "x": 40.0, "y": 40.0, "w": 100.0, "h": 30.0]]))
         }
         XCTAssertEqual(moving(view.layer), [])
         CATransaction.commit()
-        nextFrame()
-        XCTAssertTrue(p.showed(view), "committed")
+        waitForFrame(p, showing: 2)
     }
 
     /// A text's box placed again when a moved parent's origin changes no
@@ -224,7 +231,7 @@ final class ShownIOSTests: XCTestCase {
             ["op": "frame", "id": 2, "x": 0.2, "y": 0.0, "w": 300.0, "h": 100.0],
             ["op": "frame", "id": 4, "x": 0.0, "y": 60.0, "w": 100.0, "h": 20.0],
         ]))
-        nextFrame()
+        waitForFrame(p, showing: 4)
         let parent = try XCTUnwrap(p.views[2])
         XCTAssertEqual(parent.window?.screen.scale, 3, "the pixel arithmetic is at 3x")
         animating {
@@ -261,15 +268,14 @@ final class ShownIOSTests: XCTestCase {
             ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 40.0],
             ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 100.0, "h": 30.0],
         ]))
-        nextFrame()
+        waitForFrame(p, showing: 3)
         let box = try XCTUnwrap(p.views[2])
-        XCTAssertTrue(p.showed(box))
         p.apply(wireBatch([
             ["op": "style", "id": 2, "style": ["background_color": [255, 0, 0, 255], "display": "none"]],
             ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0],
         ]))
-        nextFrame()
         XCTAssertTrue(box.isHidden)
+        waitForFrame(hiding: box)
         animating {
             p.apply(wireBatch([
                 ["op": "style", "id": 2, "style": ["background_color": [0, 0, 255, 255], "opacity": 0.5]],
@@ -300,7 +306,7 @@ final class ShownIOSTests: XCTestCase {
             ["op": "frame", "id": 2, "x": 0.2, "y": 0.0, "w": 300.0, "h": 100.0],
             ["op": "frame", "id": 4, "x": 0.0, "y": 60.0, "w": 100.0, "h": 20.0],
         ]))
-        nextFrame()
+        waitForFrame(p, showing: 4)
         let parent = try XCTUnwrap(p.views[2])
         XCTAssertEqual(parent.window?.screen.scale, 3, "the pixel arithmetic is at 3x")
         animating {
@@ -331,7 +337,7 @@ final class ShownIOSTests: XCTestCase {
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 30.0],
         ]))
-        nextFrame()
+        waitForFrame(p, showing: 2)
         let view = try XCTUnwrap(p.views[2])
         view.isHidden = true
         view.isHidden = false
@@ -366,7 +372,7 @@ final class ShownIOSTests: XCTestCase {
             ["op": "frame", "id": 6, "x": 0.0, "y": 80.0, "w": 200.0, "h": 30.0],
             ["op": "frame", "id": 7, "x": 0.0, "y": 0.0, "w": 200.0, "h": 30.0],
         ]))
-        nextFrame()
+        waitForFrame(p, showing: 4, 5, 6, 7)
         let moved = try XCTUnwrap(p.views[4]), reordered = try XCTUnwrap(p.views[6])
         animating {
             p.apply(wireBatch([
@@ -402,7 +408,7 @@ final class ShownIOSTests: XCTestCase {
             ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 200.0, "h": 30.0],
             ["op": "content", "id": 3, "w": 400.0, "h": 300.0],
         ]))
-        nextFrame()
+        waitForFrame(p, showing: 3)
         XCTAssertNil(p.views[2], "a leaf, drawn as a layer")
         animating {
             p.apply(wireBatch([
@@ -434,7 +440,7 @@ final class ShownIOSTests: XCTestCase {
             ["op": "frame", "id": 20, "x": 0.0, "y": 200.0, "w": 200.0, "h": 40.0],
             ["op": "frame", "id": 21, "x": 0.0, "y": 0.0, "w": 40.0, "h": 40.0],
         ]))
-        nextFrame()
+        waitForFrame(p, showing: 21)
         p.buttonFace = { id in var face = ButtonFace(); face.title = id == 11 ? "Reply" : "Map"; return face }
         var tabs: [[String: Any]] = [["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "tablist"], "style": ["text_color": [0, 0, 0, 255]]],
                                      ["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 300.0, "h": 40.0]]
@@ -482,7 +488,7 @@ final class ShownIOSTests: XCTestCase {
                ["op": "frame", "id": 9, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
                ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 400.0],
                ["op": "content", "id": 1, "w": 300.0, "h": 2000.0]]))
-        nextFrame()
+        waitForFrame(p, showing: 10)
         let view = try XCTUnwrap(p.views[10])
         animating {
             p.apply(wireBatch([collections([20]), ["op": "destroy", "id": 10], ["op": "destroy", "id": 11]] + row(20)
@@ -506,7 +512,7 @@ final class ShownIOSTests: XCTestCase {
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 300.0],
             ["op": "frame", "id": 5, "x": 0.0, "y": 20.0, "w": 100.0, "h": 50.0],
         ]))
-        nextFrame()
+        waitForFrame(p, showing: 1)
         animating {
             p.apply(wireBatch([
                 ["op": "create", "id": 2, "kind": "view"],
@@ -548,7 +554,7 @@ final class ShownIOSTests: XCTestCase {
         }
         p.apply(wireBatch([["op": "create", "id": 1, "kind": "view"], ["op": "roots", "ids": [1]], ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0]]
             + scroller(10, x: 0) + [["op": "children", "id": 1, "ids": [10]]]))
-        nextFrame()
+        waitForFrame(p, showing: 10)
         p.apply(wireBatch(scroller(20, x: 200) + [["op": "children", "id": 1, "ids": [10, 20]]]))
         let shown = try XCTUnwrap(p.views[10]?.scroll), made = try XCTUnwrap(p.views[20]?.scroll)
         // At their start under the window's own safe area, as a bar's scroller opens
@@ -579,7 +585,7 @@ final class ShownIOSTests: XCTestCase {
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
         ]))
-        nextFrame()
+        waitForFrame(p, showing: 1)
         animating {
             p.apply(wireBatch([
                 ["op": "create", "id": 2, "kind": "image", "props": ["imageSource": "symbol:star", "symbolName": "star"], "style": ["font_size": 17.0]],
