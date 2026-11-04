@@ -2,7 +2,7 @@
 // shared web reader owns admission and lifetime; the mapper produces a
 // snapshot for every protocol frame. Loaded only for a streaming source.
 import { streamed } from './http-body.js';
-import { answering, SOCKET_AND_FETCH } from './ts-fetch.js';
+import { answering, isSignal, ownSignal, SOCKET_AND_FETCH } from './ts-fetch.js';
 import { rt } from './rt-link.js'; // (rt.js's own, as a lazy chunk takes them: rt-link.js)
 const { clock, journal } = rt;
 import { failureCode, failureReason } from './shape.js';
@@ -23,6 +23,9 @@ function request(input, init, redirect) {
   const body = init.body, raw = body == null ? undefined : body instanceof ArrayBuffer ? new Uint8Array(body.slice(0))
     : ArrayBuffer.isView(body) ? new Uint8Array(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength)) : new TextEncoder().encode(String(body));
   const request = typeof Request === 'function' && input instanceof Request ? input : null;
+  // The caller's signal, as Fetch picks it (`init.signal` over the Request's)
+  const signal = init.signal !== undefined ? init.signal : request ? request.signal : null;
+  if (signal != null && !isSignal(signal)) throw new TypeError('fetch: init.signal is not an AbortSignal');
   const method = methodOf(input, init), url = request ? request.url : String(input);
   // (a Request's own body comes along when `init` names none: a long poll has none)
   if (init.exactLongPoll !== undefined && request?.body != null && init.body == null)
@@ -30,7 +33,7 @@ function request(input, init, redirect) {
   const upload = uploadOf(init, method, url, redirect), timeoutMs = upload ? init.exactTimeout : undefined;
   if (timeoutMs !== undefined && (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 3600000))
     throw new TypeError('exactTimeout must be an integer number of milliseconds from 1 to 3600000');
-  return { method, url, headers: [...new Headers(init.headers ?? request?.headers ?? [])], raw, bodyFrom, redirect, maxResponseBytes: independent ?? 1048576, longPoll: longPollOf(init.exactLongPoll, method, url), upload, timeoutMs };
+  return { method, url, signal, headers: [...new Headers(init.headers ?? request?.headers ?? [])], raw, bodyFrom, redirect, maxResponseBytes: independent ?? 1048576, longPoll: longPollOf(init.exactLongPoll, method, url), upload, timeoutMs };
 }
 // `exactUploadProgress` (LLP 1016.000 D10), as js/src/binary.js `uploadOf` checks it.
 function uploadOf(init, method, url, redirect) {
@@ -134,11 +137,13 @@ const gate = () => globalThis.exact?.streamGate;
 export function open({ input, init, redirect }, conv, grantSet, deliver, controller) {
   let req;
   try { req = request(input, init, redirect); } catch (e) { return Promise.resolve({ error: String(e?.message ?? e), code: failureCode(e), reason: failureReason(e) }); }
-  // The caller's signal, as Fetch picks it (`init.signal` over the Request's),
-  // ends the stream too, before a body is read from a file or after.
-  const own = init.signal !== undefined ? init.signal : typeof Request === 'function' && input instanceof Request ? input.signal : null;
+  // The caller's signal ends the stream too, before a body is read from a file
+  // or after. The stream hears it, while it lasts, through a signal of its own
+  // (ts-fetch.js `ownSignal`), whose abort event the app's listeners on the
+  // caller's signal do not reach where the platform composes signals.
+  const own = req.signal, heard = ownSignal(own), abort = () => controller.abort(own.reason);
   if (own?.aborted) controller.abort(own.reason);
-  else own?.addEventListener?.('abort', () => controller.abort(own.reason), { once: true });
+  else heard?.addEventListener('abort', abort, { once: true });
   const map = init.exactStream;
   controller.upload = !!req.upload; // in flight until its reply, for every clock (rt.js)
   let socket;
@@ -185,5 +190,6 @@ export function open({ input, init, redirect }, conv, grantSet, deliver, control
       ? { type: 'error', data: '', lastEventId: '', coalesced: 0, kind: KINDS[o.kind], message: said.decode(o.body), status: 0 }
       : req.upload ? { type: 'load', status: o.status, data: said.decode(o.body), lastEventId: '', coalesced: 0 }
       : { type: 'error', data: said.decode(o.body), lastEventId: '', coalesced: 0, kind: 'Response', message: `HTTP ${o.status}`, status: o.status });
-    });
+    })
+    .finally(() => heard?.removeEventListener('abort', abort));
 }
