@@ -44,14 +44,6 @@ static DRIVEN: AtomicBool = AtomicBool::new(false);
 /// A driver's launch: the runner's clock from the boot, before any request.
 static SEEK: AtomicBool = AtomicBool::new(false);
 
-/// Streams painted since the reader last took one, oldest first. A process
-/// has one host, and only its thread paints and takes.
-static STREAMS: Mutex<VecDeque<Vec<u32>>> = Mutex::new(VecDeque::new());
-
-fn streams() -> MutexGuard<'static, VecDeque<Vec<u32>>> {
-    STREAMS.lock().unwrap_or_else(|e| e.into_inner())
-}
-
 /// Whether a driver drives the reader (its first request has come).
 pub(crate) fn driven() -> bool {
     DRIVEN.load(Ordering::Relaxed)
