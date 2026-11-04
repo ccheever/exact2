@@ -1145,6 +1145,18 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         self.inner.as_ref().is_some_and(|s| s.keeps_sent(fetch))
     }
 
+    // Inline only: an owner thread runs a turn to its end.
+    fn timer_before_reply(
+        &mut self,
+        store: &Store,
+        in_flight: InFlight<'_>,
+    ) -> Option<(u64, Request)> {
+        match self.owner {
+            Some(_) => None,
+            None => self.inner.as_mut()?.timer_before_reply(store, in_flight),
+        }
+    }
+
     fn keep_sent(
         &mut self,
         store: &Store,

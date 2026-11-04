@@ -983,6 +983,23 @@ pub(super) fn check_command(
     if name == "setRootFontSize" {
         return root_font_size_args(args, scope, shapes, span);
     }
+    // @ref LLP 1021 §5.3.1 — one factor, CSS px per device-independent
+    // pixel: 1 is Actual Size.
+    if name == "setPageZoom" {
+        let fits = match args {
+            [Expr::Number(n, _)] => *n > 0.0,
+            [arg] => matches!(infer(arg, scope, shapes)?, Ty::Number),
+            _ => false,
+        };
+        if fits {
+            return Ok(());
+        }
+        return err(
+            "type-page-zoom",
+            "`setPageZoom(factor)` takes the page zoom as a number above 0: `setPageZoom(1.25)` is 125%, `setPageZoom(1)` Actual Size",
+            span,
+        );
+    }
     // @ref LLP 1121 D5 — an axis and its value; lowering checks literal
     // ones against the design's axes.
     if name == "setMode" {

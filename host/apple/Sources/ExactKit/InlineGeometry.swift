@@ -90,7 +90,7 @@ extension Presenter {
         // A face's content area around `baseline` (its `baselineOffset`
         // raising it), as this host's CSS line box rounds it.
         #if os(macOS)
-        let scale = field.window?.backingScaleFactor ?? 1
+        let scale = field.pixelScale ?? 1
         #else
         let scale: CGFloat = 1
         #endif
@@ -189,7 +189,7 @@ extension NodeView {
         #if os(iOS) || os(tvOS)
         let scale = traitCollection.displayScale
         #else
-        let scale = window?.backingScaleFactor ?? 1
+        let scale = pixelScale ?? 1
         #endif
         var placedEmpty = false
         return paragraph.lines.indices.compactMap { index in

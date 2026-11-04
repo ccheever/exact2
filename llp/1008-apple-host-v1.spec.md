@@ -145,8 +145,9 @@ half-leading and ceils a `normal` paragraph's height in device pixels, so at
 device scale 2 a 14 px `normal` line is 16.5 tall with its baseline at 13.5,
 where at scale 1 it is 17 and 14 (`CSSLineBox`). The engine rounds at its
 `lineScale`: the Mac presenter sets it to the window's `backingScaleFactor`
-before the first layout, and when the window moves to a display of another
-scale it sets it again, which drops what the engine measured and has the
+times the page zoom (LLP 1021 §5.3.1, as Chromium's device scale is under a
+page zoom) before the first layout, and when the window moves to a display
+of another scale or the zoom changes it sets it again, which drops what the engine measured and has the
 kernel measure every paragraph again (`exact_text_scale_changed`,
 `Kernel::remeasure_text`). A paragraph paints each baseline on the device
 pixels its line box was rounded to (`Paragraph.lineScale`), so on a 2x Mac a

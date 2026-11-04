@@ -524,7 +524,7 @@ public final class ExactSession {
         #if canImport(UIKit)
         let scale = presenter.viewport.traitCollection.displayScale
         #else
-        let scale = presenter.viewport.window?.backingScaleFactor ?? 1
+        let scale = devicePixelScale
         #endif
         _ = runtime.canvasDisplay(scale: max(1, scale), memory: ProcessInfo.processInfo.physicalMemory)
         // A window on another display corrects it; the canvases redraw (D4).
@@ -1169,7 +1169,7 @@ public final class ExactSession {
                     continue
                 }
                 if ["navigate", "traverseHistory", "reload", "stopLoading", "captureScreenshot", "openDevTools"].contains(name) { app.deliver { [weak self] in self?.webviews.command(name, args) }; continue } // an iframe's, by id (LLP 1020.002 D3, D7, D11)
-                if name == "relaunch" { app.deliver { [weak self] in self?.relaunch() }; continue }
+                if name == "relaunch" || name == "setPageZoom" { app.deliver { [weak self] in if name == "relaunch" { self?.relaunch() } else { self?.setPageZoom(args) } }; continue } // `setPageZoom`: LLP 1021 §5.3.1 (ZoomMac.swift)
                 if name == "startTrace_EXPERIMENTAL" || name == "stopTrace_EXPERIMENTAL" { app.deliver { [weak self] in self?.traceCommand(name, args) }; continue }
                 if name == "haptic" {
                     // @ref LLP 1077 D14 — feedback from app logic.

@@ -5,7 +5,7 @@
 **Systems:** Kernel (a top layer; the popover's box anchored to its invoker), Contract (HTML popover and dialog declarations), Web host (the Popover API by identity), Apple host (menu-shaped popovers presented as UIMenu/NSMenu), Linux host (a kernel-painted top layer), Agent API (no ninth operation), Weird Castle (the account switcher, first consumer)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
-**Revision:** §5.1, 2026-10-05 (Claude, Opus 5.5): the long-press context menu earned back, with its preview and commit, for the Signal clone's chat list (Charlie's approval). §5.2, 2026-10-07 (Claude, Opus 5.5): submenus earned back for the T3 Code clone's row menus (#141), with `position-area="right span-bottom"`. §5.3.1, 2026-10-22 (Claude, Opus 5.5): the menu bar's own items — app-wide enablement, `about` and `none`, eleven more removal ids, View's zoom — for the T3 Code clone's app-owned menu code. §5.3.2, 2026-10-23 (Claude, Opus 5.5): the declared menu bar on Windows, a painted Fluent row (Charlie's admission of Windows). D2, 2026-10-28 (Claude, Opus 5.5): a popover at its authored `left`/`top`, and the press's `clientX`/`clientY`, for the T3 Code clone's menus that open at the click ("At the press point", below). §5.3.3, 2026-10-28 (Claude, Opus 5.5): File ▸ Close Window's chord, `-exact-menu-keys`. §5.1, 2026-10-28 (Claude, Opus 5.5): a keyboard or VoiceOver menu request no node answers gets the menu a right-click there would show, on macOS.
+**Revision:** §5.1, 2026-10-05 (Claude, Opus 5.5): the long-press context menu earned back, with its preview and commit, for the Signal clone's chat list (Charlie's approval). §5.2, 2026-10-07 (Claude, Opus 5.5): submenus earned back for the T3 Code clone's row menus (#141), with `position-area="right span-bottom"`. §5.3.1, 2026-10-22 (Claude, Opus 5.5): the menu bar's own items — app-wide enablement, `about` and `none`, eleven more removal ids, View's zoom — for the T3 Code clone's app-owned menu code. §5.3.2, 2026-10-23 (Claude, Opus 5.5): the declared menu bar on Windows, a painted Fluent row (Charlie's admission of Windows). D2, 2026-10-28 (Claude, Opus 5.5): a popover at its authored `left`/`top`, and the press's `clientX`/`clientY`, for the T3 Code clone's menus that open at the click ("At the press point", below). §5.3.3, 2026-10-28 (Claude, Opus 5.5): File ▸ Close Window's chord, `-exact-menu-keys`. §5.1, 2026-10-28 (Claude, Opus 5.5): a keyboard or VoiceOver menu request no node answers gets the menu a right-click there would show, on macOS. §5.3.1, 2026-11-04 (Claude, Opus 5.5): View's zoom is a page zoom, as Chromium's, and `setPageZoom` sets it (Daehyeon's ruling).
 **Related:** LLP 1017 §8.1 (literal HTML/CSS names, no aliases — the rule that names every row here), LLP 1001 (where a deviation from the bare element is declared), LLP 1008 (host state that never enters the plan — scroll offset — and the native text field, the one native control so far), LLP 1012 (the eight operations; `tap` is a journal entry into the runner, never OS input), LLP 1014 (the canvas capture the top layer sits outside of), LLP 1018 (the `EXACT_AGENT` presentation-swap precedent: `MemoryStore` for the keychain), weird-castle e644c82 (the hand-rolled switcher overlay this replaces). Platform record: the HTML Popover API and invoker attributes; the WAI-ARIA menu pattern; Apple HIG "Menus" and "Pull-down buttons"; `UIMenu`/`UIButton.menu`/`showsMenuAsPrimaryAction` (iOS 14+), `NSMenu` (macOS).
 
 ## 1. Summary
@@ -1406,18 +1406,38 @@ Electron's default menu does. AppKit sends ⌘= and ⇧⌘= to the ⌘+ item its
 (measured with posted HID events), so the ⌘+ item answers a keyboard's three;
 an event built without the layout's characters (the agent's) misses it, so a
 hidden ⌘= item answers that one. The steps are Safari's page zoom
-levels (50, 75, 85, 100, 115, 125, 150, 175, 200, 250, 300%); T3 Code's are
-Electron's half levels (1.2^0.5, about 110%), a difference of step only. The
+levels (50, 75, 85, 100, 115, 125, 150, 175, 200, 250, 300%). The
 zoom is the main window's session's (the key window's, or the window under a
-key panel, as AppKit sends a nil-targeted action), kept across a reload and not across a
-launch, and the runner applies it last: the root font size, the app's own
-`setRootFontSize` included, times the zoom (`Runner::set_root_font_zoom`,
-`exact_set_root_font_zoom`), as a browser's page zoom is over an author's
-`html { font-size }`. Declared deviation: a browser's zoom scales `px`
-lengths too; this one scales what follows the root size and leaves `px`
-and the platform's controls. The items are in every Mac app's View, as in
-Safari's and Electron's; an app that sizes in `px` alone removes them. An
-app's own ⌘0, ⌘= or ⌘- command stands in for the host's item, as Edit's do.
+key panel, as AppKit sends a nil-targeted action), kept across a reload and
+not across a launch. The items are in every Mac app's View, as in Safari's
+and Electron's. An app's own ⌘0, ⌘= or ⌘- command stands in for the host's
+item, as Edit's do, and sets its own steps with `setPageZoom(factor)`,
+Electron's `webContents.setZoomFactor` (T3 Code's are Electron's half
+levels, 1.2^0.5, about 110%).
+
+**It is a page zoom, as Chromium's** (2026-11-04, Daehyeon's ruling that
+View's zoom scale the whole page, as Electron's does). A CSS px is `factor`
+points: the viewport the page lays out in is the view's size over the factor,
+so media queries, `resize` and `env()` lengths see it, and `px`, `rem` and
+the platform's controls in the page all scale. The Mac host magnifies the
+page's scroll view (`NSScrollView.magnification`, clamped to Chrome's 25% to
+500%), and AppKit backs every view of the page at the window's backing scale
+times the factor. That is Chrome's device scale under a page zoom: Chrome 156
+at 125% on a 2x display reads `devicePixelRatio` 2.5 and `innerWidth` 800 in
+a 1000 px window, and rounds a 14 px `normal` line box to 16.4 px, 41 of
+those device pixels (`TextParityMacTests`). Text line boxes round to them (LLP 1008 §3), a hairline
+is one of them (LLP 1115.000 D10.3), and pictures, icons and masks are drawn
+at that scale. A dialog's backdrop and a popover's layer, which sit over the
+page rather than in its document, carry the zoom in their bounds. Not zoomed:
+the window's chrome (title bar, toolbar, menu bar and native menus, which are
+not the page), the panes the host composes beside the page from
+root tabs or a stack (LLP 1115.002 D3, D4), and a sheet in a window of its
+own. A region surface (LLP 1044) whose scale is then neither 1 nor 2 draws
+as ordinary paragraphs. Until they follow, iOS, Linux and Windows have no
+View zoom and refuse `setPageZoom` in the journal; the web refuses it too, as
+the browser's zoom is the person's. This replaces a zoom of the root font
+size alone (`exact_set_root_font_zoom`), which left `px` lengths and the
+viewport as they were.
 
 **Not built, because the platform already does it.** Standard items under a
 non-Latin input source: under Korean 2-Set a real ⌘ chord's `characters` is
