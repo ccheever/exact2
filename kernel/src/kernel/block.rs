@@ -794,19 +794,14 @@ impl Kernel {
         })
     }
 
-    /// PROTO (rule 4, "Exact describes, UIKit drives"): the frames `view`'s
-    /// subtree would take with its clearance's top edge `t` of the way from
-    /// where it is to `far`, in each box's parent's space: each box, its frame
-    /// now, its frame then. `view` holds a block and an `Edges` clearance (an
-    /// owner's root). Laid out by `measure_block`'s path, in a copy of the
-    /// arena and engine tree that is dropped after: nothing the kernel holds
-    /// changes.
-    pub fn trial_clearance_frames(
-        &mut self,
-        view: ViewId,
-        t: f32,
-        far: f32,
-    ) -> Result<Vec<(ViewId, Frame, Frame)>, KernelError> {
+    /// PROTO (rule 4, "Exact describes, UIKit drives"): a trial of `view`'s
+    /// subtree with its clearance's top edge moved toward `far`. `view` holds
+    /// a block and an `Edges` clearance (an owner's root). The arena and engine
+    /// tree are copied once, with the scrolled content the edge cannot change
+    /// frozen in its settled layout (`LayoutTree::freeze_scroll_content`), and
+    /// each place along the range is laid out in the copy
+    /// (`ClearanceTrial::frames`): nothing the kernel holds changes.
+    pub fn clearance_trial(&mut self, view: ViewId, far: f32) -> Result<ClearanceTrial<'_>, KernelError> {
         let slot = self
             .arena
             .slot_of(view)
@@ -814,11 +809,10 @@ impl Kernel {
         let Some(block) = self.arena.blocks.get(slot) else {
             return Err(LayoutError::HostBlock("only a block's root takes a clearance").into());
         };
-        let Some(HostCover::Edges(mut edges)) = self.arena.cover(slot) else {
-            return Ok(Vec::new());
+        let Some(HostCover::Edges(edges)) = self.arena.cover(slot) else {
+            return Err(LayoutError::HostBlock("the root has no clearance").into());
         };
-        let top = edges[0] + (far - edges[0]) * t;
-        if !top.is_finite() || top < 0.0 {
+        if !far.is_finite() || far < 0.0 {
             return Err(LayoutError::InvalidOffer.into());
         }
         let tree = self.layout.as_deref().and_then(LayoutMirror::tree_ref);
@@ -829,14 +823,64 @@ impl Kernel {
         if !wants.is_empty() || !moved.is_empty() || self.symbols_pending() || tree.is_dirty(node) {
             return Err(LayoutError::HostBlock("a layout is due first").into());
         }
+        let started = std::time::Instant::now(); // PROTO: the trial's phases timed
         let (mut arena, mut trial) = (self.arena.trial_copy(), tree.clone());
+        // Scrolled content the edge cannot change keeps its settled layout and is neither laid out nor collected
+        for s in trial.freeze_scroll_content(node) {
+            arena.set_children(s, Vec::new());
+        }
+        TRIAL_PHASES.with(|p| {
+            let (a, b, c, n) = p.get();
+            p.set((a + started.elapsed().as_micros() as u64, b, c, n));
+        });
+        Ok(ClearanceTrial { settled: &self.arena, measurer: self.measurer.as_mut(), arena, tree: trial, slot, node, block, edges, far })
+    }
+
+    /// PROTO (rule 4): the frames of one trial at `t`, `clearance_trial(view, far)?.frames(t)`.
+    pub fn trial_clearance_frames(
+        &mut self,
+        view: ViewId,
+        t: f32,
+        far: f32,
+    ) -> Result<Vec<(ViewId, Frame, Frame)>, KernelError> {
+        self.clearance_trial(view, far)?.frames(t)
+    }
+}
+
+/// PROTO (rule 4): an owner's subtree laid out again, in a copy, at places along its top edge's range
+/// (`Kernel::clearance_trial`).
+pub struct ClearanceTrial<'a> {
+    settled: &'a NodeArena,
+    measurer: &'a mut dyn crate::text::TextMeasurer,
+    arena: NodeArena,
+    tree: layout::LayoutTree,
+    slot: u32,
+    node: taffy::NodeId,
+    block: HostBlock,
+    edges: [f32; 4],
+    far: f32,
+}
+
+impl ClearanceTrial<'_> {
+    /// The frames the subtree takes with its top edge `t` of the way from where it is to the far end, in each
+    /// box's parent's space: each box, its frame now, its frame then. A frozen scroller's content is not listed:
+    /// it keeps its frame in its scroller.
+    pub fn frames(&mut self, t: f32) -> Result<Vec<(ViewId, Frame, Frame)>, KernelError> {
+        let top = self.edges[0] + (self.far - self.edges[0]) * t;
+        if !top.is_finite() || top < 0.0 {
+            return Err(LayoutError::InvalidOffer.into());
+        }
+        let started = std::time::Instant::now();
+        let mut edges = self.edges;
         edges[0] = top;
-        arena.set_cover(slot, Some(HostCover::Edges(edges)));
-        trial.restyle(&arena, slot, node);
-        trial.mark_dirty(node);
-        let room = inner(&arena, slot, block);
+        self.arena.set_cover(self.slot, Some(HostCover::Edges(edges)));
+        self.tree.restyle(&self.arena, self.slot, self.node);
+        self.tree.mark_dirty(self.node);
+        let room = inner(&self.arena, self.slot, self.block);
         let offer = Offer::definite(room.width.length(), room.height.length());
-        layout::compute(&mut arena, &mut trial, self.measurer.as_mut(), slot, offer)?;
+        layout::compute(&mut self.arena, &mut self.tree, &mut *self.measurer, self.slot, offer)?;
+        let computed = started.elapsed();
+        let slot = self.slot;
         // Each box in its parent's space, as the host places it; the root in the block's
         let relative = |a: &NodeArena, s: u32| {
             let f = a.frame(s);
@@ -851,11 +895,26 @@ impl Kernel {
         let mut out = Vec::new();
         let mut stack = vec![slot];
         while let Some(s) = stack.pop() {
-            out.push((self.arena.local_id(s), relative(&self.arena, s), relative(&arena, s)));
-            stack.extend_from_slice(arena.children(s));
+            out.push((self.settled.local_id(s), relative(self.settled, s), relative(&self.arena, s)));
+            stack.extend_from_slice(self.arena.children(s));
         }
+        let collected = started.elapsed();
+        TRIAL_PHASES.with(|p| {
+            let (a, b, c, n) = p.get();
+            p.set((a, b + computed.as_micros() as u64, c + (collected - computed).as_micros() as u64, n + 1));
+        });
         Ok(out)
     }
+}
+
+thread_local! {
+    /// PROTO: the trial layouts' time in copying, laying out and collecting frames, in microseconds, and their count
+    static TRIAL_PHASES: std::cell::Cell<(u64, u64, u64, u64)> = const { std::cell::Cell::new((0, 0, 0, 0)) };
+}
+
+/// PROTO: the trial layouts' phases since the last call: copy, layout and collection, in microseconds, and the count
+pub fn take_trial_phases() -> (u64, u64, u64, u64) {
+    TRIAL_PHASES.with(|p| p.replace((0, 0, 0, 0)))
 }
 
 /// What `Kernel::measure_block` answers: the used size, the border box, and

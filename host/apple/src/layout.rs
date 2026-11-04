@@ -193,8 +193,11 @@ impl<D: DataSource> Host<D> {
     fn emit_far(&mut self, batch: &mut Batch) {
         for route in self.moving_tops.clone() {
             let started = std::time::Instant::now(); // PROTO: the far pass timed
-            let kernel = self.runner.kernel_mut();
-            let Ok(all) = kernel.trial_clearance_frames(route, 1.0, 0.0) else {
+            // One trial session per pass: the kernel copies once and lays out each place in the copy
+            let Ok(mut trial) = self.runner.kernel_mut().clearance_trial(route, 0.0) else {
+                continue;
+            };
+            let Ok(all) = trial.frames(1.0) else {
                 continue;
             };
             let moving: Vec<_> = all.into_iter().filter(|(_, now, far)| !near(now, far)).collect();
@@ -203,9 +206,11 @@ impl<D: DataSource> Host<D> {
             // How far the edge travels across the range, read off the boxes it moves furthest
             let travel = rest.iter().zip(&far).map(|(a, b)| (a.y - b.y).abs().max((a.height - b.height).abs())).fold(0.0, f32::max);
             let mut knots = Vec::new();
-            halve(kernel, route, &ids, (0.0, &rest), (1.0, &far), travel, &mut knots);
+            halve(&mut trial, &ids, (0.0, &rest), (1.0, &far), travel, &mut knots);
+            drop(trial);
             knots.sort_by(|a, b| a.0.total_cmp(&b.0));
-            batch.far_reset(route, started.elapsed().as_micros() as u64, TRIALS.with(|n| n.replace(0)) + 1);
+            let (copy, lay, collect, _) = exact_kernel::kernel::take_trial_phases(); // PROTO: the trials' phases
+            batch.far_reset(route, started.elapsed().as_micros() as u64, TRIALS.with(|n| n.replace(0)) + 1, [copy, lay, collect]);
             for (i, (id, now, f)) in moving.iter().enumerate() {
                 let inner: Vec<(f32, [f32; 4])> = knots.iter().map(|(t, frames)| (*t, rect(frames[i]))).collect();
                 batch.far(*id, route, rect(*now), rect(*f), &inner);
@@ -1163,20 +1168,20 @@ fn rect(f: Frame) -> [f32; 4] {
 
 /// PROTO (rule 4): the knots between `(t0, f0)` and `(t1, f1)` at which the
 /// boxes `ids` of `route` are laid out, so that each is linear in the edge
-/// between neighbouring knots: the midpoint is laid out (`trial_clearance_frames`)
+/// between neighbouring knots: the midpoint is laid out (`ClearanceTrial::frames`)
 /// and, where any box strays from the line between the ends by more than
 /// `SLACK`, it becomes a knot and each half is halved again, until a range
 /// spans no more than `SLACK` of the edge's `travel`, where a box's error
 /// stays within `SLACK` too. A box between a range's ends that is straight at
 /// its middle is taken to be straight throughout: a `min-*` or `max-*` bound
 /// reached once bends it off the line at the middle.
-fn halve(kernel: &mut exact_kernel::Kernel, route: ViewId, ids: &[ViewId], (t0, f0): (f32, &[Frame]), (t1, f1): (f32, &[Frame]), travel: f32, knots: &mut Vec<(f32, Vec<Frame>)>) {
+fn halve(trial: &mut exact_kernel::kernel::ClearanceTrial<'_>, ids: &[ViewId], (t0, f0): (f32, &[Frame]), (t1, f1): (f32, &[Frame]), travel: f32, knots: &mut Vec<(f32, Vec<Frame>)>) {
     if ids.is_empty() || (t1 - t0) * travel <= SLACK {
         return;
     }
     let tm = (t0 + t1) / 2.0;
     TRIALS.with(|n| n.set(n.get() + 1));
-    let Ok(all) = kernel.trial_clearance_frames(route, tm, 0.0) else {
+    let Ok(all) = trial.frames(tm) else {
         return;
     };
     let at: std::collections::HashMap<ViewId, Frame> = all.into_iter().map(|(id, _, f)| (id, f)).collect();
@@ -1186,6 +1191,6 @@ fn halve(kernel: &mut exact_kernel::Kernel, route: ViewId, ids: &[ViewId], (t0, 
         return;
     }
     knots.push((tm, mid.clone()));
-    halve(kernel, route, ids, (t0, f0), (tm, &mid), travel, knots);
-    halve(kernel, route, ids, (tm, &mid), (t1, f1), travel, knots);
+    halve(trial, ids, (t0, f0), (tm, &mid), travel, knots);
+    halve(trial, ids, (tm, &mid), (t1, f1), travel, knots);
 }

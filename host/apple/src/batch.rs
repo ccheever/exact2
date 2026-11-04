@@ -739,9 +739,10 @@ impl Batch {
 
     /// PROTO (rule 4): `route`'s far frames are replaced by the `far` ops that follow; the far
     /// pass took `micros` and `trials` trial layouts.
-    pub fn far_reset(&mut self, route: u32, micros: u64, trials: u32) {
-        self.ops
-            .push(format!("{{\"op\":\"far\",\"id\":{route},\"property\":\"reset {micros} {trials}\"}}"));
+    pub fn far_reset(&mut self, route: u32, micros: u64, trials: u32, [copy, lay, collect]: [u64; 3]) {
+        self.ops.push(format!(
+            "{{\"op\":\"far\",\"id\":{route},\"property\":\"reset {micros} {trials} copy {copy} layout {lay} collect {collect}\"}}"
+        ));
     }
 
     /// Twice the sibling paint rank, losslessly encoded (LLP 1083.000 D4).

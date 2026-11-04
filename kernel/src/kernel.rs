@@ -23,6 +23,7 @@ use crate::txn::{self, CommitReceipt, Target};
 use crate::wire::{self, Op};
 mod alert;
 mod block;
+pub use block::{take_trial_phases, ClearanceTrial}; // PROTO (rule 4)
 mod cover;
 mod document;
 mod environment;
