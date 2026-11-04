@@ -1116,6 +1116,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if old["appearance"] != s["appearance"] { needsLayout = true } // a form row's bezel (FormRowsMac.swift)
         if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }
         if old["accent_color"] != s["accent_color"] { accentChanged() }
+        if old["outline_style"] != s["outline_style"], focusVisible { noteFocusRingMaskChanged() } // LLP 1104 D6
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
         decorationChanged(from: old)

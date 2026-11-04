@@ -188,6 +188,33 @@ fn a_runner_owned_resource_is_marked() {
     assert!(!full.contains(".r.owned"), "{full}");
 }
 
+/// LLP 1104 D6 (amended 2026-11-05): a button's or a link's `outline="none"`
+/// is its own `outline-style`, as a field's is.
+#[test]
+fn outline_none_is_any_focusable_elements_own_declaration() {
+    let plan = contract::compile(
+        "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      button press=go outline=\"none\"\n        text \"Go\"\n      link href=\"/a\" outline=\"none\"\n        text \"A\"\n      button press=go\n        text \"Plain\"\n",
+    )
+    .unwrap();
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    let classes: Vec<_> = out
+        .css
+        .split(".c")
+        .filter(|c| c.contains("outline-style:none"))
+        .map(|c| c.split('{').next().unwrap().to_string())
+        .collect();
+    assert!(!classes.is_empty(), "{}", out.css);
+    for tag in ["button", "a"] {
+        assert!(
+            classes
+                .iter()
+                .any(|c| out.js.contains(&format!("\"{tag}\",{c},"))),
+            "the {tag}'s class: {}",
+            out.js
+        );
+    }
+}
+
 /// LLP 1104 D6: `outline="none"` is the field's own `outline-style`, in its
 /// class, which outranks the base sheet's `:focus-visible` restore
 /// (`#exact-root#exact-root .cN` over `#exact-root input:…`); a bound one is

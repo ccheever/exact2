@@ -61,6 +61,10 @@ extension NodeView {
             presenter.shownMenus.remove(at: index)
             presenter.menuClosed(self)
         }
+        if newWindow !== window, BackdropCovers.nodes.contains(self) {
+            BackdropCovers.changed(in: window)
+            BackdropCovers.changed(in: newWindow)
+        }
         super.viewWillMove(toWindow: newWindow)
     }
     func focusLeft() {
@@ -169,16 +173,17 @@ extension NodeView {
     /// A focused pressable's ring, AppKit's exterior one around its rounded
     /// box, as AppKit rings an `NSButton` the keyboard moved the focus to.
     /// AppKit draws no mask whose bounds are empty, which keeps it off a box
-    /// that is not pressable, a field (its own ring) and a focus that is not
-    /// visible.
+    /// that is not pressable, a field (its own ring), a focus that is not
+    /// visible, a box whose author wrote `outline: none` (LLP 1104 D6) and a
+    /// ring a later backdrop covers (`BackdropCoverMac.swift`).
     var bareFieldFocused: Bool {
         !isNativeTextControl && (field?.currentEditor() != nil || (textArea != nil && window?.firstResponder === textArea))
     }
     package override var focusRingMaskBounds: NSRect {
-        bareFieldFocused || (field == nil && ringsFocus && focusVisible) ? bounds : .zero
+        uncovered(!outlineNone && (bareFieldFocused || (field == nil && ringsFocus && focusVisible)) ? bounds : .zero)
     }
     package override func drawFocusRingMask() {
-        guard bareFieldFocused || (field == nil && ringsFocus) else { return }
+        guard !outlineNone, bareFieldFocused || (field == nil && ringsFocus) else { return }
         roundedPath(in: bounds).fill()
     }
 }

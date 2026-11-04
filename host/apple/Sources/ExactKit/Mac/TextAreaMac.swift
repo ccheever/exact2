@@ -66,8 +66,8 @@ package final class TextArea: NSTextView {
     package override var focusRingMaskBounds: NSRect {
         guard let owner else { return super.focusRingMaskBounds }
         if !owner.isNativeTextControl { return convert(owner.focusRingMaskBounds, from: owner) }
-        guard let scroll = owner.textAreaScroll else { return super.focusRingMaskBounds }
-        return convert(scroll.bounds, from: scroll)
+        guard let scroll = owner.textAreaScroll else { return uncovered(super.focusRingMaskBounds) }
+        return uncovered(convert(scroll.bounds, from: scroll))
     }
     package override func drawFocusRingMask() {
         guard let owner else { super.drawFocusRingMask(); return }
@@ -683,7 +683,7 @@ final class Field: NSTextField {
     override func accessibilityPerformDecrement() -> Bool { numberOwner?.step(up: false) ?? super.accessibilityPerformDecrement() }
     override class var cellClass: AnyClass? { get { FieldCell.self } set {} }
     override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
-    override var focusRingMaskBounds: NSRect { bareFieldMask(self) ?? super.focusRingMaskBounds }
+    override var focusRingMaskBounds: NSRect { uncovered(bareFieldMask(self) ?? super.focusRingMaskBounds) }
     override func drawFocusRingMask() { if !drawBareFieldMask(self) { super.drawFocusRingMask() } }
 }
 /// The editor an `input`'s field edits in (`FieldCell.fieldEditor(for:)`):
@@ -800,7 +800,7 @@ final class SecureField: NSSecureTextField {
     override var acceptsFirstResponder: Bool { currentEditor() == nil && super.acceptsFirstResponder }
     override class var cellClass: AnyClass? { get { SecureFieldCell.self } set {} }
     override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
-    override var focusRingMaskBounds: NSRect { bareFieldMask(self) ?? super.focusRingMaskBounds }
+    override var focusRingMaskBounds: NSRect { uncovered(bareFieldMask(self) ?? super.focusRingMaskBounds) }
     override func drawFocusRingMask() { if !drawBareFieldMask(self) { super.drawFocusRingMask() } }
 }
 extension NSTextField {

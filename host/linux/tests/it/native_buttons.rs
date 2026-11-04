@@ -291,3 +291,59 @@ fn native_and_bare_buttons_ring_on_focus_without_a_handler() {
         assert_eq!(sample(&mut p, "off"), [255; 4], "disabled never rings");
     }
 }
+
+/// LLP 1104 D6 (amended 2026-11-05): `outline="none"` takes the ring off a
+/// keyboard-focused button, native or bare, as CSS's does; the focus stays.
+/// The same buttons without it ring.
+#[test]
+fn outline_none_paints_no_ring_on_a_focused_button() {
+    for quiet in [false, true] {
+        let outline = if quiet { " outline=\"none\"" } else { "" };
+        let plan = contract::compile(&format!(r##"component App
+  action focusIt(to: string)
+    focus(to)
+  view
+    column width=400 height=300 background-color="white" align-items="flex-start"
+      button "Native" id="native" appearance="auto"{outline} width=120 height=40 accent-color="#ff0000" testId="native"
+      button id="bare" appearance="none"{outline} width=120 height=40 accent-color="#ff0000" testId="bare"
+        box width="100%" height="100%" background-color="blue"
+          text "Bare"
+      button "Focus native" press=focusIt("native") testId="focusNative"
+      button "Focus bare" press=focusIt("bare") testId="focusBare"
+"##)).unwrap();
+        let (mut p, err) = Presenter::boot_with(
+            &plan.encode(),
+            (),
+            (400., 300.),
+            1.,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(err.is_none(), "{err:?}");
+        let id = |p: &Presenter<()>, name: &str| {
+            let k = p.host().kernel();
+            k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+        };
+        // The accent anywhere on the box's top edge, where a ring is.
+        let ringed = |p: &mut Presenter<()>, name: &str| {
+            let f = p.host().kernel().node(id(p, name)).unwrap().frame;
+            let shot = p.frame();
+            (0..f.width as u32).any(|x| {
+                (0..3).any(|y| {
+                    shot.pixel(f.x as u32 + x, f.y as u32 + y)
+                        .is_some_and(|c| [c.red(), c.green(), c.blue()] == [255, 0, 0])
+                })
+            })
+        };
+        for (action, name) in [("focusNative", "native"), ("focusBare", "bare")] {
+            p.tap(id(&p, action)).unwrap();
+            p.run_commands(<()>::default);
+            let focused = p.focus().unwrap();
+            assert_eq!(focused, id(&p, name), "{name} takes the focus");
+            p.type_key(focused, "KeyX", "x", true, false).unwrap();
+            p.type_key(focused, "KeyX", "x", false, false).unwrap();
+            assert_eq!(ringed(&mut p, name), !quiet, "{name}, outline none {quiet}");
+        }
+    }
+}

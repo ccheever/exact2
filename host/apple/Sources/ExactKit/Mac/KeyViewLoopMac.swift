@@ -272,9 +272,9 @@ final class InlineKeyView: NSView {
         return true
     }
     override var focusRingMaskBounds: NSRect {
-        guard window?.firstResponder === self, let owner, let run else { return .zero }
+        guard window?.firstResponder === self, let owner, let run, !run.outlineNone else { return .zero }
         let rect = owner.inlineRects(run).reduce(CGRect.null) { $0.union($1) }
-        return rect.isNull ? .zero : convert(rect, from: owner)
+        return uncovered(rect.isNull ? .zero : convert(rect, from: owner))
     }
     override func drawFocusRingMask() {
         guard let owner, let run else { return }

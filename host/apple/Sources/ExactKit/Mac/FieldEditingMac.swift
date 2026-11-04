@@ -209,9 +209,10 @@ extension NodeView {
         let uniform = number("border_width")
         return wrote && (uniform > 0 || ["top", "right", "bottom", "left"].contains { number("border_width_" + $0, uniform) > 0 })
     }
-    /// CSS `outline-style: none` on a text field (LLP 1104 D6): no ring,
-    /// Exact's or AppKit's, since the author draws the focus another way.
-    /// Tab still reaches the field, and its accessibility is unchanged.
+    /// CSS `outline-style: none` (LLP 1104 D6): no ring, Exact's or
+    /// AppKit's, on a field, a pressable or a native control, since the
+    /// author draws the focus another way. Tab still reaches it, and its
+    /// accessibility is unchanged.
     var outlineNone: Bool { style["outline_style"]?.string == "none" }
     /// Exact's ring again as the style changes, for a focused editor
     /// whose `outline` may have.

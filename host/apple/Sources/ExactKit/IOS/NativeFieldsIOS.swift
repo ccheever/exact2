@@ -3,6 +3,17 @@
 import UIKit
 
 extension NodeView {
+    /// CSS `outline-style: none` (LLP 1104 D6): Exact's ring stays off a
+    /// focused button, pressable or `tabindex` box, whose author draws the
+    /// focus another way. tvOS keeps its ring, which is how the remote's
+    /// focus shows.
+    var outlineNone: Bool {
+        #if os(tvOS)
+        false
+        #else
+        style["outline_style"]?.string == "none"
+        #endif
+    }
     /// UIKit's field for an `input`.
     func makeField() {
         let f = TextField(frame: .zero)
@@ -104,6 +115,7 @@ extension NodeView {
     }
     /// The style an `input`'s field shows.
     func applyFieldStyle() {
+    if focusRing != nil, outlineNone { showFocusRing(false) } // its ring goes with a restyle to `outline: none`
     field?.textAlignment = NSTextAlignment(rawValue: textAlignmentCode) ?? .left
     if let f = field, let t = text {
         f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")),
