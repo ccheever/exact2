@@ -73,6 +73,11 @@ describe('bounded transcript Markdown reuse', () => {
     expect(source).not.toContain('fit-content(320px)');
   });
 
+  test('thread Markdown prose breaks oversized tokens inside the transcript width', () => {
+    const source = appText('mobile/thread-markdown.contract');
+    expect(source).toContain('text block.text markup="markdown" user-select="text" max-width="100%" overflow-wrap="anywhere"');
+  });
+
   test('assistant image attachments keep the pinned separation and backing', () => {
     const source = appText('mobile/thread.contract');
     expect(source).toContain('margin-top=(user ? 0 : 5.25)');
