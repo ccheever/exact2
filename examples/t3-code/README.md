@@ -1796,7 +1796,11 @@ names an ssh test double, and agent runs of the app read hosts only from `T3_SSH
 prompt tests run against it always, the live test when `T3_SSH_COMMAND` names it and
 `FAKE_SSH_REMOTE_HOME` holds a running server's `.t3/userdata/server-runtime.json`.
 `T3_PERMISSION_HELPER_EVIDENCE` set to a directory renders the snapshot test's permission helper panel.
-**Check for Updates…** (under About and in Help) reads the bundle's receipt: a build
-without an update store (`deploy.store` is `"0"`) shows the reference's "Automatic
-updates are not available right now." box; a build with one does nothing (the module has no
-hook into the host's check).
+**Check for Updates…** (under About and in Help) shows the reference's "Automatic updates are
+not available right now." box. Its reason is the managed policy's when one turns updates off
+("<organization> manages T3 Code updates.") or cannot be used ("Updates are off because T3 Code
+cannot use the managed policy at <path>. …"), read from the same file or profile as the local
+server's exposure (`T3ManagedPolicy.updatesDisabledReason`). Otherwise the bundle's receipt
+decides: a build without an update store (`deploy.store` is `"0"`, as this app ships) has no
+update feed, so a policy's `feedUrl` (an electron-updater feed) has nothing to point; a build
+with one does nothing (the module has no hook into the host's check).

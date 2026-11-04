@@ -107,9 +107,12 @@ final class MenuTests: XCTestCase {
         let embedded = directory.appendingPathComponent("embedded.json"), updating = directory.appendingPathComponent("updating.json")
         try Data(#"{"composition":"embedded"}"#.utf8).write(to: embedded)
         try Data(#"{"composition":"updating"}"#.utf8).write(to: updating)
-        XCTAssertEqual(T3Menus.updatesDisabledReason(receipt: embedded), "Automatic updates are not available because no update feed is configured.")
-        XCTAssertNil(T3Menus.updatesDisabledReason(receipt: updating))
-        XCTAssertNotNil(T3Menus.updatesDisabledReason(receipt: directory.appendingPathComponent("missing.json")))
+        XCTAssertEqual(T3Menus.updatesDisabledReason(receipt: embedded, policy: { nil }), "Automatic updates are not available because no update feed is configured.")
+        XCTAssertNil(T3Menus.updatesDisabledReason(receipt: updating, policy: { nil }))
+        XCTAssertNotNil(T3Menus.updatesDisabledReason(receipt: directory.appendingPathComponent("missing.json"), policy: { nil }))
+        // The managed policy's reason comes before the feed's, with or without an update store.
+        XCTAssertEqual(T3Menus.updatesDisabledReason(receipt: embedded, policy: { "Example Corp manages T3 Code updates." }), "Example Corp manages T3 Code updates.")
+        XCTAssertEqual(T3Menus.updatesDisabledReason(receipt: updating, policy: { "Example Corp manages T3 Code updates." }), "Example Corp manages T3 Code updates.")
     }
 }
 

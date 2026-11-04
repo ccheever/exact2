@@ -46,5 +46,5 @@ component ThreadMarkdown
                         text run.text font-weight=(run.kind == "strong" ? 700 : item.header ? 700 : 400) font-style=(run.kind == "emphasis" ? "italic" : "normal")
                           font-family=(run.kind == "code" ? "Menlo" : "DM Sans") font-size=(run.kind == "code" ? 14.4 : 16)
         else
-          text block.text markup="markdown" user-select="text" font-size=16 line-height="23px"
+          text block.text markup="markdown" user-select="text" max-width="100%" overflow-wrap="anywhere" font-size=16 line-height="23px"
             color=(user ? colors.userForeground : colors.foreground)

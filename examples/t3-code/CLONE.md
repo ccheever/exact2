@@ -50,6 +50,23 @@ cell. Mobile source and Contract tests pass. UIKit's native table projection
 does not expose those web attributes directly, so VoiceOver and native cell
 selection remain a separate acceptance item.
 
+The November 3 continuation tightens the responsive Duo rail reservation. A
+right-side occlusion whose clipped rectangle reaches the content's trailing
+edge is now reserved even when its left edge crosses the bounds midpoint. This
+keeps a wide rail or hinge from covering the thread composer and Send control;
+the existing floating right-half reservation remains unchanged. Focused
+content-geometry tests pass, including midpoint-crossing and multiple-region
+packets. A native keyboard-visible Duo drive is still needed for reachability;
+no native performance claim follows from this source change. The handoff diary
+is `examples/t3-code/mobile/diary/2026-11-03-duo-rail-reservation.md`.
+
+The same continuation carries the reference's anywhere wrapping to ordinary
+transcript Markdown prose. Prose is capped at the available width so long URLs
+and unbroken tokens do not widen a row; code and tables retain their own
+horizontal scrolling. The source regression covers the declaration, with no
+native screenshot or frame-rate claim. The diary is
+`examples/t3-code/mobile/diary/2026-11-03-markdown-prose-wrap.md`.
+
 The prior integrated history, table, first-read, rail and Home units remain in
 the commit ancestry. Open parity gaps are live history errors/Retry, filtered
 continuation, selection and exact anchor preservation, bounded transcript
