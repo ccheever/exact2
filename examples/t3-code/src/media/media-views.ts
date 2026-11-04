@@ -61,7 +61,7 @@ function refreshDue(client: T3Client, id: string, mutationId: string | null): bo
 // Signed URLs a surface minted (useAssetUrlState), re-minted after five minutes as the HTML page is. `fileRevision`: the
 // file's identity and contents, which a newer server reports (AssetCreateUrlResult), unlike the URL, which every mint signs
 // anew; `expiresAt`, when the URL stops working.
-type Minted = { url: string; at: number; error: boolean; resource: Obj; fileRevision?: string; expiresAt?: number };
+type Minted = { url: string; at: number; error: boolean; resource: Obj; fileRevision?: string; expiresAt?: number; size?: { width: number; height: number } };
 const minted = new WeakMap<T3Client, Map<string, Minted>>();
 const STALE_URL_MS = 5 * 60_000;
 function mintedOf(client: T3Client): Map<string, Minted> {
@@ -89,7 +89,9 @@ async function mint(client: T3Client, native: Native | null | undefined, key: st
     try {
       const result = obj(await client.rpc(native, 'assets.createUrl', { resource }));
       const url = assetUrl(client.origin, str(result.relativeUrl)), fileRevision = str(result.fileRevision).trim().slice(0, 256), expiresAt = Number(result.expiresAt);
-      entry = { url, at: now, error: !url, resource, ...(fileRevision ? { fileRevision } : {}), ...(Number.isFinite(expiresAt) && expiresAt > 0 ? { expiresAt } : {}) };
+      const dims = obj(result.imageDimensions), width = Number(dims.width), height = Number(dims.height);
+      const size = Number.isInteger(width) && Number.isInteger(height) && width >= 1 && height >= 1 ? { width, height } : undefined;
+      entry = { url, at: now, error: !url, resource, ...(fileRevision ? { fileRevision } : {}), ...(Number.isFinite(expiresAt) && expiresAt > 0 ? { expiresAt } : {}), ...(size ? { size } : {}) };
       if (revisioned) entry = keepUnchangedFile(shown, entry, now);
     } catch (error) { if (letGo(error)) throw error; entry = { url: '', at: now, error: true, resource }; }
     map.set(key, entry);
@@ -457,8 +459,18 @@ export async function markdownMediaUrls(client: T3Client, native: Native, root: 
     const entry = await mint(client, native, id, resource, now, revisioned && refreshDue(client, id, scope.mutationId!), revisioned);
     if (!entry) continue;
     out.push(entry.error ? { id: `media-failed:${key.slice('media:'.length)}`, url: '' } : { id: key, url: entry.url + media.fragment });
+    if (!entry.error && entry.size && media.kind === 'image') out.push(...knownSizeUrls(key.slice('media:'.length), entry.size));
   }
   return out;
+}
+/**
+ * ChatMarkdownAssetImage's knownSize (the server's `imageDimensions` for the signed file), as the styles
+ * authoredImageSizeStyle gives it, which apply where the source names no size: `media-width:<path>` its width,
+ * `media-ratio:<path>` its aspect ratio and `media-max-width:<path>` its width bound under the 30rem height cap.
+ */
+export function knownSizeUrls(path: string, size: { width: number; height: number }): { id: string; url: string }[] {
+  return [{ id: `media-width:${path}`, url: `${size.width}px` }, { id: `media-ratio:${path}`, url: `${size.width} / ${size.height}` },
+    { id: `media-max-width:${path}`, url: `min(100%, 30rem, ${30 * size.width / size.height}rem)` }];
 }
 
 type Hooks = { urlOf?: (id: string) => string | null; openFile?: (relativePath: string) => Promise<void>; forgetAttachment?: (id: string) => void };

@@ -363,6 +363,15 @@ describe('media views', () => {
     const refused = fakeClient(() => ({}), { projection: { visibleTurnItems: items, messages: [], thread: {} }, rpc: async () => { throw new Error('no'); } });
     expect((await markdownMediaUrls(refused.client, native, '/repo', 5)).map(entry => entry.id)).toEqual(['media-failed:/tmp/a.png', 'media-failed:/tmp/b.mp4']);
   });
+  // ChatMarkdownAssetImage's knownSize: the server's imageDimensions size an image as authoredImageSizeStyle does.
+  test('Markdown: a signed image the server measured carries its size styles; a video does not', async () => {
+    const items = [{ item: { text: '![a](/tmp/a.png)\n![b](/tmp/b.mp4)' } }];
+    const { client } = fakeClient(() => ({}), { projection: { visibleTurnItems: items, messages: [], thread: {} },
+      rpc: async () => ({ relativeUrl: '/api/assets/f/a.png?sig=1', imageDimensions: { width: 240, height: 96 } }) });
+    expect(await markdownMediaUrls(client, native, '/repo', 5)).toEqual([{ id: 'media:/tmp/a.png', url: 'http://127.0.0.1:16260/api/assets/f/a.png?sig=1' },
+      { id: 'media-width:/tmp/a.png', url: '240px' }, { id: 'media-ratio:/tmp/a.png', url: '240 / 96' }, { id: 'media-max-width:/tmp/a.png', url: 'min(100%, 30rem, 75rem)' },
+      { id: 'media:/tmp/b.mp4', url: 'http://127.0.0.1:16260/api/assets/f/a.png?sig=1' }]);
+  });
 
   test('a rendered Markdown file signs its images again when the workspace changes or the connection returns (ChatMarkdownAssetImage)', async () => {
     let signature = 0;
