@@ -21,7 +21,7 @@ enum FrameHealthReport {
     /// The screen's frames have no frame times and none of Exact's owner or apply boundaries, so their rows leave out
     /// those columns, which they would fill with zeros and nulls
     static let screenColumns = ["sequence", "capture", "generation", "age_us", "flags", "target_offset_us", "callback_us",
-        "before_callback_us", "after_offset_us", "after_callback_us"]
+        "before_callback_us", "after_offset_us", "after_callback_us", "exact_us", "card_us", "layouts"]
     private static let screenIndices = screenColumns.compactMap { columns.firstIndex(of: $0) }
     fileprivate static var encoding = false
     fileprivate static var nextAgentReport: Double = 0
@@ -65,7 +65,12 @@ enum FrameHealthReport {
                 hasWork ? stored(work.finished_us) : NSNull(),
                 hasWork ? stored(work.target_us) : NSNull(),
                 hasWork ? work.operations as Any : NSNull()]
-            rows.append(health.screenFrames ? screenIndices.map { row[$0] } : row)
+            if health.screenFrames {
+                // Its work split, where the screen measured it
+                let split = health.splits.last { $0.at == event.at_ns }
+                let us = { (seconds: Double?) -> Any in seconds.map { Int(($0 * 1_000_000).rounded()) } ?? NSNull() }
+                rows.append(screenIndices.map { row[$0] } + [us(split?.exact), us(split?.card), split?.layouts as Any? ?? NSNull()])
+            } else { rows.append(row) }
         }
         let metadata = ExactEnv.appMetadata
         var identity: [String: Any] = ["app": limited(Bundle.main.bundleIdentifier ?? "embedded", 160),

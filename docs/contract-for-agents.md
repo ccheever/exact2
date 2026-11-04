@@ -3530,11 +3530,16 @@ offsets (35 minutes either way) and durations (71 minutes).
 A report whose `source` is `ui-update`, the card's measure of the screen's UI updates
 on iOS 18 and later, has no frame times and none of Exact's owner or apply boundaries,
 so its rows have only `sequence`, `capture`, `generation`, `age_us`, `flags`,
-`target_offset_us`, `callback_us`, `before_callback_us`, `after_offset_us` and
-`after_callback_us`. There `target_offset_us` is UIKit's completion deadline after the
-update began, `callback_us` the update's work from its start until its last Core
-Animation commit, `before_callback_us` the previous update's work, and
-`after_offset_us` and `after_callback_us` when the next update began and its work.
+`target_offset_us`, `callback_us`, `before_callback_us`, `after_offset_us`,
+`after_callback_us`, `exact_us`, `card_us` and `layouts`. There `target_offset_us` is
+UIKit's completion deadline after the update began, `callback_us` the update's work from
+its start until its last Core Animation commit, `before_callback_us` the previous
+update's work, and `after_offset_us` and `after_callback_us` when the next update began
+and its work. `exact_us` is the part of the work in Exact's host phases (applying
+batches, rows, text, scroll callbacks, pictures and waits on the runtime), `card_us` the
+card's own, and `layouts` how many nodes' views UIKit laid out; the rest is UIKit's, the
+system's and Core Animation's commit, and Exact's work outside its phases, such as
+laying out those views. Null is unmeasured.
 Updates that follow each other as one finishes are the main thread working without a
 pause; a single long one between short ones is one stall, such as a new screen.
 

@@ -38,9 +38,11 @@ final class FrameHealthScreen {
     /// The passive `UIUpdateLink`
     private var link: AnyObject?
     private var observers: [CFRunLoopObserver] = []
-    /// The update in progress: when it began, its deadline, when its last transaction was committed, and who asked
-    /// for it
-    private var update: (start: Double, deadline: Double, committed: Double, askers: UInt64)?
+    /// The update in progress: when it began, its deadline, when its last transaction was committed, who asked for it,
+    /// and, as it began, the card's time in this spell and the nodes' layouts so far
+    private var update: (start: Double, deadline: Double, committed: Double, askers: UInt64, cardTime: Double, layouts: Int)?
+    /// Whether it turned Exact's host phases on, which a production build keeps off
+    private var phasesOn = false
     /// When UIKit expects the newest frame on screen
     private var newest = 0.0
     /// When the main thread last woke, zero while it waits
@@ -68,6 +70,8 @@ final class FrameHealthScreen {
         health.reset()
         (update, newest, own, cardTime, cardUpdate, main) = (nil, 0, 0, 0, 0, MainThread())
         woke = CACurrentMediaTime()
+        // A late frame's work is split between Exact's host phases, the card and the rest
+        if !HostPhases.shared.on { (HostPhases.shared.on, phasesOn) = (true, true) }
         let link = UIUpdateLink(windowScene: scene)
         link.addAction(to: .afterUpdateScheduled) { [weak self] _, info in
             self?.scheduled(presented: info.estimatedPresentationTime, deadline: info.completionDeadlineTime)
@@ -99,6 +103,9 @@ final class FrameHealthScreen {
         observers = []
         update = nil
         health.stop()
+        // A frame sampler a trace started keeps them
+        if phasesOn, !ExactApp.shared.sessions.contains(where: { $0.sampler != nil }) { HostPhases.shared.on = false }
+        phasesOn = false
     }
 
     deinit { stop() }
@@ -135,7 +142,9 @@ final class FrameHealthScreen {
         let now = CACurrentMediaTime()
         let cardOnly = own > 0 && now - own < Self.idle && (newest == 0 || presented - newest >= Self.idle)
         own = 0
-        if cardOnly { (update, cardUpdate) = (nil, now) } else { update = (now, deadline, 0, Self.askers(workload?() ?? 0)) }
+        if cardOnly { (update, cardUpdate) = (nil, now) } else {
+            update = (now, deadline, 0, Self.askers(workload?() ?? 0), cardTime, HostPhases.shared.counted(.nodeLayouts))
+        }
     }
 
     /// The update completed, and UIKit expects it on screen at `presented`.
@@ -144,6 +153,11 @@ final class FrameHealthScreen {
         guard let update else { return }
         self.update = nil
         let finished = update.committed > 0 ? update.committed : CACurrentMediaTime()
+        if finished > update.deadline {
+            let exact = HostPhases.shared.charged(from: update.start, to: finished)
+            health.split(at: update.start, exact: exact.map { $0 / 1000 }, card: cardTime - update.cardTime,
+                layouts: HostPhases.shared.on ? HostPhases.shared.counted(.nodeLayouts) - update.layouts : nil)
+        }
         health.record(arrival: update.start, target: update.deadline, period: 0, finished: finished,
             flags: health.captureID == 0 ? 0 : health.environmentFlags | update.askers)
         chart?.screenFrame(at: presented, work: finished - update.start, budget: update.deadline - update.start)

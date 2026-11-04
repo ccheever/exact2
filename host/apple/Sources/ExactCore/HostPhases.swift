@@ -48,7 +48,7 @@ package final class HostPhases: @unchecked Sendable {
     /// Operation counts are process-wide: the owner and host phases are shared
     /// by sessions. Node ids are session-local, so these counters claim no site.
     package enum Operation: String, CaseIterable {
-        case ownerSync, intrinsicReports, intrinsicLayoutRequests, nativeControlMeasurements
+        case ownerSync, intrinsicReports, intrinsicLayoutRequests, nativeControlMeasurements, nodeLayouts
     }
     private var counts: [Operation: Int] = [:]
     private var countSince: Double?
@@ -57,6 +57,9 @@ package final class HostPhases: @unchecked Sendable {
         if countSince == nil { countSince = clock() }
         counts[operation, default: 0] += amount
     }
+    /// How many times `operation` has been counted while recording.
+    package func counted(_ operation: Operation) -> Int { counts[operation, default: 0] }
+
     package func work() -> [String: Any] {
         ["scope": "process", "site": "unknown", "measured": on,
          "since": countSince.map { $0 * 1000 } ?? NSNull(), "timebase": "media-clock-ms",
@@ -64,7 +67,8 @@ package final class HostPhases: @unchecked Sendable {
          "coverage": ["ownerSync": "main-thread calls submitted to the runtime owner",
                       "intrinsicReports": "sizes submitted through Runtime.intrinsics",
                       "intrinsicLayoutRequests": "Runtime.intrinsics calls, including unchanged sizes",
-                      "nativeControlMeasurements": "button, field chrome and mounted value-control measurement calls"]]
+                      "nativeControlMeasurements": "button, field chrome and mounted value-control measurement calls",
+                      "nodeLayouts": "nodes' views UIKit laid out (layoutSubviews)"]]
     }
 
     private struct Segment { let phase: Phase; let start: Double; let end: Double }
@@ -116,6 +120,13 @@ package final class HostPhases: @unchecked Sendable {
             ring[next] = segment
             next = (next + 1) % Self.capacity
         }
+    }
+
+    /// Milliseconds the phases took inside `(from, to]`, seconds on the media clock, or nil while not recording or
+    /// when recording does not reach back to `from`.
+    package func charged(from: Double, to: Double) -> Double? {
+        guard on, to > from, since <= from else { return nil }
+        return ring.reduce(0) { total, s in s.end > from && s.start <= to ? total + (min(s.end, to) - max(s.start, from)) * 1000 : total }
     }
 
     /// The phases' time inside `(from, to]`, seconds on the media clock:

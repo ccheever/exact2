@@ -972,7 +972,8 @@ export function renderFrameHealthMetrics(report) {
 
 /** Exact's frame clock's users, from bit 40 of a screen's row (`FrameClock.Order`) */
 const SCREEN_ASKERS = ["the session's clock", "a list's offset correction", 'a navigation reveal', 'the scroll pump', 'heavy leaves', 'a live SVG filter', 'a resize grip'];
-const SCREEN_COLUMNS = ['sequence', 'capture', 'generation', 'age_us', 'flags', 'target_offset_us', 'callback_us', 'before_callback_us', 'after_offset_us', 'after_callback_us'];
+const SCREEN_COLUMNS = ['sequence', 'capture', 'generation', 'age_us', 'flags', 'target_offset_us', 'callback_us', 'before_callback_us', 'after_offset_us', 'after_callback_us',
+  'exact_us', 'card_us', 'layouts'];
 
 /** Read measured boundaries before suggesting causes. Null is missing evidence, never zero cost. */
 export function renderFrameHealthReport(report) {
@@ -1014,8 +1015,10 @@ export function renderFrameHealthReport(report) {
     const reasons = [event.flags & 1 ? 'callback gap' : null, event.flags & 2 ? 'callback target overrun' : null, event.flags & 4 ? 'tick apply target overrun' : null].filter(Boolean);
     if (screen) {
       const next = event.flags & 8 ? `next update began ${ms(event.after_offset_us)} after it, work ${ms(event.after_callback_us)}` : 'next update unseen';
+      const rest = event.exact_us == null || event.card_us == null ? null : Math.max(0, event.callback_us - event.exact_us - event.card_us);
       out.push(`#${event.sequence} / capture ${event.capture} / generation ${event.generation} · ${ms(event.age_us)} ago · ${event.flags & 2 ? 'committed past its deadline' : 'timing event'}`,
         `  work ${ms(event.callback_us)} · deadline ${ms(event.target_offset_us)} after the update began · previous update's work ${ms(event.before_callback_us || null)} · ${next}`,
+        `  of its work: Exact's host phases ${ms(event.exact_us)} · the card's ${ms(event.card_us)} · the rest ${ms(rest)} · nodes laid out ${event.layouts ?? 'unknown'}`,
         `  workload ${workload} · asked by ${SCREEN_ASKERS.filter((_, index) => bit(index + 40)).join(', ') || 'none of Exact\'s frame clock (UIKit or the system)'} · thermal ${thermal} · low power ${bit(34)}`);
       continue;
     }

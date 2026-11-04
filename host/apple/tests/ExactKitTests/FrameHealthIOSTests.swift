@@ -2,6 +2,7 @@
 import UIKit
 import QuartzCore
 import XCTest
+import ExactCore
 @testable import ExactKit
 
 final class FrameHealthIOSTests: XCTestCase {
@@ -401,13 +402,13 @@ final class FrameHealthIOSTests: XCTestCase {
         defer { screen.stop() }
         screen.health.setHUDVisible(true)
         defer { screen.health.setHUDVisible(false) }
-        // A live SVG filter's frames, the first held up past its deadline
+        // A live SVG filter's frames, the first held up past its deadline in one of Exact's host phases
         let filter = NSObject()
         var stalled = false
         FrameClock.shared.want(filter, .svgFilter) { _ in
             guard !stalled else { return }
             stalled = true
-            usleep(60_000)
+            HostPhases.shared.measure(.draw) { usleep(60_000) }
         }
         defer { FrameClock.shared.drop(filter) }
         func asked() -> UInt64? {
@@ -419,6 +420,14 @@ final class FrameHealthIOSTests: XCTestCase {
         let flags = try XCTUnwrap(asked(), "the stalled frame was late, and a live SVG filter asked for it")
         XCTAssertEqual(flags & (1 << 23 | 1 << 19), 1 << 23 | 1 << 19, "with the session's workload")
         XCTAssertEqual(flags & (1 << 40), 0, "and no other user of the frame clock")
+        // Its work split: the stall in Exact's phases, none of it the card's
+        let report = FrameHealthReport.snapshot(health: screen.health, session: nil)
+        let columns = try XCTUnwrap(report["columns"] as? [String])
+        let row = try XCTUnwrap((report["hitches"] as? [[Any]])?.first { (($0[4] as? UInt64) ?? 0) & (1 << 45) != 0 })
+        let value = { (name: String) in row[columns.firstIndex(of: name)!] }
+        XCTAssertGreaterThanOrEqual(value("exact_us") as? Int ?? 0, 55_000)
+        XCTAssertEqual(value("card_us") as? Int, 0)
+        XCTAssertNotNil(value("layouts") as? Int)
     }
 
     func testTheScreenSeesEachFrameAndTheMainThreadsWorkOnlyWhileItRuns() throws {
