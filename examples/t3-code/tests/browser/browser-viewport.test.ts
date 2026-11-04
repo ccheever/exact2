@@ -2,14 +2,13 @@
 // (3), apps/web/src/browser/browserViewportLayout.test.ts (12), browserViewportActions.test.ts (4), BrowserDeviceToolbar.test.ts
 // (`commitViewportAndAspectRatio`, 2), apps/web/src/components/preview/previewViewportReadiness.test.ts (3) and
 // previewViewportRollback.test.ts (2). Substitutions: vitest's `vi.fn` is a recorded array, `vi.waitFor` a microtask flush,
-// and `vi.useFakeTimers`/`advanceTimersByTimeAsync` bun's `jest.useFakeTimers`/`advanceTimersByTime` after a flush. A data source
-// has no timers, so the reference's built-in 15 s deadline is the caller's (`deadline15s` here, as the reference times it).
+// and `vi.useFakeTimers`/`advanceTimersByTimeAsync` bun's `jest.useFakeTimers`/`advanceTimersByTime` after a flush.
 // Clone rows (marked) cover the zoom ladder (Manager.ts has no pure test for it), the toggle's responsive viewport
 // (browserDefaults.ts) and the server's viewport bounds.
 import { describe, expect, it, jest } from 'bun:test';
 import type { PreviewViewportSetting } from '../../src/browser/browser-state';
 import {
-  BROWSER_VIEWPORT_COMMIT_TIMEOUT_MS, BrowserViewportCommitTimeoutError, type BrowserViewportCommitDeadline, DEFAULT_BROWSER_DEFAULTS, browserViewportSettingKey, PREVIEW_VIEWPORT_PRESETS, PREVIEW_ZOOM_LEVELS, browserResponsiveViewportForToggle, commitBrowserViewportChange,
+  BROWSER_VIEWPORT_COMMIT_TIMEOUT_MS, DEFAULT_BROWSER_DEFAULTS, browserViewportSettingKey, PREVIEW_VIEWPORT_PRESETS, PREVIEW_ZOOM_LEVELS, browserResponsiveViewportForToggle, commitBrowserViewportChange,
   commitViewportAndAspectRatio, findZoomStep, isPreviewViewportReady, isValidViewport, nextZoomLevel, normalizeZoomFactor, resizeBrowserViewportFromRail, resizeFreeformViewport,
   resolveBrowserDeviceViewportLayout, resolveBrowserViewportLayout, resolveFittedBrowserViewport, resolvePreviewViewport, resolveResponsiveBrowserViewportSize, runBrowserViewportMutation,
   shouldRollbackPreviewViewport, subscribeBrowserViewportChange, zoomLabel,
@@ -17,12 +16,6 @@ import {
 import { appPath } from '../support/app-files';
 
 const flush = async (rounds = 20) => { for (let i = 0; i < rounds; i++) await Promise.resolve(); };
-/** runHandlerWithTimeout, the reference's deadline. */
-const deadline15s: BrowserViewportCommitDeadline = (tabId, operation) => {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_resolve, reject) => { timeoutId = setTimeout(() => reject(new BrowserViewportCommitTimeoutError(tabId)), BROWSER_VIEWPORT_COMMIT_TIMEOUT_MS); });
-  return Promise.race([operation, timeout]).finally(() => { if (timeoutId !== undefined) clearTimeout(timeoutId); });
-};
 
 describe('previewViewport', () => {
   it('resolves fill and exact freeform viewports', () => {
@@ -144,10 +137,10 @@ describe('browserViewportActions', () => {
       const delayed = new Promise<void>(resolve => { releaseFirst = resolve; });
       const calls: PreviewViewportSetting[] = [];
       const unsubscribe = subscribeBrowserViewportChange('tab-timeout', setting => { calls.push(setting); return calls.length === 1 ? delayed : Promise.resolve(); });
-      const first = commitBrowserViewportChange('tab-timeout', { _tag: 'freeform', width: 800, height: 600 }, deadline15s);
+      const first = commitBrowserViewportChange('tab-timeout', { _tag: 'freeform', width: 800, height: 600 });
       let firstError: unknown = null;
       first.catch(error => { firstError = error; });
-      const second = commitBrowserViewportChange('tab-timeout', { _tag: 'freeform', width: 900, height: 700 }, deadline15s);
+      const second = commitBrowserViewportChange('tab-timeout', { _tag: 'freeform', width: 900, height: 700 });
       // advanceTimersByTimeAsync: the timeout starts only once the commit reaches the front of the queue.
       for (let i = 0; i < 50 && !firstError; i++) { await flush(); jest.advanceTimersByTime(BROWSER_VIEWPORT_COMMIT_TIMEOUT_MS); }
       expect(String(firstError)).toContain('Timed out committing the browser viewport for tab tab-timeout');

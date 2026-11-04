@@ -492,12 +492,9 @@ filed were moved there or closed). The gaps someone using this app runs into:
 
 - A data module's timer lives inside the answer that armed it (LLP 1027.000 D1), so the waits in the
   middle of a flow (View source's and Edit from here's polls, the Browser's paint and capture
-  timeouts, the debounces) are the flow's own, on the app's clock. Natively a timer raced against a
-  host call its answer awaits runs only once that call lands (main's `QUEUE.md`), so Annotate's 5 s
-  crop deadline and a recording's capture timeout wait out a capture that hangs, where the
-  reference gives up. A flow whose answer is let go while it waits on a timer stops there, its
-  `finally` unrun, so each flow that holds state across a wait has a send no other flow replaces
-  (`app.contract`): View source, a transcript chip's or the composer's (`citationShown`); the
+  timeouts, the debounces) are the flow's own, on the app's clock. A flow whose answer is let go
+  while it waits on a timer stops there, its `finally` unrun, so each flow that holds state across
+  a wait has a send no other flow replaces (`app.contract`): View source, a transcript chip's or the composer's (`citationShown`); the
   Browser's Capture, whose Record start waits for two frames (`capturePressed`, queued); the
   checkout dialog's edits, whose next edit takes the debounce over (`prCheckoutTyped`); and the
   prompt links, whose switch to another machine's Scratch project polls (`fragmentChanged`, queued).
