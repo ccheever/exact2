@@ -100,8 +100,8 @@ final class FrameHealthOverlayMac: NSView {
         render()
     }
 
-    /// Each frame feeds the charts while the card reads and is not paused; a pause holds them, and
-    /// the first frame after it bounds no interval. A new generation during a pause clears them, as
+    /// Each frame feeds the charts while the card reads and is not paused, and they follow the time; a
+    /// pause holds them, and the first frame after it bounds no interval. A new generation during a pause clears them, as
     /// the reader's next sample clears it.
     private func feed(_ on: Bool) {
         guard let health else { return }
@@ -110,6 +110,7 @@ final class FrameHealthOverlayMac: NSView {
         chartGeneration = generation
         health.chart = on ? card.chart : nil
         card.chart.endRun()
+        card.chart.follow(on)
     }
 
     private var rates: FrameHealthCardText.Rates {
@@ -455,7 +456,7 @@ final class FrameHealthCardViewMac: NSView {
         guard let ctx = NSGraphicsContext.current?.cgContext, let palette else { return }
         ctx.setFillColor(palette.background)
         ctx.fill(bounds)
-        FrameHealthCardFace.draw(ctx, width: bounds.width, compact: compact, state: state, palette: palette)
+        FrameHealthCardFace.draw(ctx, .init(width: bounds.width, compact: compact), state: state, palette: palette)
         guard !compact, !state.showsDetails else { return }
         let area = regions.chartArea, p = presentation
         if state.table {

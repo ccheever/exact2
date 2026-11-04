@@ -3295,20 +3295,21 @@ and later the separate experimental scroll source reaches `perf frames` and the 
 card's visibility and window-local bounds, marked as host controls outside app nodes.
 Embedders opt in by passing a host view as `DevMenu.install`'s `frameHealthContainer`.
 
-`app.json` may set `"frame_health": { "mode": "off" }` or `"core"`. Builds with
-development trust default to core counters; production bakes default to off pending
-device qualification. Showing the card does not override that policy: where collection
-is off, the developer menu's row reads **Frame Health Disabled**, dimmed, and a tap on
-it says so and how to turn collection on; on the Mac, choosing the item does. The core has fixed
+`app.json` may set `"frame_health": { "mode": "off" }` or `"core"`. Without a mode, a
+build with development trust collects from launch, and a production bake on demand:
+only while the card shows, and while it is hidden every collection hook returns at
+its first check. `"core"` collects from launch in any build, and `"off"` never collects. Where
+collection is off, the developer menu's row reads **Frame Health Disabled**, dimmed,
+and a tap on it names the setting and says to remove it; on the Mac, choosing the item
+does. The core has fixed
 storage for up to 16 collectors per UI thread and does no per-callback allocation;
 these bounds do not substitute for measuring whole-hook overhead on real devices.
 
 ### Compact frame-health reports on physical devices
 
 Run an Apple app on a connected phone with `bun host/apple/build.mjs --device --run`.
-For a production bake, opt into collection with `"frame_health": { "mode": "core" }`
-before building. Open the four-finger menu and choose **Frame Health**, reproduce
-the hitch, then tap Share on the card and choose Agent Report; the share sheet takes
+Open the four-finger menu and choose **Frame Health**, which in a production bake starts
+collection, reproduce the hitch, then tap Share on the card and choose Agent Report; the share sheet takes
 the JSON text. Exact creates no report file or automatic upload. A person can send
 that text to an agent. The system share destination controls any storage it creates.
 
@@ -3455,9 +3456,9 @@ the bounded metrics and reports don't carry.
   prepend's anchor correction). These are separate offsets, and their short intervals aren't frames.
 - **Leases:** one track a session. A second `start` replaces the first (its unread rows go, and the reply says
   `replaced: true`). A `start` that fails (`no-scroller`, a bad lease) leaves the current track as it was.
-- **Where it may be leased:** exactly where `perf frames capture` may: frame health enabled (`frame_health` mode
-  `core`; development builds by default, production bakes only when `app.json` says so) and no virtual clock.
-  Elsewhere it answers `available: false` with capture's reason.
+- **Where it may be leased:** exactly where `perf frames capture` may: frame health enabled (a development build
+  by default, or `"core"`) and no virtual clock. An agent cannot attach to a production bake. Elsewhere it answers
+  `available: false` with capture's reason.
 - **Memory:** 4096 rows of 16 bytes, allocated at `start` and freed by the read that ends a stopped track, a
   replacing `start`, a reload or clock change, the session's teardown, or, once the lease ends, the next track
   request (or, while the track is still recording, the next feed). No timer ends it.
@@ -3494,8 +3495,9 @@ replay remains available for functional tests and does not establish live timing
 
 The iOS/tvOS 18 native-scroll prototype observes one mounted active scroller with a
 passive `UIUpdateLink`: it leaves continuous-update, rate, latency and presentation
-preferences at their defaults. It is disabled in release/production builds pending
-device qualification. A hidden, zero-size host lifecycle view ends observation as soon
+preferences at their defaults. A production build runs it only while the card shows;
+running it otherwise waits on device qualification. While Exact's own frame callbacks do not run, its
+updates feed the card's charts. A hidden, zero-size host lifecycle view ends observation as soon
 as the scroller leaves its window; the normal end/deceleration callbacks close it too.
 This view has no hit target or accessibility element. Reads never create the observer.
 A missing earlier update phase increments `nativeUpdateSamplesLost` and skips that

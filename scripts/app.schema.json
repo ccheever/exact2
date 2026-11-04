@@ -10,7 +10,7 @@
   "properties": {
     "frame_health": {
       "type": "object",
-      "description": "Frame callback timing: core enables bounded counters on existing app clocks; production defaults to off. Presentation remains unobserved.",
+      "description": "Frame callback timing: core collects bounded counters on existing app clocks from launch, off never collects. Without a mode, a development build collects from launch and a production build only while the frame-health card shows. Presentation remains unobserved.",
       "additionalProperties": false,
       "properties": { "mode": { "enum": ["off", "core"] } }
     },

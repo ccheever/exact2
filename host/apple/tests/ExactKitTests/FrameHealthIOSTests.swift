@@ -357,12 +357,82 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertEqual(overlay.card.frame.origin, CGPoint(x: 8, y: 8), "on release it springs back to its corner")
         if #available(iOS 26.0, *) {
             // In a corner of a rounded screen the card's corner follows the screen's (54 points on an iPhone 18
-            // Pro); a screen without rounded corners, as the iPhone Duo's, leaves the minimum
+            // Pro); a square screen corner, as the folded iPhone Duo's top-left, leaves the minimum
             XCTAssertEqual(overlay.card.cornerConfiguration, .corners(radius: .containerConcentric(minimum: 12)))
             overlay.card.layoutIfNeeded()
             XCTAssertEqual(overlay.card.effectiveRadius(corner: .bottomRight), 12, accuracy: 0.5)
             XCTAssertGreaterThanOrEqual(overlay.card.effectiveRadius(corner: .topLeft), 12)
         }
+    }
+
+    func testTheCardsHairlineAndHeaderKeepToItsRoundedCorners() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("a card's corners follow the screen's from iOS 26") }
+        let health = FrameHealth(enabled: true)
+        defer { health.destroy() }
+        let overlay = FrameHealthOverlay(health: health)
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "the card in a real host window, drawn as the screen shows it")
+        }
+        let window = hosted(overlay, in: scene, size: .zero)
+        window.overrideUserInterfaceStyle = .dark
+        window.rootViewController?.view.backgroundColor = .black
+        overlay.frame = window.bounds
+        overlay.setVisible(true)
+        overlay.layoutIfNeeded()
+        // Beside the card, two views of its corners and hairline, the hairline their own layer's border: one that
+        // draws nothing, whose hairline is whole, and one that draws, as the card did
+        let card = overlay.card, below = card.frame.maxY + 8
+        let whole = bordered(UIView(frame: CGRect(x: 8, y: below, width: 120, height: 120)))
+        let fading = bordered(DrawsBlack(frame: CGRect(x: 136, y: below, width: 120, height: 120)))
+        let scale = window.traitCollection.displayScale
+        for view in [whole, fading] {
+            window.rootViewController?.view.addSubview(view)
+            view.layer.borderWidth = 1 / scale
+        }
+        window.layoutIfNeeded()
+        XCTAssertTrue(window.bounds.contains(fading.frame), "both fit under the card")
+        XCTAssertEqual(card.effectiveRadius(corner: .bottomRight), whole.effectiveRadius(corner: .bottomRight), accuracy: 0.5)
+        // Captured only across the three bottom-right corners
+        let region = CGRect(x: 0, y: card.frame.maxY - 16, width: window.bounds.width, height: whole.frame.maxY - card.frame.maxY + 20)
+        let image = try XCTUnwrap(UIGraphicsImageRenderer(bounds: region).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }.cgImage)
+        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let ctx = try XCTUnwrap(CGContext(data: &pixels, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        // The hairline's light summed across the bottom-right corner's diagonal, on black: a sum, not the brightest
+        // pixel, since a card that grows with the text size can end between pixels, which share its hairline
+        func hairline(_ view: UIView) -> Double {
+            let r = view.effectiveRadius(corner: .bottomRight), frame = view.frame
+            return stride(from: 0.5 * r, to: 1.6 * r, by: 0.25 / scale).reduce(0) { sum, s in
+                let x = Int((frame.maxX - r + s / 2.squareRoot() - region.minX) * scale)
+                let y = Int((frame.maxY - r + s / 2.squareRoot() - region.minY) * scale)
+                guard x >= 0, y >= 0, x < image.width, y < image.height else { return sum }
+                let i = (y * image.width + x) * 4
+                return sum + Double(Int(pixels[i]) + Int(pixels[i + 1]) + Int(pixels[i + 2])) / 3 / 4
+            }
+        }
+        let (drawn, reference, faded) = (hairline(card), hairline(whole), hairline(fading))
+        let figures = "card \(Int(drawn)), a view that draws nothing \(Int(reference)), one that draws \(Int(faded))"
+        XCTAssertGreaterThan(reference, 20, "the hairline shows: \(figures)")
+        XCTAssertGreaterThanOrEqual(drawn, 0.9 * reference, "the card's is as strong around the corner: \(figures)")
+        // Where this fails, this runtime keeps the border of a layer that draws, and the card needs no content view
+        XCTAssertLessThan(faded, 0.4 * reference, "a layer that draws and clips fades its own border here: \(figures)")
+
+        // Dragged right and released, the card rests in the screen's top-right corner; where that corner rounds, Share
+        // moves in and Close, whose corner stays 12 points, keeps its place
+        card.moved?(CGPoint(x: overlay.bounds.maxX, y: 8))
+        card.released?(.zero)
+        overlay.layoutIfNeeded()
+        card.layoutIfNeeded()
+        let radius = card.effectiveRadius(corner: .topRight)
+        guard radius > 12.5 else { return }
+        let moved = card.layout, square = FrameHealthCardFace.Layout(width: moved.width)
+        XCTAssertEqual(moved.corners.topRight, (radius / card.scale).rounded())
+        XCTAssertEqual(moved.corners.topLeft, 12, "the card's top-left corner is away from the screen's")
+        XCTAssertLessThan(moved.share.maxX, square.share.maxX, "Share moves in from the rounder corner")
+        XCTAssertEqual(moved.close, square.close)
     }
 
     func testTheCardFollowsDarkModeWithoutBeingMoved() throws {
@@ -397,9 +467,12 @@ final class FrameHealthIOSTests: XCTestCase {
         let disabled = DevMenuController.frameHealth(off, container: true)
         XCTAssertEqual(disabled.title, "Frame Health Disabled", "the same one row, dimmed")
         XCTAssertEqual(disabled.unavailable?.title, "Frame Health Is Off")
-        XCTAssertTrue(disabled.unavailable?.message.hasPrefix("Production builds don't measure frame timings by default.") == true)
-        XCTAssertTrue(disabled.unavailable?.message.contains("\"frame_health\": { \"mode\": \"core\" }") == true, "it says how to turn collection on")
+        XCTAssertTrue(disabled.unavailable?.message.hasPrefix("This app turns frame health off") == true, "it says what turned it off")
         XCTAssertEqual(DevMenuController.frameHealth(on, container: false).unavailable?.title, "Frame Health Is Unavailable")
+        // A production build's collector, which collects only while the card shows, offers the row as available
+        let demand = FrameHealth(policy: .onDemand)
+        defer { demand.destroy() }
+        XCTAssertEqual(DevMenuController.frameHealth(demand, container: true).title, "Frame Health")
     }
 
     func testMenuUsesNativeRowsAndBuildDetailsHaveTheirOwnScreen() throws {
@@ -427,6 +500,25 @@ final class FrameHealthIOSTests: XCTestCase {
         menu.tableView(menu.tableView, didSelectRowAt: IndexPath(row: 0, section: 2))
         XCTAssertTrue(navigation.viewControllers.last?.view is UITextView)
         XCTAssertEqual(navigation.viewControllers.last?.title, "Build Information")
+    }
+}
+
+/// `view` on black with the card's corners and, as its own layer's border, the card's hairline color; the caller
+/// sets the width once the view is in its window
+@available(iOS 26.0, *)
+private func bordered<View: UIView>(_ view: View) -> View {
+    view.cornerConfiguration = .corners(radius: .containerConcentric(minimum: 12))
+    view.layer.masksToBounds = true
+    view.backgroundColor = .black
+    view.layer.borderColor = UIColor.separator.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)).cgColor
+    return view
+}
+
+/// A view that draws its bounds black, so its layer has drawn contents, as the card's did
+private final class DrawsBlack: UIView {
+    override func draw(_ rect: CGRect) {
+        UIGraphicsGetCurrentContext()?.setFillColor(UIColor.black.cgColor)
+        UIGraphicsGetCurrentContext()?.fill(bounds)
     }
 }
 #endif
