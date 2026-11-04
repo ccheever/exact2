@@ -43,7 +43,7 @@ extension Agent {
     func agreement(limit: Int) -> [String: Any] {
         let size = presenter.viewport.contentView.bounds.size
         var reply: [String: Any] = ["clock": session.now(), "viewport": ["w": Agent.r2(size.width), "h": Agent.r2(size.height)]]
-        let scale = presenter.viewport.window?.backingScaleFactor ?? 1
+        let scale = presenter.viewport.contentView.pixelScale ?? 1
         let report = AgreementReport(tolerance: 1 / max(scale, 1))
         guard let kernel = kernelFrames() else { return ["error": "layout agree: the runner's frames are unreadable"] }
         guard let exactView = presenter.session?.view else { return ["error": "layout agree: the session has no view"] }

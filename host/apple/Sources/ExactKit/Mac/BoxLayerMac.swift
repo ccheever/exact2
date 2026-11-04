@@ -400,7 +400,7 @@ extension NodeView {
     /// backing store showed it).
     func devicePixels(_ width: CGFloat) -> CGFloat {
         guard width > 0 else { return 0 }
-        let scale = window?.backingScaleFactor ?? layer?.contentsScale ?? 2
+        let scale = pixelScale ?? layer?.contentsScale ?? 2
         return max(1, (width * scale + 0.001).rounded(.down)) / scale
     }
 

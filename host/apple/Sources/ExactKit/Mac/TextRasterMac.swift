@@ -40,7 +40,7 @@ final class TextRasterizer {
 
     private func key(_ node: NodeView) -> TextRasterKey {
         TextRasterKey(spec: node.paragraphSpec(), size: node.bounds.size,
-                      box: node.paragraphBox(), scale: node.window?.backingScaleFactor ?? 2)
+                      box: node.paragraphBox(), scale: node.pixelScale ?? 2)
     }
 
     private func prepare(_ node: NodeView, key: TextRasterKey) -> TextRasterJob? {
@@ -213,7 +213,7 @@ extension NodeView {
     /// paragraphs too large to paint at once. HDR text is never small: only a
     /// raster's layers follow `dynamic-range-limit` (LLP 1100 D8).
     var textIsSmall: Bool {
-        let scale = window?.backingScaleFactor ?? 2
+        let scale = pixelScale ?? 2
         guard bounds.width * bounds.height * scale * scale < TextRasterizer.minPixels else { return false }
         return !(isParagraph && paragraphHeadroom(drawing: true) > 1)
     }

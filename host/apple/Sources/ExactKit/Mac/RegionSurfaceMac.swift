@@ -103,7 +103,7 @@ final class RegionSurfaceMac: NSView {
               picture.frame == CGRect(origin: .zero,size: raster.request.size),
               let shown = picture.layer?.contents as AnyObject?, shown === image else { return false }
         return visible.matches(publication: presentation.snapshot.publication, size: ink.bounds.size,
-            scroll: scrollOffset, profile: profile.bytes, scale: Int(window?.backingScaleFactor ?? 0))
+            scroll: scrollOffset, profile: profile.bytes, scale: Int(ink.pixelScale ?? 0))
     }
     func publish(_ raster: RegionRaster, image: CGImage, presentation: RegionPresentation) {
         // A mutation invalidation may have left the kernel displaying old A
@@ -274,7 +274,8 @@ final class RegionSurfaceMac: NSView {
         guard let background = backgroundAndEligibility() else {
             controller.refuse("region opacity/ancestor presentation unsupported"); return nil
         }
-        let scale = window.backingScaleFactor
+        // The page's device pixels, the page zoom's included (ZoomMac.swift).
+        let scale = ink.pixelScale ?? window.backingScaleFactor
         let backing = ink.convertToBacking(ink.bounds)
         let windowBacking = window.convertToBacking(ink.convert(ink.bounds, to: nil))
         let visibleBounds = ink.visibleRect

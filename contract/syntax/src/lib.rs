@@ -156,6 +156,11 @@ pub const HOST_COMMANDS: &[&str] = &[
     // sets the root size `rem` follows, over the host's; `"medium"` hands it
     // back. The runner's own; the web also sets it on the document.
     "setRootFontSize",
+    // @ref LLP 1021 §5.3.1 — Electron's `webContents.setZoomFactor`:
+    // `setPageZoom(factor)` sets the window's page zoom, as View ▸ Zoom In
+    // does. The host's own; the web refuses it (the browser's zoom is the
+    // person's).
+    "setPageZoom",
     // @ref LLP 1121 D5 — `setMode("dark-style", "dim")`: the window's app
     // modes, as `setScheme` is its scheme. The runner's own.
     "setMode",
