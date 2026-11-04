@@ -157,7 +157,8 @@ final class FrameHealthScreen {
         guard let update else { return }
         self.update = nil
         let finished = update.committed > 0 ? update.committed : CACurrentMediaTime()
-        if finished > update.deadline {
+        // Its work split, for a late frame the capture keeps
+        if health.captureID != 0, finished > update.deadline {
             let exact = HostPhases.shared.charged(from: update.start, to: finished)
             health.split(at: update.start, exact: exact.map { $0 / 1000 }, card: update.card,
                 layouts: HostPhases.shared.on ? HostPhases.shared.counted(.nodeLayouts) - update.layouts : nil)

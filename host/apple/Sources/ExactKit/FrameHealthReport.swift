@@ -19,10 +19,12 @@ enum FrameHealthReport {
         "owner_queued_offset_us", "owner_began_offset_us", "owner_finished_offset_us", "main_landed_offset_us",
         "apply_began_offset_us", "apply_finished_offset_us", "work_target_offset_us", "operations"]
     /// The screen's frames have no frame times and none of Exact's owner or apply boundaries, so their rows leave out
-    /// those columns, which they would fill with zeros and nulls
-    static let screenColumns = ["sequence", "capture", "generation", "age_us", "flags", "target_offset_us", "callback_us",
-        "before_callback_us", "after_offset_us", "after_callback_us", "exact_us", "card_us", "layouts"]
-    private static let screenIndices = screenColumns.compactMap { columns.firstIndex(of: $0) }
+    /// those columns, which they would fill with zeros and nulls, and give each late frame's work split instead
+    /// (`FrameHealth.split`)
+    static let screenColumns = screenShared + ["exact_us", "card_us", "layouts"]
+    private static let screenShared = ["sequence", "capture", "generation", "age_us", "flags", "target_offset_us", "callback_us",
+        "before_callback_us", "after_offset_us", "after_callback_us"]
+    private static let screenIndices = screenShared.map { columns.firstIndex(of: $0)! }
     fileprivate static var encoding = false
     fileprivate static var nextAgentReport: Double = 0
 
@@ -69,7 +71,7 @@ enum FrameHealthReport {
                 // Its work split, where the screen measured it
                 let split = health.splits.last { $0.at == event.at_ns }
                 let us = { (seconds: Double?) -> Any in seconds.map { Int(($0 * 1_000_000).rounded()) } ?? NSNull() }
-                rows.append(screenIndices.map { row[$0] } + [us(split?.exact), us(split?.card), split?.layouts as Any? ?? NSNull()])
+                rows.append(screenIndices.map { row[$0] } + [us(split?.exact), us(split?.card), (split?.layouts).map { $0 as Any } ?? NSNull()])
             } else { rows.append(row) }
         }
         let metadata = ExactEnv.appMetadata
