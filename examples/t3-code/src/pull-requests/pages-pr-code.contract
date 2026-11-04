@@ -338,6 +338,9 @@ component PrdDiffOptions
     menuId: string
     scheme: string
     press: action
+  state hovering = false
+  action setHover(over: bool)
+    hovering = over
   derive rows = [KmItem(id=`${menuId}-whitespace`, label="Hide whitespace changes"), KmItem(id=`${menuId}-wrap`, label="Wrap lines"), KmItem(id=`${menuId}-stacked`, label="Stacked"), KmItem(id=`${menuId}-split`, label="Split")]
   action triggerKey(k: string, e: KeyboardEvent)
     if kmTriggerKey(k) and not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey
@@ -350,8 +353,11 @@ component PrdDiffOptions
           focus(target)
   view
     column position="relative" flex-shrink=0
-      button id="pull-request-code-options" popovertarget=menuId key=triggerKey aria-label="Diff options" title="" testId="pull-request-code-options" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" align-items="center" justify-content="center"
-        PgIcon(name="settings-2", size=14, color=pcMuted())
+      // Settings2Icon (lucide) under its "Diff options" tooltip.
+      LayerTip(label="Diff options", side="top", align="center", tipId="pull-request-code-options-tip")
+        button id="pull-request-code-options" popovertarget=menuId key=triggerKey aria-label="Diff options" title="" testId="pull-request-code-options" hover=setHover width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color=(hovering ? "light-dark(#f4f4f5, #141414)" : "#00000000") display="flex" align-items="center" justify-content="center"
+          svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color=pcMuted() fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+            path d="M14 17H5M19 7h-9M14 17a3 3 0 1 0 6 0a3 3 0 1 0 -6 0M4 7a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"
       column id=menuId popover="auto" position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" aria-modal=true
         PrMenuBox(scheme=scheme, width=224, label="Diff options")
           KeyMenu(menuId=`${menuId}-keys`, items=rows, keyed=0, gap="0px", modal=true)

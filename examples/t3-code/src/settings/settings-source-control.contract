@@ -82,8 +82,9 @@ shape ScopedRow
   // The control's accessible name and the reset's "Reset <resetLabel> to default", as the reference names them; "" uses the title.
   control: string
   resetLabel: string
-  // A model row's picker trigger mark.
+  // A model row's picker trigger mark; `icon` is an ACP Registry instance's agent icon.
   driver: string
+  icon: string
   badge: string
   accent: string
   // The writer model's TraitsPicker: its trigger label ("" draws none) and menu rows.
@@ -252,7 +253,7 @@ component ScopedSettingRow
               if row.kind == "model"
                 // ProviderModelPicker: the window's picker under this trigger, while a provider can write.
                 if row.checked and row.status == ""
-                  SettingsModelTrigger(stop="enabled page", rowId=(row.key == "reviewGuideModelSelection" ? "review-guide-model" : "source-control-writer-model"), label=row.valueLabel, name=row.title, driver=row.driver, badge=row.badge, accent=row.accent, disabled=(busy or row.disabled), press=pickModel((row.key == "reviewGuideModelSelection" ? "review-guide-model" : "source-control-writer-model"), scope))
+                  SettingsModelTrigger(stop="enabled page", rowId=(row.key == "reviewGuideModelSelection" ? "review-guide-model" : "source-control-writer-model"), label=row.valueLabel, name=row.title, driver=row.driver, icon=row.icon, badge=row.badge, accent=row.accent, disabled=(busy or row.disabled), press=pickModel((row.key == "reviewGuideModelSelection" ? "review-guide-model" : "source-control-writer-model"), scope))
                   if row.traitsLabel != ""
                     WriterTraitsPicker(row=row, disabled=(busy or row.disabled), restInput=restInput)
                 SettingsPageSwitch(checked=row.checked, label=(row.key == "reviewGuideModelSelection" ? "Use a separate review guide model" : "Use a separate source control writer model"), disabled=(busy or row.disabled or (not row.checked and row.status != "")), switchId=`scoped-${row.key}-enabled`, toggle=rest("scoped", `key=${row.key}&value=${row.checked ? "off" : "default"}`))

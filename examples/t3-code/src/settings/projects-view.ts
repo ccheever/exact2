@@ -55,7 +55,7 @@ export function hasDefaultProjectIcon(member: Obj, scratch: boolean): boolean {
   if (!scratch) return icon === null;
   return icon?.kind === 'lucide' && icon.name === SCRATCH_PROJECT_ICON.name && icon.color === SCRATCH_PROJECT_ICON.color;
 }
-const blank: ScopedRow = { key: '', kind: 'select', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], layerGroups: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', traitsLabel: '', traits: [], target: '', managed: '' };
+const blank: ScopedRow = { key: '', kind: 'select', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], layerGroups: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', icon: '', badge: '', accent: '', traitsLabel: '', traits: [], target: '', managed: '' };
 
 function iconDescription(project: Obj): string {
   const icon = obj(project.projectIcon);

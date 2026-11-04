@@ -1,6 +1,6 @@
 // The settings model and traits pickers' trigger (settingsLayout.tsx SETTINGS_PICKER_TRIGGER_CLASSNAME), apart from
 // settings-rows.contract so Source control and Scheduled tasks can use it.
-use ProviderInstanceMark from "../shared/icons-kit.contract"
+use ComposerInstanceMark from "../composer/instance-mark.contract"
 
 // SETTINGS_PICKER_TRIGGER_CLASSNAME (settingsLayout.tsx): the composer's model and traits triggers bordered as the
 // selects beside them: the input border, the background (input/32 in dark), shadow-xs/5 and accent/50 while hovered.
@@ -22,6 +22,8 @@ component SettingsModelTrigger
     label: string
     name: string
     driver: string
+    // An ACP Registry instance's agent icon (acp-instance-icon.ts), "" for another driver.
+    icon: string
     badge: string
     accent: string
     disabled: bool
@@ -30,5 +32,5 @@ component SettingsModelTrigger
   view
     button press=press disabled=disabled id=`setting-${rowId}` testId=`setting-${rowId}` aria-label=name aria-haspopup="dialog" class=SettingsPickerFace opacity=(disabled ? 0.64 : 1) data-focus-stop=(disabled ? "" : stop)
       if driver != ""
-        ProviderInstanceMark(driver=driver, size=16, color="light-dark(#71717b, #a1a1a1)", badge=badge, accent=(accent == "" ? "#00000000" : accent))
+        ComposerInstanceMark(driver=driver, icon=icon, size=16, color="light-dark(#71717b, #a1a1a1)", badge=badge, accent=(accent == "" ? "#00000000" : accent))
       text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" line-clamp=1

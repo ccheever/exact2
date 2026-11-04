@@ -117,6 +117,7 @@ shape TaskModelMark
   value: string
   name: string
   driver: string
+  icon: string
   badge: string
   accent: string
 // ScheduledTaskEnvironmentSection: `state` is disconnected, error, loading or ready.
@@ -652,7 +653,7 @@ component ScheduledEditor
             column gap="0.375rem"
               text "Model" class=TkLabel
               row
-                SettingsModelTrigger(stop="enabled", rowId="task-model", label=modelName, name=modelName, driver=markField(data.marks, modelKey, "driver"), badge=markField(data.marks, modelKey, "badge"), accent=markField(data.marks, modelKey, "accent"), disabled=(busy or not data.available), press=pickModel("task-model", `${encodeURIComponent(draft.environmentId)}|${encodeURIComponent(modelKey)}`))
+                SettingsModelTrigger(stop="enabled", rowId="task-model", label=modelName, name=modelName, driver=markField(data.marks, modelKey, "driver"), icon=markField(data.marks, modelKey, "icon"), badge=markField(data.marks, modelKey, "badge"), accent=markField(data.marks, modelKey, "accent"), disabled=(busy or not data.available), press=pickModel("task-model", `${encodeURIComponent(draft.environmentId)}|${encodeURIComponent(modelKey)}`))
             column gap="0.75rem"
               if draft.legacyInterval
                 text "This task uses a legacy interval below one minute. Saving updates it to at least one minute." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" role="status"
@@ -776,7 +777,7 @@ component ScheduledEditor
 fn encodeFilters(rows: WebhookFilterRow[]): string = rows.map((rule) => `${encodeURIComponent(rule.path)}:${rule.op}:${encodeURIComponent(rule.value)}`).join(",")
 fn filterOpLabel(op: string): string = op == "notEquals" ? "does not equal" : (op == "in" ? "is one of" : (op == "startsWith" ? "starts with" : (op == "exists" ? "exists" : "equals")))
 fn projectLabel(options: TaskChoice[], value: string): string = options.filter(option => option.value == value).map(option => option.label).join("")
-fn markField(marks: TaskModelMark[], value: string, field: string): string = marks.filter(mark => mark.value == value).map(mark => field == "driver" ? mark.driver : (field == "badge" ? mark.badge : (field == "accent" ? mark.accent : mark.name))).join("")
+fn markField(marks: TaskModelMark[], value: string, field: string): string = marks.filter(mark => mark.value == value).map(mark => field == "driver" ? mark.driver : (field == "icon" ? mark.icon : (field == "badge" ? mark.badge : (field == "accent" ? mark.accent : mark.name)))).join("")
 
 // Field's label: the name, and its hint at the right.
 component TaskFieldLabel

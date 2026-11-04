@@ -24,6 +24,7 @@ import { resolveScope, memberFiles, serverContext, inheritanceGroups, type Inher
 import { resolveTextGenerationSelection } from './text-generation-model';
 import { providerBadge } from '../client/presentation';
 import { triggerModelName } from '../composer/composer-controls-model';
+import { acpInstanceIcon } from '../composer/acp-instance-icon';
 import { watchDeviceHostStates } from '../client/live-streams';
 import { deviceStateOf, watchDevice } from '../device/device-surface'; // useDeviceState
 import { environmentClient, groupOfMember } from './projects-fleet';
@@ -38,7 +39,7 @@ export type ScopedRow = { key: string; kind: string; title: string; description:
   /** The control's accessible name and SettingResetButton's `label` ("Reset <label> to default"), as the reference names them; '' uses the title. */
   control: string; resetLabel: string;
   /** A model row's picker trigger mark: the instance's driver and ProviderInstanceIcon badge. */
-  driver: string; badge: string; accent: string;
+  driver: string; icon: string; badge: string; accent: string;
   /** The writer model's TraitsPicker: its trigger label ('' draws none) and menu rows. */
   traitsLabel: string; traits: CoreOption[];
   /** The row's search target (settings-catalog.ts `targetId ?? id`), '' for a row no result names. */
@@ -85,7 +86,7 @@ function effective(settings: Obj, projectId: string): Obj {
 
 function row(settings: Obj, projectId: string, environmentLabel: string, key: string, partial: Partial<ScopedRow>): ScopedRow {
   const info = inheritance(settings, projectId, key, environmentLabel);
-  return { key, kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: false, first: false, status: '', child: '', reset: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '',
+  return { key, kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: false, first: false, status: '', child: '', reset: '', mixed: false, control: '', resetLabel: '', driver: '', icon: '', badge: '', accent: '',
     traitsLabel: '', traits: [], target: '', managed: '', ...info, ...partial, ...(SEARCH_TARGETS[partial.key ?? key] ? { target: SEARCH_TARGETS[partial.key ?? key] } : {}) };
 }
 
@@ -120,7 +121,7 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
     const traits = resolved ? traitsControl({ providers }, resolved.provider, resolved.model, resolved.options) : null;
     return row(settings, projectId, environmentLabel, key, { kind: 'model', title, checked: enabled, disabled: !writable,
       description, value: resolved ? `${str(resolved.provider.instanceId)}:${str(resolved.model?.slug)}` : '',
-      valueLabel: resolved?.model ? triggerModelName(resolved.model, str(resolved.provider.driver)) : 'Choose model', driver: str(resolved?.provider.driver),
+      valueLabel: resolved?.model ? triggerModelName(resolved.model, str(resolved.provider.driver)) : 'Choose model', driver: str(resolved?.provider.driver), icon: acpInstanceIcon({ settings }, resolved?.provider),
       badge: badge.providerBadge, accent: badge.providerBadgeColor, traitsLabel: str(traits?.label2), traits: traits?.options2 ?? [],
       status: !available ? 'No text generation providers available.' : '' });
   };
@@ -370,5 +371,5 @@ export function toolVersion(value: unknown): string {
   return version ? `v${version}` : 'Not installed';
 }
 function blankRow(): ScopedRow {
-  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], layerGroups: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', badge: '', accent: '', traitsLabel: '', traits: [], target: '', managed: '' };
+  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], layerGroups: [], reset: '', status: '', child: '', mixed: false, control: '', resetLabel: '', driver: '', icon: '', badge: '', accent: '', traitsLabel: '', traits: [], target: '', managed: '' };
 }
