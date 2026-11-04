@@ -475,32 +475,45 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         // A view the touch fell on that has left the window gives way to the node
         let shown = owner.touched.flatMap { $0.window == nil ? nil : $0 } ?? source
         let parameters = UIPreviewParameters()
-        // One radius, round or Apple's continuous, as UIKit's own rounded
-        // rectangle, which UIKit keeps through the lift's morph: UIKit applies
-        // any other path only after the morph's first frames, which show the
-        // node square (measured, iOS 27.1). One radius within the tolerance the
-        // layer's own (`applyBoxLayer`) has.
-        if let node = shown as? NodeView {
-            let corners = node.cornerSizes(in: node.bounds), shape = node.style["corner_shape"]
-            if let corner = corners.first, corner.width > 0, corners.allSatisfy({ abs($0.width - corner.width) < 0.01 && abs($0.height - corner.width) < 0.01 }),
-               shape == nil || CornerShape(shape)?.isAppleContinuous == true {
-                parameters.visiblePath = UIBezierPath(roundedRect: node.bounds, cornerRadius: corner.width)
-            } else if corners.contains(where: { $0.width > 0 }) {
-                parameters.visiblePath = node.roundedPath(in: node.bounds)
-            }
-        } else if shown.layer.cornerRadius > 0 {
-            parameters.visiblePath = UIBezierPath(roundedRect: shown.bounds, cornerRadius: shown.layer.cornerRadius)
-        }
+        parameters.visiblePath = Self.rounded(shown)
         guard let target = Self.target(shown) else { return nil }
         return UITargetedPreview(view: shown, parameters: parameters, target: target)
+    }
+
+    /// `view`'s outline in its own coordinates where its corners are rounded,
+    /// else nil. One radius, round or Apple's continuous, is UIKit's own
+    /// rounded rectangle, which UIKit keeps through the lift's morph: UIKit
+    /// applies any other path only after the morph's first frames, which show
+    /// the node square (measured, iOS 27.1). One radius within the tolerance the
+    /// layer's own (`applyBoxLayer`) has.
+    private static func rounded(_ view: UIView) -> UIBezierPath? {
+        guard let node = view as? NodeView else {
+            return view.layer.cornerRadius > 0 ? UIBezierPath(roundedRect: view.bounds, cornerRadius: view.layer.cornerRadius) : nil
+        }
+        let corners = node.cornerSizes(in: node.bounds), shape = node.style["corner_shape"]
+        if let corner = corners.first, corner.width > 0, corners.allSatisfy({ abs($0.width - corner.width) < 0.01 && abs($0.height - corner.width) < 0.01 }),
+           shape == nil || CornerShape(shape)?.isAppleContinuous == true {
+            return UIBezierPath(roundedRect: node.bounds, cornerRadius: corner.width)
+        }
+        return corners.contains(where: { $0.width > 0 }) ? node.roundedPath(in: node.bounds) : nil
     }
 
     /// A run's lines where the screen shows them in `container`: their boxes,
     /// and their outline as UIKit outlines text lines, with the padding UIKit
     /// gives them (`UIPreviewParameters(textLineRects:)`), in the coordinates of
-    /// the outline's area.
+    /// the outline's area. Where the padding reaches past the box the run sits
+    /// in (`box(of:below:)`), it extends the box: the lift keeps UIKit's
+    /// footprint and holds none of what lies outside the box, such as the page
+    /// around a card.
     private struct RunLines {
         let boxes: [CGRect], outline: UIBezierPath, area: CGRect, container: UIView
+        /// The box the padding reaches past, whose look it extends over the area
+        let box: CALayer?
+        /// The part of the area the box surely fills, in the area's
+        /// coordinates: its bounds inset until their corners lie inside its
+        /// outline (`innerRect`), and inside its border. The padding past
+        /// `inner` extends what lies within it (`reflected`, `strips`).
+        let inner: CGRect?
 
         /// Nil where the run shows no lines.
         init?(_ run: InlineText, in source: NodeView, over container: UIView) {
@@ -509,11 +522,85 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
                   !outline.bounds.isEmpty else { return nil }
             let area = outline.bounds
             outline.apply(CGAffineTransform(translationX: -area.minX, y: -area.minY))
-            (self.boxes, self.outline, self.area, self.container) = (boxes, outline, area, container)
+            var box: CALayer?, inner: CGRect?
+            if let found = ContextMenuHost.box(of: source, below: container), !ContextMenuHost.covers(found.layer, area, in: container.layer) {
+                let shape = ContextMenuHost.rounded(found) ?? UIBezierPath(rect: found.bounds)
+                // Inside its border, then placed: a rotated box's placed rectangle is no longer upright, and a rectangle inside it is taken
+                let placed = UIBezierPath(rect: ContextMenuHost.innerRect(of: shape).inset(by: ContextMenuHost.borders(of: found)))
+                placed.apply(ContextMenuHost.placement(of: found, in: container))
+                let fills = ContextMenuHost.innerRect(of: placed).intersection(area)
+                if !fills.isNull, fills.width >= 1, fills.height >= 1 { (box, inner) = (found.layer, fills.offsetBy(dx: -area.minX, dy: -area.minY)) }
+            }
+            (self.boxes, self.outline, self.area, self.container, self.box, self.inner) = (boxes, outline, area, container, box, inner)
         }
 
         /// The lines' place, where a preview of them rises and returns
         var target: UIPreviewTarget { UIPreviewTarget(container: container, center: CGPoint(x: area.midX, y: area.midY)) }
+
+        /// Where what lies under the run is read, in the container's
+        /// coordinates: `inner` where there is a box, since the padding past
+        /// `inner` extends what lies within it, else the whole area
+        var reach: CGRect { inner.map { $0.offsetBy(dx: area.minX, dy: area.minY) } ?? area }
+
+        /// The strips along `inner`'s edges, a pixel thick, each with the part
+        /// of the area it stretches over: a side's band, or a corner
+        var strips: [(from: CGRect, to: CGRect)] {
+            guard let inner else { return [] }
+            let bounds = CGRect(origin: .zero, size: area.size), pixel = 1 / container.traitCollection.displayScale
+            // Per axis: the span before `inner`, `inner` itself and the span after it, each with the part of `inner` it takes
+            typealias Span = (from: ClosedRange<CGFloat>, to: ClosedRange<CGFloat>)
+            let columns: [Span] = [(inner.minX...inner.minX + pixel, bounds.minX...inner.minX), (inner.minX...inner.maxX, inner.minX...inner.maxX), (inner.maxX - pixel...inner.maxX, inner.maxX...bounds.maxX)]
+            let rows: [Span] = [(inner.minY...inner.minY + pixel, bounds.minY...inner.minY), (inner.minY...inner.maxY, inner.minY...inner.maxY), (inner.maxY - pixel...inner.maxY, inner.maxY...bounds.maxY)]
+            func rect(_ x: ClosedRange<CGFloat>, _ y: ClosedRange<CGFloat>) -> CGRect {
+                CGRect(x: x.lowerBound, y: y.lowerBound, width: x.upperBound - x.lowerBound, height: y.upperBound - y.lowerBound)
+            }
+            return columns.enumerated().flatMap { i, column in rows.enumerated().compactMap { j, row in
+                guard i != 1 || j != 1, column.to.upperBound > column.to.lowerBound, row.to.upperBound > row.to.lowerBound else { return nil }
+                return (rect(column.from, row.from), rect(column.to, row.to))
+            } }
+        }
+    }
+
+    /// `shape`'s bounds inset half a point at a time until their corners lie
+    /// inside it
+    private static func innerRect(of shape: UIBezierPath) -> CGRect {
+        var rect = shape.bounds
+        while rect.width > 1, rect.height > 1 {
+            let r = rect.insetBy(dx: 0.01, dy: 0.01)
+            if [CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY), CGPoint(x: r.minX, y: r.maxY), CGPoint(x: r.maxX, y: r.maxY)].allSatisfy(shape.contains) { break }
+            rect = rect.insetBy(dx: 0.5, dy: 0.5)
+        }
+        return rect
+    }
+
+    /// The box a paragraph's runs sit in, below `container`: the paragraph
+    /// itself where it paints a fill or a background image, else the nearest
+    /// ancestor that does or that clips what it holds. A node's fill is its
+    /// style's, wherever the host paints it (its layer, its corners' fill
+    /// layer, its own drawing).
+    private static func box(of paragraph: NodeView, below container: UIView) -> UIView? {
+        sequence(first: paragraph as UIView, next: { $0.superview }).prefix(while: { $0 !== container }).first { view in
+            let node = view as? NodeView
+            let paints = node.map { ($0.cgColor("background_color")?.alpha ?? 0) > 0 || $0.style["background_image"] != nil } ?? ((view.layer.backgroundColor?.alpha ?? 0) > 0)
+            return paints || view !== paragraph && (view.layer.masksToBounds || node?.overflowClips == true)
+        }
+    }
+
+    /// The widths of `view`'s border: a node's from its style in whole device
+    /// pixels, as its box draws them (`applyBoxLayer`), else its layer's
+    private static func borders(of view: UIView) -> UIEdgeInsets {
+        guard let node = view as? NodeView else { let w = view.layer.borderWidth; return UIEdgeInsets(top: w, left: w, bottom: w, right: w) }
+        let uniform = node.number("border_width")
+        func side(_ name: String) -> CGFloat { node.devicePixels(node.number("border_width_" + name, uniform)) }
+        return UIEdgeInsets(top: side("top"), left: side("left"), bottom: side("bottom"), right: side("right"))
+    }
+
+    /// The transform from `view`'s coordinates to `container`'s: from its
+    /// bounds' origin, along its axes as they land in the container.
+    private static func placement(of view: UIView, in container: UIView) -> CGAffineTransform {
+        let b = view.bounds.origin
+        let o = view.convert(b, to: container), x = view.convert(CGPoint(x: b.x + 1, y: b.y), to: container), y = view.convert(CGPoint(x: b.x, y: b.y + 1), to: container)
+        return CGAffineTransform(translationX: -b.x, y: -b.y).concatenating(CGAffineTransform(a: x.x - o.x, b: x.y - o.y, c: y.x - o.x, d: y.y - o.y, tx: o.x, ty: o.y))
     }
 
     /// A run's preview: a picture of its lines (`picture`), cut to their
@@ -532,83 +619,282 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         return UITargetedPreview(view: picture, parameters: parameters, target: lines.target)
     }
 
-    /// The run's area as the screen shows it: its own boxes from the screen
-    /// over its padding (`padding`), else the screen's picture of all of it,
-    /// neighboring text included.
+    /// The run's area as the screen shows it: its own words (`words`, else
+    /// the screen's) over its padding (`padding`), else one snapshot of the
+    /// screen across all of it, neighboring text included. Either way, the
+    /// padding extends the box the run sits in past its edges (`reflected`,
+    /// `RunLines.strips`).
     private static func picture(_ lines: RunLines, of source: NodeView) -> RunPicture? {
         let container = lines.container, area = lines.area
         guard let padding = padding(lines, of: source) else {
-            return container.resizableSnapshotView(from: area, afterScreenUpdates: false, withCapInsets: .zero).map(RunPicture.init(padding:))
+            guard let screen = container.resizableSnapshotView(from: area, afterScreenUpdates: false, withCapInsets: .zero) else { return nil }
+            let strips = lines.strips
+            guard let slot = screen.layer.contents, !strips.isEmpty else { return RunPicture(padding: screen) }
+            // Past the box, the screen's own picture stretched from its edge: layers
+            // sharing its contents, each cut to a pixel's strip. A strip snapshotted
+            // on its own is too thin for a blur's radius and shows what lies behind
+            // it unblurred, and a reflection would mirror the run's words, which the
+            // screen's picture holds (filmed).
+            let padding = UIView(frame: CGRect(origin: .zero, size: area.size))
+            padding.addSubview(screen)
+            for (from, to) in strips {
+                let strip = CALayer()
+                (strip.contents, strip.frame, strip.magnificationFilter) = (slot, to, .nearest)
+                strip.contentsRect = CGRect(x: from.minX / area.width, y: from.minY / area.height, width: from.width / area.width, height: from.height / area.height)
+                padding.layer.addSublayer(strip)
+            }
+            return RunPicture(padding: padding)
         }
         let picture = RunPicture(padding: padding)
         let runArea = lines.boxes.reduce(CGRect.null) { $0.union($1) }
-        if let run = container.resizableSnapshotView(from: runArea, afterScreenUpdates: false, withCapInsets: .zero) {
+        let only = CAShapeLayer(), path = UIBezierPath()
+        for box in lines.boxes { path.append(UIBezierPath(rect: box.offsetBy(dx: -runArea.minX, dy: -runArea.minY))) }
+        only.path = path.cgPath
+        if let words = words(lines, in: runArea, of: source) {
+            words.mask = only
+            picture.layer.addSublayer(words)
+        } else if let run = container.resizableSnapshotView(from: runArea, afterScreenUpdates: false, withCapInsets: .zero) {
             run.frame = runArea.offsetBy(dx: -area.minX, dy: -area.minY)
-            let only = CAShapeLayer(), path = UIBezierPath()
-            for box in lines.boxes { path.append(UIBezierPath(rect: box.offsetBy(dx: -runArea.minX, dy: -runArea.minY))) }
-            only.path = path.cgPath
             run.layer.mask = only
             picture.addSubview(run)
         }
         return picture
     }
 
+    /// The run's words over `runArea` as the paragraph shows them, with no
+    /// pixel copied: layers that show the paragraph's own text raster
+    /// (`textRasterLayer`) cut to the run, which the render server composites
+    /// as it does the paragraph, at the opacity and in the dynamic range it
+    /// shows them in. A one-color raster is that color masked by its coverage
+    /// (`TintInk`). Nil where the paragraph shows its words otherwise (a
+    /// shadow, an HDR shadow's cast, vibrancy, rolling numerals, a drawing of
+    /// its own) or not upright in the container, and the caller takes the
+    /// screen's.
+    private static func words(_ lines: RunLines, in runArea: CGRect, of source: NodeView) -> CALayer? {
+        let space = lines.container.layer
+        guard source.layer.contents == nil, source.vibrancyView == nil, let ink = source.textRasterLayer, ink.superlayer != nil, ink.textCast == nil,
+              ink.shadowOpacity == 0, ink.sublayers?.isEmpty ?? true,
+              ink.filters == nil, ink.compositingFilter == nil, ink.contentsRect == CGRect(x: 0, y: 0, width: 1, height: 1), !ink.bounds.isEmpty else { return nil }
+        let tint = (ink as? TintInk)?.backgroundColor
+        guard let image = tint == nil ? ink.contents : ink.mask?.contents, tint == nil || ink.mask?.contentsRect == CGRect(x: 0, y: 0, width: 1, height: 1) else { return nil }
+        // Upright: the ink's axes land on the container's
+        let o = ink.convert(CGPoint.zero, to: space), x = ink.convert(CGPoint(x: 1, y: 0), to: space), y = ink.convert(CGPoint(x: 0, y: 1), to: space)
+        guard abs(x.y - o.y) < 0.001, abs(y.x - o.x) < 0.001 else { return nil }
+        let shown = space.convert(runArea, to: ink).intersection(ink.bounds)
+        guard !shown.isNull, !shown.isEmpty else { return nil }
+        let b = ink.bounds, cut = CGRect(x: (shown.minX - b.minX) / b.width, y: (shown.minY - b.minY) / b.height, width: shown.width / b.width, height: shown.height / b.height)
+        let words = CALayer(), area = lines.area
+        words.frame = runArea.offsetBy(dx: -area.minX, dy: -area.minY)
+        words.opacity = sequence(first: ink, next: { $0.superlayer }).prefix { $0 !== space }.reduce(1) { $0 * $1.opacity }
+        let face = CALayer()
+        face.frame = ink.convert(shown, to: space).offsetBy(dx: -runArea.minX, dy: -runArea.minY)
+        takeRange(of: ink, into: face)
+        if let tint {
+            face.backgroundColor = tint
+            let coverage = CALayer()
+            coverage.frame = face.bounds
+            (coverage.contents, coverage.contentsRect, coverage.contentsScale) = (image, cut, ink.contentsScale)
+            face.mask = coverage
+        } else {
+            (face.contents, face.contentsRect, face.contentsScale) = (image, cut, ink.contentsScale)
+        }
+        words.addSublayer(face)
+        return words
+    }
+
     /// The run's padding: what lies under its paragraph across its area,
     /// without the paragraph's other text. It comes from `underneath`: one flat
-    /// color, or the layers there drawn with `render(in:)` while the paragraph,
-    /// and what lies wholly outside the area, is hidden for that call (which
-    /// never reaches the screen), the paragraph's own fill drawn back. Nil where
-    /// only the render server draws there, or the paragraph draws its own box
-    /// or a border.
+    /// color, or copies of the layers there (`copies`), the paragraph's by its
+    /// fill alone, with a material shown live between the copies composited
+    /// under it and over it. Past the box the run sits in, the copies under
+    /// the material are reflected (`reflected`), while the copies over the
+    /// material, and a material other than the box's own, stay within
+    /// `inner`. Nil where only a snapshot shows what lies there, or the
+    /// paragraph paints more than its layer's fill.
     private static func padding(_ lines: RunLines, of source: NodeView) -> UIView? {
-        let container = lines.container, area = lines.area
-        guard !source.boxDrawn, source.layer.borderWidth == 0, let parent = source.superview else { return nil }
-        // From the nearest view under the paragraph that covers the area opaquely: nothing behind it shows
+        let container = lines.container, area = lines.area, reach = lines.reach
+        guard !source.boxDrawn, source.boxFill == nil, source.style["background_image"] == nil, source.layer.borderWidth == 0, let parent = source.superview else { return nil }
+        // From the nearest view under the paragraph that covers the reach opaquely, or the box the padding extends: nothing behind it shows
         let root = sequence(first: parent, next: { $0.superview }).first {
-            $0.layer.opacity >= 1 && ($0.layer.backgroundColor?.alpha ?? 0) >= 1 && covers($0.layer, area, in: container.layer)
+            $0.layer.opacity >= 1 && ($0.layer.backgroundColor?.alpha ?? 0) >= 1 && ($0.layer === lines.box || covers($0.layer, reach, in: container.layer))
         } ?? source.window ?? container
-        switch underneath(root.layer, across: area, in: container.layer, exceptFor: source.layer) {
-        case .renderServer:
+        switch underneath(root.layer, across: reach, in: container.layer, exceptFor: source.layer, within: lines.box) {
+        case .screen:
             return nil
         case .color(let color):
             let padding = UIView(frame: CGRect(origin: .zero, size: area.size))
             padding.layer.backgroundColor = color
             return padding
-        case .layers(let outside):
-            // The root's coordinates in the container's, from its bounds' origin, which `render(in:)` draws at the context's
-            let b = root.bounds.origin
-            let o = root.convert(b, to: container), x = root.convert(CGPoint(x: b.x + 1, y: b.y), to: container), y = root.convert(CGPoint(x: b.x, y: b.y + 1), to: container)
-            let placement = CGAffineTransform(a: x.x - o.x, b: x.y - o.y, c: y.x - o.x, d: y.y - o.y, tx: o.x, ty: o.y)
-            let radius = source.layer.cornerRadius
-            var corners: UIRectCorner = []
-            for (masked, corner) in [(CACornerMask.layerMinXMinYCorner, UIRectCorner.topLeft), (.layerMaxXMinYCorner, .topRight), (.layerMinXMaxYCorner, .bottomLeft), (.layerMaxXMaxYCorner, .bottomRight)]
-            where source.layer.maskedCorners.contains(masked) { corners.insert(corner) }
-            return UIImageView(image: UIGraphicsImageRenderer(size: area.size, format: UIGraphicsImageRendererFormat(for: container.traitCollection)).image { context in
-                let cg = context.cgContext
-                cg.translateBy(x: -area.minX, y: -area.minY)
-                cg.saveGState()
-                cg.concatenate(placement)
-                let hidden = ([source.layer] + outside).map { ($0, $0.isHidden) }
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
-                for (layer, _) in hidden { layer.isHidden = true }
-                root.layer.render(in: cg)
-                for (layer, was) in hidden { layer.isHidden = was }
-                CATransaction.commit()
-                cg.restoreGState()
-                if let fill = source.layer.backgroundColor {
-                    cg.setFillColor(fill)
-                    cg.addPath(UIBezierPath(roundedRect: source.convert(source.bounds, to: container), byRoundingCorners: corners, cornerRadii: CGSize(width: radius, height: radius)).cgPath)
-                    cg.fillPath()
+        case .layers(let material):
+            let padding = UIView(frame: CGRect(origin: .zero, size: area.size))
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            defer { CATransaction.commit() }
+            let (under, over) = copies(of: root.layer, across: reach, in: container.layer, paragraph: source.layer, splitAt: material?.layer)
+            let within = UIView(frame: lines.inner ?? padding.bounds)
+            within.clipsToBounds = true
+            // A side's copies placed as the root's layers are, in the area's coordinates less the origin of the view that holds them
+            let placement = Self.placement(of: root, in: container).concatenating(CGAffineTransform(translationX: -area.minX, y: -area.minY))
+            func placed(_ copy: CALayer, at origin: CGPoint) -> CALayer {
+                let layer = CALayer()
+                // Its sublayer transform applies about its anchor point
+                (layer.anchorPoint, layer.frame) = (.zero, CGRect(x: -origin.x, y: -origin.y, width: area.width, height: area.height))
+                layer.sublayerTransform = CATransform3DMakeAffineTransform(placement)
+                (copy.anchorPoint, copy.position, copy.transform) = (.zero, root.layer.bounds.origin, CATransform3DIdentity)
+                layer.addSublayer(copy)
+                return layer
+            }
+            if let under {
+                let below = UIView(frame: padding.bounds), layer = placed(under, at: .zero)
+                below.layer.addSublayer(lines.inner.map { reflected(layer, inside: $0) } ?? layer)
+                padding.addSubview(below)
+            }
+            if let material {
+                // Live between the copies, it blurs those under it as the render server composites the platter: no
+                // snapshot waits for it. The box's own spreads over all of the padding, which it then blurs past the box.
+                let live = UIVisualEffectView(effect: material.effect)
+                let frame = material.convert(material.bounds, to: container).offsetBy(dx: -area.minX, dy: -area.minY)
+                if let inner = lines.inner, frame.insetBy(dx: -0.5, dy: -0.5).contains(inner) {
+                    live.frame = padding.bounds
+                    padding.addSubview(live)
+                } else {
+                    live.frame = frame.offsetBy(dx: -within.frame.minX, dy: -within.frame.minY)
+                    if #available(iOS 26.0, *) { live.cornerConfiguration = material.cornerConfiguration } else { (live.layer.cornerRadius, live.clipsToBounds) = (material.layer.cornerRadius, true) }
+                    within.addSubview(live)
                 }
-            })
+            }
+            if let over {
+                let above = UIView(frame: within.bounds)
+                above.layer.addSublayer(placed(over, at: within.frame.origin))
+                within.addSubview(above)
+            }
+            if !within.subviews.isEmpty { padding.addSubview(within) }
+            return padding
         }
+    }
+
+    /// Copies of `root` and of what it holds across `area` (in `space`), in
+    /// the order the render server composites them: `under` what comes before
+    /// `material`, and `over` what comes after it, its content included,
+    /// between which the padding shows the material live. A layer whose
+    /// children fall on both sides is on both, its paint on the side it comes
+    /// in on and its geometry alone (`shell`) on the other. A layer that
+    /// reaches no part of the area is copied only to hold what does, and an
+    /// effect view only through what it holds.
+    private static func copies(of root: CALayer, across area: CGRect, in space: CALayer, paragraph: CALayer, splitAt material: CALayer?) -> (under: CALayer?, over: CALayer?) {
+        var past = false
+        func add(_ child: CALayer?, to holder: inout CALayer?, for layer: CALayer) {
+            guard let child else { return }
+            if holder == nil { holder = shell(of: layer) }
+            holder?.addSublayer(child)
+        }
+        // `around` is the area in the superlayer's coordinates, where `frame` holds the layer's bounds
+        func walk(_ layer: CALayer, around: CGRect) -> (under: CALayer?, over: CALayer?) {
+            guard !layer.isHidden, layer.opacity > 0 else { return (nil, nil) }
+            let inside = layer.frame.intersects(around)
+            var under: CALayer?, over: CALayer?
+            if let view = layer.delegate as? UIVisualEffectView {
+                if layer === material { past = true } else if effect(of: view) == .material { return (nil, nil) }
+                guard inside else { return (nil, nil) }
+                let held = walk(view.contentView.layer, around: space.convert(area, to: layer))
+                add(held.under, to: &under, for: layer)
+                add(held.over, to: &over, for: layer)
+                return (under, over)
+            }
+            if inside {
+                if past { over = replica(of: layer, paragraph: paragraph) } else { under = replica(of: layer, paragraph: paragraph) }
+            }
+            guard layer !== paragraph, let sublayers = layer.sublayers, !sublayers.isEmpty, inside || !layer.masksToBounds else { return (under, over) }
+            let local = space.convert(area, to: layer)
+            for sublayer in composited(sublayers) {
+                let held = walk(sublayer, around: local)
+                add(held.under, to: &under, for: layer)
+                add(held.over, to: &over, for: layer)
+            }
+            return (under, over)
+        }
+        return walk(root, around: root.superlayer.map { space.convert(area, to: $0) } ?? area)
+    }
+
+    /// A layer with `layer`'s geometry, clip, opacity and mask and nothing it
+    /// paints, to hold copies of what it holds
+    private static func shell(of layer: CALayer) -> CALayer {
+        let copy = CALayer()
+        (copy.bounds, copy.position, copy.anchorPoint, copy.zPosition, copy.transform, copy.sublayerTransform) = (layer.bounds, layer.position, layer.anchorPoint, layer.zPosition, layer.transform, layer.sublayerTransform)
+        (copy.masksToBounds, copy.cornerRadius, copy.maskedCorners, copy.cornerCurve, copy.opacity) = (layer.masksToBounds, layer.cornerRadius, layer.maskedCorners, layer.cornerCurve, layer.opacity)
+        copy.mask = layer.mask.flatMap { bitmapsOnly($0) ? whole($0) : nil }
+        return copy
+    }
+
+    /// A copy of `layer` without what it holds (`valueCopy`), with its
+    /// `zPosition`, dynamic range and mask, which the render server composites
+    /// as it does the original, no pixel drawn. The paragraph is copied by its
+    /// fill alone. Speed before fidelity: what a layer draws some other way is
+    /// left out.
+    private static func replica(of layer: CALayer, paragraph: CALayer?) -> CALayer {
+        if layer === paragraph {
+            let copy = shell(of: layer)
+            copy.backgroundColor = layer.backgroundColor
+            return copy
+        }
+        let copy = layer.valueCopy()
+        copy.zPosition = layer.zPosition
+        takeRange(of: layer, into: copy)
+        copy.mask = layer.mask.map(whole)
+        return copy
+    }
+
+    /// A copy of `layer` and all it holds, unpruned: a mask, which lies outside
+    /// the tree the area is measured in
+    private static func whole(_ layer: CALayer) -> CALayer {
+        let copy = replica(of: layer, paragraph: nil)
+        for sublayer in layer.sublayers ?? [] where !sublayer.isHidden { copy.addSublayer(whole(sublayer)) }
+        return copy
+    }
+
+    /// `copy` asks for the dynamic range `layer` asks for, with its headroom
+    /// and tone mapping (`applyDynamicRange`, `mapsExtendedRange`)
+    private static func takeRange(of layer: CALayer, into copy: CALayer) {
+        if #available(iOS 26.0, *) {
+            (copy.preferredDynamicRange, copy.contentsHeadroom) = (layer.preferredDynamicRange, layer.contentsHeadroom)
+        } else {
+            copy.wantsExtendedDynamicRangeContent = layer.wantsExtendedDynamicRangeContent
+        }
+        if #available(iOS 18.0, *) { copy.toneMapMode = layer.toneMapMode }
+    }
+
+    /// `content` with the padding past `inner` mirroring what lies just inside
+    /// it, the way reflect padding extends an image: `content` clipped to `inner`,
+    /// in a replicator layer per side that shows what it holds and its mirror
+    /// image about that side, which falls only past it. The render server
+    /// draws the copies.
+    private static func reflected(_ content: CALayer, inside inner: CGRect) -> CALayer {
+        let bounds = content.frame, clip = CALayer()
+        clip.frame = inner
+        clip.masksToBounds = true
+        content.frame = bounds.offsetBy(dx: -inner.minX, dy: -inner.minY)
+        clip.addSublayer(content)
+        // A replicator's instance transform applies about its center
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        var layer: CALayer = clip
+        for (edge, vertical, past) in [(inner.minX, false, inner.minX > bounds.minX), (inner.maxX, false, inner.maxX < bounds.maxX),
+                                       (inner.minY, true, inner.minY > bounds.minY), (inner.maxY, true, inner.maxY < bounds.maxY)] where past {
+            let mirror = CAReplicatorLayer()
+            mirror.frame = bounds
+            mirror.instanceCount = 2
+            mirror.instanceTransform = CATransform3DMakeAffineTransform(vertical
+                ? CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: 2 * (edge - center.y))
+                : CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: 2 * (edge - center.x), ty: 0))
+            mirror.addSublayer(layer)
+            layer = mirror
+        }
+        return layer
     }
 
     /// A run's picture (`picture`): its padding, with the run's words over it
     /// unless the padding is the screen's, which holds them. The padding fades
-    /// as UIKit returns the picture (`willEndFor`), so it lands as the screen
-    /// shows it then.
+    /// as UIKit returns the picture (`willEndFor`, `fadePadding`), so it lands
+    /// as the screen shows it then.
     private final class RunPicture: UIView {
         let padding: UIView
         init(padding: UIView) {
@@ -618,60 +904,118 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
             addSubview(padding)
         }
         required init?(coder: NSCoder) { nil }
+
+        /// The padding faded: a live material by losing its effect, which
+        /// UIKit animates, and the rest by its opacity, though never a view
+        /// that holds a live material, since fading one breaks the effect
+        /// until the fade ends (`UIVisualEffectView`)
+        func fadePadding() { Self.fade(padding) }
+
+        private static func fade(_ view: UIView) {
+            if let live = view as? UIVisualEffectView { live.effect = nil; return }
+            guard view.subviews.contains(where: holdsMaterial) else { view.alpha = 0; return }
+            view.subviews.forEach(fade)
+        }
+
+        private static func holdsMaterial(_ view: UIView) -> Bool { view is UIVisualEffectView || view.subviews.contains(where: holdsMaterial) }
     }
 
     /// What lies under a paragraph across a run's area.
     private enum Underneath {
         /// One flat color: nothing paints there but fills that cover all of it.
         case color(CGColor)
-        /// Layers Core Animation draws in the app (`render(in:)`), and those
-        /// wholly outside the area, which the drawing leaves out.
-        case layers(outside: [CALayer])
-        /// Something only the render server draws (`drawnByRenderServer`), or
-        /// siblings there that `zPosition` reorders, which it alone composites
-        /// in that order.
-        case renderServer
+        /// Layers Core Animation draws, which their copies show (`copies`), and
+        /// at most one material (a blur or glass), which a live copy shows
+        case layers(material: UIVisualEffectView?)
+        /// What only a snapshot of the screen shows: something only the render
+        /// server draws (`drawnByRenderServer`), vibrancy, a second material,
+        /// or contents a copy must not share (`shareable`)
+        case screen
     }
 
     /// What lies under `paragraph` across `area` (in `space`), in one walk of
     /// `root`'s layers in the order they are composited. A layer counts as only its fill where
     /// it is sure to paint nothing else; the color is flat where every fill
     /// there, from the last opaque one that covers the whole area up, covers it
-    /// too, at full opacity. Anything else is drawn, never guessed.
-    private static func underneath(_ root: CALayer, across area: CGRect, in space: CALayer, exceptFor paragraph: CALayer) -> Underneath {
-        var flat = false, fills: [CGColor] = [], outside: [CALayer] = [], reordered = false
+    /// too, at full opacity. The box the padding extends (`box`) counts as
+    /// covering the area. Anything else is copied (`copies`), never guessed.
+    private static func underneath(_ root: CALayer, across area: CGRect, in space: CALayer, exceptFor paragraph: CALayer, within box: CALayer?) -> Underneath {
+        var flat = false, fills: [CGColor] = [], material: UIVisualEffectView?
         func paint(_ layer: CALayer, opacity: Float) {
             if layer !== paragraph, paintsBeyondItsFill(layer) { flat = false; return }
             guard let fill = layer.backgroundColor, fill.alpha > 0 else { return }
-            let whole = opacity >= 1 && covers(layer, area, in: space)
+            let whole = opacity >= 1 && (layer === box || covers(layer, area, in: space))
             if whole, fill.alpha >= 1 { fills = [fill]; flat = true } else if whole, flat { fills.append(fill) } else { flat = false }
         }
-        // Nil where the render server alone draws something of `layer`'s in the area; else whether any of it lies there
-        func visit(_ layer: CALayer, opacity: Float) -> Bool? {
+        // Nil where only a snapshot shows something of `layer`'s in the area; else whether any of it lies there.
+        // `around` is the area in the superlayer's coordinates, where `frame` holds the layer's bounds.
+        func visit(_ layer: CALayer, around: CGRect, opacity: Float) -> Bool? {
             guard !layer.isHidden, layer.opacity > 0 else { return false }
-            let alpha = opacity * layer.opacity, inside = layer.convert(layer.bounds, to: space).intersects(area)
+            let alpha = opacity * layer.opacity, inside = layer.frame.intersects(around)
+            // An effect view: only what it holds walked, a material shown live (`padding`)
+            if let view = layer.delegate as? UIVisualEffectView {
+                guard inside else { return false }
+                switch effect(of: view) {
+                case .material:
+                    guard material == nil else { return nil }
+                    (material, flat) = (view, false)
+                case .vibrancy:
+                    return nil
+                case .container:
+                    break
+                }
+                return visit(view.contentView.layer, around: space.convert(area, to: layer), opacity: alpha).map { _ in true }
+            }
             if inside {
-                if drawnByRenderServer(layer) { return nil }
+                if drawnByRenderServer(layer) || layer !== paragraph && !shareable(layer) { return nil }
                 paint(layer, opacity: alpha)
             }
             if layer === paragraph { return true }
-            if layer.masksToBounds, !inside { return false }
-            var reaches = inside, away: [CALayer] = []
-            // In the order Core Animation composites them: by `zPosition` (a `z-index`'s rank, `PaintOrder`), then as listed
-            let ordered = (layer.sublayers ?? []).enumerated().sorted { ($0.element.zPosition, $0.offset) < ($1.element.zPosition, $1.offset) }
-            var reachingAt: [Int] = []
-            for (index, sublayer) in ordered {
-                guard let reached = visit(sublayer, opacity: alpha) else { return nil }
-                if reached { reaches = true; reachingAt.append(index) } else { away.append(sublayer) }
+            guard let sublayers = layer.sublayers, !sublayers.isEmpty, inside || !layer.masksToBounds else { return inside }
+            var reaches = inside
+            let local = space.convert(area, to: layer)
+            for sublayer in composited(sublayers) {
+                guard let reached = visit(sublayer, around: local, opacity: alpha) else { return nil }
+                reaches = reaches || reached
             }
-            if reachingAt != reachingAt.sorted() { reordered = true }
-            if reaches { outside += away }
             return reaches
         }
-        guard visit(root, opacity: 1) != nil else { return .renderServer }
+        guard visit(root, around: root.superlayer.map { space.convert(area, to: $0) } ?? area, opacity: 1) != nil else { return .screen }
         if flat, let color = composite(fills) { return .color(color) }
-        // `render(in:)` draws siblings as listed, not by `zPosition` (measured): where that reorders what lies there, the screen
-        return reordered ? .renderServer : .layers(outside: outside)
+        return .layers(material: material)
+    }
+
+    /// What an effect view is to the walk: a material (a blur or glass) the
+    /// padding shows live, vibrancy only a snapshot shows, or anything else
+    /// (a container of other effect views, such as a glass group or a slot,
+    /// or no effect), walked through
+    private enum Effect { case material, vibrancy, container }
+
+    private static func effect(of view: UIVisualEffectView) -> Effect {
+        if view.effect is UIBlurEffect { return .material }
+        if #available(iOS 26.0, *), view.effect is UIGlassEffect { return .material }
+        return view.effect is UIVibrancyEffect ? .vibrancy : .container
+    }
+
+    /// Whether a copy may share `layer`'s contents and its mask's: each none
+    /// or a bitmap. A view's backing store is neither, and a copy on screen
+    /// must not share one: on macOS, a committed copy sharing one left the
+    /// view blank (`PaintCapture.swift`, `PressLookMac.swift`).
+    private static func shareable(_ layer: CALayer) -> Bool {
+        isBitmap(layer.contents) && (layer.mask.map(bitmapsOnly) ?? true)
+    }
+
+    /// Whether `layer`, its mask and all they hold have no contents but bitmaps
+    private static func bitmapsOnly(_ layer: CALayer) -> Bool {
+        isBitmap(layer.contents) && (layer.mask.map(bitmapsOnly) ?? true) && (layer.sublayers ?? []).allSatisfy(bitmapsOnly)
+    }
+
+    private static func isBitmap(_ contents: Any?) -> Bool { contents.map { CFGetTypeID($0 as CFTypeRef) == CGImage.typeID } ?? true }
+
+    /// `sublayers` in the order Core Animation composites them: by `zPosition`
+    /// (a `z-index`'s rank, `PaintOrder`), then as listed
+    private static func composited(_ sublayers: [CALayer]) -> [CALayer] {
+        sublayers.enumerated().sorted { ($0.element.zPosition, $0.offset) < ($1.element.zPosition, $1.offset) }.map(\.element)
     }
 
     /// Whether `layer`'s fill covers all of `area` (in `space`): unmasked and
@@ -683,10 +1027,10 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         return bounds.contains(area) && (r == 0 || bounds.insetBy(dx: r, dy: 0).contains(area) || bounds.insetBy(dx: 0, dy: r).contains(area))
     }
 
-    /// Whether only the render server draws `layer`: filters (blurs and
-    /// materials), video, Metal, a 3D transform, and content another process
-    /// draws (a web view, an embedded platform view), which `render(in:)` leaves
-    /// out. It draws masks and rounded clips (measured, iOS 27.1).
+    /// Whether only the render server draws `layer`: filters, video, Metal, a
+    /// 3D transform, and content another process draws (a web view, an
+    /// embedded platform view), which no copy of its properties shows. An
+    /// effect view's own filters never get here (`effect(of:)`).
     private static func drawnByRenderServer(_ layer: CALayer) -> Bool {
         if let node = layer.delegate as? NodeView, ["iframe", "native", "video"].contains(node.kind) { return true }
         return layer is CAMetalLayer || layer is AVPlayerLayer || layer is AVSampleBufferDisplayLayer || layer is AVCaptureVideoPreviewLayer
@@ -830,7 +1174,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         // until the completion, about a second after the menu starts closing
         // (filmed and logged), covering the text beside the run or what has
         // changed under it since
-        if let picture = owner.runPreview?.view as? RunPicture { animator?.addAnimations { picture.padding.alpha = 0 } }
+        if let picture = owner.runPreview?.view as? RunPicture { animator?.addAnimations { picture.fadePadding() } }
         let finish = { [weak self, weak owner] in
             guard let self, let owner, self.open === owner else { return }
             self.restore(owner)

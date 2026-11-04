@@ -65,29 +65,10 @@ extension Capture {
         }
         func copy(_ source: CALayer, inheritedFlip: Bool = false) -> CALayer {
             source.displayIfNeeded()
-            // CALayer(layer:) is the subclass copy initializer used by CA;
-            // called directly, it gives an empty layer. Copy values explicitly.
             // Start with the model: presentation does not yet contain writes
             // in the current transaction, even on a layer animating another key.
             let values = source
-            let layer: CALayer
-            if let shape = values as? CAShapeLayer {
-                let out = CAShapeLayer()
-                out.path = shape.path; out.fillColor = shape.fillColor; out.fillRule = shape.fillRule
-                out.strokeColor = shape.strokeColor; out.lineWidth = shape.lineWidth
-                out.lineCap = shape.lineCap; out.lineJoin = shape.lineJoin; out.miterLimit = shape.miterLimit
-                out.lineDashPattern = shape.lineDashPattern; out.lineDashPhase = shape.lineDashPhase
-                out.strokeStart = shape.strokeStart; out.strokeEnd = shape.strokeEnd
-                layer = out
-            } else if let gradient = values as? CAGradientLayer {
-                let out = CAGradientLayer()
-                out.colors = gradient.colors; out.locations = gradient.locations; out.type = gradient.type
-                out.startPoint = gradient.startPoint; out.endPoint = gradient.endPoint
-                layer = out
-            } else { layer = values is CATransformLayer ? CATransformLayer() : CALayer() }
-            layer.bounds = values.bounds; layer.position = values.position
-            layer.anchorPoint = values.anchorPoint; layer.anchorPointZ = values.anchorPointZ
-            layer.transform = values.transform; layer.sublayerTransform = values.sublayerTransform
+            let layer = values.valueCopy()
             #if os(macOS)
             let flipped = source.contentsAreFlipped()
             // Contents inherit their orientation through the live ancestors;
@@ -97,20 +78,7 @@ extension Capture {
             let flipped = false
             layer.isGeometryFlipped = values.isGeometryFlipped
             #endif
-            layer.opacity = values.opacity; layer.isHidden = values.isHidden
-            layer.isDoubleSided = values.isDoubleSided; layer.masksToBounds = values.masksToBounds
-            layer.cornerRadius = values.cornerRadius; layer.maskedCorners = values.maskedCorners
-            layer.cornerCurve = values.cornerCurve
-            layer.backgroundColor = values.backgroundColor
-            layer.borderColor = values.borderColor; layer.borderWidth = values.borderWidth
-            layer.contents = values.contents; layer.contentsScale = values.contentsScale
-            layer.contentsRect = values.contentsRect; layer.contentsCenter = values.contentsCenter
-            layer.contentsGravity = values.contentsGravity
-            layer.minificationFilter = values.minificationFilter; layer.magnificationFilter = values.magnificationFilter
-            layer.shadowPath = values.shadowPath; layer.shadowColor = values.shadowColor
-            layer.shadowOffset = values.shadowOffset; layer.shadowRadius = values.shadowRadius
-            layer.shadowOpacity = values.shadowOpacity
-            layer.allowsGroupOpacity = values.allowsGroupOpacity
+            layer.isHidden = values.isHidden
             if let keys = source.animationKeys(), !keys.isEmpty, let presentation = source.presentation() {
                 for key in keys {
                     if let animation = source.animation(forKey: key) { overlay(animation, from: presentation, onto: layer) }

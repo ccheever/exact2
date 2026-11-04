@@ -527,7 +527,7 @@ extension NodeView {
         restyleFieldFocus()
         f.textContainerInset = native ? FieldChromeCache.textareaInset(for: effectiveAppearance, scale: window?.backingScaleFactor ?? 1) : .zero
         let paragraph = NSMutableParagraphStyle()
-        if let font = f.font { paragraph.setLineHeight(usedLineHeight, font: font) }
+        if let font = f.font { paragraph.setLineHeight(usedLineHeight, font: font, scale: window?.backingScaleFactor ?? 1) }
         if (f as? TextArea)?.markup == nil { paragraph.baseWritingDirection = fieldBaseDirection }
         // A native one's unsaid alignment is `start`; one of `appearance: none` aligns each paragraph to the
         // base's start (natural) unless the author says otherwise.

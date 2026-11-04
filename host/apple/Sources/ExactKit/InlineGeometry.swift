@@ -89,8 +89,13 @@ extension Presenter {
         let fallback = field.font ?? field.typingAttributes[.font] as? PlatformFont ?? PlatformFont.systemFont(ofSize: systemSize)
         // A face's content area around `baseline` (its `baselineOffset`
         // raising it), as this host's CSS line box rounds it.
+        #if os(macOS)
+        let scale = field.window?.backingScaleFactor ?? 1
+        #else
+        let scale: CGFloat = 1
+        #endif
         func area(_ face: PlatformFont, offset: CGFloat, baseline: CGFloat) -> (CGFloat, CGFloat) {
-            let (ascent, descent) = CSSLineBox.content(face as CTFont)
+            let (ascent, descent) = CSSLineBox.content(face as CTFont, scale: scale)
             return (baseline - offset - ascent, baseline - offset + descent)
         }
         func face(at index: Int) -> (PlatformFont, CGFloat) {
@@ -180,11 +185,11 @@ extension NodeView {
     func shapedRects(_ start: Int, _ end: Int, empty: Bool, font: CTFont) -> [CGRect] {
         guard let paragraph = paragraphLayout() else { return [] }
         let spec = paragraphSpec(), box = paragraphBox()
-        let (above, below) = CSSLineBox.content(font)
+        let (above, below) = CSSLineBox.content(font, scale: paragraph.lineScale)
         #if os(iOS) || os(tvOS)
         let scale = traitCollection.displayScale
         #else
-        let scale: CGFloat = 1
+        let scale = window?.backingScaleFactor ?? 1
         #endif
         var placedEmpty = false
         return paragraph.lines.indices.compactMap { index in
@@ -196,7 +201,7 @@ extension NodeView {
             } else if hi <= lo { return nil }
             let x = box.minX + paragraph.origin(index, align: spec.align, width: box.width)
             let x0 = CTLineGetOffsetForStringIndex(line, lo, nil), x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
-            var rect = CGRect(x: x + min(x0, x1), y: box.minY + TextEngine.paintedBaseline(paragraph.baselines[index], scale: scale) - above,
+            var rect = CGRect(x: x + min(x0, x1), y: box.minY + TextEngine.paintedBaseline(paragraph.baselines[index], scale: scale, lineScale: paragraph.lineScale) - above,
                               width: abs(x1 - x0), height: above + below)
             // An empty inline box keeps its insertion point and font height.
             // A nonempty run covering only hanging wrap space has no fragment.

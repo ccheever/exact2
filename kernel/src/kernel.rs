@@ -1292,6 +1292,23 @@ mod locality_tests {
         assert_eq!(calls.get(), 0);
     }
 
+    /// LLP 1008 §3: the host's line boxes round to another scale; every
+    /// paragraph is measured again, each with a new metric revision.
+    #[test]
+    fn remeasured_text_asks_the_measurer_for_every_paragraph_again() {
+        let (mut k, calls) = fixture(5, vec![]);
+        let offer = Offer::definite(900.0, 700.0);
+        let before = k.node(3).unwrap().paragraph_stamp().unwrap();
+        k.compute_layout(1, offer).unwrap();
+        assert_eq!(calls.get(), 0, "nothing owed before");
+        assert!(k.remeasure_text());
+        k.compute_layout(1, offer).unwrap();
+        assert_eq!(calls.get(), 6, "each of the six paragraphs once");
+        let after = k.node(3).unwrap().paragraph_stamp().unwrap();
+        assert!(!after.same_metrics(&before));
+        equal_fresh(&k, offer);
+    }
+
     #[test]
     fn contained_text_edits_visit_only_the_dirty_path_and_publish_internal_overflow() {
         for n in [100, 2000] {

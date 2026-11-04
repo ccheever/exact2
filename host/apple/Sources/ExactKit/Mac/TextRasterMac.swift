@@ -56,7 +56,7 @@ final class TextRasterizer {
         return TextRasterJob(source: source.copy() as! NSAttributedString,
                    ranges: geometry.ranges, baselines: geometry.baselines,
                    flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0, whiteSpace: key.spec.whiteSpace, justifies: key.spec.align == 3, insets: paragraph?.insets ?? LineInsets(key.spec, source: source),
-                   box: key.box, size: key.size, scale: key.scale, ellipsis: key.spec.ellipsis, clamped: geometry.clamped,
+                   box: key.box, size: key.size, scale: key.scale, lineScale: engine.lineScale, ellipsis: key.spec.ellipsis, clamped: geometry.clamped,
                    shadow: key.spec.hdrShadow.map(TextRunShadow.init), antialiased: key.spec.antialiased,
                    measuredGlyphs: key.spec.color.count == 4 ? engine.measuredGlyphs(key.spec, width: key.box.width) : nil,
                    measuredColor: TextEngine.color(key.spec.color).cgColor)

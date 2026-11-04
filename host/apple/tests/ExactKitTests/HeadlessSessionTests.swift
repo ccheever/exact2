@@ -216,5 +216,5 @@ private final class MarkdownExpansion: TextPresentation {
         expansions += 1
         var run = source; run.text = source.text.replacingOccurrences(of: "**", with: ""); return [run]
     }
-    func attributes(_ run: Run, color: [Double], attributes: inout [NSAttributedString.Key: Any]) {}
+    func attributes(_ run: Run, color: [Double], scale: CGFloat, attributes: inout [NSAttributedString.Key: Any]) {}
 }

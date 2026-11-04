@@ -59,6 +59,8 @@ final class RegionTextSource: Sendable {
     /// A preserved tab's stop interval (CSS `tab-size: 8`), as the engine's
     /// paragraphs have it; nil when no tab is preserved.
     let tabInterval: CGFloat?
+    /// The device pixels a point line boxes round to (`TextEngine.lineScale`).
+    let lineScale: CGFloat
     let text: String
     let utf16Count: Int
     let sourceUTF8Bytes: Int
@@ -73,7 +75,7 @@ final class RegionTextSource: Sendable {
         let start = ProcessInfo.processInfo.systemUptime
         func font(_ run: Run) -> RegionFont {
             let f = engine.font(size: run.size, weight: run.weight, family: run.family, italic: run.italic)
-            return RegionFont(owner: RegionFontOwner(f as CTFont), box: TextLineBox(f as CTFont, height: run.lineHeight))
+            return RegionFont(owner: RegionFontOwner(f as CTFont), box: TextLineBox(f as CTFont, height: run.lineHeight, scale: engine.lineScale))
         }
         var offset = 0
         runs = spec.runs.map { run in
@@ -96,6 +98,7 @@ final class RegionTextSource: Sendable {
         textBox = (spec.textBoxTrim, spec.textBoxOver, spec.textBoxUnder)
         balance = spec.balance
         whiteSpace = spec.whiteSpace
+        lineScale = engine.lineScale
         text = spec.runs.map(\.text).joined()
         tabInterval = spec.preserves && text.contains("\t") ? base.map { TextEngine.tabInterval(font($0).value, letterSpacing: $0.letterSpacing) } : nil
         utf16Count = offset
@@ -104,6 +107,9 @@ final class RegionTextSource: Sendable {
         capturedOnMainThread = Thread.isMainThread
         captureSeconds = ProcessInfo.processInfo.systemUptime - start
     }
+
+    /// A baseline on the device pixels its line box was rounded to.
+    func painted(_ baseline: CGFloat) -> CGFloat { (baseline * lineScale).rounded() / lineScale }
 
     static func capture(_ spec: Spec, engine: TextEngine) -> RegionTextSource {
         RegionTextSource(spec, engine: engine)

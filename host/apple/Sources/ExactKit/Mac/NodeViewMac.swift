@@ -1339,7 +1339,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     package override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        if textRaster != nil { textRasterKey = nil; textRasterPending = false; needsDisplay = true }
+        if textRaster != nil || isParagraph { invalidateText(); needsDisplay = true } // raster and line boxes: the display's pixels
         // A border's device pixels follow the scale (`BoxLayerMac.swift`).
         if layerBoxEligible && hasBoxPaint { needsDisplay = true }
     }

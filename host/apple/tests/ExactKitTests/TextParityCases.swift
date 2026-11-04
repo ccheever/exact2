@@ -1,11 +1,13 @@
 // Chrome is the parity oracle (the web smoke, `browser_cases.rs`): Apple
 // text lays out as the web host does in Chrome. Each table is captured with
-// `getBoundingClientRect` in headless Chrome 154 on macOS 26.6, 2026-09-26,
-// for `<div style="font: <weight> <size>px system-ui; line-height: <lh>">
-// text<span style="display:inline-block"></span></div>`: the div's height and
-// the empty inline-block's bottom (the first baseline). At device scale 1,
-// as the web smoke runs Chrome: at 3x Chrome rounds a face's metrics in
-// device pixels instead (a 16 px line is 18.67, not 18).
+// `getBoundingClientRect` in headless Chrome on macOS, for `<div style="font:
+// <weight> <size>px system-ui; line-height: <lh>">text<span
+// style="display:inline-block"></span></div>`: the div's height and the empty
+// inline-block's top (the first baseline). Chrome rounds a face's metrics and
+// floors the half-leading in device pixels, so each table names its device
+// scale (`--force-device-scale-factor`): 1, as the web smoke runs Chrome
+// (Chrome 154, 2026-09-26), and 2, a Retina Mac's (Chrome 156, 2026-11-04).
+// The engine rounds at its `lineScale` (LLP 1008 §3).
 import XCTest
 import CoreText
 @testable import ExactKit
@@ -33,33 +35,40 @@ extension XCTestCase {
         return engine.paragraph(Spec(runs: [run], align: 0, lineClamp: 0, color: [0, 0, 0, 255], strut: run), width: .infinity)
     }
 
-    func assertChromeNormal(_ cases: [ChromeNormalCase], baselines: Bool = true,
-                            file: StaticString = #filePath, line: UInt = #line) {
+    /// An engine whose line boxes round at `scale` device pixels a point.
+    func chromeEngine(scale: CGFloat) -> TextEngine {
         let engine = TextEngine(resolve: { _ in nil })
+        engine.setLineScale(scale)
+        return engine
+    }
+
+    func assertChromeNormal(_ cases: [ChromeNormalCase], scale: CGFloat = 1, baselines: Bool = true,
+                            file: StaticString = #filePath, line: UInt = #line) {
+        let engine = chromeEngine(scale: scale)
         for (weight, size, height, baseline) in cases {
             let p = paragraph(engine, "Hxg", size: size, weight: weight)
-            XCTAssertEqual(p.height, height, "height, \(weight) \(size)px", file: file, line: line)
-            if baselines { XCTAssertEqual(p.firstBaseline, baseline, "baseline, \(weight) \(size)px", file: file, line: line) }
+            XCTAssertEqual(p.height, height, "height, \(weight) \(size)px at \(scale)x", file: file, line: line)
+            if baselines { XCTAssertEqual(p.firstBaseline, baseline, "baseline, \(weight) \(size)px at \(scale)x", file: file, line: line) }
         }
     }
 
-    func assertChromeFallback(_ cases: [ChromeFallbackCase], file: StaticString = #filePath, line: UInt = #line) {
-        let engine = TextEngine(resolve: { _ in nil })
+    func assertChromeFallback(_ cases: [ChromeFallbackCase], scale: CGFloat = 1, file: StaticString = #filePath, line: UInt = #line) {
+        let engine = chromeEngine(scale: scale)
         for (text, size, height, baseline) in cases {
             let p = paragraph(engine, "H " + text, size: size)
-            XCTAssertEqual(p.height, height, "height, \(text) \(size)px", file: file, line: line)
-            XCTAssertEqual(p.firstBaseline, baseline, "baseline, \(text) \(size)px", file: file, line: line)
+            XCTAssertEqual(p.height, height, "height, \(text) \(size)px at \(scale)x", file: file, line: line)
+            XCTAssertEqual(p.firstBaseline, baseline, "baseline, \(text) \(size)px at \(scale)x", file: file, line: line)
         }
     }
 
-    func assertChromeExplicit(_ cases: [ChromeExplicitCase], file: StaticString = #filePath, line: UInt = #line) {
-        let engine = TextEngine(resolve: { _ in nil })
+    func assertChromeExplicit(_ cases: [ChromeExplicitCase], scale: CGFloat = 1, file: StaticString = #filePath, line: UInt = #line) {
+        let engine = chromeEngine(scale: scale)
         for (value, size, height, baseline) in cases {
             let used = value.hasSuffix("px") ? CGFloat(Double(value.dropLast(2))!) : CGFloat(Double(value)!) * size
             let p = paragraph(engine, "Hxg", size: size, lineHeight: used)
             // Chrome holds a length in 1/64 px layout units.
-            XCTAssertEqual(p.height, height, accuracy: 1.0 / 64, "height, \(value) \(size)px", file: file, line: line)
-            XCTAssertEqual(p.firstBaseline, baseline, accuracy: 1.0 / 64, "baseline, \(value) \(size)px", file: file, line: line)
+            XCTAssertEqual(p.height, height, accuracy: 1.0 / 64, "height, \(value) \(size)px at \(scale)x", file: file, line: line)
+            XCTAssertEqual(p.firstBaseline, baseline, accuracy: 1.0 / 64, "baseline, \(value) \(size)px at \(scale)x", file: file, line: line)
         }
     }
 

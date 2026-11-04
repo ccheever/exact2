@@ -230,7 +230,7 @@ final class RegionPaintIndex {
             let a = line.ascent, d = line.descent, l = line.leading
             let above = max(a + max(l, 0), ink.isNull ? 0 : ink.maxY)
             let below = max(d + max(l, 0), ink.isNull ? 0 : -ink.minY)
-            let y = rows[p].box.minY + layouts[p].baselines[i].rounded()
+            let y = rows[p].box.minY + layouts[p].source.painted(layouts[p].baselines[i])
             return InkSpan(top: Double(y - above - 2), bottom: Double(y + below + 2))
         }
     }
@@ -297,7 +297,7 @@ final class RegionPaintIndex {
                         let flush: CGFloat = layout.source.align == 1 ? 0.5 : layout.source.align == 2 ? 1 : 0
                         let x = row.box.minX - request.scroll.x + TextEngine.penOffset(line, flush: flush, room: Double(row.box.width), rtl: layout.source.direction == 1,
                                                                                        whiteSpace: layout.source.whiteSpace, source: layout.preparation.attributed)
-                        let y = row.box.minY - request.scroll.y + TextEngine.paintedBaseline(layout.baselines[i], scale: CGFloat(request.scale))
+                        let y = row.box.minY - request.scroll.y + TextEngine.paintedBaseline(layout.baselines[i], scale: CGFloat(request.scale), lineScale: layout.source.lineScale)
                         if pass == .ink { TextLinePaint.draw(line, at: CGPoint(x: x, y: y), in: ctx); continue }
                         let range = CTLineGetStringRange(line)
                         let lo = max(row.selection.location, range.location)
