@@ -159,7 +159,8 @@ it is plain CSS"): `NSTextFieldCell` sets its baseline the font's ascent,
 rounded to a point, below its title rect's top, so the rect's top is the
 CSS baseline less that ascent, on a half point where the baseline is.
 Not changed: iOS, which keeps scale-1 line boxes and device-pixel baselines;
-the Linux and Windows hosts. Those are decided separately. `TextParityMacTests` holds Chrome 156's numbers at both scales.
+the Linux and Windows hosts. Those are decided separately.
+`TextParityMacTests` holds Chrome 156's numbers at both scales.
 The macOS paragraph raster includes glyph ink outside that layout box. Overflow
 uses a positioned child layer, preserving descenders and italic overhang without
 changing layout; authored clipping still applies. Fitting ink stays on the
