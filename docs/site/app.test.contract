@@ -79,6 +79,17 @@ test "the rail has Edit page, the AI actions, and Copy markdown copies the page"
   tap "copy-markdown"
   expect text "copy-markdown" == "Copied"
 
+test "Open in Claude and Open in ChatGPT each offer the web chat and the coding app"
+  size 1440x900
+  at "/recipes/website"
+  expect tree missing "ai-claude-choices"
+  tap "ai-claude"
+  expect tree has "ai-claude-choices"
+  tap "ai-openai"
+  expect tree has "ai-openai-choices"
+  tap "ai-claude"
+  expect tree missing "ai-claude-choices"
+
 test "a collapsible opens, and steps, prerequisites and a file tree render"
   size 1440x900
   at "/_components"
