@@ -72,29 +72,16 @@ export async function codexPrepare(client: T3Client, native: Native | null | und
   if (contexts.length) await codexSetupPrepare(contexts, composerNow(client));
 }
 /**
- * The window's loopback receivers (app.contract `codexLoopback`, `codexLoopbackSecond`): two sign-ins wait at once, each
- * on its own port, as the reference's do ("allows two accounts to complete independently", CodexAuthCallback.test.ts;
- * LLP 1133.005 D9 "Several at once"). A sign-in keeps its slot while it waits, since a new URL in a slot lets its
- * receiver go and binds again; a third waits for a free one.
+ * The authorization URLs the ChatGPT sign-ins wait on the loopback for (the snapshot's `codexReceiving`): the window's
+ * resource holds one receiver for each, keyed by its URL (app.contract `codexLoopback`), so any number wait at once, each
+ * on its own port, as the reference's do (CodexAuthCallback.test.ts "allows two accounts to complete independently";
+ * LLP 1133.005 D9 "Several at once").
  */
-export const LOOPBACK_SLOTS = 2;
-const slots: string[] = Array.from({ length: LOOPBACK_SLOTS }, () => '');
-/** The authorization URL each slot's sign-in waits on the loopback for (the snapshot's `codexReceiving`), '' when free. */
 export function codexReceiving(client: T3Client, native: Native | null | undefined): string[] {
   const waiting = native?.available ? setupContexts(client, native, false).map(receivingOf).filter(url => url !== '') : [];
-  for (let slot = 0; slot < LOOPBACK_SLOTS; slot++) if (!waiting.includes(slots[slot]!)) slots[slot] = '';
-  for (const url of waiting) {
-    const free = slots.indexOf('');
-    if (!slots.includes(url) && free >= 0) slots[free] = url;
-  }
-  return [...slots];
+  return [...new Set(waiting)];
 }
-/** The snapshot's fields for the two slots. */
-export function codexReceivingSlots(client: T3Client, native: Native | null | undefined): { codexReceiving: string; codexReceivingSecond: string } {
-  const [first = '', second = ''] = codexReceiving(client, native);
-  return { codexReceiving: first, codexReceivingSecond: second };
-}
-/** A slot's resource: that sign-in's callback, received and completed. */
+/** One URL's answer: that sign-in's callback, received and completed. */
 export async function codexReceive(client: T3Client, native: Native | null | undefined, url: string): Promise<{ phase: string }> {
   if (!url || !native?.available) return { phase: 'idle' };
   const context = setupContexts(client, native, false).find(entry => receivingOf(entry) === url);

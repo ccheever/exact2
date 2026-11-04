@@ -516,8 +516,6 @@ filed were moved there or closed). The gaps someone using this app runs into:
 - The Usage page draws a segment's popover in its scroll area, so the area clips it: a popover that v0.1.6 opens above
   its segment over the page's header (a weekly window's, near the top) opens below it here, and one at the area's edge
   is shifted inside the area, not the window.
-- Two ChatGPT sign-ins wait at once, each on its port, as the reference's do; a third waits for one of them to end
-  (the window's two receivers, `codex-setup-host.ts` `LOOPBACK_SLOTS`), where the reference receives any number.
 - The notification sounds are WAV copies of the reference's two MP3s, since `playSound` reads WAV.
 
 Main has closed records the clone was written around. The clone now uses these: a process

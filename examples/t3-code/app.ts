@@ -63,7 +63,7 @@ import { highlightAsk, highlightStore, highlightView } from './src/highlight/hig
 import { noteServerUpdateClock } from './src/connections/server-update-notices';
 import { terminalDrawerView, terminalOpen } from './src/terminal/terminal-drawer-view';
 import { terminalFocused } from './src/terminal/terminal-focus';
-import { codexContext, codexPrepare, codexReceive, codexReceivingSlots, codexTarget } from './src/providers/codex-setup-host'; // ManagedCodexSetup's commands, effects and loopback callback
+import { codexContext, codexPrepare, codexReceive, codexReceiving, codexTarget } from './src/providers/codex-setup-host'; // ManagedCodexSetup's commands, effects and loopback callback
 import { codexSetupOp } from './src/providers/codex-setup-ops';
 import { chatGptPlanSnapshot } from './src/providers/chatgpt-plan-view';
 import { autoBalancePrepare } from './src/composer/auto-balance'; // Settings › Load balancing, read for the composer
@@ -167,13 +167,13 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     return highlightView('data', () => windowData = ({ ...snapshot(client, Number(args[0]) || 0, String(args[3] ?? ''), String(args[10] ?? '')), chatgptPlan: chatGptPlanSnapshot(client), // chatgpt-plan-view.ts: "Your ChatGPT plan is connected"
       linkMenu: chatLinkMenuView(client, native, storage), // a Markdown web link's menu rows (external-link-menu.ts)
       externalOpen: externalOpenRequest(), // the latest link to open outside the app (external-open.ts)
-      ...codexReceivingSlots(client, native) })); // the ChatGPT sign-ins waiting on their loopback callbacks (app.contract codexLoopback)
+      codexReceiving: codexReceiving(client, native) })); // the ChatGPT sign-ins waiting on their loopback callbacks (app.contract codexLoopback)
   }
   // A side chat tab's chat view (side-chat-thread.ts): the window's snapshot with its thread's parts read through the side
   // chat. args: the side chat ('' while none shows), the window's revision, the time, the display mode and the locale.
   if (source === 'sideChatData') {
     const threadId = String(args[0] ?? '');
-    if (!threadId || !windowData) return highlightView('sideChat', () => windowData ?? { ...snapshot(client), chatgptPlan: chatGptPlanSnapshot(client), linkMenu: chatLinkMenuView(client, native, storage), externalOpen: externalOpenRequest(), ...codexReceivingSlots(client, native) });
+    if (!threadId || !windowData) return highlightView('sideChat', () => windowData ?? { ...snapshot(client), chatgptPlan: chatGptPlanSnapshot(client), linkMenu: chatLinkMenuView(client, native, storage), externalOpen: externalOpenRequest(), codexReceiving: codexReceiving(client, native) });
     const base = windowData;
     return highlightView('sideChat', () => {
       const side = snapshot(sideChatClient(client, threadId), Number(args[2]) || 0, String(args[3] ?? ''), String(args[4] ?? ''));
