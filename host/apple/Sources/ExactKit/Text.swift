@@ -51,7 +51,7 @@ final class PresentedText: TextPresentation {
     func editorMarkdown(_ engine: TextEngine, source: Run, atoms: String, faces: String, rtl: Bool, width: CGFloat?) -> [Run]? {
         MarkdownLink.installed?.editorRuns(source.text, base: source, atoms: MarkdownAtoms(kinds: atoms, faces: faces, rtl: rtl), width: width) { engine.font($0) }
     }
-    func attributes(_ r: Run, color: [Double], attributes a: inout [NSAttributedString.Key: Any]) {
+    func attributes(_ r: Run, color: [Double], scale: CGFloat, attributes a: inout [NSAttributedString.Key: Any]) {
         a[.foregroundColor] = r.color.map(TextEngine.color) ?? TextEngine.color(color)
         if r.hidden { a[.exactHidden] = true }
         if r.fixedInk, r.color != nil { a[.exactFixedInk] = true }
@@ -75,7 +75,7 @@ final class PresentedText: TextPresentation {
         }
         if !r.hidden, let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
             let f = a[.font] as! PlatformFont
-            let (ascent, descent) = CSSLineBox.content(f as CTFont)
+            let (ascent, descent) = CSSLineBox.content(f as CTFont, scale: scale)
             a[.exactBackground] = InlineBackground(color: fill.cgColor, ascent: ascent, descent: descent,
                                                    box: r.backgroundBox, radii: r.backgroundRadii)
         }
@@ -129,17 +129,20 @@ extension TextEngine {
         return NSColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
         #endif
     }
-    static func paintedBaseline(_ baseline: CGFloat, scale: CGFloat) -> CGFloat {
+    /// A baseline on the raster's device pixels (`scale`). On macOS, on the
+    /// device pixels its line box was rounded to (`Paragraph.lineScale`) as
+    /// well: whole points where text is laid out at 1 (LLP 1008 §3).
+    static func paintedBaseline(_ baseline: CGFloat, scale: CGFloat, lineScale: CGFloat = 1) -> CGFloat {
         #if os(iOS) || os(tvOS)
         let scale = max(1, scale)
-        return (baseline * scale).rounded() / scale
         #else
-        return baseline.rounded()
+        let scale = max(1, min(scale, lineScale))
         #endif
+        return (baseline * scale).rounded() / scale
     }
     /// Paint a paragraph into a y-down context (a flipped NSView's, a
-    /// UIView's): one CTLineDraw per line, on device-pixel baselines on UIKit
-    /// and whole-point baselines on macOS, flush by alignment.
+    /// UIView's): one CTLineDraw per line, on device-pixel baselines
+    /// (`paintedBaseline`), flush by alignment.
     static func draw(_ p: Paragraph, spec: Spec, in bounds: CGRect, context ctx: CGContext, dirty: CGRect? = nil) {
         // Font smoothing is graphics state (LLP 1019 D12).
         ctx.saveGState()
@@ -158,7 +161,7 @@ extension TextEngine {
             let line = spec.ellipsis ? p.ellipsized(index, spec: spec, width: bounds.width) : p.lines[index]
             let baseline = p.baselines[index]
             let x = p.origin(index, align: spec.align, width: bounds.width)
-            TextLinePaint.draw(line, at: CGPoint(x: bounds.minX + x, y: bounds.minY + Self.paintedBaseline(baseline, scale: hypot(ctx.ctm.c, ctx.ctm.d))), in: ctx)
+            TextLinePaint.draw(line, at: CGPoint(x: bounds.minX + x, y: bounds.minY + Self.paintedBaseline(baseline, scale: hypot(ctx.ctm.c, ctx.ctm.d), lineScale: p.lineScale)), in: ctx)
         }
         if let dirty {
             p.inkBounds().forEachLine(from: dirty.minY - bounds.minY,

@@ -268,6 +268,7 @@ public final class ExactView: NSView {
             lastDisplayScale = scale
             session.apply(session.runtime.canvasDisplay(scale: scale, memory: ProcessInfo.processInfo.physicalMemory))
             session.rasters.displayChanged()
+            session.controlTextChanged() // text line boxes round to this display's pixels (LLP 1008 §3)
             session.tellDisplayScale() // a hairline is one device pixel of this display (LLP 1115.000 D10.3)
         }
         if !session.booted {

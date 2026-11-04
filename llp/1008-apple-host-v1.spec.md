@@ -125,8 +125,8 @@ width-specific snapshot — the wrapped `CTLine`s from a `CTTypesetter`, each
 line's baseline from the top, and its layout dimensions — cached by `(spec,
 width)`. An authored line height retains the fractional sum of its line boxes,
 including clamped paragraphs. Empty text has no line box, so its intrinsic height is zero.
-Intrinsic width and `normal` paragraph height retain their existing whole-point
-ceiling: changing those measurements
+Intrinsic width retains its 1/64 px layout unit and a `normal` paragraph
+height its ceiling to a whole device pixel (below): changing those measurements
 requires a separate wrapping/host-parity comparison. The measure callback answers
 from the paragraph, and `NodeView.draw` paints those same lines: one `CTLineDraw`
 per line, flush by alignment inside the CSS content box. Borders and padding
@@ -138,9 +138,25 @@ AppKit and UIKit, through the paragraph's viewport conversion (LLP 1051.000
 D1). Collapsed whitespace at a soft wrap contributes no width to that union. The padded
 paragraph/container comparison, padding mutation and recreation, and Messages
 quoted replies and empty results are recorded in `/tmp/messages-text-padding/`.
-Painting still snaps baselines to the logical point
-grid, independently of the reported fractional baseline; that remaining raster
-placement difference is separate from an authored line box's height.
+**The line box is rounded in device pixels on the Mac** (2026-11-04,
+Daehyeon's ruling that clone text not sit up to a device pixel off Chrome's on
+a Retina Mac). Chrome rounds a face's ascent and descent, floors the
+half-leading and ceils a `normal` paragraph's height in device pixels, so at
+device scale 2 a 14 px `normal` line is 16.5 tall with its baseline at 13.5,
+where at scale 1 it is 17 and 14 (`CSSLineBox`). The engine rounds at its
+`lineScale`: the Mac presenter sets it to the window's `backingScaleFactor`
+before the first layout, and when the window moves to a display of another
+scale it sets it again, which drops what the engine measured and has the
+kernel measure every paragraph again (`exact_text_scale_changed`,
+`Kernel::remeasure_text`). A paragraph paints each baseline on the device
+pixels its line box was rounded to (`Paragraph.lineScale`), so on a 2x Mac a
+baseline can sit on a half point; a textarea's lines and the agent's range
+frames follow the same box. A headless session and a 1x display keep scale 1:
+whole points, as before, so a headless test lays text out the same on any
+machine; the agent driving a Mac app sees its window's scale. Not changed: a single-line input's text, which
+`NSTextFieldCell` draws on whole points; iOS, which keeps scale-1 line boxes
+and device-pixel baselines; the Linux and Windows hosts. Those are decided
+separately. `TextParityMacTests` holds Chrome 156's numbers at both scales.
 The macOS paragraph raster includes glyph ink outside that layout box. Overflow
 uses a positioned child layer, preserving descenders and italic overhang without
 changing layout; authored clipping still applies. Fitting ink stays on the

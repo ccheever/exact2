@@ -151,7 +151,8 @@ final class RegionController {
     private func schedule() {
         guard !busy, validateAppearance(), let session, let snapshot, let service else { return }
         if snapshot.request != 0 && submitted != snapshot.request {
-            let existing = sources[snapshot.source]?.value
+            // A source captured at another line scale rounds its line boxes as that display did.
+            let existing = sources[snapshot.source]?.value.flatMap { $0.lineScale == session.text.lineScale ? $0 : nil }
             guard let wire = session.runtime.regionRequest(snapshot.request, knownSource: existing == nil ? 0 : snapshot.source),
                   RegionSnapshot.uint(wire["request"]) == snapshot.request,
                   let width = wire["width"] as? Double, let height = wire["height"] as? Double,

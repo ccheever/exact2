@@ -15,6 +15,7 @@ extension NodeView {
         look.atoms = markdownAtoms
         look.atoms.hovered = f.hoveredAtom ?? -1
         look.node = self
+        look.lineScale = f.window?.backingScaleFactor ?? 1
         look.atoms.emphasized = f.window?.isKeyWindow ?? true
         look.paragraphDirs = props["paragraphDirs"] ?? ""
         look.rtl = markdownRTL

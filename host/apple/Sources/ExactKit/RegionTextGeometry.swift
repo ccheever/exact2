@@ -209,7 +209,7 @@ final class RegionParagraph: Sendable {
             let lo = max(selection.location, line.range.location)
             let hi = min(NSMaxRange(selection), NSMaxRange(line.range))
             guard hi > lo else { continue }
-            let y = bounds.minY + baseline.rounded()
+            let y = bounds.minY + source.painted(baseline)
             guard y + line.descent >= dirty.minY, y - line.ascent <= dirty.maxY else { continue }
             let x0 = line.offsets(at: lo).primary, x1 = line.offsets(at: hi).primary
             result.append(CGRect(x: bounds.minX + line.flushOffset + min(x0, x1), y: y - line.ascent,

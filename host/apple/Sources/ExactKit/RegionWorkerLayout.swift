@@ -89,7 +89,7 @@ final class RegionWorkerLayout {
             let x0 = CTLineGetOffsetForStringIndex(line, lo, nil), x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
             var above: CGFloat = 0, below: CGFloat = 0
             _ = CTLineGetTypographicBounds(line, &above, &below, nil)
-            rects.append(CGRect(x: x + min(x0, x1), y: box.minY + baselines[i].rounded() - above,
+            rects.append(CGRect(x: x + min(x0, x1), y: box.minY + source.painted(baselines[i]) - above,
                                 width: max(1, abs(x1 - x0)), height: above + below))
         }
         return rects
@@ -235,7 +235,7 @@ final class RegionWorkerLayout {
                 if matched && !includesNormal { continue }
                 // Normal line height includes the actual emoji/fallback face's
                 // line box, as the browser's does.
-                box.include(TextLineBox(shapedFont, height: nil))
+                box.include(TextLineBox(shapedFont, height: nil, scale: source.lineScale))
             }
             explicit = explicit || box.explicit
             if retainHits || lineCount == 0 { baselines.append(y + box.baseline) }
@@ -259,7 +259,7 @@ final class RegionWorkerLayout {
         // metrics or layout binding escape if the authoritative owner changed.
         try beforeMetadata()
         maxWidth = max(maxWidth, greedyWidest)
-        var height = explicit ? y : ceil(y)
+        var height = explicit ? y : CSSLineBox.normalHeight(y, scale: source.lineScale)
         // CSS `text-box`, cut as `TextEngine.trimTextBox` cuts a paragraph with lines.
         if source.textBox.trim != 0, lineCount > 0, let root = source.strut?.value, let first = baselines.first {
             let cut = TextEngine.textBoxTrim(source.textBox, root: root, first: first, last: lastBaseline, height: height)
