@@ -544,6 +544,24 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
         CollectionFeedback::decode_with_fill(&f.encode_with(lean).unwrap()).unwrap(),
         (f.clone(), lean)
     );
+    // The reader's scroll, a gesture since the request, the host's own animation (LLP 1070.000 §2.6, §11)
+    let reading = CollectionFill {
+        scrolling: true,
+        gesture: true,
+        animating: true,
+        ..fill
+    };
+    let read = f.encode_with(reading).unwrap();
+    assert_eq!(
+        CollectionFeedback::decode_with_fill(&read).unwrap(),
+        (f.clone(), reading)
+    );
+    let mut unknown = read.clone();
+    unknown[92..96].copy_from_slice(&256u32.to_le_bytes());
+    assert!(
+        CollectionFeedback::decode(&unknown).is_err(),
+        "an unknown flag is refused"
+    );
     assert_eq!(
         CollectionFeedback::decode_with_fill(&bytes).unwrap().1,
         CollectionFill::default()
@@ -594,6 +612,8 @@ fn snapshot_json_preserves_u64_metadata_as_decimal_strings() {
         parent: None,
         restored: false,
         seeking: false,
+        waiting: false,
+        request: 0,
         revision: (1_u64 << 53) + 1,
         scroll_sequence: u64::MAX - 1,
         count: 3,
@@ -638,6 +658,24 @@ fn snapshot_json_preserves_u64_metadata_as_decimal_strings() {
     assert!(json.contains(r#""revision":"1","scrollSequence":"0""#));
     assert!(json.contains(r#""epoch":"1""#));
     assert!(json.contains(r#""correction":{"scrollSequence":"0""#));
+}
+
+/// LLP 1070.000 §2.6: a snapshot names the list's latest request as
+/// `lastRequest` once there has been one, ended or not, and as `request`
+/// only while it is under way.
+#[test]
+fn snapshot_json_names_the_latest_request_ended_or_under_way() {
+    let mut snapshot = Harness::new(100, false, false).snapshot();
+    assert!(!snapshot.json().contains("equest\""), "{}", snapshot.json());
+    snapshot.request = 3;
+    let ended = snapshot.json();
+    assert!(
+        ended.contains(r#""lastRequest":3,"#) && !ended.contains(r#""request""#),
+        "{ended}"
+    );
+    snapshot.waiting = true;
+    let waits = snapshot.json();
+    assert!(waits.contains(r#""request":3,"lastRequest":3,"#), "{waits}");
 }
 
 #[test]

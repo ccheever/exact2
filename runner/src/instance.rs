@@ -418,6 +418,10 @@ pub struct Update<'a> {
     /// Journal lines for what the data got wrong and the tree absorbed: an
     /// invalid style or prop value, a repeated key. Written with the commit.
     pub notes: Vec<String>,
+    /// A nested `scrollIntoView`'s inner part a report refused (LLP 1070.000
+    /// §2.6), by the inner list's `id` and why: journaled and kept for
+    /// `state` as the command's refusals are.
+    pub refused: Vec<(String, String)>,
     /// No kernel mirrors the tree (a detached kernel's runner, LLP
     /// 1048.004): bindings are evaluated and kept, and no style or prop op
     /// is built. The document is written from the tree ([`Tree::document`]).
@@ -473,6 +477,7 @@ impl<'a> Update<'a> {
             on_path: true,
             in_written: false,
             notes: Vec::new(),
+            refused: Vec::new(),
             discard: false,
             text_styled: false,
             renewed: Vec::new(),

@@ -26,7 +26,7 @@ impl Collection {
         };
         if self.restored_at.is_some()
             || self.at_end
-            || self.target.is_some()
+            || !self.request_untouched_by(&fill)
             || self.pending
             || self.preview.is_some()
             || self.incoming.is_some()

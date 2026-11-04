@@ -183,7 +183,14 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         armRest(after: Self.restDelay)
         // A correction's move is not the reader's travel (LLP 1070.000 §2.5).
         // Nor is a smooth correction's frame (`OffsetDriver`).
-        if let node, p.collections.owns(node.id), !p.collections.correcting, !p.collections.animating.contains(node.id) { sample(node, now: lastScroll) }
+        if let node, p.collections.owns(node.id), !p.collections.correcting, !p.collections.animating.contains(node.id) {
+            sample(node, now: lastScroll)
+            // The reader moving the port cancels a request admitted before it
+            // (LLP 1070.000 §2.5): a finger down when it landed drags on from
+            // there, and its sampled travel alone would be lost to each jump.
+            if p.collections.entries[node.id]?.snapshot.seeking == true, let scroll = node.scrollView,
+               scroll.isTracking || scroll.isDecelerating { p.collections.gestureBegan(node.id) }
+        }
         p.leaves.scrolled()
         p.menus.rehostPopovers()
         // What this frame shows has its text before it commits. A pass

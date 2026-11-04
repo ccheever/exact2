@@ -10,6 +10,10 @@ private final class CollectionContact: UIGestureRecognizer {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         guard contact == nil, let touch = touches.first else { return }
         contact = touch
+        // A finger coming down on a list's port is the reader's gesture
+        // against its `scrollIntoView` (LLP 1070.000 §2.5), reported with the
+        // pin's flush
+        collections?.gestureBegan(around: touch.view, at: touch.timestamp)
         var view = touch.view
         while let current = view {
             if let node = current as? NodeView {
@@ -291,7 +295,7 @@ extension CollectionHost {
     }
     /// UIKit's batch-update and scroll timing, which Signal's transcript rides.
     static let smoothDuration: TimeInterval = 0.3
-    func correct(_ id: UInt32, top: Double, extent: Double, smooth: Bool = false) {
+    func correct(_ id: UInt32, top: Double, extent: Double, smooth: Bool = false, authored: Bool = false) {
         guard let node = presenter?.views[id], let scroll = node.scroll else { return }
         let content = node.contentBox(), insets = scroll.adjustedContentInset
         let horizontal = entries[id]?.snapshot.horizontal ?? false
@@ -300,7 +304,35 @@ extension CollectionHost {
         // permission to interrupt that animation with setContentOffset (an
         // anchor's correction moves with it instead: `shift`). The next
         // native offset notification supplies the continuing intent.
-        guard !scroll.isTracking, !scroll.isDragging, !scroll.isDecelerating else { return }
+        // A `scrollIntoView`'s correction is the exception, as UIKit's own
+        // `scrollToItem` is (LLP 1070.000 §2.6): `setContentOffset(_:animated:
+        // false)` ends a deceleration and lands, and a finger down drags on
+        // from there.
+        let moving = scroll.isTracking || scroll.isDragging || scroll.isDecelerating
+        guard authored || !moving else { return }
+        // Under Reduce Motion a smooth correction lands at once, as an
+        // element's reveal does (LLP 1070.000 §14)
+        var smooth = smooth && !DisplayPreferences.reducedMotion
+        if moving {
+            // What was sampled before it is not the reader's travel after it;
+            // a finger still down drags on, and its next move says so
+            // (`ScrollPump.scrolled`).
+            presenter?.scrollPump.forgetTravel(id)
+            if scroll.isTracking {
+                // Under a dragging finger a smooth one lands at once too:
+                // UIKit's animated call would pull the port from under it.
+                // Under a still finger it runs, as UIKit's does, until the
+                // finger drags (`scrollViewWillBeginDragging`).
+                if scroll.isDragging { smooth = false }
+            } else if smooth {
+                // During a deceleration (`isDragging` stays true through one)
+                // a smooth one first stops it where the port is, then animates
+                // from rest: UIKit's animated call made during a deceleration
+                // came to rest short of its target.
+                if #available(iOS 17.4, tvOS 17.4, *) { scroll.stopScrollingAndZooming() }
+                else { scroll.setContentOffset(scroll.contentOffset, animated: false) }
+            }
+        }
         var target: CGPoint
         if horizontal {
             let maximum = max(-insets.left, scroll.contentSize.width + insets.right - scroll.bounds.width)
@@ -411,6 +443,22 @@ extension CollectionHost {
         port.addGestureRecognizer(recognizer)
         return recognizer
     }
+    /// The reader moves `id`'s port with no finger on it, by a scroll run
+    /// for them with UIKit's animation: a tap on the status bar or on the
+    /// selected tab, a remote's step. As a drag does, the move stops the
+    /// host's animation where the port is, leaves a correction planned before
+    /// it stale, and ends the request under way there (LLP 1070.000 §2.5).
+    func readerMoves(_ id: UInt32) {
+        guard entries[id] != nil else { return }
+        gestureBegan(id)
+        animationEnded(id, dragging: true)
+        userIntent(id, travel: true)
+    }
+    /// The latest request `id` took, under way or ended: 0 for none, or for
+    /// a view that is no list.
+    func lastRequest(_ id: UInt32) -> UInt64 { entries[id]?.snapshot.lastRequest ?? 0 }
+    /// Every list's latest request, by its view (`lastRequest`).
+    func lastRequests() -> [UInt32: UInt64] { entries.mapValues { $0.snapshot.lastRequest } }
     func focusedView() -> UInt32? {
         presenter?.views.values.first(where: {
             $0.isFirstResponder || $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true

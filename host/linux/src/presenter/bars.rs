@@ -503,8 +503,19 @@ impl<D: DataSource> Presenter<D> {
             }
             What::Item(node) => self.activate(node, now_ms),
             What::Tab(node) => {
-                // Read before the tab's press, scrolled after it.
+                // Read before the tab's press, scrolled after it. The scroll
+                // gives way to a `scrollIntoView` the press asked for in the
+                // screen's list, landed or already shown: the author's
+                // answer to the tap wins over the platform's (LLP 1070.000
+                // §2.6). Every list's latest request is read before the
+                // press: the press may make the screen's list, or make
+                // another list the screen's.
                 let root = self.reselected_root(node);
+                let before: Vec<(ViewId, u64)> = root.map_or_else(Vec::new, |_| {
+                    (self.host.collections_shallow().iter())
+                        .map(|c| (c.view, c.request))
+                        .collect()
+                });
                 if (self.host.runner().handlers_of(node)).contains(&EventKind::Press) {
                     self.press_then_follow(node, now_ms, true);
                 } else if let Some(key) = self.host.kernel().node(node).map(|n| n.key) {
@@ -512,7 +523,11 @@ impl<D: DataSource> Presenter<D> {
                 }
                 let scroller = root
                     .filter(|route| self.reselected_root(node) == Some(*route))
-                    .and_then(|route| self.content_scroller(route));
+                    .and_then(|route| self.content_scroller(route))
+                    .filter(|id| {
+                        let latest = self.host.collection(*id).map_or(0, |c| c.request);
+                        latest == before.iter().find(|b| b.0 == *id).map_or(0, |b| b.1)
+                    });
                 if let Some(id) = scroller {
                     let x = self.scroll.get(&id).map_or(0.0, |at| at.0);
                     self.scroll_to(id, (x, 0.0));

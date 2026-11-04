@@ -81,16 +81,19 @@ impl<D: DataSource> Runner<D> {
     /// is its list's to report).
     pub(super) fn record_into_view(&mut self, request: &IntoView, status: Option<IntoViewStatus>) {
         if let Some(IntoViewStatus::Refused(why)) = status {
-            self.log(format!("scrollIntoView {} refused: {why}", request.list));
-            let mut entry = String::from("{\"list\":");
-            crate::agent::quote(&request.list, &mut entry);
-            entry.push_str(",\"status\":");
-            IntoViewStatus::Refused(why).json(&mut entry);
-            entry.push('}');
-            self.into_view_refused.push_back(entry);
-            if self.into_view_refused.len() > 8 {
-                self.into_view_refused.pop_front();
-            }
+            self.record_refusal(&request.list, why);
+        }
+    }
+    pub(super) fn record_refusal(&mut self, list: &str, why: String) {
+        self.log(format!("scrollIntoView {list} refused: {why}"));
+        let mut entry = String::from("{\"list\":");
+        crate::agent::quote(list, &mut entry);
+        entry.push_str(",\"status\":");
+        IntoViewStatus::Refused(why).json(&mut entry);
+        entry.push('}');
+        self.into_view_refused.push_back(entry);
+        if self.into_view_refused.len() > 8 {
+            self.into_view_refused.pop_front();
         }
     }
 

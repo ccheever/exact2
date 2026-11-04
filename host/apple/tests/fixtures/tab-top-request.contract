@@ -1,0 +1,65 @@
+// The selected tab tapped again over a list its press may ask a row of
+// (NavigationTabsIOSTests, LLP 1070.000 §2.6): Home's press asks for row
+// `target` of the feed at the start, or for nothing at -1. "unload" takes
+// the feed away and "name-aside" names another list the screen's; Home's
+// press makes the feed again and names it the screen's.
+routes nav
+  tab home "/"
+  tab other "/other"
+
+component TabTopRequest
+  state ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]
+  state target = 30
+  state loaded = true
+  state scroller = "feed"
+  action pick(name: string)
+    nav = select(nav, name)
+  action home
+    nav = select(nav, "home")
+    loaded = true
+    scroller = "feed"
+    if target >= 0
+      scrollIntoView("feed", target, block="start")
+  action aim(n: number)
+    target = n
+  action unload
+    loaded = false
+  action aside
+    scroller = "aside"
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%" display="flex" flex-direction="column"
+      column flex=1 min-height=0 position="relative"
+        for t in nav.tabs key=t.name
+          column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
+            for e in t.stack key=e.id
+              if e.name == "home"
+                column navigationKey=`${e.id}` navigationScroll=scroller position="absolute" inset=0 display="flex" flex-direction="column"
+                  header display="flex" align-items="center" padding="8px 16px"
+                    text "Home" role="heading" aria-level=1
+                  list id="aside" testId="aside" flex=1 min-height=0
+                    for i in ids key=i
+                      text `${i}` height=40
+                  if loaded
+                    list id="feed" virtualized=true testId="feed" flex=1 min-height=0 estimated-item-height=100
+                      for i in ids key=i
+                        text `${i}` height=100
+                  row
+                    button press=aim(-1) testId="aim-nothing"
+                      text "Aim at nothing"
+                    button press=aim(30) testId="aim-row"
+                      text "Aim at row 30"
+                    button press=unload testId="unload"
+                      text "Unload"
+                    button press=aside testId="name-aside"
+                      text "Aside"
+              if e.name == "other"
+                column navigationKey=`${e.id}` position="absolute" inset=0
+                  header
+                    text "Other" role="heading" aria-level=1
+      row role="tablist" testId="tabs"
+        button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=home testId="tab-home" flex=1
+          image "symbol:home"
+          text "Home"
+        button role="tab" aria-controls="panel-other" aria-selected=(nav.tab == "other") press=pick("other") testId="tab-other" flex=1
+          image "symbol:layers"
+          text "Other"

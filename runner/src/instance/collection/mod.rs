@@ -210,6 +210,19 @@ pub(crate) struct Collection {
     restored_at: Option<(Rc<str>, f64)>,
     /// A `scrollIntoView` under way (LLP 1070.000).
     target: Option<into_view::Target>,
+    /// The last report said the reader's scroll is under way and a jump
+    /// would not end it ([`CollectionFill::scrolling`]).
+    scrolling: bool,
+    /// The last report said the host animates a smooth correction
+    /// ([`CollectionFill::animating`]).
+    animating: bool,
+    /// A request ended or began while the host animated, which stops the
+    /// animation where the port is: until a report says where, nothing
+    /// anchors and a request waits.
+    port_unknown: bool,
+    /// The requests begun here, counted: a host tells a new one from the
+    /// one before by it ([`CollectionSnapshot::request`]).
+    request: u64,
     /// The latest request here and how it stands, for `state`.
     into_view_status: Option<(Rc<str>, IntoViewStatus)>,
     /// What the platform covers of the port at its start and end, where a row is not aligned.
@@ -303,7 +316,7 @@ impl Collection {
         self.end_preview(u)?;
         let anchor = self.anchor()?;
         self.invalidate_height_estimates()?;
-        self.restore(anchor)?;
+        self.restore_unless_unknown(anchor)?;
         // Invalidated zeroes now have positive estimates. Re-select the window
         // and emit its spacers in this commit, even if no old rows were mounted;
         // otherwise the host has nothing to lay out and cannot measure again.
@@ -511,6 +524,10 @@ impl Collection {
             restored: false,
             restored_at: None,
             target: None,
+            scrolling: false,
+            animating: false,
+            port_unknown: false,
+            request: 0,
             into_view_status: None,
             covered: [0.0; 2],
             start_offset: 0.0,
@@ -634,7 +651,8 @@ impl Collection {
                 self.edge_armed[1] = true;
             }
             let anchor = self.committed_anchor(anchor, drop_anchor);
-            self.restore(anchor)?;
+            self.cancel_if_row_left();
+            self.restore_unless_unknown(anchor)?;
         }
         self.start_at_end();
         // A changed set that mounts a row: the host measures it.
@@ -688,6 +706,19 @@ impl Collection {
                     .map_err(index_error)
             })
             .transpose()
+    }
+    /// An update restores the anchor, unless the host's animation left the
+    /// port's position unknown: then nothing anchors, and no correction
+    /// planned before stands (LLP 1070.000 §2.5).
+    fn restore_unless_unknown(
+        &mut self,
+        anchor: Option<index::Anchor>,
+    ) -> Result<(), InstanceError> {
+        if self.port_unknown {
+            self.correction = None;
+            return Ok(());
+        }
+        self.restore(anchor)
     }
     fn restore(&mut self, anchor: Option<index::Anchor>) -> Result<(), InstanceError> {
         if let (Some(anchor), Some(g)) = (anchor, &mut self.geometry) {
@@ -1252,6 +1283,10 @@ impl Collection {
         by_view: &BTreeMap<ViewId, usize>,
         mut fill: CollectionFill,
     ) -> Result<(bool, Option<CollectionEdges>), InstanceError> {
+        let waited = self.request_waits();
+        self.animating = fill.animating;
+        // A report gives where the port is, unless the host animates.
+        self.port_unknown &= fill.animating;
         // @ref LLP 1010 §6.9 — the padding the host laid out, taken in now
         // that the report is accepted. A new padding (a rotation's safe area)
         // is no travel: the anchor is taken on the old range and restored on
@@ -1260,6 +1295,8 @@ impl Collection {
         let padding_changed = padding != self.padding();
         if !padding_changed {
             if let Some(edge) = self.travel_within(u, &feedback, by_view, fill)? {
+                // No request, or one that waits on: the snapshot stays as it was.
+                self.scrolling = fill.scrolling;
                 self.reveal_shown(u);
                 return Ok((false, edge));
             }
@@ -1302,7 +1339,13 @@ impl Collection {
             self.lose_preview_pin(u)?;
         }
         let previous = self.snapshot();
+        self.scrolling = fill.scrolling;
         self.follow_into_view(fill);
+        // A request that waited lands in the report that ends its wait (§2.6)
+        let landing = waited && self.target.is_some() && !self.request_waits();
+        if landing {
+            self.refuse_if_inner_gone(u, frames)?;
+        }
         // @ref LLP 1070 H4, Q3 (a): a row list anchors only an estimate
         // replaced by a first measurement, the jump virtualization makes. A
         // card measured again moves what follows it, as Chrome, which does
@@ -1349,8 +1392,18 @@ impl Collection {
         }
         self.check_preview_height(u)?;
         self.restore(anchor)?;
-        self.settle_into_view(u, feedback.offset);
-        self.realize_window_with_row(u, frames, false, fill, None, pins_changed)?;
+        let done_nested = self.settle_into_view(u, landing);
+        // One that landed: its row is built with its window, and a nested
+        // request's inner list begins its part.
+        let row = if landing { self.target_row() } else { None };
+        self.realize_window_with_row(u, frames, false, fill, row, pins_changed)?;
+        if let Some((key, inner)) = done_nested {
+            // Done where the port stands: its inner part begins in the outer
+            // row the port shows, as at rest; refused, nothing has moved.
+            let _ = self.begin_inner_part(u, frames, &key, &inner)?;
+        } else if row.is_some() {
+            self.begin_inner(u, frames)?;
+        }
         self.reveal_shown(u);
         self.settle_start(extent);
         let mut now = self.snapshot();
