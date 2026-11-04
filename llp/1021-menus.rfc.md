@@ -922,27 +922,32 @@ menu's glass and the dismissal. In the delegate:
   run that names a `contextPopover` cannot lift its paragraph, which UIKit
   would hide whole: it lifts a picture of its lines with the padding UIKit
   gives text lines (`UIPreviewParameters(textLineRects:)`), taken as the
-  finger lands, before a press the touch starts has drawn. The picture
-  copies no pixels where layers can share them. Its words are a layer that
-  shows the paragraph's text raster cut to the run. Under them is what
-  lies under the paragraph without its other text, which the padding would
-  take in: one color where only fills that cover the area paint there,
-  else copies of the layers there that share their contents, with each
-  material (a blur or glass) shown live between the copies under it and
-  over it. Where only the render server draws what lies there (video,
-  Metal, a web view), it is one snapshot of the screen, neighboring text
+  finger lands, before a press the touch starts has drawn. Wherever it
+  can, the picture shares pixels already drawn rather than copying them.
+  Its words are a layer showing the paragraph's text raster cut to the
+  run, at the paragraph's opacity; words shown any other way (vibrancy, an
+  HDR shadow's cast, rolling numerals) come from a snapshot. Under them is
+  what lies under the paragraph without its other text, which the padding
+  would take in: one color where only fills that cover the area paint
+  there, else copies of the layers there sharing their bitmaps, with a
+  material (a blur or glass) shown live between the copies composited
+  under it and over it. Where only a snapshot shows what lies there
+  (video, Metal, a web view, a filter or blend mode, vibrancy, a second
+  material, or a view's backing store, which a copy shown on screen must
+  not share), the picture is one snapshot of the screen, neighboring text
   included. Where the padding reaches past the box the run sits in (the
-  paragraph where it paints a fill or a background image, else the nearest
-  ancestor that does or that clips), it extends the box, so the lift keeps
-  UIKit's footprint and holds none of what lies outside the box, such as
-  the page around a card. A box of one color fills it, the box's material
-  spreads over it, the copies reflect past the box's edges as reflect
-  padding extends an image, and a snapshot's edge pixels stretch, as a
-  reflection would mirror the run's words, which the snapshot holds. The
-  padding fades as UIKit returns the picture, so it lands as the screen
-  shows it then; UIKit leaves the picture in the window once it has
-  returned it, and the host takes it off the screen when the dismissal
-  completes.
+  paragraph where it paints a fill or a background image, else the
+  nearest ancestor that does or that clips), it extends the box, so the
+  lift keeps UIKit's footprint and holds none of what lies outside the
+  box, such as the page around a card. A box of one color fills it, the
+  box's material spreads over it, the copies under the material reflect
+  past the box's edges the way reflect padding extends an image, what
+  lies over the material stays within the box, and a snapshot's edge
+  pixels stretch, since a reflection would mirror the run's words, which
+  the snapshot holds. The padding fades as UIKit returns the picture, so it
+  lands as the screen shows it then; UIKit leaves the picture in the
+  window once it has returned it, and the host takes it off the screen
+  when the dismissal completes.
   After a commit that navigated, the dismissal has no target: the node is
   under the new screen, as Signal's is under the conversation.
   After a press that stayed, the dismissal returns to the node.

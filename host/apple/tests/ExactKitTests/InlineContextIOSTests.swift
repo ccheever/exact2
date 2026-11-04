@@ -196,8 +196,8 @@ final class InlineContextIOSTests: XCTestCase {
         XCTAssertEqual(pixel(drawn, at: CGPoint(x: area.width / 2, y: 4)), [cr, cg, cb, 1].map { UInt8(($0 * 255).rounded()) }, "the canvas's color in the padding")
         let box = node.convert(rect, to: node.superview).offsetBy(dx: -area.minX, dy: -area.minY)
         XCTAssertEqual(ink(drawn, row: box.midY, from: box.maxX + 2, to: area.width - 2), 0, "none of the text beside the run")
-        XCTAssertGreaterThan(ink(drawn, row: box.midY, from: box.minX, to: box.maxX), 0, "the run's own words")
         XCTAssertFalse(preview.view.subviews.contains { $0.isScreens }, "from the paragraph's own text raster, no snapshot of the screen")
+        XCTAssertLessThan(difference(preview, over: rects, of: node), 8, "the run's words and what lies under them as the window shows them")
         XCTAssertTrue(preview.target.container === node.superview && preview.target.center == CGPoint(x: area.midX, y: area.midY),
                       "from the run's place in the paragraph's superview")
         p.menus.context.contextMenuInteraction(interaction, willDisplayMenuFor: config, animator: nil)
@@ -223,6 +223,17 @@ final class InlineContextIOSTests: XCTestCase {
         XCTAssertNil(returned.view.superview, "off the screen once the menu has ended")
     }
 
+    func testATranslucentParagraphsRunLiftsItsWordsTranslucent() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let node = try XCTUnwrap(p.views[2])
+        node.alpha = 0.5
+        until("the paragraph is drawn") { node.snapshotView(afterScreenUpdates: false) != nil }
+        let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
+        let preview = try lift(p, node, at: try XCTUnwrap(rects.first))
+        XCTAssertLessThan(difference(preview, over: rects, of: node), 8, "its words at the paragraph's opacity, as the window shows them")
+    }
+
     func testATransformedParagraphsRunLiftsFromWhereItShows() throws {
         let p = try presenter()
         defer { p.menus.reset(); window.isHidden = true }
@@ -239,6 +250,7 @@ final class InlineContextIOSTests: XCTestCase {
         XCTAssertEqual(preview.target.center, CGPoint(x: area.midX, y: area.midY), "the run's place, where the screen shows it")
         XCTAssertEqual(preview.view.bounds.size, area.size, "a picture at the screen's scale")
         XCTAssertEqual(preview.target.transform, .identity, "so the target adds nothing")
+        XCTAssertLessThan(difference(preview, over: rects, of: node), 8, "its words scaled as the window shows them")
     }
 
     func testAWrappedRunLiftsAllItsLines() throws {
@@ -344,10 +356,17 @@ final class InlineContextIOSTests: XCTestCase {
         })
         picture.frame = card.bounds
         card.insertSubview(picture, belowSubview: node)
+        // A blur far from the run, earlier in the tree, and many views away from it: neither reaches the picture
+        let page = try XCTUnwrap(card.superview), away = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
+        away.frame = CGRect(x: 0, y: 600, width: 40, height: 40)
+        page.insertSubview(away, at: 0)
+        for i in 0..<200 { page.insertSubview(UIView(frame: CGRect(x: CGFloat(i % 10) * 30, y: 500 + CGFloat(i / 10) * 8, width: 20, height: 4)), at: 0) }
         let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
         let preview = try lift(p, node, at: try XCTUnwrap(rects.first))
         let area = textLines(rects, in: node).area
         XCTAssertEqual(preview.view.bounds.size, area.size, "UIKit's footprint")
+        func count(_ layer: CALayer) -> Int { 1 + (layer.sublayers ?? []).map(count).reduce(0, +) }
+        XCTAssertLessThan(count(preview.view.layer), 40, "copies of only what reaches the run's area")
         let drawn = onScreen(preview.view)
         XCTAssertEqual(pixel(drawn, at: CGPoint(x: 2, y: area.height / 2)), [255, 0, 0, 255], "the picture reflected past the card, none of the page")
         // A blur over the picture: live over the copies and over all of the padding, so the band past the card is blurred too
@@ -358,7 +377,52 @@ final class InlineContextIOSTests: XCTestCase {
         let screen = try lift(p, node, at: try XCTUnwrap(rects.first))
         let shown = onScreen(screen.view)
         let band = pixel(shown, at: CGPoint(x: 2, y: area.height / 2)), inside = pixel(shown, at: CGPoint(x: 12, y: area.height / 2))
-        XCTAssertTrue(band.count == 4 && zip(band, inside).allSatisfy { abs(Int($0) - Int($1)) <= 3 }, "the blur past the card (\(band) beside \(inside)), none of the page")
+        XCTAssertTrue(band.count == 4 && zip(band, inside).allSatisfy { abs(Int($0) - Int($1)) <= 3 } && band[1] > 60,
+                      "the blur past the card, blurred and as beside it (\(band) beside \(inside)), none of the page")
+    }
+
+    func testARunNearAScreenDrawnCardsEdgeStretchesTheScreensEdge() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let (node, card) = try cardAround(p, margin: 4)
+        // A card that clips a layer only the render server composites (a blend mode), under the paragraph
+        card.clipsToBounds = true
+        let blend = CALayer()
+        blend.frame = card.bounds
+        blend.backgroundColor = UIColor.systemTeal.cgColor
+        blend.compositingFilter = "multiplyBlendMode"
+        card.layer.insertSublayer(blend, below: node.layer)
+        // A snapshot shows the last frame drawn: one with the blend
+        let shownAt = CACurrentMediaTime()
+        until("a frame shows the blend") { CACurrentMediaTime() - shownAt > 0.3 }
+        let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
+        let preview = try lift(p, node, at: try XCTUnwrap(rects.first))
+        let area = textLines(rects, in: node).area
+        let padding = try XCTUnwrap(preview.view.subviews.first)
+        XCTAssertTrue(padding.isScreens && !(padding.layer.sublayers ?? []).filter { $0.contents != nil }.isEmpty, "the screen's picture, with strips of it over the band")
+        let shown = onScreen(preview.view)
+        let band = pixel(shown, at: CGPoint(x: 2, y: area.height / 2)), inside = pixel(shown, at: CGPoint(x: 12, y: area.height / 2))
+        XCTAssertTrue(band.count == 4 && zip(band, inside).allSatisfy { abs(Int($0) - Int($1)) <= 3 } && band != [255, 255, 255, 255],
+                      "the card's edge stretched past it (\(band) beside \(inside)), none of the page")
+    }
+
+    func testARunInAScaledCardLiftsItsPictureInPlace() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let (node, card) = try cardAround(p, margin: 20)
+        // An opaque card that clips a picture of stripes, scaled about its center: the root of the copies, whose scale places them
+        (card.clipsToBounds, card.backgroundColor) = (true, .white)
+        let picture = UIImageView(image: UIGraphicsImageRenderer(size: CGSize(width: 160, height: 8)).image { c in
+            for i in 0..<40 { (i % 2 == 0 ? UIColor.red : UIColor.blue).setFill(); c.fill(CGRect(x: i * 4, y: 0, width: 4, height: 8)) }
+        })
+        picture.frame = card.bounds
+        card.insertSubview(picture, belowSubview: node)
+        // Moved right as it grows, so the run stays in the window
+        card.transform = CGAffineTransform(translationX: 60, y: 20).scaledBy(x: 1.25, y: 1.25)
+        until("the card is drawn scaled") { card.layer.presentation()?.transform.m11 == 1.25 }
+        let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
+        let preview = try lift(p, node, at: try XCTUnwrap(rects.first))
+        XCTAssertLessThan(difference(preview, over: rects, of: node), 8, "the copies where the stripes show, scaled")
     }
 
     /// The paragraph moved into a card with `margin` around it, less than UIKit's padding, under a root controller,
@@ -406,15 +470,32 @@ final class InlineContextIOSTests: XCTestCase {
         let preview = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configuration: config, highlightPreviewForItemWithIdentifier: config.identifier))
         let padding = try XCTUnwrap(preview.view.subviews.first)
         XCTAssertFalse(padding.isScreens, "no snapshot of the screen")
-        XCTAssertTrue(padding.subviews.contains { ($0 as? UIVisualEffectView)?.effect is UIBlurEffect }, "the blur live over copies of what lies under it")
+        func live(_ view: UIView) -> [UIVisualEffectView] { view.subviews.flatMap { ($0 as? UIVisualEffectView).map { [$0] } ?? live($0) } }
+        XCTAssertTrue(live(padding).contains { $0.effect is UIBlurEffect }, "the blur live over copies of what lies under it")
         XCTAssertEqual(preview.view.bounds.size, area.size)
         let red = pixel(onScreen(preview.view), at: CGPoint(x: badge.frame.midX - area.minX, y: badge.frame.midY - area.minY))
         XCTAssertTrue(red[0] > 220 && red[1] < 60 && red[2] < 60, "the badge's copy over the live blur, unblurred: \(red)")
         let animator = Animator()
         p.menus.context.contextMenuInteraction(interaction, willEndFor: config, animator: animator)
         animator.animations.forEach { $0() }
-        XCTAssertTrue(padding.subviews.allSatisfy { view in (view as? UIVisualEffectView).map { $0.effect == nil } ?? (view.alpha == 0) },
-                      "it lands without its padding, the live blur losing its effect as UIKit animates it and the copies fading")
+        func faded(_ view: UIView) -> Bool {
+            if let effect = view as? UIVisualEffectView { return effect.effect == nil }
+            return live(view).isEmpty ? view.alpha == 0 : view.alpha == 1 && view.subviews.allSatisfy(faded)
+        }
+        XCTAssertTrue(padding.subviews.allSatisfy(faded), "it lands without its padding, the live blur losing its effect as UIKit animates it, the copies fading, and nothing that holds the blur faded")
+    }
+
+    func testARunOverAViewThatDrawsItselfTakesTheScreen() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let node = try XCTUnwrap(p.views[2])
+        // A view under the paragraph whose backing store holds its drawing, which a committed copy must not share
+        let drawn = Drawn(frame: node.frame.insetBy(dx: -20, dy: -20))
+        node.superview?.insertSubview(drawn, belowSubview: node)
+        until("the view has drawn") { drawn.layer.contents != nil }
+        let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
+        let preview = try lift(p, node, at: try XCTUnwrap(rects.first))
+        XCTAssertTrue(try XCTUnwrap(preview.view.subviews.first).isScreens, "the screen's picture, no copy of the view's backing store")
     }
 
     func testARunOverAFilteredLayerLiftsTheScreen() throws {
@@ -495,6 +576,32 @@ final class InlineContextIOSTests: XCTestCase {
         return (bytes, width, height)
     }
 
+    /// The mean difference in luminance, 0 to 255, between the lifted picture and the window over the run's boxes,
+    /// both as the render server draws them
+    private func difference(_ preview: UITargetedPreview, over rects: [CGRect], of node: NodeView) -> Double {
+        let container = preview.target.container, size = preview.view.bounds.size
+        let area = CGRect(x: preview.target.center.x - size.width / 2, y: preview.target.center.y - size.height / 2, width: size.width, height: size.height)
+        let shown = container.convert(area, to: window), bounds = window.bounds
+        let truth = UIGraphicsImageRenderer(size: size).image { _ in
+            _ = window.drawHierarchy(in: CGRect(x: -shown.minX, y: -shown.minY, width: bounds.width, height: bounds.height), afterScreenUpdates: true)
+        }
+        guard let (a, width, height) = rgba(truth), let (b, _, _) = rgba(onScreen(preview.view)) else { return .infinity }
+        let scale = truth.scale
+        var total = 0.0, count = 0
+        for rect in rects {
+            let box = node.convert(rect, to: container).offsetBy(dx: -area.minX, dy: -area.minY)
+            for y in max(0, Int(box.minY * scale))..<min(height, Int(box.maxY * scale)) {
+                for x in max(0, Int(box.minX * scale))..<min(width, Int(box.maxX * scale)) {
+                    let i = (y * width + x) * 4
+                    func luminance(_ p: [UInt8]) -> Double { 0.299 * Double(p[i]) + 0.587 * Double(p[i + 1]) + 0.114 * Double(p[i + 2]) }
+                    total += abs(luminance(a) - luminance(b))
+                    count += 1
+                }
+            }
+        }
+        return count == 0 ? .infinity : total / Double(count)
+    }
+
     /// `view` as the screen shows it: drawn by the render server in the window, which composites what `render(in:)`
     /// leaves out (replicated copies, a snapshot's contents, `zPosition`)
     private func onScreen(_ view: UIView) -> UIImage {
@@ -558,8 +665,13 @@ final class InlineContextIOSTests: XCTestCase {
 }
 
 private extension UIView {
-    /// Whether this is a picture the screen took (`resizableSnapshotView`), rather than one the host drew or filled
-    var isScreens: Bool { !(type(of: self) == UIView.self || self is UIImageView) }
+    /// Whether this is a picture of the screen (`resizableSnapshotView`'s `_UIReplicantView`) or holds one first
+    var isScreens: Bool { String(describing: type(of: self)).contains("Replicant") || subviews.first?.isScreens == true }
+}
+
+/// A view that draws itself, so its layer's contents are its backing store
+private final class Drawn: UIView {
+    override func draw(_ rect: CGRect) { UIColor.systemOrange.setFill(); UIRectFill(bounds) }
 }
 
 /// An animator that keeps what it is given, for a test to run as UIKit runs it: alongside its animation and after it
