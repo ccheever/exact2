@@ -847,6 +847,16 @@ above.
   reference draws those tabs natively and zooms nothing. After the press the focus is on the right panel's region, not
   on the stream's key field (`server-browser.contract`), so the chord reaches View ▸ Zoom In. A desktop tab's page,
   which holds the focus itself, zooms nothing, as in the reference (2026-11-05).
+- A Browser tab floated by closing the right panel draws its page at full size in the card, where the reference
+  scales the page down to fit the card (real input, 2026-11-05).
+- ⇧Tab skips a reply's changed-files card (its folder and file rows, Open diff, Expand all folders), which the
+  reference reaches after Copy message (real input, 2026-11-05).
+- After the hero's "or start without a project", Go back does nothing; the reference returns to the project's hero
+  (real input, 2026-11-05).
+- ⌘N's project picker lists This machine's scratch folder as a project below the "No project ⌥⌘N" row; the
+  reference lists only that row (real input, 2026-11-05).
+- A linked picture's link tooltip sits 11 device px higher than the reference's, and the picture's stop shows no ring
+  where the reference draws a thin one (real input, 2026-11-05).
 
 **Not failures:**
 
@@ -1589,6 +1599,46 @@ Seen besides the rows, once each:
   its ChatGPT page was closed in Chrome, nothing was signed in), and a Return meant for the clone's address bar sent
   the composer's 38 KB paste to the stand-in in "Turn with file edits", which answered it (no model ran).
 
+**Checked with real input (2026-11-05)** (the bundle of `791e9a251a`, which holds the fix round's #1467 to #1474, a
+lane copy on its own bundle id and `HOME`; `second` seeded with `--turns --pull-request --more-turns`; the oracle at
+`5d3d78ab93` on its own home, paired with the same lane server; 1280 × 840 at 2×; macOS in Dark, both apps in Dark
+except the look rows, where both were set to Light; Keyboard Navigation off. Presses, keys and drags came from the HID
+event source, with text typed key by key. Results were read from window captures, the clone's focused accessibility
+element, the oracle's `document.activeElement` and a test server's request log.) 13 rows: 12 hold and 1 fails.
+
+| Row | Clone | Oracle | Result |
+|---|---|---|---|
+| Return in the Browser's address bar (#1467, #1468) | an address typed in the empty bar loads (1 of 1); a click in a shown address selects all of it, and a typed address and Return load (2 of 2); the field lets go | the same (2 of 2) | holds |
+| A new tab's Local servers rows (#1468) | the page drawing: three window dots over two lines | the same | holds |
+| ⌘= with the focus in a Browser tab's page (#1468) | after a press in a Lane Second tab's page, ⌘= twice, ⌘- and ⌘0 change nothing in the window's capture; with the focus in the composer, ⌘= zooms the window and ⌘0 sets it back | ⌘= twice changes nothing | holds |
+| The right panel closed over a Browser tab (#1468) | the tab floats as a card at the window's lower right, in the oracle's place and size, and no other box stays (1 of 1); the card draws the page at full size | the same card, with the page scaled down to fit it | **fails** (the card's page scale) |
+| The hero's "or start without a project", a fresh home with Lane Second paired (#1470) | opens New thread in No project on This machine, at the first landing and again from agent-edits' hero (2 of 2) | the same (1 of 1) | holds |
+| ⌥⌘N on agent-edits' hero, Lane Second on screen (#1470) | New thread in No project on This machine (1 of 1) | the same (1 of 1) | holds |
+| Opening the Files panel (#1470) | "Search agent-edits files" takes the focus, with a ring (1 of 1) | "Search files" takes the focus, `:focus-visible` (1 of 1) | holds |
+| Settings over the narrow window's sheet (#1470, #1471, #1473) | 865 pt wide and View zoom twice: after ⌘, then ⌘B no ring at the top left and the focus on the sheet's toggle; the first Escape rings Search settings; the second closes Settings (2 of 2). ⌘B with Settings closed rings the toggle (1 of 1) | the same focus and order; a faint blurred glow at the top left (1 of 1) | holds |
+| A reply link's Tab stop, tooltip and ring (#1469, #1472, #1474) | ⇧Tab onto "the plan" rings the icon and both words and shows "https://example.com/plan" above them, its top on the oracle's device row ±1 (1 of 1) | the same | holds |
+| A linked picture's two Tab stops and their menus (#1469) | ⇧Tab reaches the picture (its path as a tooltip; the ContextMenu key opens Copy full path … Copy image), then the link (its URL as a tooltip; Open in integrated browser, Open in system browser, Copy Link) (1 of 1) | the same | holds |
+| ⇧Tab from the composer in "Prose answer" (#1469) | Fork from this response, Copy message, the code, Copy code, Disable line wrap, what changed, the plan, plan.md (1 of 1) | the same | holds |
+| "HTML images" and "HTML image layout" at 2× (#1469) | every image and the "Image unavailable · colon entity" line on the oracle's device pixels | — | holds |
+| The command menu after "/" (#1469) | its rows' text starts on the oracle's device rows (1192, 1248, 1304, 1361) and columns (686; the last row 748 against 747) | — | holds |
+
+Seen besides the rows, once each unless the item says otherwise:
+
+- ⇧Tab from the composer skips a reply's changed-files card. In "HTML images" the oracle stops on shots, Open diff
+  and Expand all folders after Copy message, and in "Turn with file edits" on README.md, notes, Open diff and Expand
+  all folders; the clone goes from Copy message to the pictures, and to the user message's buttons (2 of 2 threads).
+- After the hero's "or start without a project", the toolbar's Go back does nothing in the clone (2 of 2); in the
+  oracle it returns to agent-edits' hero.
+- ⌘N's project picker in the clone lists This machine's scratch folder as a project ("No project", Local,
+  `…/t3home/scratch`, ⌘2) under the "No project ⌥⌘N" row; the oracle's lists only that row.
+- A linked picture's link tooltip sits 11 device px higher in the clone (its top at row 692, the oracle's at 703). The
+  oracle rings the picture's stop with a thin ring and the clone draws none; on the link's stop the clone draws
+  AppKit's ring, wider than the oracle's.
+- After a visit to "Prose answer", "HTML images" and "HTML image layout", those sidebar rows showed the project badge
+  without "agent-edits" in the clone; the label came back after Settings opened and closed. The oracle kept it.
+- In the oracle, the new tab menu's Browser added a Browser tab and left Files shown; the clone showed the new tab with
+  its address bar focused.
+
 **Fixed, not checked with real input or VoiceOver:**
 
 - Pairing a saved environment again reconnects it with the new credential, as the reference's
@@ -1657,8 +1707,6 @@ sign-ins, Kotoeri's ⌃K, Reduce motion and trackpad momentum by a person, and G
 **Next real-input session:**
 
 - ⇧⌘P in the hero's project menu, and the two-finger swipe on a trackpad.
-- The Browser address bar's Return after a click in a shown address: the click selects the whole address and Return
-  loads what was typed (exact2 #1467; 3 of 3 with real keys on 2026-11-05).
 - A terminal excerpt's details, once a fixture sends one.
 - The fallback model notice. A hub cannot reach it: v0.1.6 reads the default provider's own usage limits
   (`resolveNewThreadModelSelection`), never a hub's pools. It shows on a new thread's draft with no model chosen when the
