@@ -114,3 +114,20 @@ test('a line centres its items when it holds an image of no authored height or o
     .toEqual([true, true, false, false, false]);
   expect([fns.imageLine([image(0), image(16)]), fns.imageLine([word, image(0)])]).toEqual([true, false]);
 });
+
+test('a line of images under 25.68px keeps the text strut: each sits on the text middle, not centred in the row', () => {
+  const fns = contractFns('src/timeline/markdown.contract') as { smallImageLine: (runs: unknown[]) => boolean };
+  const space = { kind: '', text: ' ', icon: '', height: 0 };
+  const image = (height: number) => ({ kind: 'media', text: 'alt', icon: '', height });
+  // "HTML image layout": two 60 × 24 images make a 24.81px line, each 0.81px down; a 32px one is the line itself.
+  expect([fns.smallImageLine([image(24), space, image(24)]), fns.smallImageLine([image(24), image(32)]), fns.smallImageLine([image(0)]), fns.smallImageLine([{ ...space, text: 'word' }, image(16)])])
+    .toEqual([true, false, false, false]);
+});
+
+test('a link is one run of nodes: its last run is the one before the first that is not its word or image', () => {
+  const fns = contractFns('src/timeline/markdown.contract') as { linkLast: (runs: unknown[], start: number, href: string) => number };
+  const href = 'https://example.com/plan';
+  const run = (kind: string, linkHref = href) => ({ kind, href: kind === 'media' ? '' : linkHref, link: kind === 'media' ? linkHref : '' });
+  const runs = [run('', ''), run('link-start'), run('link'), run(''), run('link-start'), run('media'), run('link-start', '#what-changed')];
+  expect([fns.linkLast(runs, 1, href), fns.linkLast(runs, 4, href), fns.linkLast(runs, 6, '#what-changed')]).toEqual([2, 5, 6]);
+});

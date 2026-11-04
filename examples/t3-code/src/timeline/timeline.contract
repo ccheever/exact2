@@ -248,7 +248,7 @@ component UserActions
       row gap="0.125rem" align-items="center" flex-wrap=(wrap ? "wrap" : "nowrap") justify-content="flex-end"
         if message.revert >= 0
           RowTip(label="Edit from here", side="top", align="center", offset=28, shown=(part == "edit"), hover=hoverPart(message.hoverKey, "edit"))
-            button id=`edit-from-${message.id}` press=editFrom testId=`edit-from-${message.id}` aria-label="Edit from here" focus=hover(true) blur=hover(false) width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
+            button id=`edit-from-${message.id}` press=editFrom testId=`edit-from-${message.id}` aria-label="Edit from here" focus=hover(true) blur=hover(false) tabindex=0 width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
               TimelineIcon(name="pencil", size=12, color="light-dark(#71717b, #a1a1a1)")
         // Copy takes the words, or a wordless media message's references; a message with neither has none.
         if message.copyable
@@ -256,7 +256,7 @@ component UserActions
             CopyButton(id=message.id, copied=message.copied, local=local, hover=hover)
         if message.body.trim() != "" and message.body.trim().length <= 8000
           RowTip(label="Copy prompt link", side="top", align="center", offset=28, shown=(part == "prompt-link"), hover=hoverPart(message.hoverKey, "prompt-link"))
-            button press=local("copy-prompt-link", message.id, "") aria-label="Copy prompt link" testId=`copy-prompt-link-${message.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" focus=hover(true) blur=hover(false) title=""
+            button press=local("copy-prompt-link", message.id, "") aria-label="Copy prompt link" testId=`copy-prompt-link-${message.id}` tabindex=0 width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" focus=hover(true) blur=hover(false) title=""
               PvIcon(name="link", size=12, color="light-dark(#71717b, #a1a1a1)")
 
 // A sent message's attachments and Markdown.
@@ -342,7 +342,8 @@ component ShowMoreButton
 // Copy, fork and the answer's wall-clock time; under the answer itself hidden until the row is hovered
 // or one of its controls is focused, and always occupying its 24pt line. It ends the answer's group, inside its
 // 0.125rem padding (py-0.5): under the answer's own row (`answer`), which ends in that padding, it keeps 0.375rem
-// (mt-1.5) from the text by taking 0.25rem.
+// (mt-1.5) from the text by taking 0.25rem. Its buttons, and a sent message's, are Tab stops with Keyboard Navigation
+// off, as Chromium's buttons are.
 component RowActions
   props
     answer: bool
@@ -359,7 +360,7 @@ component RowActions
         CopyButton(id=message.actionsId, copied=message.copied, local=local, hover=hover)
       if message.actionsFork
         RowTip(label="Fork from this response", side="top", align="center", offset=28, shown=(part == "fork"), hover=hoverPart(message.hoverKey, "fork"))
-          button press=command("fork-message", message.actionsId, "", 0) testId=`fork-${message.actionsId}` aria-label="Fork from this response" focus=hover(true) blur=hover(false) width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+          button press=command("fork-message", message.actionsId, "", 0) testId=`fork-${message.actionsId}` aria-label="Fork from this response" focus=hover(true) blur=hover(false) tabindex=0 width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
             Icon(name="fork", size=12, color="light-dark(#71717b, #a1a1a1)")
       RowTip(label=message.actionsTimeTip, side="top", align="center", offset=24, shown=(part == "time"), hover=hoverPart(message.hoverKey, "time"))
         text message.actionsTime font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)"

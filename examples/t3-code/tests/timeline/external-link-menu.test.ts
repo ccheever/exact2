@@ -141,13 +141,15 @@ describe('the reply link menu hookup', () => {
 });
 
 // Which link node a run draws (markdown.contract FlowRuns): a web link's carries the `chat-link-menu` popover with its
-// `contextmenu`; a mailto link's and a fragment's carry neither, so their right-click is the desktop shell's.
+// `contextmenu`; a mailto link's and a fragment's carry neither, so their right-click is the desktop shell's. Every link
+// is one Tab stop, its first run (`tabindex=0`, as Chromium's `<a>`), and a web link's first run shows its URL on a
+// keyboard focus; the later words are no stops.
 describe('the Markdown link nodes', () => {
   const flow = contractComponent('src/timeline/markdown.contract', 'FlowRuns'), fns = contractFns('src/timeline/markdown.contract');
   const run = (kind: string, href: string) => ({ id: 'r1', kind, href, mono: false, label: 'docs', text: 'docs', link: '', findParts: [] });
   const drawn = (marker: string, kind: string, href: string) => flow.drawn(marker, {}, { ...fns, run: run(kind, href), chips: [] });
-  const webStart = 'contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" aria-label=run.label', plainStart = 'link href=run.href press=open(run.href) aria-label=run.label';
-  const webWord = 'contextPopover="chat-link-menu" tabindex=0', fragmentWord = 'box press=open(run.href) tabindex=-1';
+  const webStart = 'contextPopover="chat-link-menu" focus=linkTip(index, run.href, true) blur=linkTip(index, run.href, false) tabindex=0 aria-label=run.label', plainStart = 'link href=run.href press=open(run.href) tabindex=0 aria-label=run.label';
+  const webWord = 'contextPopover="chat-link-menu" tabindex=-1', fragmentWord = 'box press=open(run.href) tabindex=-1';
   test('a web link has the menu on its first and later words; a mailto link and a fragment leave it to the shell', () => {
     expect([drawn(webStart, 'link-start', 'https://example.com'), drawn(plainStart, 'link-start', 'https://example.com')]).toEqual([true, false]);
     for (const href of ['mailto:a@b.c', '#notes']) expect([drawn(webStart, 'link-start', href), drawn(plainStart, 'link-start', href)]).toEqual([false, true]);

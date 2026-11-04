@@ -63,7 +63,8 @@ component LinkMenuPopoverAt
 // rows (`menu`), which the window's `fileLinkMenu` holds for the `fileLinkPopover` popover. Where a file link has no
 // press of its own (MarkdownFileLink with no primary action: the pull request page, which has no Files panel), its
 // press opens the menu instead, at the click: the press hands its owner the point as `file-link-at`, and the owner
-// sets the insets of `<fileLinkPopover>-press`, a LinkMenuPopoverAt, and shows it (`fileLinkPressMenu`).
+// sets the insets of `<fileLinkPopover>-press`, a LinkMenuPopoverAt, and shows it (`fileLinkPressMenu`). It is a Tab stop
+// with Keyboard Navigation off, as the reference's `<a>` is.
 component FileLinkButton
   inject
     fileLinkMenu: action
@@ -83,5 +84,5 @@ component FileLinkButton
     else
       local("surface-file-link", tip, target)
   view
-    button press=press contextmenu=fileLinkMenu(tip, target, menu) contextPopover=fileLinkPopover aria-label=tip padding=0 border-width=0 background-color="#00000000" testId=testId title=""
+    button press=press contextmenu=fileLinkMenu(tip, target, menu) contextPopover=fileLinkPopover aria-label=tip tabindex=0 padding=0 border-width=0 background-color="#00000000" testId=testId title=""
       children
