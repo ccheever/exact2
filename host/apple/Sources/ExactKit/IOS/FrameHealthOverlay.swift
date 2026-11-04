@@ -159,6 +159,9 @@ final class FrameHealthOverlay: UIView {
             screen.chart = card.chart
             screen.willDraw = { [weak self] in self?.drawWithUpdate() }
             screen.workload = { DevMenu.session.map { FrameHealth.workload($0.frames, session: $0) } ?? 0 }
+            // The face and the plots draw as Core Animation commits: the card's work, not the app's
+            let drawing = { [weak screen] (draw: () -> Void) in if let screen { screen.card(draw) } else { draw() } }
+            (card.drawing, card.chart.drawing) = (drawing, drawing)
             screen.start(scene)
             if screen.running, screenReader.start(claim: false) {
                 screen.health.changed = { [weak self] in self?.refresh() }
@@ -492,6 +495,8 @@ final class FrameHealthOverlay: UIView {
 /// touches into presses, taps and drags. It draws at `scale`, the text size's, in the face's points.
 final class FrameHealthCardView: UIView {
     var state = FrameHealthCardFace.State()
+    /// Runs the face's drawing, which Core Animation asks for as it commits, so the card can count it as its own work
+    var drawing: ((() -> Void) -> Void)?
     var compact = false { didSet { if compact != oldValue { setNeedsDisplay(); updateAccessibility(); updatePlots() } } }
     var scale: CGFloat = 1 { didSet { if scale != oldValue { setNeedsDisplay(); updateAccessibility(); updatePlots() } } }
     /// The charts, fed by each frame while the card reads, and the scales and view their labels were
@@ -691,7 +696,8 @@ final class FrameHealthCardView: UIView {
                 let format = UIGraphicsImageRendererFormat(for: face.traitCollection)
                 format.opaque = true
                 contentsScale = format.scale
-                contents = UIGraphicsImageRenderer(bounds: bounds, format: format).image { _ in card.drawFace() }.cgImage
+                let draw = { self.contents = UIGraphicsImageRenderer(bounds: self.bounds, format: format).image { _ in card.drawFace() }.cgImage }
+                if let drawing = card.drawing { drawing(draw) } else { draw() }
             }
         }
     }

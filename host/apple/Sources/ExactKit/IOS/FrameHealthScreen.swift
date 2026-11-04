@@ -39,8 +39,8 @@ final class FrameHealthScreen {
     private var link: AnyObject?
     private var observers: [CFRunLoopObserver] = []
     /// The update in progress: when it began, its deadline, when its last transaction was committed, who asked for it,
-    /// and, as it began, the card's time in this spell and the nodes' layouts so far
-    private var update: (start: Double, deadline: Double, committed: Double, askers: UInt64, cardTime: Double, layouts: Int)?
+    /// the seconds the card worked within it, and the nodes' layouts as it began
+    private var update: (start: Double, deadline: Double, committed: Double, askers: UInt64, card: Double, layouts: Int)?
     /// Whether it turned Exact's host phases on, which a production build keeps off
     private var phasesOn = false
     /// When UIKit expects the newest frame on screen
@@ -125,7 +125,11 @@ final class FrameHealthScreen {
     }
 
     /// The card worked on its own for `seconds`, outside an update of its own alone, which counts as the card's whole.
-    func card(took seconds: Double) { if running, cardUpdate == 0 { cardTime += seconds } }
+    func card(took seconds: Double) {
+        guard running, cardUpdate == 0 else { return }
+        cardTime += seconds
+        update?.card += seconds
+    }
 
     /// The card changed on its own, outside any update. The next update, while the app does not draw, sends only the
     /// card's change, so it is not one of the app's frames, and its time is the card's. A change that sends no update
@@ -143,7 +147,7 @@ final class FrameHealthScreen {
         let cardOnly = own > 0 && now - own < Self.idle && (newest == 0 || presented - newest >= Self.idle)
         own = 0
         if cardOnly { (update, cardUpdate) = (nil, now) } else {
-            update = (now, deadline, 0, Self.askers(workload?() ?? 0), cardTime, HostPhases.shared.counted(.nodeLayouts))
+            update = (now, deadline, 0, Self.askers(workload?() ?? 0), 0, HostPhases.shared.counted(.nodeLayouts))
         }
     }
 
@@ -155,7 +159,7 @@ final class FrameHealthScreen {
         let finished = update.committed > 0 ? update.committed : CACurrentMediaTime()
         if finished > update.deadline {
             let exact = HostPhases.shared.charged(from: update.start, to: finished)
-            health.split(at: update.start, exact: exact.map { $0 / 1000 }, card: cardTime - update.cardTime,
+            health.split(at: update.start, exact: exact.map { $0 / 1000 }, card: update.card,
                 layouts: HostPhases.shared.on ? HostPhases.shared.counted(.nodeLayouts) - update.layouts : nil)
         }
         health.record(arrival: update.start, target: update.deadline, period: 0, finished: finished,

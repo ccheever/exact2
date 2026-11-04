@@ -409,6 +409,7 @@ final class FrameHealthIOSTests: XCTestCase {
             guard !stalled else { return }
             stalled = true
             HostPhases.shared.measure(.draw) { usleep(60_000) }
+            screen.card { usleep(5_000) }
         }
         defer { FrameClock.shared.drop(filter) }
         func asked() -> UInt64? {
@@ -420,13 +421,14 @@ final class FrameHealthIOSTests: XCTestCase {
         let flags = try XCTUnwrap(asked(), "the stalled frame was late, and a live SVG filter asked for it")
         XCTAssertEqual(flags & (1 << 23 | 1 << 19), 1 << 23 | 1 << 19, "with the session's workload")
         XCTAssertEqual(flags & (1 << 40), 0, "and no other user of the frame clock")
-        // Its work split: the stall in Exact's phases, none of it the card's
+        // Its work split: the stall in Exact's phases, and the card's own work within the update
         let report = FrameHealthReport.snapshot(health: screen.health, session: nil)
         let columns = try XCTUnwrap(report["columns"] as? [String])
         let row = try XCTUnwrap((report["hitches"] as? [[Any]])?.first { (($0[4] as? UInt64) ?? 0) & (1 << 45) != 0 })
         let value = { (name: String) in row[columns.firstIndex(of: name)!] }
         XCTAssertGreaterThanOrEqual(value("exact_us") as? Int ?? 0, 55_000)
-        XCTAssertEqual(value("card_us") as? Int, 0)
+        XCTAssertGreaterThanOrEqual(value("card_us") as? Int ?? 0, 4_500)
+        XCTAssertLessThan(value("card_us") as? Int ?? .max, 20_000)
         XCTAssertNotNil(value("layouts") as? Int)
     }
 

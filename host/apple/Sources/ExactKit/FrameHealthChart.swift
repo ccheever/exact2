@@ -68,9 +68,15 @@ final class FrameHealthChart {
     private final class Lines: CALayer {
         weak var chart: FrameHealthChart?
         var which = 0
-        override func display() { contents = chart?.image(which, size: bounds.size, scale: contentsScale) }
+        override func display() {
+            guard let chart else { return }
+            let draw = { self.contents = chart.image(self.which, size: self.bounds.size, scale: self.contentsScale) }
+            if let drawing = chart.drawing { drawing(draw) } else { draw() }
+        }
     }
     private let windows = [CALayer(), CALayer()], lines = [Lines(), Lines()]
+    /// Runs each plot's drawing, which Core Animation asks for as it commits, so the card can count it as its own work
+    var drawing: ((() -> Void) -> Void)?
     /// What the layers show: each shown plot, the scale from its points to the host's, the palette,
     /// and the time at the plots' right edges when they were last drawn whole
     private var plots: [Int: FrameHealthCardDrawing.Plot] = [:]
