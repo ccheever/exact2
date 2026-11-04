@@ -9,6 +9,13 @@ import AppKit
 /// than carrying the background into view (LLP 1050.000 D5).
 package final class FlippedView: NSView {
     package override var isFlipped: Bool { true }
+    /// A finger came down on the trackpad over this document, while it
+    /// accepts indirect touches (`CollectionHost.watchContact`).
+    var contactBegan: ((TimeInterval) -> Void)?
+    package override func touchesBegan(with event: NSEvent) {
+        if !event.touches(matching: .began, in: self).isEmpty { contactBegan?(event.timestamp) }
+        super.touchesBegan(with: event)
+    }
     package override func hitTest(_ point: NSPoint) -> NSView? { raisedHit(super.hitTest(point), point) }
     /// What the mounted rows cover, in this view's coordinates; nil: anything.
     var preparedLimit: (() -> NSRect?)?
@@ -73,11 +80,17 @@ final class KnobDrag {
 
     /// The knob is held where the reader sees the document's end.
     var holdsEnd: Bool { tracking && shownAtEnd }
+    /// AppKit is scrolling the list for the reader, from its live scroll's
+    /// start to its end: a gesture with its momentum, or a knob's tracking
+    /// (`CollectionHost.readerScrolling`). `liveChanged` is told of a change.
+    private(set) var live = false
+    var liveChanged: (() -> Void)?
 
     /// A live scroll that starts with a press is the knob's; a gesture's
     /// starts with a wheel event and keeps every offset. A press where the
     /// document ends already shows the end.
     func began() {
+        live = true; liveChanged?()
         tracking = currentEventType() == .leftMouseDown
         shown = nil
         shownAtEnd = tracking && (scroll.map { atEnd($0.contentView) } ?? false)
@@ -111,6 +124,7 @@ final class KnobDrag {
         return true
     }
     func ended() {
+        live = false; liveChanged?()
         guard tracking else { return }
         tracking = false
         guard let seen = shown, let scroll else { return }
@@ -242,7 +256,12 @@ extension CollectionHost {
     func observeKnobDrags() {
         for id in entries.keys {
             guard let scroll = presenter?.views[id]?.scroll else { continue }
-            (KnobDrag.of(scroll) ?? KnobDrag(scroll)).horizontal = entries[id]?.snapshot.horizontal == true
+            let drag = KnobDrag.of(scroll) ?? {
+                let made = KnobDrag(scroll)
+                made.liveChanged = { [weak self] in self?.changed(id) }
+                return made
+            }()
+            drag.horizontal = entries[id]?.snapshot.horizontal == true
         }
     }
 
@@ -373,7 +392,26 @@ extension CollectionHost {
     static func leavesRubberBand(at: CGFloat, wanted: CGFloat, maximum: CGFloat) -> Bool {
         (at > maximum + 0.5 && wanted >= maximum - 0.5) || (at < -0.5 && wanted <= 0.5)
     }
-    func correct(_ id: UInt32, top: Double, extent: Double, smooth: Bool = false) {
+    /// While a `scrollIntoView` is under way on `id`, its document takes the
+    /// trackpad's touches, and a finger coming down is the reader's gesture
+    /// (LLP 1070.000 §2.5). AppKit carries a second gesture, a resting catch
+    /// and a click on within the live scroll still running, with no scroll
+    /// event or start notification of their own: a touch beginning is a
+    /// sign the main thread gets. Off otherwise, so an ordinary scroll
+    /// gets no touch events.
+    func watchContact(_ id: UInt32, _ on: Bool) {
+        guard let document = presenter?.views[id]?.scroll?.documentView as? FlippedView,
+              (document.contactBegan != nil) != on else { return }
+        if on { document.allowedTouchTypes.insert(.indirect) } else { document.allowedTouchTypes.remove(.indirect) }
+        document.contactBegan = on ? { [weak self] time in self?.gestureBegan(id, at: time) } : nil
+    }
+    /// Stops AppKit's running scroll animation of list `id` where the port is
+    /// (`stopAnimation`): a zero-length animator group replaces it.
+    func haltClip(_ id: UInt32) {
+        guard animating.contains(id), let clip = presenter?.views[id]?.scroll?.contentView else { return }
+        NSAnimationContext.runAnimationGroup({ c in c.duration = 0; clip.animator().setBoundsOrigin(clip.bounds.origin) })
+    }
+    func correct(_ id: UInt32, top: Double, extent: Double, smooth: Bool = false, authored: Bool = false) {
         guard let node = presenter?.views[id], let scroll = node.scroll,
               let document = scroll.documentView else { return }
         let content = node.contentBox()
@@ -381,31 +419,28 @@ extension CollectionHost {
         let horizontal = entries[id]?.snapshot.horizontal ?? false
         fit(node, scroll, extent: extent, horizontal: horizontal)
         // The anchor stays put, except under a knob held at the end (`KnobDrag`).
-        let holdsEnd = KnobDrag.of(scroll)?.holdsEnd == true
+        // A `scrollIntoView`'s move is made whatever the knob or a rubber band
+        // holds (LLP 1070.000 §2.6); the reader's motion after it takes over.
+        let holdsEnd = !authored && KnobDrag.of(scroll)?.holdsEnd == true
         let at = horizontal ? clip.bounds.minX : clip.bounds.minY
         let wanted = CGFloat(top) + (horizontal ? content.minX : content.minY)
         let maximum = max(0, horizontal ? document.frame.width - clip.bounds.width : document.frame.height - clip.bounds.height)
         // A running animation takes the correction as its own target or is stopped by it, below.
-        if !holdsEnd && !animating.contains(id) && Self.leavesRubberBand(at: at, wanted: wanted, maximum: maximum) { return }
+        if !authored && !holdsEnd && !animating.contains(id) && Self.leavesRubberBand(at: at, wanted: wanted, maximum: maximum) { return }
         let along = holdsEnd ? maximum : min(maximum, max(0, wanted))
         let target = horizontal ? NSPoint(x: along, y: clip.bounds.minY) : NSPoint(x: clip.bounds.minX, y: along)
         // A smooth correction is AppKit's scroll animation (LLP 1070.000
         // §6.2), as UIKit's is on iOS; one already running goes on and
-        // takes this target when it lands.
-        if smooth && !ExactEnv.agentFreezes && !holdsEnd && node.window != nil {
+        // takes this target when it lands. Under Reduce Motion it lands at
+        // once, as an element's reveal does (§14).
+        if smooth && !ExactEnv.agentFreezes && !DisplayPreferences.reducedMotion && !holdsEnd && node.window != nil {
             if animating.contains(id) { owedTargets[id] = target; return }
             guard clip.bounds.origin != target else { return }
             animate(id, scroll, to: target)
             return
         }
-        if animating.contains(id) {
-            // An ordinary correction stops it, even where it already is: a
-            // zero-length animation replaces the running one.
-            stopAnimation(id)
-            NSAnimationContext.runAnimationGroup({ c in c.duration = 0; clip.animator().setBoundsOrigin(target) })
-            scroll.reflectScrolledClipView(clip)
-            return
-        }
+        // An ordinary correction stops a running one, even where it already is
+        if animating.contains(id) { stopAnimation(id) }
         guard clip.bounds.origin != target else { return }
         clip.scroll(to: target)
         scroll.reflectScrolledClipView(clip)
@@ -422,14 +457,51 @@ extension CollectionHost {
         }
         return nil
     }
+    /// The reader's hand on a list, heard before the app's handlers can make a
+    /// request in answer (LLP 1070.000 §2.5): a press or a wheel; a key is not
+    /// heard, what it scrolls is motion like any other. `ExactView`'s own
+    /// monitor calls this first for presses: AppKit runs local monitors in no
+    /// set order. This host's monitor (`startTracking`) calls it for a wheel
+    /// and a middle press, which `ExactView`'s does not hear, before AppKit
+    /// gives them to the views that run the app's handlers.
+    func heard(_ event: NSEvent) {
+        guard let presenter, event.window === presenter.viewport.window else { return }
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            // A press on a list's port, a row or its scroller.
+            gestureBegan(around: hitView(event), at: event.timestamp)
+        case .scrollWheel:
+            // A trackpad gesture's contact over a list, from when it began
+            // (fingers resting first, `mayBegin`, or moving at once,
+            // `began`), or a wheel's notch (no phase), is the reader's
+            // gesture; not momentum, nor a gesture's change.
+            guard event.momentumPhase.isEmpty else { return }
+            let may = event.phase.contains(.mayBegin), began = event.phase.contains(.began)
+            if may || (began && wheelPhase != NSEvent.Phase.mayBegin.rawValue) { contactAt = event.timestamp }
+            if !event.phase.isEmpty { wheelPhase = event.phase.rawValue }
+            if event.phase.isEmpty || may || began {
+                gestureBegan(around: hitView(event), at: event.phase.isEmpty ? event.timestamp : contactAt)
+            }
+        default: break
+        }
+    }
+    /// The view under `event`'s point.
+    private func hitView(_ event: NSEvent) -> NSView? {
+        guard let presenter else { return nil }
+        let point = presenter.viewport.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
+        return TableRowCell.whatIsThere { presenter.viewport.hitTest(point) }
+    }
     func startTracking() {
         let monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp,
-            .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp, .keyDown]) { [weak self] event in
+            .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp, .keyDown, .scrollWheel]) { [weak self] event in
             guard let self, let presenter, event.window === presenter.viewport.window else { return event }
             switch event.type {
             case .leftMouseDown, .rightMouseDown, .otherMouseDown:
-                let point = presenter.viewport.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
-                pointerDown(nodeID(TableRowCell.whatIsThere { presenter.viewport.hitTest(point) }), event: event)
+                pointerDown(nodeID(hitView(event)), event: event)
+                // A middle press, which `ExactView`'s monitor does not hear
+                if event.type == .otherMouseDown { heard(event) }
+            case .scrollWheel:
+                heard(event)
             case .leftMouseUp, .rightMouseUp, .otherMouseUp:
                 // Release after AppKit delivers this event and any authored
                 // handler. Captured generation is checked by the weak helper.

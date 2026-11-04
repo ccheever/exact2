@@ -620,9 +620,10 @@ extension NavigationHost {
         if tabBarShows, let root = container, let tabs = NavigationTabs.of(root, presenter), let index = tabs.tabs.firstIndex(where: { $0 === node }) {
             guard !node.disabled else { return ["error": "tab #\(id) is disabled"] }
             guard before(nil), !node.disabled, !node.inert, presenter.views[node.id] === node else { return ["error": "tab #\(id) changed during its pointer handlers"] }
-            let root = reselectedRoot(index) // as the bar's own tap: the selected tab at its root scrolls to the top
+            // As the bar's own tap: the selected tab at its root scrolls to the top
+            let root = reselectedRoot(index), requests = root == nil ? nil : presenter.collections.lastRequests()
             presenter.press(node.id)
-            if let root { scrollToTop(root) }
+            if let root { scrollToTop(root, since: requests) }
             return ["tapped": id, "pressed": id, "delivery": "host-activation", "native": "tab-bar-item"]
         }
         let shown = controllers.values.filter { c in

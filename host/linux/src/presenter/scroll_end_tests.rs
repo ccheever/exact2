@@ -1221,11 +1221,16 @@ fn a_preserved_reader_deadline_waits_through_a_pump_behind_the_shell() {
 
 #[test]
 fn an_older_noop_picture_keeps_the_new_collection_seeks_completion() {
+    // `stay`'s second request, made while the first's move is still owed, is
+    // not one the port already satisfies (that one would move nothing and
+    // paint no picture): its move to where the port is paints one that
+    // moves nothing.
     let mut p = boot_source(
         r#"component App
   state order = ""
   state ends = 0
   action stay
+    scrollIntoView("items", 4)
     scrollIntoView("items", 0)
   action jump
     scrollIntoView("items", 4)

@@ -84,6 +84,22 @@ pub struct CollectionFill {
     /// shows stays unbuilt and the report `pending` until one without it.
     /// Carried on the wire as flag bit 4.
     pub glimpse: bool,
+    /// The reader's scroll is under way and a jump would not end it: a
+    /// drag's, a wheel's or a key's motion, the momentum after, or a live
+    /// scroll, on a host whose platform carries momentum on through a
+    /// programmatic scroll (browsers, AppKit). A `scrollIntoView` made
+    /// meanwhile waits for it to end (LLP 1070.000 §2.6). A host whose jump
+    /// ends the momentum (UIKit, Android's reader) never sets it. Flag bit 5.
+    pub scrolling: bool,
+    /// The reader began a gesture on the port (a touch, a press, or a wheel
+    /// where the host tells a new one from momentum) since the host learnt
+    /// of the list's `scrollIntoView`, or moved the port after its
+    /// admission: it cancels the request (§2.5). Flag bit 6.
+    pub gesture: bool,
+    /// The host is animating a smooth correction: the offset it reports is
+    /// where the animation is headed (LLP 1070.000 §11), so a request is not
+    /// done until it has landed. Flag bit 7.
+    pub animating: bool,
 }
 /// A mounted row; unmounted keys and records never cross the host seam.
 #[derive(Debug, Clone, PartialEq)]
@@ -162,6 +178,20 @@ pub struct CollectionSnapshot {
     /// authored moves, which a host applies whatever it has sampled since,
     /// until the reader's own input takes the port over.
     pub seeking: bool,
+    /// A `scrollIntoView` waits for the reader's scroll to end, or for a
+    /// report of where the port is (LLP 1070.000 §2.6): it moves nothing
+    /// yet, and the port's motion is the reader's travel. A host reports a
+    /// gesture begun since it learnt of it.
+    pub waiting: bool,
+    /// The requests begun on this list, counted: the latest one's number.
+    /// The JSON writes it as `request` while that request is under way
+    /// (`seeking` or `waiting`), and a host reports a gesture begun since it
+    /// learnt of this one, not of the one before. It writes it as
+    /// `lastRequest` once there has been one, under way or ended: a host
+    /// tells from it whether a handler asked for a row since an input (the
+    /// selected tab's scroll to the top gives way to one its press made,
+    /// LLP 1070.000 §2.6).
+    pub request: u64,
     /// Monotonic revision; old feedback cannot mutate a newer snapshot.
     pub revision: u64,
     /// Last accepted host sequence.
@@ -194,7 +224,8 @@ impl CollectionFeedback {
     /// padding start/end (LLP 1010 §6.9), u32
     /// focus and interaction (zero means none), f64 velocity, u32 limit
     /// (`u32::MAX` means none), u32 flags (bit 0: an ancestor list is
-    /// moving; bit 1: build only; bit 2: retire only; bit 3: lean; bit 4: a glimpse), u32 count, then count × (u32 wrapper, u64 epoch, f64 size).
+    /// moving; bit 1: build only; bit 2: retire only; bit 3: lean; bit 4: a glimpse; bit 5: the reader is scrolling;
+    /// bit 6: a gesture since the request; bit 7: a smooth correction animates), u32 count, then count × (u32 wrapper, u64 epoch, f64 size).
     /// Main and cross are the list's axes. No keys, strings, or JSON parsing.
     pub fn encode_with(&self, fill: CollectionFill) -> Result<Vec<u8>, FeedbackError> {
         self.validate()?;
@@ -225,7 +256,10 @@ impl CollectionFeedback {
                 | u32::from(fill.create_only) << 1
                 | u32::from(fill.no_build) << 2
                 | u32::from(fill.lean) << 3
-                | u32::from(fill.glimpse) << 4,
+                | u32::from(fill.glimpse) << 4
+                | u32::from(fill.scrolling) << 5
+                | u32::from(fill.gesture) << 6
+                | u32::from(fill.animating) << 7,
         );
         w.u32(
             self.measurements
@@ -266,7 +300,7 @@ impl CollectionFeedback {
             let limit = r.u32()?;
             let flags = r.u32()?;
             // A glimpse is built where it applies, and bounded.
-            if flags > 31
+            if flags > 255
                 || flags & 6 == 6
                 || (flags & 16 != 0 && (flags & 2 != 0 || limit == u32::MAX))
             {
@@ -280,6 +314,9 @@ impl CollectionFeedback {
                 no_build: flags & 4 != 0,
                 lean: flags & 8 != 0,
                 glimpse: flags & 16 != 0,
+                scrolling: flags & 32 != 0,
+                gesture: flags & 64 != 0,
+                animating: flags & 128 != 0,
             };
             let count = r.u32()? as usize;
             if count.checked_mul(20) != Some(r.remaining()) {
@@ -363,6 +400,15 @@ pub fn snapshots_json(snapshots: &[CollectionSnapshot]) -> String {
         if c.seeking {
             out.push_str("\"seeking\":true,");
         }
+        if c.waiting {
+            out.push_str("\"waiting\":true,");
+        }
+        if c.seeking || c.waiting {
+            write!(out, "\"request\":{},", c.request).unwrap();
+        }
+        if c.request > 0 {
+            write!(out, "\"lastRequest\":{},", c.request).unwrap();
+        }
         write!(out, "\"revision\":\"{}\",\"scrollSequence\":\"{}\",\"count\":{},\"totalExtent\":{},\"rows\":[", c.revision, c.scroll_sequence, c.count, exact_num::Shortest(c.total_extent)).unwrap();
         for (i, row) in c.rows.iter().enumerate() {
             if i > 0 {
@@ -418,7 +464,9 @@ impl super::Collection {
             axis: self.axis,
             parent: self.parent,
             restored: self.restored,
-            seeking: self.target.is_some(),
+            seeking: self.target.is_some() && !self.request_waits(),
+            waiting: self.request_waits(),
+            request: self.request,
             revision: self.revision,
             scroll_sequence: self.geometry.as_ref().map_or(0, |g| g.scroll_sequence),
             count: self.index.len(),
@@ -438,7 +486,7 @@ impl super::Collection {
                 })
                 .collect(),
             correction: self.correction,
-            pending: self.pending || self.target.is_some(), // an into-view request wants its next report
+            pending: self.asks_report(),
         }
     }
 }

@@ -38,6 +38,7 @@ mod collection_edge_async;
 mod collection_edges;
 mod collection_inset;
 mod collection_into_view;
+mod collection_into_view_wait;
 mod collection_nest;
 mod collection_reuse;
 mod collection_start;

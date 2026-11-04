@@ -127,16 +127,20 @@ impl<D: DataSource> Runner<D> {
                         update.notes,
                         update.renewed,
                         update.shown,
+                        update.refused,
                     )
                 })
         };
         self.tree = Some(tree);
         self.ids = ids;
         let ((changed, edge), ops, surfaces) = match result {
-            Ok((changed, ops, surfaces, notes, renewed, shown)) => {
+            Ok((changed, ops, surfaces, notes, renewed, shown, refused)) => {
                 self.notes = notes;
                 self.renewed = renewed;
                 self.shown.extend(shown);
+                for (list, why) in refused {
+                    self.record_refusal(&list, why);
+                }
                 (changed, ops, surfaces)
             }
             Err(error) => {

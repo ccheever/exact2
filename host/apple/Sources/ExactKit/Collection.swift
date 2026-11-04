@@ -9,6 +9,14 @@ struct CollectionMeasurement: Equatable {
     var size: Double
 }
 
+/// What a list's report says of the reader and of the host's own motion,
+/// flag bits 5 to 7: the reader's scroll under way, a gesture since the
+/// list's `scrollIntoView` (LLP 1070.000 §2.6), and the host's own smooth
+/// correction running (§11).
+struct Reading: Equatable {
+    var scrolling = false, gesture = false, animating = false
+}
+
 /// A list's port on its own axes (LLP 1070 H1): `offset` along the main
 /// axis, the port's main and cross sizes, and the rows' cross size.
 package struct CollectionFacts: Equatable {
@@ -30,7 +38,8 @@ package struct CollectionFacts: Equatable {
     /// `createOnly` and `noBuild` split a moving list's report around the
     /// owner thread (LLP 1072 §5): build only, off main; then retire only.
     /// `glimpse`: `limit` bounds the rows of what shows it builds too.
-    func encode(view: UInt32, revision: UInt64, sequence: UInt64, velocity: Double = 0, limit: UInt32? = nil, ancestorMoving: Bool = false, createOnly: Bool = false, noBuild: Bool = false, glimpse: Bool = false) -> Data {
+    /// `reading`: flag bits 5 to 7 (`Reading`).
+    func encode(view: UInt32, revision: UInt64, sequence: UInt64, velocity: Double = 0, limit: UInt32? = nil, ancestorMoving: Bool = false, createOnly: Bool = false, noBuild: Bool = false, glimpse: Bool = false, reading: Reading = Reading()) -> Data {
         var bytes = Data()
         func integer<T: FixedWidthInteger>(_ value: T) {
             var le = value.littleEndian
@@ -40,7 +49,8 @@ package struct CollectionFacts: Equatable {
         for value in [offset, portMain, portCross, cross, paddingStart, paddingEnd] { integer(value.bitPattern) }
         integer(focus ?? 0); integer(interaction ?? 0)
         integer((velocity.isFinite ? velocity : 0).bitPattern); integer(limit.map { Swift.min($0, UInt32.max - 1) } ?? UInt32.max)
-        integer(UInt32(ancestorMoving ? 1 : 0) | UInt32(createOnly ? 2 : 0) | UInt32(noBuild ? 4 : 0) | UInt32(glimpse ? 16 : 0))
+        integer(UInt32(ancestorMoving ? 1 : 0) | UInt32(createOnly ? 2 : 0) | UInt32(noBuild ? 4 : 0) | UInt32(glimpse ? 16 : 0)
+            | UInt32(reading.scrolling ? 32 : 0) | UInt32(reading.gesture ? 64 : 0) | UInt32(reading.animating ? 128 : 0))
         integer(UInt32(measurements.count))
         for row in measurements { integer(row.view); integer(row.epoch); integer(row.size.bitPattern) }
         return bytes
@@ -56,8 +66,9 @@ struct CollectionCursor {
     /// it is stale, as an absolute one is.
     private(set) var jumpedAt: UInt64 = 0
     mutating func jump() { advance(); jumpedAt = sequence }
-    mutating func takeCorrection(revision: UInt64, sequence: UInt64) -> Bool {
-        guard sequence == self.sequence, correctedRevision.map({ revision > $0 }) ?? true else { return false }
+    /// `authored`: the correction is a `scrollIntoView`'s, which applies whatever the reader scrolled since.
+    mutating func takeCorrection(revision: UInt64, sequence: UInt64, authored: Bool = false) -> Bool {
+        guard authored || sequence == self.sequence, correctedRevision.map({ revision > $0 }) ?? true else { return false }
         correctedRevision = revision
         return true
     }
@@ -136,6 +147,18 @@ struct CollectionSnapshot {
     let count: Int
     /// A limited report left window rows unbuilt: another report is owed.
     let pending: Bool
+    /// A `scrollIntoView` under way (LLP 1070.000): its corrections are the
+    /// app's, applied whatever the reader scrolled since, until the reader's
+    /// gesture. `waiting`: it waits for the reader's scroll to end (§2.6).
+    let seeking: Bool
+    let waiting: Bool
+    /// Which request that is: a gesture counts against the one it began after.
+    let request: UInt64
+    /// The latest request the list took, under way or ended (0 for none). A
+    /// host compares it before and after an input to tell whether a handler
+    /// asked for a row in answer.
+    let lastRequest: UInt64
+    var underWay: Bool { seeking || waiting }
 
     init?(_ value: [String: Any]) {
         guard let view = Self.viewID(value["view"]), let revision = Self.uint(value["revision"]),
@@ -161,6 +184,10 @@ struct CollectionSnapshot {
         self.extent = extent; self.rows = rows; self.correction = correction
         self.count = Self.uint(value["count"]).map { Int(clamping: $0) } ?? rows.count
         self.pending = (value["pending"] as? NSNumber)?.boolValue ?? false
+        self.seeking = value["seeking"] as? Bool == true
+        self.waiting = value["waiting"] as? Bool == true
+        self.request = Self.uint(value["request"]) ?? 0
+        self.lastRequest = Self.uint(value["lastRequest"]) ?? 0
     }
     private static func uint(_ value: Any?) -> UInt64? {
         // Integral JSON numbers read directly; a fraction or sign refuses.
@@ -220,6 +247,24 @@ package final class CollectionHost {
         var batchInsets: [Double]?
         /// What the platform covers of the port at its start and end, as the runner was last told.
         var covered: [Double] = [0, 0]
+        /// The reader began a gesture on the port since the host learnt of
+        /// the request under way (`snapshot.request`).
+        var gesture = false
+        /// When the host learnt of that request, on the events' clock
+        /// (seconds since startup): an input that began before it is not
+        /// counted against it (`gestureBegan`).
+        var requestAt = ProcessInfo.processInfo.systemUptime
+        /// What the last report said of the reader and the host's motion.
+        var lastReading: Reading?
+        #if os(macOS)
+        /// When the reader last moved the port outside AppKit's live scroll
+        /// (a wheel's notch, a key), and whether a check of its end is due.
+        var movedAt = -Double.infinity
+        var quietDue = false
+        #endif
+        /// The request's corrections are the app's: the reader has made no
+        /// gesture since it was made (the web glue's `authored`).
+        var authored: Bool { snapshot.seeking && !gesture }
         init(_ snapshot: CollectionSnapshot) { self.snapshot = snapshot }
     }
     weak var presenter: Presenter?
@@ -254,14 +299,54 @@ package final class CollectionHost {
     /// responder changes all reach `pinsChanged` (a node's become and
     /// resign, an input's begin and end editing), which forgets it.
     private var focusFound: UInt32??
+    #else
+    /// The phase of the last scroll event of a trackpad gesture, and when its
+    /// contact began: a `began` after a `mayBegin` is the same contact.
+    var wheelPhase: UInt = 0 // `NSEvent.Phase`'s raw value
+    var contactAt: TimeInterval = 0
     #endif
     /// LLP 1050.000's fill. A platform with a pump reports each moving
     /// collection's velocity (nil at rest) and builds `fillPending` in slices;
     /// one without leaves `motion` nil, and every report is unlimited.
     var motion: ((UInt32) -> Double?)?
+    /// The reader's scroll is under way on `id` (LLP 1070.000 §2.6): a
+    /// `scrollIntoView` made meanwhile waits for it. On AppKit, whose jump
+    /// would not end it: the live scroll and the motion after it. Never on
+    /// UIKit, whose own calls land at once, under a finger too (the drag goes
+    /// on from there), nor under the agent's frozen clock.
+    func readerScrolling(_ id: UInt32) -> Bool {
+        #if os(macOS)
+        guard !ExactEnv.agentFreezes, let scroll = presenter?.views[id]?.scroll, let entry = entries[id] else { return false }
+        return KnobDrag.of(scroll)?.live == true || entry.quietDue
+        #else
+        return false
+        #endif
+    }
+    #if os(macOS)
+    /// After the reader's last move outside a live scroll, its scroll is
+    /// taken to have ended, as the web glue's `QUIET` after its last `scroll`.
+    static let quiet = 0.3
+    /// The reader moved `id`'s port outside a live scroll (a wheel's notch, a
+    /// key's step, momentum AppKit carries on past a live scroll's end: any
+    /// move the host did not make): its scroll is under way until `quiet`
+    /// after the last, and the report that follows says when it ended. A live
+    /// scroll ends with its own notification.
+    private func readerMoved(_ id: UInt32) {
+        guard let entry = entries[id], let scroll = presenter?.views[id]?.scroll, KnobDrag.of(scroll)?.live != true else { return }
+        entry.movedAt = ProcessInfo.processInfo.systemUptime
+        if !entry.quietDue { entry.quietDue = true; checkQuiet(id, after: Self.quiet) }
+    }
+    private func checkQuiet(_ id: UInt32, after delay: Double) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, let entry = entries[id], entry.quietDue else { return }
+            let left = entry.movedAt + Self.quiet - ProcessInfo.processInfo.systemUptime
+            if left > 0 { checkQuiet(id, after: left) } else { entry.quietDue = false; changed(id) }
+        }
+    }
+    #endif
     /// Lists the host is animating to a smooth correction: their offset
     /// moves by the platform's scroll animation, not the reader, so the fill
-    /// reports no travel for them (which would cancel a `scrollIntoView`).
+    /// reports no travel for them.
     ///
     /// While one runs the list reports where it is headed, and its scroll
     /// ticks are not the reader's travel. A report from mid-way told the
@@ -306,6 +391,8 @@ package final class CollectionHost {
         #if os(iOS) || os(tvOS)
         offsetDrivers.removeValue(forKey: view)?.cancel()
         presenter?.scrollPump.forgetTravel(view)
+        #else
+        haltClip(view)
         #endif
         animating.remove(view)
         animationTargets[view] = nil; owedTargets[view] = nil; animationSerial[view] = nil
@@ -391,8 +478,9 @@ package final class CollectionHost {
         gestureContact = nil
         generation += 1; queued = false; batchDepth = 0; correcting = false
         stopTracking?(); stopTracking = nil
-        entries.removeAll(); dirty.removeAll(); interaction = nil; contactEvent = nil
+        // A list's animation goes with it, stopped where the port is (LLP 1070.000 §2.5).
         for view in animating { stopAnimation(view) }
+        entries.removeAll(); dirty.removeAll(); interaction = nil; contactEvent = nil
         fillPending.removeAll(); sliceLimits.removeAll(); glimpses.removeAll(); glimpsing.removeAll()
         building = nil; retireOwed.removeAll(); fillLimits.removeAll(); fillSent.removeAll()
         budget = CollectionTurnBudget(); rescuing.removeAll()
@@ -427,11 +515,22 @@ package final class CollectionHost {
                                 entry.owed = true
                             }
                         }
+                        // A gesture counts against the request it began after: a new one starts with none.
+                        // A request that ends or is replaced takes its animation with it, stopped where the
+                        // port is (LLP 1070.000 §2.5); a newer one is admitted from the report that follows.
+                        if snapshot.request != entry.snapshot.request {
+                            entry.gesture = false
+                            entry.requestAt = ProcessInfo.processInfo.systemUptime
+                            stopAnimation(snapshot.view)
+                        } else if !snapshot.underWay { entry.gesture = false }
                         entry.snapshot = snapshot
                     }
                 } else { entries[snapshot.view] = Entry(snapshot) }
                 dirty.insert(snapshot.view)
                 if entries[snapshot.view]!.snapshot.pending { fillPending.insert(snapshot.view) }
+                #if os(macOS)
+                watchContact(snapshot.view, entries[snapshot.view]!.snapshot.underWay)
+                #endif
             }
             if !fillPending.isEmpty { requestFill?() }
         }
@@ -478,9 +577,9 @@ package final class CollectionHost {
                // sent message's end-follow as the composer shrinks back)
                // still lands, clamped to the new port.
                entry.cursor.takeCorrection(revision: entry.snapshot.revision,
-                   sequence: correction.sequence == planned ? entry.cursor.sequence : correction.sequence) {
+                   sequence: correction.sequence == planned ? entry.cursor.sequence : correction.sequence, authored: entry.authored) {
                 correcting = true
-                correct(view, top: correction.offset, extent: entry.snapshot.extent, smooth: correction.smooth)
+                correct(view, top: correction.offset, extent: entry.snapshot.extent, smooth: correction.smooth, authored: entry.authored)
                 correcting = false
             }
             entry.batchStart = nil
@@ -521,15 +620,52 @@ package final class CollectionHost {
     /// wheel beginning) or to an authored offset.
     func userIntent(_ view: UInt32, travel: Bool = false) {
         guard let entry = entries[view], !correcting else { return }
+        #if os(macOS)
+        if travel { readerMoved(view) }
+        #endif
         if travel { entry.cursor.advance() } else { entry.cursor.jump() }
         dirty.insert(view)
         schedule()
+    }
+    /// The reader began a gesture on `view`'s port: it cancels the request
+    /// under way there, reported at once.
+    /// An input counts against the request under way when it began (`at`, an
+    /// event's timestamp): not against one a handler made in answer to it,
+    /// which reached the host after, whatever order the platform runs the
+    /// input's handlers in; a tie is not after. An event made with no time
+    /// (0, a synthesized one's) counts.
+    func gestureBegan(_ view: UInt32, at time: TimeInterval? = nil) {
+        guard let entry = entries[view], entry.snapshot.underWay, !entry.gesture,
+              time.map({ $0 == 0 || $0 > entry.requestAt }) ?? true else { return }
+        entry.gesture = true
+        dirty.insert(view)
+        schedule()
+    }
+    /// The reader's gesture at `time` on every list around `view`, which is
+    /// found only while a request is under way.
+    func gestureBegan(around view: @autoclosure () -> PlatformView?, at time: TimeInterval? = nil) {
+        guard entries.values.contains(where: { $0.snapshot.underWay }) else { return }
+        var view = view()
+        while let current = view {
+            if let node = current as? NodeView { gestureBegan(node.id, at: time) }
+            view = current.superview
+        }
     }
     func changed(_ view: UInt32, user: Bool = false) {
         guard let entry = entries[view], !correcting else { return }
         // The host's own animation, not the reader: reported as where it
         // is headed (`geometry`), and the sequence stays.
         if user && animating.contains(view) { animationMoved.insert(view); dirty.insert(view); schedule(); return }
+        #if os(macOS)
+        // Not the clip AppKit clamps inside a batch's layout. A request that
+        // has moved the port is the reader's once the reader moves it, by
+        // whatever input: its corrections no longer land whatever the port
+        // did, and the next report ends it (LLP 1070.000 §2.5).
+        if user && batchDepth == 0 {
+            if entry.authored { entry.gesture = true }
+            readerMoved(view)
+        }
+        #endif
         if user && batchDepth == 0 { entry.cursor.advance() }
         dirty.insert(view)
         guard batchDepth == 0 else { return }
@@ -724,7 +860,9 @@ package final class CollectionHost {
                 // A slice builds its limit once; later passes and every
                 // report while moving or owed a continuation only measure
                 // and rescue what shows. At rest a report is unlimited.
-                let velocity = motion?(id)
+                // Not while a request's corrections are the app's: neither their
+                // moves nor what was sampled before it are the reader's travel.
+                let velocity = entry.authored ? nil : motion?(id)
                 let limit: UInt32? = retireLimit ?? sliceLimits.removeValue(forKey: id)
                     ?? (motion != nil && (entry.lastFacts == nil || velocity != nil || entry.snapshot.pending) ? 0 : nil)
                 let further = limit.map { $0 > 0 && $0 > (entry.lastLimit ?? .max) } ?? false
@@ -734,7 +872,8 @@ package final class CollectionHost {
                     == (facts.portMain, facts.portCross, facts.cross, facts.focus, facts.interaction) } ?? false
                 let glimpse = glimpsing.contains(id) && retireLimit == nil && limit != nil
                 let offMain = building?.view == id && same && retireLimit == nil && !glimpse ? building : nil
-                if entry.lastFacts != facts || entry.lastSequence != entry.cursor.sequence
+                let reading = Reading(scrolling: readerScrolling(id), gesture: entry.gesture, animating: animating.contains(id))
+                if entry.lastFacts != facts || entry.lastSequence != entry.cursor.sequence || entry.lastReading != reading
                     || (entry.snapshot.pending && limit != 0) || further || retireLimit != nil || entry.owed {
                     var report = facts
                     // A sent report may be rejected atomically. Only the
@@ -745,6 +884,7 @@ package final class CollectionHost {
                         report.measurements.removeAll { m in known[m.view].map { Self.acknowledges($0, m) } ?? false }
                     }
                     entry.lastFacts = facts
+                    entry.lastReading = reading
                     entry.owed = false
                     entry.lastSequence = entry.cursor.sequence
                     entry.lastLimit = limit
@@ -760,13 +900,14 @@ package final class CollectionHost {
                         fillLimits[id] = offMain.limit
                         fillSent[id] = ProcessInfo.processInfo.systemUptime
                         onFill(id, report.encode(view: id, revision: entry.snapshot.revision, sequence: entry.cursor.sequence,
-                            velocity: velocity ?? 0, limit: limit, ancestorMoving: ancestorMoving, createOnly: true))
+                            velocity: velocity ?? 0, limit: limit, ancestorMoving: ancestorMoving, createOnly: true, reading: reading))
                         budget.end()
                         return
                     }
                     if glimpse { glimpses.insert(id) } else { glimpses.remove(id) }
                     onFeedback(report.encode(view: id, revision: entry.snapshot.revision, sequence: entry.cursor.sequence,
-                        velocity: velocity ?? 0, limit: limit, ancestorMoving: ancestorMoving, noBuild: retireLimit != nil, glimpse: glimpse))
+                        velocity: velocity ?? 0, limit: limit, ancestorMoving: ancestorMoving, noBuild: retireLimit != nil, glimpse: glimpse,
+                        reading: reading))
                 }
             }
             free -= reported ? 0 : 1
