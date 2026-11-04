@@ -399,7 +399,7 @@ const homeMarkdown = () => {
   const md = (path: string, anchor = '') => `${ORIGIN}${path === '/' ? '/index' : path}.md${anchor ? `#${anchor}` : ''}`;
   const cards = sections.filter(s => s.card && firstPage(s)).map(s => `- [${s.card!.title}](${md(firstPage(s)!.path)}): ${s.card!.description}`);
   const rows = agentRows.map(r => `- [${r.title}](${md('/agents', r.anchor)}): ${r.detail}.`);
-  return `\n## Explore the docs\n\n${cards.join('\n')}\n\n### For AI agents\n\n${AGENT_INTRO} [See all agent resources](${md('/agents')}).\n\n${rows.join('\n')}\n`;
+  return `\n## Explore the docs\n\n${cards.join('\n')}\n\n## For AI agents\n\n${AGENT_INTRO} [See all agent resources](${md('/agents')}).\n\n${rows.join('\n')}\n`;
 };
 pages.forEach(page => {
   const i = listed.indexOf(page);

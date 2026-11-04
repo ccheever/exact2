@@ -1,4 +1,4 @@
-use Page, Nav, NavItem from "./shapes.contract"
+use Page, Nav, NavItem, Hit from "./shapes.contract"
 use CopyButton, Terminal from "./code.contract"
 
 style SectionTitle
@@ -76,11 +76,11 @@ component Home
         view class=Grid
           for g in nav.groups.filter(x => x.card.href != "") key=g.id
             Card(item=g.card, icon=(g.title == "Learn" ? "symbol:book" : g.title == "Recipes" ? "symbol:layers" : "symbol:home"))
-        column margin-top=32 testId="for-agents"
+        column margin-top=48 testId="for-agents"
           row flex-wrap="wrap" justify-content="space-between" align-items="baseline" gap=8
-            h3 font-size="var(--text-base)" font-weight=600 color="var(--color-text-default)"
+            h2 class=SectionTitle
               text "For AI agents"
-            link href="/agents" testId="all-agent-resources"
+            link href="/agents" class=Hit testId="all-agent-resources"
               row align-items="center" gap=6
                 text "See all agent resources" font-size="var(--text-sm)" font-weight=500 color="var(--color-text-default)"
                 image "symbol:back" aria-hidden=true font-size="var(--text-xs)" color="var(--color-icon-default)" transform="rotate(180deg)"

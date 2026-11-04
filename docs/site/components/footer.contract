@@ -1,3 +1,5 @@
+use Hit from "./shapes.contract"
+
 style FooterLink
   font-size="var(--text-sm)" color="var(--color-text-secondary)"
 
@@ -24,11 +26,11 @@ component Footer
       padding="24px 0 8px" border-top="1px solid var(--color-border-secondary)" testId="footer"
       row flex-wrap="wrap" gap=20 align-items="center"
         text `© ${year} Exact` font-size="var(--text-sm)" color="var(--color-text-secondary)" testId="copyright"
-        link href="https://github.com/ccheever/exact2"
+        link href="https://github.com/ccheever/exact2" class=Hit
           row align-items="center" gap=6
             image "symbol:icon.github" aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
             text "GitHub" class=FooterLink
-        link href="/llms.txt" target="_blank" testId="footer-llms"
+        link href="/llms.txt" target="_blank" class=Hit testId="footer-llms"
           row align-items="center" gap=6
             image "symbol:document" aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
             text "View llms.txt" class=FooterLink

@@ -1,4 +1,4 @@
-use Page from "./shapes.contract"
+use Page, Hit from "./shapes.contract"
 
 style Label
   text-transform="uppercase" font-family="var(--font-mono)" font-size="var(--text-xs)" color="var(--color-text-secondary)" margin-bottom=4
@@ -12,7 +12,7 @@ component RailLink
     icon: string
     label: string
   view
-    link href=href target="_blank"
+    link href=href target="_blank" align-self="flex-start" class=Hit
       row align-items="center" gap=8
         image icon aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
         text label class=Action
@@ -27,7 +27,7 @@ component AppLink
   action open
     openURL(href)
   view
-    button press=open appearance="none" display="flex" align-items="center" gap=8 padding=0
+    button press=open appearance="none" display="flex" align-items="center" gap=8 align-self="flex-start" class=Hit
       image icon aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
       text label class=Action
 
@@ -39,7 +39,7 @@ component Rail
     copyMarkdown: action
     copied: bool
   view
-    nav aria-label="Page" inert=(not roomy) width="clamp(0px, (100vw - 1280px) * 1000, 13rem)" overflow="hidden" flex-shrink=0 margin-left="clamp(0px, (100vw - 1280px) * 1000, 64px)" position="sticky" top=24 align-self="flex-start" testId="toc"
+    nav aria-label="Page" inert=(not roomy) width="clamp(0px, (100vw - 1280px) * 1000, 13rem)" overflow="hidden" flex-shrink=0 margin-left="clamp(0px, (100vw - 1280px) * 1000, 56px)" padding="clamp(0px, (100vw - 1280px) * 1000, 4px) 0 0 clamp(0px, (100vw - 1280px) * 1000, 8px)" position="sticky" top=24 align-self="flex-start" testId="toc"
       column gap=28
         column gap=10
           RailLink(href=page.editUrl, icon="symbol:pencil", label="Edit page")
@@ -53,7 +53,7 @@ component Rail
                   text i.title font-size="var(--text-sm)" color=(i.href == `#${active}` ? "var(--color-text-default)" : "var(--color-text-secondary)")
         column gap=10 testId="ai-actions"
           text "AI" class=Label
-          button press=copyMarkdown appearance="none" display="flex" align-items="center" gap=8 padding=0 testId="copy-markdown"
+          button press=copyMarkdown appearance="none" display="flex" align-items="center" gap=8 align-self="flex-start" class=Hit testId="copy-markdown"
             image (copied ? "symbol:checkmark" : "symbol:copy") aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
             text (copied ? "Copied" : "Copy markdown") class=Action
           RailLink(href=page.claudeUrl, icon="symbol:icon.claude", label="Open in Claude")
@@ -71,9 +71,9 @@ component PageActions
     copyMarkdown: action
     copied: bool
   view
-    row flex-wrap="wrap" column-gap=16 row-gap=8 overflow="hidden" inert=roomy max-height="clamp(0px, (1280px - 100vw) * 1000, 400px)" margin-top="clamp(0px, (1280px - 100vw) * 1000, 16px)" testId="page-actions"
+    row flex-wrap="wrap" column-gap=16 row-gap=8 overflow="hidden" inert=roomy max-height="clamp(0px, (1280px - 100vw) * 1000, 400px)" margin="clamp(0px, (1280px - 100vw) * 1000, 12px) -8px 0" padding="clamp(0px, (1280px - 100vw) * 1000, 4px) 8px" testId="page-actions"
       RailLink(href=page.editUrl, icon="symbol:pencil", label="Edit page")
-      button press=copyMarkdown appearance="none" display="flex" align-items="center" gap=8 padding=0
+      button press=copyMarkdown appearance="none" display="flex" align-items="center" gap=8 align-self="flex-start" class=Hit
         image (copied ? "symbol:checkmark" : "symbol:copy") aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
         text (copied ? "Copied" : "Copy markdown") class=Action
       RailLink(href=page.claudeUrl, icon="symbol:icon.claude", label="Claude")

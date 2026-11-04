@@ -123,3 +123,8 @@ shape Markdown
 
 shape Viewport
   width: number
+
+// A small link or button the platform washes on hover: the wash gets room around its contents and the
+// sidebar's radius, and the negative margin keeps the contents where they were.
+style Hit
+  padding="4px 8px" margin="-4px -8px" border-radius="var(--radius-lg)"
