@@ -97,9 +97,13 @@ function routeName(path: string): string {
 const GITHUB_DOCS = 'https://github.com/ccheever/exact2/blob/main/docs/';
 const docsUrlOf = new Map(sections.flatMap(s => s.pages).map(p => [GITHUB_DOCS + p.source, `${DOCS_URL}${p.path === '/' ? '/index' : p.path}.md`]));
 
+const PROMPTS = join(SITE, 'prompts');
+const promptOf = (source: string) => existsSync(join(PROMPTS, source)) ? `${readFileSync(join(PROMPTS, source), 'utf8').trim()}\n\n` : '';
+
 function read(nav: NavPage): Doc {
   const text = readFileSync(join(DOCS, nav.source), 'utf8')
     .replaceAll('{{START_PROMPT}}', START_PROMPT)
+    .replace(/^([\s\S]*?\n\n[\s\S]*?\n\n)/, intro => `${intro}${promptOf(nav.source)}`)
     .replace(/https:\/\/github\.com\/ccheever\/exact2\/blob\/main\/docs\/[\w./-]+\.md/g, url => docsUrlOf.get(url) ?? url);
   const tokens = marked.lexer(text, { gfm: true });
   const slug = slugger();
