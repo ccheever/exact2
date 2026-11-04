@@ -2125,7 +2125,8 @@ for (const name of await storage.fs.readdir(folder)) {
 | `mkdir` | `fs.write doc:/` | Makes the folders above it too |
 | `rm` | `fs.write doc:/` | One file or one empty folder beneath the chosen document; never the document itself, never a tree |
 | `copyFile(from, to)`, `from` a `doc:` file, `to` an `app:/` path | `fs.read` covering `from`, `fs.write` covering `to` | The host copies the bytes; they never enter JavaScript, so a file past `readFile`'s 16 MiB result copies too. A regular file only, with `readFile`'s refusals |
-| `rename`, `realpath`, and `copyFile` to a `doc:` path | — | Refused (`'failed'`): read the bytes and write them |
+| `realpath` | `fs.read doc:/` | The chosen item's native absolute path on macOS, Linux and Windows, for a program the app hands it to; `NotSupportedError` (`'failed'`) on the web, iOS and Android. A removed item is refused `'ENOENT'` |
+| `rename`, and `copyFile` to a `doc:` path | — | Refused (`'failed'`): read the bytes and write them |
 
 A path never minted, `.`/`..`, and a closed window's or page's handle are
 refused. Native folder handles retain the selected directory even if its

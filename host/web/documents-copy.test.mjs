@@ -62,6 +62,8 @@ test('a chosen file is handed to the app store as its File, under both grants', 
     expect(await Promise.all([code(fs.copyFile(`${doc}/a.png`, `${doc}/copy.png`)), code(fs.copyFile('app:/data/a.png', `${doc}/copy.png`)), code(fs.rename(`${doc}/a.png`, 'app:/data/a.png'))]))
       .toEqual(['Unavailable failed', 'Unavailable failed', 'Unavailable failed']);
     expect(await code(fs.readFile(`${doc}/copy.png`))).toBe('Unavailable ENOENT');
+    // A page has no native path: `realpath` is refused, naming why.
+    await expect(fs.realpath(`${doc}/a.png`)).rejects.toThrow(/^NotSupportedError: realpath: /);
   } finally { delete globalThis.exact; }
 });
 
