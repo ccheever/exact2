@@ -674,9 +674,10 @@ Differences that belong to the app:
   its own (one per pane, the reference's renderer has one for all).
 - The last interaction (the activity reporter's and the pull request surfaces' idle rule) is the
   window root's `pointermove`, `pointerdown`, `wheel` and `keycapture`, to the second
-  (app.contract `interacted`). Keys and scrolls the terminal's and the Browser's web views take
-  never reach the root: typing in the terminal alone does not keep the reader recent, where the
-  reference's terminal is in its page (an `iframe` guest's events stay in its page). The root
+  (app.contract `interacted`). The terminal's page reports what bubbles to its own document, as the
+  reference's listeners hear its terminal in their page: a pointer, a press, the wheel and a key the
+  surface leaves alone, not typed text or an arrow, which the surface stops (measured in v0.1.6).
+  The Browser's web view keeps its events, as the reference's guest page does. The root
   hears a hovering pointer only while the window is key (ExactKit's hover tracking, LLP 1115.000
   D7); Chromium's page hears one while its window is key or main, so the two differ only over the
   main window while a panel of the app is key. Over a background window neither hears one.
