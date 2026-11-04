@@ -211,7 +211,7 @@ final class FieldSelectionMacTests: XCTestCase {
         XCTAssertEqual(FieldSelection.clamped(1.9, 3.2, "backward", length: 4), FieldSelection(start: 1, end: 3, direction: "backward"))
         XCTAssertEqual(FieldSelection(start: 1, end: 3, direction: "forward").payload("a,b\nc"), "1,3,forward,a,b\nc")
     }
-    func testRangeTextPreservesSelectionWithoutFocusOrUndo() throws {
+    func testRangeTextPreservesSelectionWithoutFocus() throws {
         let p = presenter()
         let node = try XCTUnwrap(p.views[2])
         p.fieldSelections.setSelectionRange(["editor", 1, 4, "backward"])
@@ -219,7 +219,8 @@ final class FieldSelectionMacTests: XCTestCase {
         XCTAssertEqual(node.fieldText, "heXYlo")
         XCTAssertEqual(p.fieldSelections.current(node), FieldSelection(start: 1, end: 5))
         XCTAssertFalse(node.editingField)
-        XCTAssertFalse(node.textArea?.undoManager?.canUndo ?? false)
+        // A textarea keeps its own history, focused or not.
+        XCTAssertTrue(node.textArea?.undoManager?.canUndo ?? false)
         p.fieldSelections.setRangeText(["line", "!", 1, 4, "select"])
         XCTAssertEqual(p.views[3]?.fieldText, "h!o")
         XCTAssertEqual(p.fieldSelections.current(try XCTUnwrap(p.views[3])), FieldSelection(start: 1, end: 2))
@@ -261,37 +262,65 @@ final class FieldSelectionMacTests: XCTestCase {
         }
     }
 
-    func testRangeTextWhileEditingAddsNoUndoStep() throws {
+    /// ⌘Z takes back a script's range edit, and only it: the person's
+    /// typing before it is the next step (the user's ruling of 2026-11-04,
+    /// LLP 1069.001).
+    func testRangeTextWhileEditingIsOneUndoStep() throws {
         let p = presenter()
-        var replacements = 0
-        p.onInput = { _, _ in XCTFail("a scripted edit must not also emit a user input") }
+        var replacements = 0, inputs: [String] = []
+        p.onInput = { _, value in inputs.append(value) }
         p.fieldSelections.onReplacement = { _, _, _ in replacements += 1 }
         for (name, id) in [("editor", UInt32(2)), ("line", UInt32(3))] {
             let node = try XCTUnwrap(p.views[id])
-            #if os(macOS)
-            if let editor = node.textArea { window.makeFirstResponder(editor) }
-            else { window.makeFirstResponder(node.field) }
+            window.makeFirstResponder(node.textArea ?? node.field)
             let editor = try XCTUnwrap(node.textArea ?? node.field?.currentEditor() as? NSTextView)
-            editor.undoManager?.removeAllActions()
-            #else
-            if let editor = node.textArea { XCTAssertTrue(editor.becomeFirstResponder()) }
-            else { XCTAssertTrue(node.field?.becomeFirstResponder() ?? false) }
-            let undo = node.textArea?.undoManager ?? node.field?.undoManager
-            undo?.removeAllActions()
-            #endif
+            let manager = try XCTUnwrap(editor.undoManager)
+            manager.removeAllActions()
+            manager.groupsByEvent = false
+            defer { manager.groupsByEvent = true }
+            manager.beginUndoGrouping()
+            editor.setSelectedRange(NSRange(location: 5, length: 0))
+            editor.insertText("!", replacementRange: editor.selectedRange())
+            editor.breakUndoCoalescing()
+            manager.endUndoGrouping()
+            inputs.removeAll()
             p.fieldSelections.setSelectionRange([name, 1, 4])
             let before = replacements
             p.fieldSelections.setRangeText([name, "X"])
             XCTAssertEqual(replacements, before + 1)
-            XCTAssertEqual(node.fieldText, "hXo")
+            XCTAssertEqual(inputs, [], "a scripted edit must not also emit a user input")
+            XCTAssertEqual(node.fieldText, "hXo!")
+            XCTAssertEqual(editor.string, "hXo!", "the NSTextField's active editor agrees")
             XCTAssertEqual(p.fieldSelections.current(node), FieldSelection(start: 1, end: 2))
-            #if os(macOS)
-            XCTAssertEqual(editor.string, "hXo", "the NSTextField's active editor agrees")
-            XCTAssertFalse(editor.undoManager?.canUndo ?? false)
-            #else
-            XCTAssertFalse(undo?.canUndo ?? false)
-            #endif
             XCTAssertTrue(node.editingField)
+            let undo = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "z", charactersIgnoringModifiers: "z", isARepeat: false, keyCode: 6))
+            XCTAssertTrue(editor.performKeyEquivalent(with: undo))
+            XCTAssertEqual(node.fieldText, "hello!")
+            XCTAssertTrue(editor.performKeyEquivalent(with: undo))
+            XCTAssertEqual(node.fieldText, "hello")
+            for _ in 0..<2 { if let f = editor as? TextArea { f.redo(nil) } else { try XCTUnwrap(editor as? FieldEditor).redo(nil) } }
+            XCTAssertEqual(node.fieldText, "hXo!")
+            XCTAssertEqual(inputs, ["hello!", "hello", "hello!", "hXo!"])
+            node.replaceFieldValue("hello")
+            node.toldText = nil
+        }
+    }
+
+    /// HTML's `setRangeText` does not apply `maxlength`; its undo step
+    /// restores the value all the same.
+    func testRangeTextIgnoresMaxLengthAndUndoes() throws {
+        let p = presenter()
+        for (name, id) in [("editor", UInt32(2)), ("line", UInt32(3))] {
+            let node = try XCTUnwrap(p.views[id])
+            node.props["maxlength"] = "5"
+            window.makeFirstResponder(node.textArea ?? node.field)
+            let editor = try XCTUnwrap(node.textArea ?? node.field?.currentEditor() as? NSTextView)
+            editor.undoManager?.removeAllActions()
+            p.fieldSelections.setRangeText([name, " world", 5, 5])
+            XCTAssertEqual(node.fieldText, "hello world")
+            XCTAssertTrue(editor.undoManager?.canUndo ?? false)
+            editor.undoManager?.undo()
+            XCTAssertEqual(node.fieldText, "hello")
         }
     }
 

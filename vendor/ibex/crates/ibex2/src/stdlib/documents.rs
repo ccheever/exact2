@@ -1,4 +1,5 @@
-//! Chosen documents retain capabilities, never physical pathnames.
+//! Chosen documents retain capabilities, never physical pathnames; only
+//! `realpath` answers where one is, on a desktop.
 //! @ref LLP 0068.001#3-chosen-document-provider — admission precedes trusted minting.
 use super::fs::{FsOp, FsResult, Stat};
 use crate::{
@@ -203,8 +204,13 @@ pub fn run_document(
         boundary::admit(grants, &Operation::FsWrite { path: path.into() })?;
     }
     let parts = components(path).map_err(|e| e.guest(path))?;
-    if matches!(op, FsOp::Rename | FsOp::CopyFile | FsOp::Realpath) {
+    if matches!(op, FsOp::Rename | FsOp::CopyFile) {
         return Err(DocumentError::new(DocumentErrorKind::Unsupported).guest(path));
+    }
+    if op == FsOp::Realpath && !NATIVE_PATHS {
+        return Err(HostError::Failed(format!(
+            "NotSupportedError: realpath: this host has no native path for a document: {path}"
+        )));
     }
     let documents =
         documents.ok_or_else(|| DocumentError::new(DocumentErrorKind::Unsupported).guest(path))?;
@@ -246,6 +252,9 @@ pub fn run_document(
             {
                 return Err(DocumentError::new(DocumentErrorKind::PermissionDenied).guest(path));
             }
+            if op == FsOp::Realpath {
+                return native_path(directory, leaf).map_err(|e| e.guest(path));
+            }
             super::app_fs::document(directory, leaf, op, data)
                 .map_err(|e| DocumentError::from(e).guest(path))
         }
@@ -255,6 +264,9 @@ pub fn run_document(
         } => {
             if op == FsOp::Remove && (parts.len() <= 2 || relative.is_empty()) {
                 return Err(DocumentError::new(DocumentErrorKind::PermissionDenied).guest(path));
+            }
+            if op == FsOp::Realpath {
+                return native_path(directory, relative).map_err(|e| e.guest(path));
             }
             super::app_fs::document(directory, relative, op, data)
                 .map(|result| match result {
@@ -266,6 +278,98 @@ pub fn run_document(
                 .map_err(|e| DocumentError::from(e).guest(path))
         }
     }
+}
+
+/// Whether `realpath` answers a document's native path (exact2 LLP 1069.010
+/// D1, amended 2026-11-04; Exact patch 26): on a desktop, whose apps hand
+/// paths to other programs. iOS, Android and the rest refuse it.
+const NATIVE_PATHS: bool = cfg!(any(target_os = "macos", target_os = "linux", windows));
+
+/// `realpath` of a chosen item: where its retained directory is now, joined
+/// with the names beneath it. The item is first opened as `stat` opens it,
+/// so a missing name or a link beneath is refused as `stat` refuses it.
+fn native_path(directory: &File, relative: &str) -> Result<FsResult, DocumentError> {
+    super::app_fs::document(directory, relative, FsOp::Stat, None)?;
+    let native = (relative.split('/').filter(|part| !part.is_empty()))
+        .fold(located(directory)?, |at, part| at.join(part));
+    (native.into_os_string().into_string())
+        .map(FsResult::Text)
+        .map_err(|_| DocumentError::new(DocumentErrorKind::InvalidPath))
+}
+
+/// Where the system says a retained directory is now, refused `ENOENT` when
+/// that location no longer holds it: the directory was removed, or moved and
+/// another put in its place.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn located(directory: &File) -> Result<std::path::PathBuf, DocumentError> {
+    use std::os::{fd::AsRawFd, unix::fs::MetadataExt};
+    #[cfg(target_os = "macos")]
+    let at = {
+        use std::os::unix::ffi::OsStrExt;
+        let mut buffer = [0u8; libc::PATH_MAX as usize];
+        // SAFETY: F_GETPATH writes at most MAXPATHLEN (PATH_MAX) bytes,
+        // its NUL included, into the live buffer.
+        if unsafe { libc::fcntl(directory.as_raw_fd(), libc::F_GETPATH, buffer.as_mut_ptr()) } == -1
+        {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        let length = buffer.iter().position(|&b| b == 0).unwrap_or(buffer.len());
+        std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&buffer[..length]))
+    };
+    // A removed directory reads as `<path> (deleted)`, which no lookup finds.
+    #[cfg(target_os = "linux")]
+    let at = std::fs::read_link(format!("/proc/self/fd/{}", directory.as_raw_fd()))?;
+    let held = directory.metadata()?;
+    match std::fs::metadata(&at) {
+        Ok(now) if (now.dev(), now.ino()) == (held.dev(), held.ino()) => Ok(at),
+        Ok(_) => Err(DocumentError::new(DocumentErrorKind::NotFound)),
+        Err(e) => Err(e.into()),
+    }
+}
+#[cfg(windows)]
+fn located(directory: &File) -> Result<std::path::PathBuf, DocumentError> {
+    use super::windows_directory::identity;
+    use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFinalPathNameByHandleW, FILE_FLAG_BACKUP_SEMANTICS,
+    };
+    let mut buffer = vec![0u16; 512];
+    let at = loop {
+        // SAFETY: the held handle and writable UTF-16 buffer remain live.
+        let length = unsafe {
+            GetFinalPathNameByHandleW(
+                directory.as_raw_handle(),
+                buffer.as_mut_ptr(),
+                buffer.len() as u32,
+                0,
+            )
+        } as usize;
+        if length == 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        if length < buffer.len() {
+            break String::from_utf16(&buffer[..length])
+                .map_err(|_| DocumentError::new(DocumentErrorKind::InvalidPath))?;
+        }
+        buffer.resize(length + 1, 0);
+    };
+    // A program takes `C:\…` or `\\server\…`, not the `\\?\` form answered.
+    let at = std::path::PathBuf::from(match at.strip_prefix(r"\\?\UNC\") {
+        Some(rest) => format!(r"\\{rest}"),
+        None => at.strip_prefix(r"\\?\").map_or(at.clone(), str::to_owned),
+    });
+    let now = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(&at)?;
+    if identity(&now)? != identity(directory)? {
+        return Err(DocumentError::new(DocumentErrorKind::NotFound));
+    }
+    Ok(at)
+}
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+fn located(_: &File) -> Result<std::path::PathBuf, DocumentError> {
+    Err(DocumentError::new(DocumentErrorKind::Unsupported))
 }
 
 /// `copyFile` from a chosen document into the app's own directories (Exact
@@ -427,7 +531,6 @@ mod tests {
         for (op, path) in [
             (FsOp::ReadFile, "doc:/1/chosen/other"),
             (FsOp::Remove, "doc:/1/chosen"),
-            (FsOp::Realpath, "doc:/1/chosen"),
         ] {
             assert!(run_document(&grants(), Some(&provider), op, path, None).is_err());
         }
@@ -592,19 +695,89 @@ mod tests {
             assert!(copy(&doc_write, from, to).is_err());
         }
         assert!(!f.0.join("copy").exists());
-        for op in [FsOp::Rename, FsOp::Realpath] {
-            assert!(run_with_documents(
-                &both,
-                Some(&dirs),
-                Some(&provider),
-                op,
-                "doc:/1/chosen",
-                (op == FsOp::Rename).then_some("app:/data/moved"),
-                None,
-            )
-            .is_err());
-        }
+        assert!(run_with_documents(
+            &both,
+            Some(&dirs),
+            Some(&provider),
+            FsOp::Rename,
+            "doc:/1/chosen",
+            Some("app:/data/moved"),
+            None,
+        )
+        .is_err());
         assert!(f.0.join("chosen").exists());
+    }
+    /// exact2 LLP 1069.010 D1, amended 2026-11-04: an app that hands a chosen
+    /// item to another program asks its native path, which follows the
+    /// retained directory and is refused once that directory is removed.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn realpath_answers_where_a_chosen_item_is_now_and_refuses_a_removed_one() {
+        let f = Fixture::new();
+        let folder = f.0.join("drop-sample");
+        std::fs::create_dir_all(folder.join("inner")).unwrap();
+        std::fs::write(folder.join("inner/a.md"), b"a").unwrap();
+        std::os::unix::fs::symlink("inner", folder.join("link")).unwrap();
+        let canonical = std::fs::canonicalize(&f.0).unwrap();
+        let root = Arc::new(File::open(canonical.join("drop-sample")).unwrap());
+        let parent = Arc::new(File::open(&canonical).unwrap());
+        let provider =
+            move |path: &str, _: DocumentAccess| match path.strip_prefix("doc:/1/drop-sample") {
+                Some(rest) => DocumentLease::directory(
+                    root.clone(),
+                    rest.trim_start_matches('/').into(),
+                    Arc::new(()),
+                ),
+                None => DocumentLease::selected_file(parent.clone(), "chosen".into(), Arc::new(())),
+            };
+        let real =
+            |path: &str| run_document(&grants(), Some(&provider), FsOp::Realpath, path, None);
+        let text = |path: PathBuf| FsResult::Text(path.to_str().unwrap().into());
+        assert_eq!(
+            real("doc:/1/drop-sample").unwrap(),
+            text(canonical.join("drop-sample"))
+        );
+        assert_eq!(
+            real("doc:/1/drop-sample/inner/a.md").unwrap(),
+            text(canonical.join("drop-sample/inner/a.md"))
+        );
+        assert_eq!(
+            real("doc:/1/chosen").unwrap(),
+            text(canonical.join("chosen"))
+        );
+        // `stat`'s refusals, with no native path in them.
+        for path in ["doc:/1/drop-sample/link/a.md", "doc:/1/drop-sample/gone"] {
+            let e = real(path).unwrap_err().to_string();
+            assert!(
+                e.starts_with("document ") && !e.contains(canonical.to_str().unwrap()),
+                "{e}"
+            );
+        }
+        assert!(real("doc:/1/drop-sample/gone")
+            .unwrap_err()
+            .to_string()
+            .contains("ENOENT"));
+        assert!(run_document(
+            &GrantSet::parse("fs.write doc:/1").unwrap(),
+            Some(&provider),
+            FsOp::Realpath,
+            "doc:/1/chosen",
+            None
+        )
+        .is_err());
+        // Moved, and another folder put where it was: the moved one.
+        std::fs::rename(&folder, f.0.join("moved")).unwrap();
+        std::fs::create_dir(&folder).unwrap();
+        assert_eq!(
+            real("doc:/1/drop-sample/inner").unwrap(),
+            text(canonical.join("moved/inner"))
+        );
+        std::fs::remove_dir_all(f.0.join("moved")).unwrap();
+        let e = real("doc:/1/drop-sample").unwrap_err().to_string();
+        assert!(
+            e.contains("ENOENT") && !e.contains(canonical.to_str().unwrap()),
+            "{e}"
+        );
     }
     #[test]
     fn provider_enforces_access_sessions_forgetting_and_guard_lifetime() {
