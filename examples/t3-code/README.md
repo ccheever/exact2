@@ -646,10 +646,6 @@ exact2 only when a library many apps can reuse needs it.
 
 Differences that belong to the app:
 
-- With Markdown formatting off the composer is a plain `textarea` (`markup="none"`), where a held paste's
-  `setRangeText` (a folded chip, or text a held paste puts in) is no undo step, and Apple clears the
-  field's undo history when its value changes (`docs/contract-grammar.md`, `setRangeText`): ⌘Z
-  does not take it back, where the reference's undoes it. In the Markdown editor each call is one undo step.
 - The server connections are the data module's (`src/transport/`). Each environment's socket is a
   stream resource, admitted by `net.websocket ws:` and `wss:` since servers are named at run time
   (#703), whose mapper answers Pings and acknowledges chunks in the frame's own commit (#705, LLP
@@ -681,8 +677,9 @@ Differences that belong to the app:
   (app.contract `interacted`). Keys and scrolls the terminal's and the Browser's web views take
   never reach the root: typing in the terminal alone does not keep the reader recent, where the
   reference's terminal is in its page (an `iframe` guest's events stay in its page). The root
-  hears a hovering pointer only while the window is key (ExactKit's hover tracking), where
-  Chromium's window listeners also hear one over a background window.
+  hears a hovering pointer only while the window is key (ExactKit's hover tracking, LLP 1115.000
+  D7); Chromium's page hears one while its window is key or main, so the two differ only over the
+  main window while a panel of the app is key. Over a background window neither hears one.
 - While the device tab's rename field has the focus, the keybinding chords of the reference's
   bubble-phase window listeners stay in the menu bar disabled, and the composer's send chords and
   the Escape buttons beside the tab strip drop theirs (app.contract `renameHoldsKeys`): an
