@@ -34,11 +34,12 @@ component AgentRow
     title: string
     detail: string
   view
-    link href=href display="flex" align-items="center" gap=12 padding="14px 0" border-bottom="1px solid var(--color-border-secondary)" testId=`agent-row-${href}`
-      row flex=1 min-width=0 flex-wrap="wrap" align-items="baseline" column-gap=10 row-gap=2
-        text title font-size="var(--text-base)" font-weight=600 color="var(--color-text-default)"
-        text detail font-size="var(--text-sm)" color="var(--color-text-secondary)"
-      image "symbol:back" aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-tertiary)" transform="rotate(180deg)"
+    view display="flex" padding="4px 0" border-bottom="1px solid var(--color-border-secondary)"
+      link href=href flex=1 display="flex" align-items="center" gap=12 margin="0 -12px" padding="10px 12px" border-radius="var(--radius-lg)" testId=`agent-row-${href}`
+        row flex=1 min-width=0 flex-wrap="wrap" align-items="baseline" column-gap=10 row-gap=2
+          text title font-size="var(--text-base)" font-weight=600 color="var(--color-text-default)"
+          text detail font-size="var(--text-sm)" color="var(--color-text-secondary)"
+        image "symbol:back" aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-tertiary)" transform="rotate(180deg)"
 
 // Nico's Home frame, for Exact: a hero, the one prompt an agent needs, the first commands, and a card for
 // each sidebar section that opens its first page. The commands are pages/home.md's; the cards are
