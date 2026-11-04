@@ -142,7 +142,7 @@ import XCTest
             _ = CTLineGetTypographicBounds(line,&ascent,&descent,nil)
             let x0 = CTLineGetOffsetForStringIndex(line,lo,nil), x1 = CTLineGetOffsetForStringIndex(line,hi,nil)
             let x = CGFloat(CTLineGetPenOffsetForFlush(line,0,320))
-            let y = ordinary.baselines[i].rounded() - phase.scroll.y
+            let y = TextEngine.paintedLine(ordinary.baselines[i], top: -phase.scroll.y, scale: 1)
             context.fill(CGRect(x: x+min(x0,x1),y: y-ascent,width: max(1,abs(x1-x0)),height: ascent+descent))
         }
         TextEngine.draw(ordinary,spec: spec,in: CGRect(x: 0,y: -phase.scroll.y,width: 320,height: ordinary.height),context: context)

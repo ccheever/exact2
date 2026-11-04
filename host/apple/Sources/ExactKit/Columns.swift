@@ -78,6 +78,9 @@ extension NodeView {
         let down = props["textOffset"].flatMap(Double.init).map { CGFloat($0) } ?? 0
         var box = contentBox()
         box.origin.y += down; box.size.height = max(0, box.height - down)
+        #if os(macOS)
+        box.origin.y += gridDrop // where layout put it, below the drawn top (`PixelGridMac.swift`)
+        #endif
         guard let record = columnRecord, let first = record.fragments.first else { return box }
         let width = record.columns.isEmpty ? first.rect.width - (layoutBounds.width - box.width) : first.rect.width
         return CGRect(x: box.minX, y: box.minY, width: max(0, width), height: 1e7)

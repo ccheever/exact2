@@ -642,7 +642,7 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertGreaterThan(bottom, node.bounds.maxY, "fixture must paint below its CSS line box")
         XCTAssertGreaterThan(node.textRasterFrame.maxY, bottom)
         XCTAssertLessThan(node.textRasterFrame.minY, baseline - ink.maxY)
-        XCTAssertEqual(node.bounds.height, 31.2, accuracy: 0.001, "ink must not change layout")
+        XCTAssertEqual(node.layoutBounds.height, 31.2, accuracy: 0.001, "ink must not change layout") // drawn, 31 on the pixel grid
         let surface = try XCTUnwrap(node.textRaster)
         let layer = try XCTUnwrap(node.textRasterOverflowLayer)
         XCTAssertEqual(layer.frame, node.textRasterFrame)

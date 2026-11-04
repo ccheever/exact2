@@ -270,6 +270,7 @@ public final class ExactView: NSView {
             session.rasters.displayChanged()
             session.controlTextChanged() // text line boxes round to the page's device pixels (LLP 1008 §3)
             session.tellDisplayScale() // a hairline is one device pixel of the page (LLP 1115.000 D10.3)
+            session.presenter.regridAll() // every box on the new device pixels (`PixelGridMac.swift`)
         }
         if !session.booted {
             // A refused boot is terminal (LLP 1031 D8): the session says why
