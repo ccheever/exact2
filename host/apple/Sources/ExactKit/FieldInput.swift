@@ -69,7 +69,7 @@ extension FieldSelections {
     }
 
     func shouldEdit(_ node: NodeView, range: NSRange, replacement: String, marked: Bool) -> Bool {
-        guard Self.tracks(node), !editing.contains(node.id), !Self.applying(node) else { return true }
+        guard Self.tracks(node), !editing.contains(node.id), !replacing.contains(node.id), !Self.applying(node) else { return true }
         let value = node.fieldText, selection = current(node)
         let ime = marked || composing.contains(node.id)
         let type = ime ? "insertCompositionText" : editIntent[node.id] ??
