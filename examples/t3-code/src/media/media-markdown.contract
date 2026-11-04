@@ -109,7 +109,7 @@ component MarkdownMedia
     if visual and access != "blocked" and not refused and url == ""
       box width=(standalone or kind == "video" ? "100%" : "0px") max-width="40rem" aspect-ratio="16 / 9" border-radius="0.5rem" background-color="light-dark(#f4f4f599, #ffffff0a)" role="status" aria-label=(kind == "video" ? "Loading video" : "Loading image")
     if visual and access != "blocked" and not refused and url != ""
-      MarkdownMediaBody(url=url, alt=alt, kind=kind, tip=tip, source=source, original=(access == "direct" and (target.startsWith("http:") or target.startsWith("https:"))), local=local, standalone=standalone, link=link, linkLabel=linkLabel, favicon=favicon, open=local("image-md-open", target, `${owner}\n${nodeId}\n${galleryIds.map((id) => `media-${owner}-${id}`).indexOf(nodeId)}\n${markdownScheme}`), nodeId=nodeId, imageWidth=imageWidth, imageHeight=imageHeight)
+      MarkdownMediaBody(url=url, alt=alt, kind=kind, tip=tip, source=source, framed=(access == "environment"), original=(access == "direct" and (target.startsWith("http:") or target.startsWith("https:"))), local=local, standalone=standalone, link=link, linkLabel=linkLabel, favicon=favicon, open=local("image-md-open", target, `${owner}\n${nodeId}\n${galleryIds.map((id) => `media-${owner}-${id}`).indexOf(nodeId)}\n${markdownScheme}`), nodeId=nodeId, imageWidth=imageWidth, imageHeight=imageHeight)
 
 // A file of no media kind written as an image (`![report](report.pdf)`): the file chip a link to it draws (ChatMarkdown's
 // img renderer, fileLinkChip; markdown.contract InlineFileChip and FileChipFace): its press opens the file in Files, its
@@ -160,6 +160,8 @@ component MarkdownMediaBody
     nodeId: string
     imageWidth: number
     imageHeight: number
+    // A workspace image (ChatMarkdownAssetImage) is framed: rounded-lg border border-border/40.
+    framed: bool
   state failed = false
   action broke(reason: string)
     let ignored = reason
@@ -204,7 +206,7 @@ component MarkdownMediaBody
             // Lucide's globe, as the link's first word draws it (TimelineIcon "globe").
             svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color="light-dark(#1447e6, #50a2ff)" fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
               path d="M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"
-        image url aria-label=alt error=imageBroke width=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth}px` : "auto") height="auto" aspect-ratio=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth} / ${imageHeight}` : "auto") max-width=(imageWidth > 0 ? (imageHeight > 0 ? `min(100%, 30rem, ${30 * imageWidth / imageHeight}rem)` : `min(100%, 30rem, ${imageWidth}px)`) : "100%") max-height=(imageHeight > 0 and imageWidth == 0 ? `min(30rem, ${imageHeight}px)` : "30rem") object-fit="contain" border-radius="0.5rem" testId="markdown-media-image"
+        image url aria-label=alt error=imageBroke width=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth}px` : "auto") height="auto" aspect-ratio=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth} / ${imageHeight}` : "auto") max-width=(imageWidth > 0 ? (imageHeight > 0 ? `min(100%, 30rem, ${30 * imageWidth / imageHeight}rem)` : `min(100%, 30rem, ${imageWidth}px)`) : "100%") max-height=(imageHeight > 0 and imageWidth == 0 ? `min(30rem, ${imageHeight}px)` : "30rem") object-fit="contain" border-radius="0.5rem" box-sizing="border-box" border-width=(framed ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" testId="markdown-media-image"
     if kind != "video" and not (brokenUrl != "" and brokenUrl == url) and link == ""
       MediaPreviewActions(source=source, tip=tip, label=`Preview ${alt.trim() != "" ? alt.trim() : "image"}`, open=open, local=local, testId="markdown-image-actions", nodeId=nodeId)
-        image url aria-label=alt error=imageBroke width=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth}px` : "auto") height="auto" aspect-ratio=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth} / ${imageHeight}` : "auto") max-width=(imageWidth > 0 ? (imageHeight > 0 ? `min(100%, 30rem, ${30 * imageWidth / imageHeight}rem)` : `min(100%, 30rem, ${imageWidth}px)`) : "100%") max-height=(imageHeight > 0 and imageWidth == 0 ? `min(30rem, ${imageHeight}px)` : "30rem") object-fit="contain" border-radius="0.5rem" testId="markdown-media-image"
+        image url aria-label=alt error=imageBroke width=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth}px` : "auto") height="auto" aspect-ratio=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth} / ${imageHeight}` : "auto") max-width=(imageWidth > 0 ? (imageHeight > 0 ? `min(100%, 30rem, ${30 * imageWidth / imageHeight}rem)` : `min(100%, 30rem, ${imageWidth}px)`) : "100%") max-height=(imageHeight > 0 and imageWidth == 0 ? `min(30rem, ${imageHeight}px)` : "30rem") object-fit="contain" border-radius="0.5rem" box-sizing="border-box" border-width=(framed ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" testId="markdown-media-image"
