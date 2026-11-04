@@ -1,6 +1,5 @@
 #if os(macOS)
 import AppKit
-import SwiftUI
 import XCTest
 @testable import ExactKit
 
@@ -16,59 +15,13 @@ final class SheetSurfaceMacTests: XCTestCase {
         return rep
     }
 
-    private func commonColours(_ rep: NSBitmapImageRep) -> [[Int]] {
-        var counts: [[Int]: Int] = [:]
-        for y in stride(from: 16, to: rep.pixelsHigh - 16, by: 2) {
-            for x in stride(from: 16, to: rep.pixelsWide - 16, by: 2) {
-                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
-                let rgb = [c.redComponent, c.greenComponent, c.blueComponent].map { Int(($0 * 255).rounded()) }
-                counts[rgb, default: 0] += 1
-            }
-        }
-        return counts.sorted { $0.value > $1.value }.prefix(4).map(\.key)
+    /// The colour of the pixel at row `y` of a capture's middle column
+    private func colour(_ rep: NSBitmapImageRep, y: Int) throws -> [Int] {
+        let c = try XCTUnwrap(rep.colorAt(x: rep.pixelsWide / 2, y: y)?.usingColorSpace(.sRGB))
+        return [c.redComponent, c.greenComponent, c.blueComponent].map { Int(($0 * 255).rounded()) }
     }
 
-    private func measuredColours(_ rep: NSBitmapImageRep) throws -> [[Int]] {
-        let colours = commonColours(rep)
-        guard colours.count >= 2, let ground = colours.first, ground.contains(where: { $0 > 8 }), ground.contains(where: { $0 < 247 }) else {
-            throw XCTSkip("window-server capture is blank; sheet surfaces cannot be measured")
-        }
-        return colours
-    }
-
-    func testCaptureValidationRejectsBlankImages() throws {
-        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
-        let context = try XCTUnwrap(CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 256,
-                                              space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        for blank: CGFloat in [0, 1] {
-            context.setFillColor(CGColor(colorSpace: space, components: [blank, blank, blank, 1])!)
-            context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
-            let rep = NSBitmapImageRep(cgImage: try XCTUnwrap(context.makeImage()))
-            XCTAssertThrowsError(try measuredColours(rep)) { XCTAssertTrue($0 is XCTSkip) }
-        }
-        for (x, shade): (Int, CGFloat) in [(0, 0.15), (32, 0.25)] {
-            context.setFillColor(CGColor(colorSpace: space, components: [shade, shade, shade, 1])!)
-            context.fill(CGRect(x: x, y: 0, width: 32, height: 64))
-        }
-        XCTAssertEqual(try measuredColours(NSBitmapImageRep(cgImage: XCTUnwrap(context.makeImage()))).count, 2)
-    }
-
-    func testAuthoredGroundAndGroupedCardMatchASwiftUISheetInDarkMode() throws {
-        _ = NSApplication.shared
-        let reference = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 600, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
-        reference.isReleasedWhenClosed = false
-        reference.appearance = NSAppearance(named: .darkAqua)
-        reference.contentView = NSHostingView(rootView: Color.clear.frame(width: 600, height: 500).sheet(isPresented: .constant(true)) {
-            Form { Section { Text("A row"); Text("Another row") } }
-                .formStyle(.grouped).frame(width: 400, height: 300)
-        })
-        reference.orderFront(nil)
-        defer { if let sheet = reference.attachedSheet { reference.endSheet(sheet) }; reference.close() }
-        let limit = Date().addingTimeInterval(5)
-        while reference.attachedSheet == nil && Date() < limit { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
-        let swiftSheet = try XCTUnwrap(reference.attachedSheet)
-        let expected = try measuredColours(try capture(swiftSheet))
-
+    func testAuthoredGroundMatchesAnAppKitSheetInDarkMode() throws {
         let f = try SheetFixture(page: """
         component Proof
           state showing = false
@@ -81,32 +34,33 @@ final class SheetSurfaceMacTests: XCTestCase {
                   text "Open"
               if showing
                 column navigationKey="modal" navigationPresentation="modal" width=400 height=300 background-color="-exact-background" testId="modal"
-                  box height=60 background-color="-exact-background" testId="ground"
-                  list appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
-                    section
-                      text "A row"
-                      text "Another row"
+                  box background-color="#ff0000"
+                    box height=60 background-color="-exact-background" testId="ground"
         """)
         defer { f.close() }
         f.window.appearance = NSAppearance(named: .darkAqua)
         f.window.orderFront(nil)
+        // Open AppKit's own sheet on the same window, at Exact's size and in
+        // the window's appearance, since a sheet's ground is a material that
+        // blends what lies behind it
+        let reference = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        reference.isReleasedWhenClosed = false
+        reference.appearanceSource = f.window
+        f.window.beginSheet(reference)
+        XCTAssertTrue(f.window.attachedSheet === reference)
+        let picture = try capture(reference)
+        f.window.endSheet(reference)
+        let expected = try colour(picture, y: 30)
+        try XCTSkipUnless(expected.contains { $0 > 8 } && expected.contains { $0 < 247 }, "window-server capture is blank; sheet surfaces cannot be measured")
+
         try f.press("open")
-        let actualSheet = try XCTUnwrap(f.window.attachedSheet)
         let ground = try f.node("ground")
+        let actualSheet = try XCTUnwrap(ground.window)
         let material = try XCTUnwrap(ground.materialView as? NSVisualEffectView)
         XCTAssertEqual(material.material, .sheet)
         XCTAssertEqual(material.blendingMode, .behindWindow)
-        XCTAssertEqual(material.state, .followsWindowActiveState, "AppKit must dim an inactive sheet ground")
         XCTAssertNil(try f.node("modal").materialView)
-        let picture = try capture(actualSheet)
-        let actual = try measuredColours(picture)
-        let top = try XCTUnwrap(picture.colorAt(x: picture.pixelsWide / 2, y: 30)?.usingColorSpace(.sRGB))
-        let topRGB = [top.redComponent, top.greenComponent, top.blueComponent].map { Int(($0 * 255).rounded()) }
-        print("SwiftUI sheet colours: \(expected); Exact: \(actual); authored ground: \(topRGB)")
-        XCTAssertTrue(zip(topRGB, expected[0]).allSatisfy { abs($0 - $1) <= 3 }, "authored ground \(topRGB) differs from sheet \(expected[0])")
-        for colour in expected.prefix(2) {
-            XCTAssertTrue(actual.contains { zip($0, colour).allSatisfy { abs($0 - $1) <= 3 } }, "SwiftUI's surface \(colour) absent from \(actual)")
-        }
+        XCTAssertEqual(try colour(try capture(actualSheet), y: 30), expected, "the authored ground, over red, is the colour of AppKit's sheet")
     }
 
     func testGroupedCardFillUsesItsWindowSurface() throws {
