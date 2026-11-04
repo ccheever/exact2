@@ -96,7 +96,7 @@ Neither changed anything on screen, so no `expect` could hold the fix. `perf …
 ## 3. D1: what fails on main, said beside your run
 
 **The lane publishes.** After it checks a commit, `async.mjs` attaches what it found to that commit as a git note and pushes the lane's ref to origin (`known.mjs` `noteOf`, `publish`). The note holds:
-- each check's command, and its exit status or why it was skipped;
+- each check's command, and its exit status, how long it took and the load average as it began, or why it was skipped;
 - whether the check ran to the end: one that did not compile, hung, or failed with nothing a pattern names says nothing of the tests it held;
 - every failure, named as `failures()` names it.
 

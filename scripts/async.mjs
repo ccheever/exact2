@@ -26,7 +26,7 @@
  * killed and filed as hung; the worktree's debug target is kept under 80 GiB.
  * Logs and timings (with the load average) stay in <worktree>/target/async/. What each commit's
  * checks found is also its git note, `refs/notes/async` (tier 2: `async2`), pushed to origin for
- * `scripts/known.mjs` (LLP 1146 D1).
+ * `scripts/known.mjs` (LLP 1146 D1); the note holds those timings too.
  *
  *   bun scripts/async.mjs                 watch: check new commits every 300 s
  *   bun scripts/async.mjs --once          check what is pending, then exit

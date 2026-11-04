@@ -57,8 +57,8 @@ its time counts too.
   (it fails there too, with how often it failed in the lane's last ten runs),
   **new** (the lane ran it there and it passed), or **unknown** (no lane run
   there covers it). The exit status stays the command's. The lane attaches what
-  each commit's checks found to that commit as a git note
-  (`refs/notes/async`, tier 2's `async2`), which it fetches from origin.
+  each commit's checks found to that commit as a git note (`refs/notes/async`,
+  tier 2's `async2`), which `known.mjs` fetches from origin.
 - **`bun scripts/evidence.mjs --app <name>`** lists the drives, test runs and
   `verify` runs recorded against the app's builds (LLP 1146 D2,
   `<app>/.exact/runs.jsonl`): current while the build they ran on is still the
@@ -359,6 +359,11 @@ on the tailnet (LLP 1115.004 D13). As recorded on 2026-10-23:
   and running ten packages' Rust tests. Adding the program that starts the
   test processes (a terminal, say) to System Settings → Privacy & Security →
   Developer Tools skips them.
+- **Read the lane's timings from its notes.** After
+  `git fetch origin 'refs/notes/async*:refs/notes/async*'`,
+  `git notes --ref=async show <commit>` prints, for a commit the lane checked,
+  each check's `seconds`, `load` (the one-minute load average as it began) and,
+  when it ran only a part, `covers`.
 - **Find the bottleneck first.** Time each binary and each test (`cargo test`
   binaries with `-Zunstable-options --report-time` under `RUSTC_BOOTSTRAP=1`;
   the XCTest per-case lines; `bun test`'s per-test times). A binary's wall time

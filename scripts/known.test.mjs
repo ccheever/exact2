@@ -8,13 +8,13 @@ import { classify, mainNotes, noteOf, publish, report, stoppedEarly } from './kn
 
 const result = (sha, failures, checks = { ios: { command: 'bun host/apple/build.mjs --test --ios', status: 1 } }) => ({ sha, checks, failures });
 
-test('a note says which checks ran to the end', () => {
+test('a note says which checks ran to the end, and how long each took at what load', () => {
   const note = noteOf(result('a', ['ios: ExactKitTests.A b failed', 'test: exact-x (lib) does not compile'], {
-    ios: { command: 'bun host/apple/build.mjs --test --ios', status: 1 },
+    ios: { command: 'bun host/apple/build.mjs --test --ios', status: 1, seconds: 412.5, load: 7.25 },
     test: { command: 'cargo test --workspace', status: 101 },
     difftest: { command: 'cargo run -p contract-difftest', skipped: "inputs of abc's pass" },
   }), 1);
-  expect(note.checks.ios).toEqual({ command: 'bun host/apple/build.mjs --test --ios', status: 1, complete: true });
+  expect(note.checks.ios).toEqual({ command: 'bun host/apple/build.mjs --test --ios', status: 1, complete: true, seconds: 412.5, load: 7.25 });
   expect(note.checks.test.complete).toBe(false);
   expect(note.checks.difftest.skipped).toBeDefined();
 });

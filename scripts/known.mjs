@@ -49,14 +49,14 @@ export function kindOf(command) {
 export const stoppedEarly = (name, failures) => failures.some((f) => f.startsWith(`${name}: `)
   && /: exit \d+ \(see log\)$| does not compile$| build script failed$| did not finish$|: an error between tests$| hung( past .*)?$/.test(f));
 
-/** A lane's note for one commit: what each check ran, the part of it that ran when only a part did (`covers`) and
- *  whether it ran to the end (`complete`), and every failure. */
+/** A lane's note for one commit: what each check ran, how long it took and the load average as it began, the part of it
+ *  that ran when only a part did (`covers`) and whether it ran to the end (`complete`), and every failure. */
 export function noteOf(result, tier) {
   const checks = {};
   for (const [name, c] of Object.entries(result.checks)) {
     // Use the lane's record, made as the check ended and before it kept earlier runs' failures, where there is one
     const complete = c.complete ?? !stoppedEarly(name, result.failures);
-    checks[name] = c.skipped ? { command: c.command, skipped: c.skipped } : { command: c.command, status: c.status, complete, ...(c.covers ? { covers: c.covers } : {}) };
+    checks[name] = c.skipped ? { command: c.command, skipped: c.skipped } : { command: c.command, status: c.status, complete, seconds: c.seconds, load: c.load, ...(c.covers ? { covers: c.covers } : {}) };
   }
   return { sha: result.sha, tier, at: new Date().toISOString(), checks, failures: result.failures };
 }
