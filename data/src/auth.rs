@@ -16,6 +16,7 @@ pub fn open_auth_session(url: &str, callback: &str, state: &str, ephemeral: bool
         callback: callback.into(),
         state: state.into(),
         ephemeral,
+        message: None,
     };
     Request::auth(session.to_json().into_bytes())
 }

@@ -44,7 +44,7 @@ Apple now provides bounded callback/apply metrics, cursor reads, hitch reports,
 native inspectors and draggable cards. The iOS menu uses a grouped sheet with a
 separate Build Information screen. Callback timing is labeled as a proxy; matching
 asynchronous owner/apply timestamps are available during detail capture. Native-only
-animation cadence and presentation remain unmeasured. Production defaults off.
+animation cadence and presentation remain unmeasured. Production builds collect only while the card shows.
 The UI needs another design pass; the cross-host protocol and device qualification
 remain in the plan. The development sampler below remains separately available.
 

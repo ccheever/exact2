@@ -220,6 +220,26 @@ final class IframeWindowsTests: XCTestCase {
         #endif
     }
 
+    /// An unpartitioned frame is part of the app's page: a scripted window
+    /// with features opens no popup and is the app's, as a tab is.
+    func testAnUnpartitionedFramesScriptedWindowIsTheApps() throws {
+        let arm = try arm(), seen = Seen()
+        let (handle, web) = mount(arm, seen, configuration: ["newwindow": true], src: "\(baseURL)/opener")
+        defer { arm.destroy(handle) }
+        // An unpartitioned frame reports no navigation (D2 is a partitioned frame's).
+        spin { web.url?.path == "/opener" && !web.isLoading }
+        XCTAssertEqual(run(web, "window.open('/popup', 'signin', 'width=320,height=240') === null") as? Bool, true)
+        spin { !seen.records.isEmpty }
+        XCTAssertEqual(seen.records.first?.event, "newwindow")
+        XCTAssertEqual(seen.records.first?.record["disposition"] as? String, "new-window")
+        XCTAssertEqual(seen.records.first?.record["url"] as? String, "\(baseURL)/popup")
+        XCTAssertEqual(web.url?.path, "/opener")
+        #if os(macOS)
+        pause(0.3)
+        XCTAssertTrue(popups().isEmpty, "no popup window")
+        #endif
+    }
+
     func testAFrameWithoutNewwindowOpensNothing() throws {
         let arm = try arm(), seen = Seen()
         let (handle, web) = mount(arm, seen, configuration: ["partition": "closed"], src: "\(baseURL)/opener")

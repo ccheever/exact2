@@ -39,10 +39,16 @@ pub struct Session {
     pub state: String,
     /// Ask for no shared cookies (`prefersEphemeralWebBrowserSession`).
     pub ephemeral: bool,
+    /// The sentence a loopback callback's page shows under its heading, in
+    /// place of the host's own (LLP 1133.005 D9).
+    pub message: Option<String>,
 }
 
+/// The longest `message` a loopback callback's page shows, in characters.
+const MESSAGE_CHARS: usize = 500;
+
 impl Session {
-    /// The request body, `{"url","callback","state","ephemeral"}`.
+    /// The request body, `{"url","callback","state","ephemeral","message"}`.
     pub fn from_json(json: &str) -> Result<Session, String> {
         let text = |k: &str| field_str(json, k).filter(|v| !v.is_empty());
         let (Some(url), Some(callback), Some(state)) =
@@ -74,11 +80,20 @@ impl Session {
         if callback_parts.authority.is_some_and(|a| a.contains('@')) {
             return Err("the callback carries userinfo".into());
         }
+        let message = field_str(json, "message");
+        if message.as_ref().is_some_and(|m| {
+            m.is_empty() || m.chars().count() > MESSAGE_CHARS || m.chars().any(char::is_control)
+        }) {
+            return Err(format!(
+                "the callback page's message is one line of plain text, 1 to {MESSAGE_CHARS} characters"
+            ));
+        }
         Ok(Session {
             url,
             callback,
             state,
             ephemeral: field_bool(json, "ephemeral"),
+            message,
         })
     }
 
@@ -90,7 +105,12 @@ impl Session {
         quote(&self.callback, &mut s);
         s.push_str(",\"state\":");
         quote(&self.state, &mut s);
-        s.push_str(&format!(",\"ephemeral\":{}}}", self.ephemeral));
+        s.push_str(&format!(",\"ephemeral\":{}", self.ephemeral));
+        if let Some(message) = &self.message {
+            s.push_str(",\"message\":");
+            quote(message, &mut s);
+        }
+        s.push('}');
         s
     }
 
@@ -820,6 +840,7 @@ mod tests {
             callback: callback.into(),
             state: "s1".into(),
             ephemeral: false,
+            message: None,
         }
     }
 
@@ -876,6 +897,7 @@ mod tests {
             callback: "app.test:/cb".into(),
             state: "s".into(),
             ephemeral: false,
+            message: None,
         };
         let fixture = "http://127.0.0.1:4400";
         let own = at("http://127.0.0.1:4400/p/spec/authorize?client_id=c&code_challenge=x");
@@ -1111,6 +1133,21 @@ mod tests {
         assert!(
             Session::from_json(r#"{"url":"https://x/","callback":"a.b:c","state":"s"}"#).is_err()
         );
+    }
+
+    /// A loopback callback's page says the app's sentence when it gives one
+    /// (LLP 1133.005 D9): one line of plain text.
+    #[test]
+    fn a_session_carries_the_callback_page_s_message() {
+        let mut given = session("http://127.0.0.1:1455/auth/callback");
+        given.message =
+            Some("Your sign-in response has been received. You can close this tab.".into());
+        assert_eq!(Session::from_json(&given.to_json()).unwrap(), given);
+        for bad in ["", "two\nlines", &"x".repeat(MESSAGE_CHARS + 1)] {
+            let mut body = given.clone();
+            body.message = Some(bad.into());
+            assert!(Session::from_json(&body.to_json()).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

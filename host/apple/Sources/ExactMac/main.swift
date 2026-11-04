@@ -93,6 +93,12 @@ final class Adapter: ExactSessionDelegate {
         // `window.close()` (studio diary R17): the window this session
         // shows, without asking its `beforeunload` again.
         case "close": windows.first { $0.session === session }?.close()
+        // A quit the app holds (LLP 1069.010): its window leaves full screen
+        // and fades before the quit, `ExactWindowCommands`.
+        case "exitFullscreen", "setWindowOpacity":
+            guard let window = windows.first(where: { $0.session === session })?.window else { return }
+            if agentMode { session.log("\(name)\(args.isEmpty ? "" : " \(args[0])")") }
+            _ = ExactWindowCommands.perform(name, args, on: window, log: session.log)
         // Bare `focus()`, as the web's `window.focus()` (LLP 1133.025 §8): the
         // session's window shown if hidden, brought forward, and the app asks
         // to be activated, which macOS 14's cooperative activation decides.
@@ -442,6 +448,7 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
             "session": label, "title": window.title, "document": document ?? NSNull(),
             "edited": window.isDocumentEdited, "representedURL": window.representedURL?.path ?? NSNull(),
             "key": window.isKeyWindow, "visible": window.isVisible, "tabs":window.tabbedWindows?.count ?? 1,
+            "fullScreen": window.styleMask.contains(.fullScreen), "opacity": Double(window.alphaValue),
             "footprintBefore": footprintBefore,
         ]
         // The first window's is from the process's start (what `metrics`

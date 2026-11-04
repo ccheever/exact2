@@ -304,9 +304,10 @@ impl Collector {
         self.previous_frame = frame;
     }
 
-    /// Record one frame's work, from its start to its finish, against its deadline.
+    /// Record one frame's work, from its start to its finish, against its deadline. Work may begin after its
+    /// deadline, as the screen's does when its update waited past it.
     fn worked(&mut self, start: u64, deadline: u64, finished: u64) {
-        if start == 0 || finished < start || deadline < start {
+        if start == 0 || finished < start {
             return;
         }
         let s = &mut self.snapshot;
@@ -321,7 +322,7 @@ impl Collector {
         s.histogram_overflows = s.histogram_overflows.saturating_add(u64::from(saturated));
         if duration > self.maxima.slowest_ns {
             self.maxima.slowest_ns = duration;
-            self.maxima.budget_ns = deadline - start;
+            self.maxima.budget_ns = deadline.saturating_sub(start);
         }
     }
 
@@ -901,6 +902,14 @@ mod tests {
             (c.snapshot.intervals, c.snapshot.unclassified_intervals),
             (1, 1)
         );
+    }
+
+    #[test]
+    fn work_begun_past_its_deadline_is_late() {
+        let mut c = Collector::default();
+        c.worked(2_000_000, 1_000_000, 3_000_000);
+        assert_eq!((c.snapshot.worked, c.snapshot.late), (1, 1));
+        assert_eq!((c.maxima.slowest_ns, c.maxima.budget_ns), (1_000_000, 0));
     }
 
     #[test]

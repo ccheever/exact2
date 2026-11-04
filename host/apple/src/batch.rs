@@ -502,6 +502,10 @@ impl Batch {
                 ",\"loopback\":{{\"host\":\"{host}\",\"port\":{port},\"path\":"
             ));
             quote(&path, &mut s);
+            if let Some(message) = &session.message {
+                s.push_str(",\"message\":");
+                quote(message, &mut s);
+            }
             s.push_str("},\"state\":");
             quote(&session.state, &mut s);
         }

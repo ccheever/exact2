@@ -64,19 +64,26 @@ enum FrameHealthCardDrawing {
         var rates: FrameHealthCardText.Rates
         /// The frame-rate chart's top: the requested rate, or the display's maximum without one
         var rateTop: Double
-        /// The frame-time chart's top: twice the target frame time
+        /// The time chart's top, four whole refreshes or a multiple of four that reaches twice the target frame time
         var timeTop: Double
+        /// The charts show the screen's frames, which have work against their deadlines and no frame times (LLP 1079.000
+        /// §7.4)
+        var screen = false
 
-        init(reader: FrameHealthCardReader, rates: FrameHealthCardText.Rates, displayMaximumHz: Double) {
+        init(reader: FrameHealthCardReader, rates: FrameHealthCardText.Rates, displayMaximumHz: Double, screen: Bool = false) {
             self.rates = rates
+            self.screen = screen
             rateTop = rates.requestedHz > 0 ? rates.requestedHz : displayMaximumHz > 0 ? displayMaximumHz : 60
-            // The target is what the app requests or, when it runs slower, its 30-second mean frame
-            // time in whole refreshes; a frame twice as long reaches the top
+            // The time chart's four gridlines fall a refresh apart at the chart's rate, or as many refreshes apart as
+            // let the top reach twice the target frame time: one refresh for the screen, and for Exact's frames what
+            // the app requests or, when it runs slower, its 30-second mean frame time in whole refreshes
+            let refresh = 1000 / rateTop
+            guard !screen else { timeTop = 4 * refresh; return }
             let thirty = reader.window(30)
-            let period = rates.periodMs > 0 ? rates.periodMs : 1000 / rateTop
+            let period = rates.periodMs > 0 ? rates.periodMs : refresh
             let mean = thirty.frames == 0 ? 0 : Double(thirty.counts.activeNs) / Double(thirty.frames) / 1e6
             let average = mean == 0 ? 0 : max(1, (mean / period).rounded()) * period
-            timeTop = 2 * max(1000 / rateTop, average)
+            timeTop = 4 * refresh * max(1, (2 * max(refresh, average) / (4 * refresh)).rounded(.up))
         }
     }
 
@@ -87,14 +94,15 @@ enum FrameHealthCardDrawing {
     static let titleFont = semibold(11)
 
     /// Draw the frame-rate chart (0), the frame-time chart (1), or both, 16 points apart, filling
-    /// `rect`, with `lines` up to their newest frame. Without them, the plots are left to the card's
+    /// `rect`, with `lines` up to their newest mark. Without them, the plots are left to the card's
     /// layers (`FrameHealthChart`).
     static func charts(_ ctx: CGContext, _ rect: CGRect, _ input: Input, expanded: Int?, palette: Palette,
-                       lines: (columns: [FrameHealthChart.Column], newest: Double)? = nil) {
+                       lines: (columns: [FrameHealthChart.Column], latest: Double)? = nil) {
         ctx.setFillColor(palette.background)
         ctx.fill(rect)
         for (chart, area, plot) in plots(rect, input, expanded: expanded) {
-            text(ctx, chart == 0 ? "Frame rate" : "Frame time", x: area.minX, y: area.minY + 7, titleFont, palette.label, .left)
+            text(ctx, chart == 0 ? "Frame rate" : input.screen ? "Work" : "Frame time", x: area.minX, y: area.minY + 7, titleFont,
+                palette.label, .left)
             for (label, value, _) in plot.labels {
                 text(ctx, label, x: plot.left - 4, y: plot.y(value), labelFont, palette.secondary, .right)
             }
@@ -102,8 +110,8 @@ enum FrameHealthCardDrawing {
                 text(ctx, "FPS (last 30s)", x: area.maxX, y: area.minY + 7, labelFont, palette.secondary, .right)
             } else {
                 var x = area.maxX
-                for (name, color, dotted) in [("deadline", palette.secondary, true), ("work", palette.orange, false),
-                                              ("frame", palette.blue, false)] {
+                for (name, color, dotted) in input.screen ? [("one refresh", palette.secondary, true), ("work", palette.orange, false)]
+                    : [("deadline", palette.secondary, true), ("work", palette.orange, false), ("frame", palette.blue, false)] {
                     x -= width(name, labelFont)
                     text(ctx, name, x: x, y: area.minY + 7, labelFont, palette.secondary, .left)
                     stroke(ctx, from: CGPoint(x: x - 16, y: area.minY + 7.5), to: CGPoint(x: x - 4, y: area.minY + 7.5),
@@ -115,16 +123,16 @@ enum FrameHealthCardDrawing {
             }
             if let lines {
                 var plot = plot
-                plot.now = lines.newest
-                plotLines(ctx, chart: chart, plot: plot, columns: lines.columns, newest: lines.newest, palette: palette, margin: 0)
+                plot.now = lines.latest
+                plotLines(ctx, chart: chart, plot: plot, columns: lines.columns, latest: lines.latest, palette: palette, margin: 0)
             }
         }
     }
 
     /// Each shown chart with the area it fills and its plot. The frame-rate chart runs from 0 to the
-    /// request, its top dotted as the target, so an app on target draws along the top; the frame-time
-    /// chart runs to twice the target frame time, its 0 ms rule unlabelled so it does not crowd the
-    /// time labels under it. Value labels sit in a gutter sized to them.
+    /// request, its top dotted as the target, so an app on target draws along the top; the time chart
+    /// has its gridlines at whole refreshes, its 0 ms rule unlabelled so it does not crowd the time
+    /// labels under it. Value labels sit in a gutter sized to them.
     static func plots(_ rect: CGRect, _ input: Input, expanded: Int?) -> [(chart: Int, area: CGRect, plot: Plot)] {
         let areas: [(Int, CGRect)] = expanded.map { [($0, rect)] } ?? [
             (0, CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: 80)),
@@ -132,9 +140,12 @@ enum FrameHealthCardDrawing {
         return areas.map { chart, area in
             let top = chart == 0 ? input.rateTop : input.timeTop, parts = chart == 1 || expanded != nil ? 4 : 2
             let labels = (0...parts).map { i -> (String, Double, Rule) in
+                // The time chart's gridlines are whole refreshes. The screen's first is dotted, as work longer than one
+                // cannot keep that rate; Exact's frames draw their own deadlines dotted instead.
                 if chart == 1 {
-                    let value = top * Double(i) / 4
-                    return (i == 0 ? "" : String(format: "%.1f", value) + (i == 4 ? "ms" : ""), value, i == 0 ? .axis : .grid)
+                    let value = top * Double(i) / 4, whole = abs(value - value.rounded()) < 0.05
+                    let text = i == 0 ? "" : (whole ? String(Int(value.rounded())) : String(format: "%.1f", value)) + (i == 4 ? "ms" : "")
+                    return (text, value, i == 0 ? .axis : i == 1 && input.screen ? .dotted : .grid)
                 }
                 let value = top * Double(parts - i) / Double(parts)
                 let text = value == value.rounded() ? String(Int(value)) : String(format: "%.1f", value)
@@ -142,7 +153,7 @@ enum FrameHealthCardDrawing {
             }
             let gutter = ceil(labels.map { width($0.0, labelFont) }.max() ?? 0) + 6
             let plot = Plot(left: area.minX + gutter, right: area.maxX - 2, top: area.minY + 22,
-                bottom: area.maxY - (chart == 0 ? 6 : 14), maximum: top > 0 ? top : 1, now: 0, labels: labels)
+                bottom: area.maxY - (chart == 0 ? 6 : 14), maximum: top > 0 ? top : 1, now: 0, labels: labels, deadlines: !input.screen)
             return (chart, area, plot)
         }
     }
@@ -152,7 +163,7 @@ enum FrameHealthCardDrawing {
     /// plot is `margin` points wider at the right, where the frames after its last whole drawing go, and
     /// the layer reaches 8 points above it, for the carets. A column's lines reach back to the previous
     /// column with frames when its first frame continued that run; gaps are where a run ended.
-    static func plotLines(_ ctx: CGContext, chart: Int, plot: Plot, columns: [FrameHealthChart.Column], newest: Double,
+    static func plotLines(_ ctx: CGContext, chart: Int, plot: Plot, columns: [FrameHealthChart.Column], latest reach: Double,
                           palette: Palette, margin: CGFloat) {
         let clip = ctx.boundingBoxOfClipPath
         let left = max(plot.left, clip.minX), right = min(plot.right + margin, clip.maxX)
@@ -163,11 +174,11 @@ enum FrameHealthCardDrawing {
             stroke(ctx, from: CGPoint(x: left, y: line), to: CGPoint(x: right, y: line), color: color, width: 1,
                 dotted: rule == .dotted, phase: plot.dash(left))
         }
-        guard !columns.isEmpty, newest > 0 else { return }
+        guard !columns.isEmpty, reach > 0 else { return }
         // The columns whose marks reach the region, and the nearest either side that holds frames, so a
         // line into it is whole
         let step = FrameHealthChart.columnSeconds, count = Int64(columns.count)
-        let latest = Int64((newest / step).rounded(.down)), oldest = max(0, latest - count + 1)
+        let latest = Int64((reach / step).rounded(.down)), oldest = max(0, latest - count + 1)
         let held = { (i: Int64) in columns[Int(i % count)].index == i }
         var from = max(oldest, Int64((plot.time(left - overhang) / step).rounded(.down)) - 1)
         var to = min(latest, Int64((plot.time(right + overhang) / step).rounded(.down)) + 1)
@@ -180,15 +191,16 @@ enum FrameHealthCardDrawing {
         for i in from...to where held(i) {
             let column = columns[Int(i % count)]
             let x0 = column.joined ? end ?? plot.x(Double(i) * step) : plot.x(Double(i) * step)
-            let x1 = min(plot.x(Double(i + 1) * step), plot.x(newest))
+            let x1 = min(plot.x(Double(i + 1) * step), plot.x(reach))
             end = x1
             if x1 >= plot.left { shown.append((max(plot.left, x0), x1, column)) }
         }
         guard chart == 0 else {
             // Work draws last, so where both reach one height the cause stays visible
-            steps(ctx, plot, shown, { $0.budget }, palette.secondary, dotted: true)
+            if plot.deadlines { steps(ctx, plot, shown, { $0.budget }, palette.secondary, dotted: true) }
             steps(ctx, plot, shown, { $0.frame }, palette.blue)
-            steps(ctx, plot, shown, { $0.budget > 0 ? $0.work : 0 }, palette.orange)
+            // The screen's work may begin after its deadline: its budget is no sign of whether it was measured
+            steps(ctx, plot, shown, { !plot.deadlines || $0.budget > 0 ? $0.work : 0 }, palette.orange)
             return
         }
         // The moving average at each column's newest frame
@@ -216,6 +228,9 @@ enum FrameHealthCardDrawing {
         var now: Double
         /// Each value label, its value and the rule drawn at it
         var labels: [(String, Double, Rule)]
+        /// The frame-time chart draws each frame's deadline, dotted; the screen's work chart has a gridline at each whole
+        /// refresh instead
+        var deadlines = true
         func y(_ value: Double) -> CGFloat { bottom - CGFloat(min(value, maximum) / maximum) * (bottom - top) }
         /// Thirty seconds across the plot, `now` at its right edge
         func x(_ at: Double) -> CGFloat { right - CGFloat((now - at) / 30) * (right - left) }
@@ -314,7 +329,12 @@ enum FrameHealthCardDrawing {
 
     /// `rect` with Apple's continuous corners of `radius`, the outline Exact's boxes draw for `-exact-continuous`
     static func continuous(_ rect: CGRect, radius: CGFloat) -> CGPath {
-        CornerShape.continuous.outline(rect, Array(repeating: CGSize(width: radius, height: radius), count: 4))
+        continuous(rect, radii: Array(repeating: radius, count: 4))
+    }
+
+    /// `rect` with Apple's continuous corners of `radii`, top-left first and clockwise
+    static func continuous(_ rect: CGRect, radii: [CGFloat]) -> CGPath {
+        CornerShape.continuous.outline(rect, radii.map { CGSize(width: $0, height: $0) })
     }
 
     /// Draw `string` with its middle at `y`, starting or ending at `x`. Wider than `limit`, it shrinks
@@ -368,7 +388,7 @@ enum FrameHealthCardDrawing {
         y += 12
         let chartWidth = size.width - 2 * margin
         charts(ctx, CGRect(x: margin, y: y, width: chartWidth, height: 200), input, expanded: nil, palette: palette,
-            lines: (chart.columns, chart.newest))
+            lines: chart.picture)
         y += 80 + 16 + 104 + 16
         for (index, row) in table.enumerated() {
             y += lineHeight

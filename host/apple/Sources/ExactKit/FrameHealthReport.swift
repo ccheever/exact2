@@ -14,6 +14,17 @@ enum FrameHealthReport {
     static let maximumAgeNs: UInt64 = 120_000_000_000
     private static let maximumInteger: UInt64 = 9_007_199_254_740_991
     static let format = "exact.frame-health/2"
+    static let columns = ["sequence", "capture", "generation", "age_us", "flags", "target_offset_us", "period_us", "requested_period_us",
+        "gap_us", "callback_us", "before_gap_us", "before_callback_us", "after_offset_us", "after_gap_us", "after_callback_us",
+        "owner_queued_offset_us", "owner_began_offset_us", "owner_finished_offset_us", "main_landed_offset_us",
+        "apply_began_offset_us", "apply_finished_offset_us", "work_target_offset_us", "operations"]
+    /// The screen's frames have no frame times and none of Exact's owner or apply boundaries, so their rows leave out
+    /// those columns, which they would fill with zeros and nulls, and give each late frame's work split instead
+    /// (`FrameHealth.split`)
+    static let screenColumns = screenShared + ["waited_us", "exact_us", "card_us", "layouts"]
+    private static let screenShared = ["sequence", "capture", "generation", "age_us", "flags", "target_offset_us", "callback_us",
+        "before_callback_us", "after_offset_us", "after_callback_us"]
+    private static let screenIndices = screenShared.map { columns.firstIndex(of: $0)! }
     fileprivate static var encoding = false
     fileprivate static var nextAgentReport: Double = 0
 
@@ -42,7 +53,7 @@ enum FrameHealthReport {
             if event.flags & 64 != 0 { clamped = true }
             let work = event.work
             let hasWork = event.flags & 16 != 0, hasAfter = event.flags & 8 != 0
-            rows.append([
+            let row: [Any] = [
                 String(event.sequence), String(event.capture), String(event.generation), integer((timestamp - event.at_ns) / 1000), integer(event.flags),
                 stored(event.target_us), event.period_us, event.requested_period_us, event.gap_us, event.callback_us,
                 event.before_gap_us, event.before_callback_us,
@@ -55,7 +66,14 @@ enum FrameHealthReport {
                 hasWork ? stored(work.began_us) : NSNull(),
                 hasWork ? stored(work.finished_us) : NSNull(),
                 hasWork ? stored(work.target_us) : NSNull(),
-                hasWork ? work.operations as Any : NSNull()])
+                hasWork ? work.operations as Any : NSNull()]
+            if health.screenFrames {
+                // Its work split, where the screen measured it
+                let split = health.splits.last { $0.at == event.at_ns }
+                let us = { (seconds: Double?) -> Any in seconds.map { Int(($0 * 1_000_000).rounded()) } ?? NSNull() }
+                rows.append(screenIndices.map { row[$0] } + [us(split?.waited), us(split?.exact), us(split?.card),
+                    (split?.layouts).map { $0 as Any } ?? NSNull()])
+            } else { rows.append(row) }
         }
         let metadata = ExactEnv.appMetadata
         var identity: [String: Any] = ["app": limited(Bundle.main.bundleIdentifier ?? "embedded", 160),
@@ -82,7 +100,8 @@ enum FrameHealthReport {
         var packet: [String: Any] = [
             "format": format, "source": health.source, "identity": identity, "capturedAt": Date().timeIntervalSince1970,
             "nativeUpdateSamplesLost": String(health.nativeSampleLoss),
-            "qualification": "unqualified", "evidence": "callback-and-apply-timing-proxies",
+            "qualification": "unqualified",
+            "evidence": health.screenFrames ? "ui-update-commit-deadlines" : "callback-and-apply-timing-proxies",
             "available": health.enabled && !health.virtual,
             "unavailableReason": health.unavailableCode as Any? ?? (health.virtual ? "virtual-clock" : NSNull()),
             "time": ["clock": "CACurrentMediaTime", "unit": "us", "clamped": clamped],
@@ -96,16 +115,11 @@ enum FrameHealthReport {
                 "expiredAtRead": expired, "overwrittenSinceClear": String(history.overwritten),
                 "eventsSinceClear": String(history.total), "automaticDiskBytes": 0, "maximumReportBytes": maximumBytes,
                 "omittedForBudget": 0, "selection": "newest"],
-            "coreSinceReload": ["callbacks": String(snapshot.callbacks), "heldCallbacks": String(snapshot.held),
-                "frameIntervals": String(snapshot.intervals), "activeNs": String(snapshot.active_ns),
-                "maximumFrameIntervalNs": String(snapshot.max_interval_ns), "scheduledPeriodNs": snapshot.period_ns,
-                "missedFrames": String(snapshot.missed_frames),
-                "lateFrames": FrameHealthAssessment.deadlinesObserved ? String(snapshot.late) as Any : NSNull(), "detailMayHaveBeenOff": true],
-            "unobserved": ["presentation", "GPU execution", "CPU-versus-descheduled time", "other main-thread work", "native-only animations", "uncaptured owner work", "app input latency"],
-            "columns": ["sequence", "capture", "generation", "age_us", "flags", "target_offset_us", "period_us", "requested_period_us", "gap_us", "callback_us",
-                "before_gap_us", "before_callback_us", "after_offset_us", "after_gap_us", "after_callback_us",
-                "owner_queued_offset_us", "owner_began_offset_us", "owner_finished_offset_us", "main_landed_offset_us",
-                "apply_began_offset_us", "apply_finished_offset_us", "work_target_offset_us", "operations"],
+            "coreSinceReload": coreSinceReload(snapshot, screen: health.screenFrames),
+            // The screen's frames have no frame times, which a passive observer cannot tell from idle time
+            "unobserved": (health.screenFrames ? ["frame times"] : []) + ["presentation", "GPU execution", "CPU-versus-descheduled time",
+                "other main-thread work", "native-only animations", "uncaptured owner work", "app input latency"],
+            "columns": health.screenFrames ? screenColumns : columns,
             "hitches": rows]
         if let root = session?.frameHealth {
             let others = [root, root.nativeHealth].compactMap { $0 }.filter { $0 !== health }
@@ -147,6 +161,18 @@ enum FrameHealthReport {
 
     /// Copy bounded evidence on the main thread, then encode it on a utility worker.
     /// Allow one export at a time to prevent an encoding backlog.
+    /// The counts since the collector's last reset. The screen's frames have no frame times, so their intervals, active
+    /// time, period and missed frames are null, and their lateness, by UIKit's deadlines, holds on the simulator too.
+    private static func coreSinceReload(_ snapshot: ExactFrameHealthSnapshot, screen: Bool) -> [String: Any] {
+        let timed = { (value: Any) -> Any in screen ? NSNull() : value }
+        return ["callbacks": String(snapshot.callbacks), "heldCallbacks": String(snapshot.held),
+            "frameIntervals": timed(String(snapshot.intervals)), "activeNs": timed(String(snapshot.active_ns)),
+            "maximumFrameIntervalNs": timed(String(snapshot.max_interval_ns)), "scheduledPeriodNs": timed(snapshot.period_ns),
+            "missedFrames": timed(String(snapshot.missed_frames)),
+            "lateFrames": screen || FrameHealthAssessment.deadlinesObserved ? String(snapshot.late) as Any : NSNull(),
+            "detailMayHaveBeenOff": true]
+    }
+
     static func prepare(health: FrameHealth, session: ExactSession?, now: Double = CACurrentMediaTime(), completion: @escaping (Data) -> Void) {
         guard !health.reportInFlight, !encoding else {
             completion(Data("{\"format\":\"exact.frame-health/2\",\"available\":false,\"error\":\"report-busy\",\"retryAfterMs\":1000}".utf8))

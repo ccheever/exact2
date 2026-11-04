@@ -11,13 +11,24 @@ import AppKit
 /// Bounded callback and apply timing. Presentation is unmeasured; the optional native-scroll
 /// source reports deadlines with unknown cadence.
 final class FrameHealth {
+    /// When a collector collects: from the start, in a development build or where `app.json` says `"core"`; while
+    /// the card shows, in a production build, which no agent can attach to (LLP 1079.000 §9); or never, where it says
+    /// `"off"`.
+    enum Policy { case always, onDemand, off }
+    static let policy: Policy = switch ExactEnv.appMetadata["ExactFrameHealthMode"] as? String {
+    case "off": .off
+    case "core": .always
+    case "demand": .onDemand
+    default: ExactEnv.productionBake ? .onDemand : .always
+    }
     #if DEBUG
-    static let nativeObserverAllowed = !ExactEnv.releaseBuild
+    static let developmentObserver = !ExactEnv.releaseBuild
     #else
-    static let nativeObserverAllowed = false
+    static let developmentObserver = false
     #endif
-    static let configured = (ExactEnv.appMetadata["ExactFrameHealthMode"] as? String)
-        .map { $0 == "core" } ?? !ExactEnv.productionBake
+    let policy: Policy
+    /// Whether the card shows, so an on-demand collector collects
+    private var demanded = false
     private(set) var handle: UInt32
     let source: String
     var nativeCoverage = "unobserved"
@@ -33,10 +44,21 @@ final class FrameHealth {
     var desktopOverlay: FrameHealthOverlayMac?
     #endif
     private var lifecycle: [NSObjectProtocol] = []
-    private var running = false
-    let unavailableReason: String?
-    let unavailableCode: String?
+    /// Exact's own frame callbacks run: a frame was recorded since the source last stopped
+    private(set) var running = false
+    private(set) var unavailableReason: String?
+    private(set) var unavailableCode: String?
     var captureID: UInt64 = 0
+    /// The screen's late frames' work split, by when their work began (nanoseconds): seconds the main thread waited in
+    /// their updates, seconds of their work in Exact's host phases and the card's own, and the nodes' views laid out;
+    /// nil where unmeasured. The newest 32.
+    private(set) var splits: [(at: UInt64, waited: Double, exact: Double?, card: Double, layouts: Int?)] = []
+
+    /// A late frame of the screen's, its work begun at `start` (seconds), split.
+    func split(at start: Double, waited: Double, exact: Double?, card: Double, layouts: Int?) {
+        splits.append((Self.nanoseconds(start), waited, exact, card, layouts))
+        if splits.count > 32 { splits.removeFirst(splits.count - 32) }
+    }
     var agentCaptureUntil: Double = 0
     /// An agent's scroll track (`FrameHealthTrack`), nil unless one is leased.
     var track: FrameHealthTrack?
@@ -57,33 +79,79 @@ final class FrameHealth {
     weak var chart: FrameHealthChart?
     var ended: (() -> Void)?
     var hudVisible = false
-    var hudEffectiveVisible = false
+    /// The card shows and can be seen; an on-demand collector collects only then
+    var hudEffectiveVisible = false { didSet { if hudEffectiveVisible != oldValue { updateCapture(at: CACurrentMediaTime()) } } }
     var hudBounds: CGRect?
     private(set) var virtual = false
     var publicationDirty = false
-    var enabled: Bool { handle != 0 }
+    /// The source of the card's observer of the screen, whose frames have work against UIKit's deadlines and no frame
+    /// times (LLP 1079.000 §7.4)
+    static let screenSource = "ui-update"
+    var screenFrames: Bool { source == Self.screenSource }
+    /// Whether it collects now
+    var enabled: Bool { handle != 0 && (policy != .onDemand || demanded) }
+    /// Whether it collects now or can when asked
+    var available: Bool { unavailableCode == nil }
+    /// Whether it may observe native scrolling now: in a development build, while it collects (LLP 1079.000 §6.1)
+    var observesNativeScrolling: Bool { enabled && Self.developmentObserver }
 
-    init(enabled: Bool = FrameHealth.configured, source: String = "exact-app-display-link") {
+    init(policy: Policy = FrameHealth.policy, source: String = "exact-app-display-link") {
+        self.policy = policy
         self.source = source
-        handle = enabled && Thread.isMainThread ? exact_frame_health_create() : 0
-        unavailableCode = !enabled ? "collection-disabled" : !Thread.isMainThread ? "wrong-thread" : handle == 0 ? "collector-capacity" : nil
-        unavailableReason = enabled ? (!Thread.isMainThread ? "Frame health requires a UI-thread session." : handle == 0 ? "Collector capacity reached. Close unused sessions and reload." : nil)
-            : "Collection is disabled in this build."
+        let thread = Thread.isMainThread
+        handle = policy == .always && thread ? exact_frame_health_create() : 0
+        unavailableCode = policy == .off ? "collection-disabled" : !thread ? "wrong-thread" : policy == .always && handle == 0 ? "collector-capacity" : nil
+        unavailableReason = switch unavailableCode {
+        case "collection-disabled": "Collection is disabled in this build."
+        case "wrong-thread": "Frame health requires a UI-thread session."
+        case "collector-capacity": Self.capacityReason
+        default: nil
+        }
     }
+
+    convenience init(enabled: Bool, source: String = "exact-app-display-link") {
+        self.init(policy: enabled ? .always : .off, source: source)
+    }
+
+    private static let capacityReason = "Collector capacity reached. Close unused sessions and reload."
 
     /// Why this session's card cannot read and how to change that, for a person; nil when it can.
     var unavailableExplanation: (title: String, message: String)? {
-        guard !enabled else { return nil }
+        guard !available else { return nil }
         guard unavailableCode != "collection-disabled" else {
-            return ("Frame Health Is Off", "Production builds don't measure frame timings by default. To turn it on, set \"frame_health\": { \"mode\": \"core\" } in app.json and build the app again.")
+            return ("Frame Health Is Off", "This app turns frame health off with \"frame_health\": { \"mode\": \"off\" } in app.json. To measure frame timings, remove that setting and build the app again.")
         }
         return ("Frame Health Is Unavailable", unavailableReason ?? "This session does not collect frame timing.")
+    }
+
+    /// Collect while the card shows, for an on-demand collector: its collector is made the first time and kept, and
+    /// each demand starts a new generation, so nothing collected before mixes with what this one does. Without
+    /// demand, every hook returns at its first check.
+    func demand(_ wanted: Bool) {
+        guard policy == .onDemand, available, wanted != demanded else { return }
+        if wanted {
+            if handle == 0 { handle = exact_frame_health_create() }
+            guard handle != 0 else { (unavailableCode, unavailableReason) = ("collector-capacity", Self.capacityReason); return }
+            let (hertz, period) = (requestedHertz, requestedPeriodNs)
+            demanded = true
+            reset()
+            // The rate requested before this demand still governs the frames it collects
+            (requestedHertz, requestedPeriodNs) = (hertz, period)
+            if period > 0 { exact_frame_health_requested_period(handle, period) }
+        } else {
+            #if (os(iOS) || os(tvOS)) && !targetEnvironment(macCatalyst)
+            stopScroll()
+            #endif
+            stop()
+            pending = [Pending?](repeating: nil, count: 3)
+            demanded = false
+        }
     }
 
     func attach(_ session: ExactSession) {
         virtual = session.clock != nil
         #if canImport(UIKit)
-        guard enabled else { return }
+        guard available else { return }
         lifecycle.append(NotificationCenter.default.addObserver(forName: UIScene.willDeactivateNotification,
             object: nil, queue: .main) { [weak self, weak session] notification in
                 guard let scene = session?.presenter.viewport.window?.windowScene,
@@ -95,7 +163,7 @@ final class FrameHealth {
                 #endif
             })
         #else
-        guard enabled else { return }
+        guard available else { return }
         for name in [NSWindow.didMiniaturizeNotification, NSWindow.didChangeOcclusionStateNotification] {
             lifecycle.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self, weak session] notification in
                 guard let window = session?.presenter.viewport.window, notification.object as? NSWindow === window,

@@ -30,7 +30,7 @@ final class FrameHealthScrollObserver {
     }
 
     func begin(_ scrollView: UIScrollView) {
-        guard session?.clock == nil, scrollView.window?.windowScene != nil, FrameHealth.nativeObserverAllowed, health.enabled else { return }
+        guard session?.clock == nil, scrollView.window?.windowScene != nil, owner?.observesNativeScrolling == true, health.enabled else { return }
         if self.scrollView === scrollView, link != nil { return }
         stop()
         self.scrollView = scrollView
@@ -81,7 +81,7 @@ final class FrameHealthScrollObserver {
 
 extension FrameHealth {
     func prepareScrollObservation(session: ExactSession) {
-        guard enabled, !virtual, FrameHealth.nativeObserverAllowed else { return }
+        guard observesNativeScrolling, !virtual else { return }
         if #available(iOS 18.0, tvOS 18.0, *) {
             if scrollObserver == nil {
                 let observer = FrameHealthScrollObserver(owner: self, session: session)

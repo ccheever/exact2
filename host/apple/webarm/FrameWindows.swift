@@ -242,7 +242,11 @@ class FrameUI: NSObject, WKUIDelegate {
             return nil
         }
         let disposition = GuestScheme.disposition(action, features: windowFeatures)
-        if disposition == "new-window" {
+        // A partitioned frame is a browser's tab, whose scripted window is a
+        // popup in its partition. An unpartitioned frame is part of the app's
+        // page: its `new-window` is the app's, as a tab is, as Electron's
+        // `setWindowOpenHandler` on an app's window decides every one.
+        if disposition == "new-window", arm.partition != nil {
             guard arm.handlesNewWindow else { log("a new-window for \(raw) is refused: the frame has no newwindow="); return nil }
             let popup = FramePopup(configuration: configuration, features: windowFeatures, opener: web, ui: self)
             popups.append(popup)

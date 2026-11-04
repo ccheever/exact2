@@ -3293,22 +3293,26 @@ and later the separate experimental scroll source reaches `perf frames` and the 
 
 `perf frames health` exposes the metrics. `state.frameHealthUI` contains only the
 card's visibility and window-local bounds, marked as host controls outside app nodes.
+On iOS 18 and later the card's face shows every UI update of the app on its screen and
+the main thread's work, which it measures only while it shows; `perf frames` reports
+Exact's own frames (LLP 1079.000 §7.4).
 Embedders opt in by passing a host view as `DevMenu.install`'s `frameHealthContainer`.
 
-`app.json` may set `"frame_health": { "mode": "off" }` or `"core"`. Builds with
-development trust default to core counters; production bakes default to off pending
-device qualification. Showing the card does not override that policy: where collection
-is off, the developer menu's row reads **Frame Health Disabled**, dimmed, and a tap on
-it says so and how to turn collection on; on the Mac, choosing the item does. The core has fixed
+`app.json` may set `"frame_health": { "mode": "off" }` or `"core"`. Without a mode, a
+build with development trust collects from launch, and a production bake on demand:
+only while the card shows, and while it is hidden every collection hook returns at
+its first check. `"core"` collects from launch in any build, and `"off"` never collects. Where
+collection is off, the developer menu's row reads **Frame Health Disabled**, dimmed,
+and a tap on it names the setting and says to remove it; on the Mac, choosing the item
+does. The core has fixed
 storage for up to 16 collectors per UI thread and does no per-callback allocation;
 these bounds do not substitute for measuring whole-hook overhead on real devices.
 
 ### Compact frame-health reports on physical devices
 
 Run an Apple app on a connected phone with `bun host/apple/build.mjs --device --run`.
-For a production bake, opt into collection with `"frame_health": { "mode": "core" }`
-before building. Open the four-finger menu and choose **Frame Health**, reproduce
-the hitch, then tap Share on the card and choose Agent Report; the share sheet takes
+Open the four-finger menu and choose **Frame Health**, which in a production bake starts
+collection, reproduce the hitch, then tap Share on the card and choose Agent Report; the share sheet takes
 the JSON text. Exact creates no report file or automatic upload. A person can send
 that text to an agent. The system share destination controls any storage it creates.
 
@@ -3455,9 +3459,9 @@ the bounded metrics and reports don't carry.
   prepend's anchor correction). These are separate offsets, and their short intervals aren't frames.
 - **Leases:** one track a session. A second `start` replaces the first (its unread rows go, and the reply says
   `replaced: true`). A `start` that fails (`no-scroller`, a bad lease) leaves the current track as it was.
-- **Where it may be leased:** exactly where `perf frames capture` may: frame health enabled (`frame_health` mode
-  `core`; development builds by default, production bakes only when `app.json` says so) and no virtual clock.
-  Elsewhere it answers `available: false` with capture's reason.
+- **Where it may be leased:** exactly where `perf frames capture` may: frame health enabled (a development build
+  by default, or `"core"`) and no virtual clock. An agent cannot attach to a production bake. Elsewhere it answers
+  `available: false` with capture's reason.
 - **Memory:** 4096 rows of 16 bytes, allocated at `start` and freed by the read that ends a stopped track, a
   replacing `start`, a reload or clock change, the session's teardown, or, once the lease ends, the next track
   request (or, while the track is still recording, the next feed). No timer ends it.
@@ -3538,6 +3542,26 @@ offsets (35 minutes either way) and durations (71 minutes).
 | `main_landed_offset_us`, `apply_began_offset_us`, `apply_finished_offset_us` | Main arrival and outermost presenter-apply boundaries. Apply excludes legacy sampler bookkeeping |
 | `work_target_offset_us`, `operations` | Captured frame update's target and batch operation count; an apply without a frame target has no work target |
 
+A report whose `source` is `ui-update`, the card's measure of the screen's UI updates
+on iOS 18 and later, has no frame times and none of Exact's owner or apply boundaries,
+so its rows have only `sequence`, `capture`, `generation`, `age_us`, `flags`,
+`target_offset_us`, `callback_us`, `before_callback_us`, `after_offset_us`,
+`after_callback_us`, `waited_us`, `exact_us`, `card_us` and `layouts`. There
+`callback_us` is the update's work: the main thread's time from its scheduling until its
+last Core Animation commit, less `waited_us`, the time it waited between them, as UIKit
+lets it for input. The work is taken to end at the commit. `target_offset_us` is UIKit's
+completion deadline from the work's start, negative when the work began after it; work
+longer than it is late. `before_callback_us` is the previous update's work, and
+`after_offset_us` and `after_callback_us` when the next update's work began and its
+length. `exact_us` is the
+part of the work in Exact's host phases (applying batches, rows, text, scroll
+callbacks, pictures and waits on the runtime), `card_us` the card's own, its drawing
+included, and `layouts` how many nodes' views UIKit laid out; the rest is UIKit's, the
+system's and Core Animation's commit, and Exact's work outside its phases, such as
+laying out those views. Null is unmeasured.
+Updates that follow each other as one finishes are the main thread working without a
+pause; a single long one between short ones is one stall, such as a new screen.
+
 Offsets are relative to the event's origin; negative means before it. Null boundaries
 are unavailable, never zero-cost work. Callback events attach the largest apply since
 the preceding callback, otherwise the most recent apply only if it ended within two
@@ -3554,7 +3578,12 @@ outside an agent run for production behavior.
 tasks, 20 fill pending, 21 tick pending, 22 hatch frames, 23 workload flags known
 (otherwise bits 16–22 are unavailable); bits 32–33 thermal state
 (0 nominal, 1 fair, 2 serious, 3 critical), 34 Low Power Mode, 35 card shown, 36 card
-dragging. These cached observations do not establish which activity caused the hitch.
+dragging. A `ui-update` row's bits 16–23 are the app session's as its update was
+scheduled, and bits 40–46 the users of Exact's frame clock asking for frames then: 40 the
+session's clock, 41 a list's offset correction, 42 a navigation reveal, 43 the scroll pump,
+44 deferred heavy leaves, 45 a live SVG filter, 46 a textarea's resize grip; with none of
+them, UIKit or the system asked. These cached observations do not establish which
+activity caused the hitch.
 
 Save received text as `report.frame-health.json` if needed, then use
 `bun scripts/agent.mjs trace report.frame-health.json` for the expert readout. This

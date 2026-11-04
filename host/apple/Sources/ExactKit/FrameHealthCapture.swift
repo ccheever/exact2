@@ -36,6 +36,7 @@ extension FrameHealth {
     }
 
     func updateCapture(at now: Double) {
+        demand(!virtual && hudEffectiveVisible)
         let wanted = enabled && !virtual && (hudVisible || agentCaptureUntil > now)
         guard wanted != (captureID != 0) else { return }
         exact_frame_health_capture(handle, wanted ? 1 : 0, Self.nanoseconds(now))
@@ -55,9 +56,21 @@ extension FrameHealth {
         }
     }
 
+    /// While a capture runs, the conditions a frame met it under, such as thermal state and Low Power Mode
+    /// The capture's conditions: thermal state and Low Power Mode
+    var environmentFlags: UInt64 { captureID != 0 ? FrameHealthEnvironment.flags : 0 }
+
     func frameFlags(_ frames: Frames, session: ExactSession) -> UInt64 {
         guard captureID != 0 else { return 0 }
-        var bits = FrameHealthEnvironment.flags | (1 << 23)
+        var bits = environmentFlags | Self.workload(frames, session: session)
+        if hudVisible { bits |= 1 << 35 }
+        if hudDragging { bits |= 1 << 36 }
+        return bits
+    }
+
+    /// What `session` had in flight, and bit 23, which says these bits are known.
+    static func workload(_ frames: Frames, session: ExactSession) -> UInt64 {
+        var bits: UInt64 = 1 << 23
         if frames.motion { bits |= 1 << 16 }
         if frames.spatial { bits |= 1 << 17 }
         if frames.canvas2d { bits |= 1 << 18 }
@@ -65,8 +78,6 @@ extension FrameHealth {
         if session.fillInFlight { bits |= 1 << 20 }
         if session.tickInFlight { bits |= 1 << 21 }
         if frames.hatches { bits |= 1 << 22 }
-        if hudVisible { bits |= 1 << 35 }
-        if hudDragging { bits |= 1 << 36 }
         return bits
     }
 
@@ -106,13 +117,14 @@ extension FrameHealth {
 
     func hitch(_ index: UInt32) -> ExactFrameHealthHitch { exact_frame_health_hitch(handle, index) }
 
+    /// Kept while an on-demand collector waits, so the frames its next demand collects have their request.
     func requestedRate(_ hertz: Float) {
-        guard enabled, !virtual, hertz.isFinite, hertz != requestedHertz else { return }
+        guard available, !virtual, hertz.isFinite, hertz != requestedHertz else { return }
         requestedHertz = hertz
         let period = hertz > 0 ? UInt64(min(Double(UInt64.max / 2), (1_000_000_000 / Double(hertz)).rounded())) : 0
         guard period != requestedPeriodNs else { return }
         requestedPeriodNs = period
-        exact_frame_health_requested_period(handle, period)
+        if enabled { exact_frame_health_requested_period(handle, period) }
     }
 }
 
