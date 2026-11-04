@@ -45,10 +45,15 @@ for (const [from, to] of Object.entries(redirects)) {
   );
 }
 
+// The page's title, description and last change, as docs.expo.dev's Markdown starts. JSON's strings are YAML's
+// double-quoted scalars, so a title with a colon stays one value.
+const frontmatter = (p: Page) =>
+  `---\n${[['title', p.title], ['description', p.description], ...(p.updated ? [['modificationDate', p.updated]] : [])].map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join('\n')}\n---\n\n`;
+
 for (const p of pages) {
   const markdown = join(DIST, 'assets/markdown', `${p.route}.md`);
   if (!existsSync(markdown)) throw new Error(`${markdown} is missing: run tools/gen.ts before web-build`);
-  writeFileSync(join(DIST, p.path === '/' ? 'index.md' : `${p.path.slice(1)}.md`), `> ## Documentation index\n> Fetch the complete documentation index at: ${ORIGIN}/llms.txt\n> Use this file to discover all available pages before exploring further.\n\n${readFileSync(markdown, 'utf8')}`);
+  writeFileSync(join(DIST, p.path === '/' ? 'index.md' : `${p.path.slice(1)}.md`), `${frontmatter(p)}> ## Documentation index\n> Fetch the complete documentation index at: ${ORIGIN}/llms.txt\n> Use this file to discover all available pages before exploring further.\n\n${readFileSync(markdown, 'utf8')}`);
 }
 
 // exact2's mark (assets/brand/exact-mark.svg) as the favicon, in place of the build's placeholder square.
