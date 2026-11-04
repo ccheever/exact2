@@ -2,7 +2,7 @@
 Add sign-in with OAuth to the Exact app in this folder. Use https://github.com/ccheever/exact2/blob/main/docs/recipes/oauth.md as the source for each step. The exact2 checkout has the same page at docs/recipes/oauth.md.
 
 1. If this folder is not an Exact app (it has no exact.mjs and app.contract), stop and tell me. Find the exact2 checkout (the folder with scripts/exact.mjs); if you cannot find it, ask me where it is.
-2. Ask me for the provider (Google, Microsoft Entra ID, Auth0, Okta, OneLogin, GitHub, Salesforce, Amazon Cognito or ForgeRock), its client ID and issuer, the callback I registered, and the API the app calls with the token. Do not invent a client ID, and put no secret in the code. If I have no provider yet, build against the fake provider and tell me so.
+2. Ask me first whether I have an account with a provider. If I do not, build against the fake provider, which runs on this machine, and tell me so. If I do, ask me for the provider (Google, Microsoft Entra ID, Auth0, Okta, OneLogin, GitHub, Salesforce, Amazon Cognito or ForgeRock), its client ID and issuer, the callback I registered, and the API the app calls with the token. Do not invent a client ID, and put no secret in the code.
 3. Install the package: `EXACT_APP_DIR=$PWD bun <exact2>/scripts/exact.mjs add oauth`.
 4. Read the provider's settings with `bun exact.mjs docs sign-in providers`. In app.ts, write the grants, `oauth({ ... })` and the sources as the recipe shows, with those settings. Write no token request, refresh or expiry check of your own.
 5. In app.contract, add the account screen: a sign-in button, the person's data only while `session.signedIn`, and `problem` when it is not empty.
