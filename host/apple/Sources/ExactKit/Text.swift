@@ -140,6 +140,17 @@ extension TextEngine {
         #endif
         return (baseline * scale).rounded() / scale
     }
+    /// The device pixels a point of `ctx`. AppKit keeps a view's backing
+    /// scale in the context's base transform, out of its CTM (which reads 1
+    /// on a 2x display); UIKit's CTM holds it.
+    static func deviceScale(_ ctx: CGContext) -> CGFloat {
+        #if os(macOS)
+        let t = ctx.userSpaceToDeviceSpaceTransform
+        #else
+        let t = ctx.ctm
+        #endif
+        return hypot(t.c, t.d)
+    }
     /// Paint a paragraph into a y-down context (a flipped NSView's, a
     /// UIView's): one CTLineDraw per line, on device-pixel baselines
     /// (`paintedBaseline`), flush by alignment.
@@ -161,7 +172,7 @@ extension TextEngine {
             let line = spec.ellipsis ? p.ellipsized(index, spec: spec, width: bounds.width) : p.lines[index]
             let baseline = p.baselines[index]
             let x = p.origin(index, align: spec.align, width: bounds.width)
-            TextLinePaint.draw(line, at: CGPoint(x: bounds.minX + x, y: bounds.minY + Self.paintedBaseline(baseline, scale: hypot(ctx.ctm.c, ctx.ctm.d), lineScale: p.lineScale)), in: ctx)
+            TextLinePaint.draw(line, at: CGPoint(x: bounds.minX + x, y: bounds.minY + Self.paintedBaseline(baseline, scale: deviceScale(ctx), lineScale: p.lineScale)), in: ctx)
         }
         if let dirty {
             p.inkBounds().forEachLine(from: dirty.minY - bounds.minY,

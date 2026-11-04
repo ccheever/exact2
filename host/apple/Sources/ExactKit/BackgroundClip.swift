@@ -76,7 +76,7 @@ extension NodeView {
     /// the paragraph's glyphs, before the glyphs themselves paint.
     func paintBackgroundThroughText(_ ctx: CGContext, paragraph: Paragraph, spec: Spec, in box: CGRect) {
         guard backgroundClip == "text", !cssVisibilityHidden else { return }
-        let glyphs = TextEngine.glyphPath(paragraph, spec: spec, in: box, scale: hypot(ctx.ctm.c, ctx.ctm.d))
+        let glyphs = TextEngine.glyphPath(paragraph, spec: spec, in: box, scale: TextEngine.deviceScale(ctx))
         guard !glyphs.isEmpty else { return }
         ctx.saveGState()
         ctx.addPath(glyphs)

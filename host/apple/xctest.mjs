@@ -112,20 +112,20 @@ export function compileFixtures(root, run, env, dir, prefix, appId) {
  *  every process on the Mac shares (the general pasteboard, the active app,
  *  the mouse, a capture of the screen) share one process beside them, one
  *  class after another. A window's key status and first responder belong
- *  to its own process. A class whose file opens a menu that tracks, by a
- *  call of `.popUp(positioning:`, runs after all of them, alone, in a
- *  process of its own: an open menu closes when its app stops being the
- *  active one, as another test process brought forward makes it, and in the
- *  shared process it read the menu items other classes left. The Canvas 2D
- *  GPU module (`canvasGpu`) is loaded only in its own tests' process:
- *  loaded, every canvas draws on the GPU. `only`, when given, names the
- *  classes to run. */
+ *  to its own process. A class whose file opens a menu that tracks, which
+ *  it observes as `NSMenu.didBeginTrackingNotification` with
+ *  `addObserver(forName:)`, runs after all of them, alone, in a process of its
+ *  own: beside another test process its menu can close before the test reads
+ *  it, and in the shared process it reads the menu items other classes
+ *  left. The Canvas 2D GPU module (`canvasGpu`) is loaded only in its own
+ *  tests' process: loaded, every canvas draws on the GPU. `only`, when
+ *  given, names the classes to run. */
 export async function macTests(pkg, scratch, env, canvasGpu, only = null) {
   const listed = read('swift', ['test', '--skip-build', '--list-tests', '--scratch-path', scratch], { cwd: pkg, env });
   if (listed.status !== 0) throw new Error(`swift test --list-tests failed: ${listed.stderr}`);
   const classes = chosen([...new Set(listed.stdout.match(/^ExactKitTests\.\w+(?=\/)/gm) ?? [])], only, 'macOS');
   const macWide = /NSPasteboard\.general|\bactivate\(|NSEvent\.mouseLocation|CGWindowListCreateImage/;
-  const tracksMenu = /\.popUp\(positioning:/;
+  const tracksMenu = /addObserver\(forName: NSMenu\.didBeginTrackingNotification/;
   const shared = new Set(), solo = new Set();
   for (const file of readdirSync(resolve(pkg, 'tests/ExactKitTests')).filter(f => f.endsWith('.swift'))) {
     const source = readFileSync(resolve(pkg, 'tests/ExactKitTests', file), 'utf8');

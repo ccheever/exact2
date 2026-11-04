@@ -149,7 +149,10 @@ its time counts too.
 - **Mac-wide state is serial.** A class whose file uses the general pasteboard,
   app activation, the mouse location or a screen capture shares one process with
   the other such classes. A window's key status and first responder belong to
-  its own process and need nothing.
+  its own process and need nothing. A class that opens a menu that tracks (its
+  file observes `NSMenu.didBeginTrackingNotification` with `addObserver(forName:)`)
+  runs alone after every other class: beside another test process, its menu
+  can close before the test reads it.
 - **Helpers are simple and correct under sharing.** A helper shared by tests or
   threads holds no mutable state, or holds it behind one obvious rule (a queue
   index read and advanced with no `await` between, a value drawn before the
