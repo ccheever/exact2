@@ -432,6 +432,68 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertNotNil(value("layouts") as? Int)
     }
 
+    /// UIKit lets the main thread wait between an update's scheduling and its commit: the wait is none of the frame's
+    /// work, which is taken to end at the commit, so the frame is late as before
+    func testAWaitWithinAnUpdateIsNoneOfItsWork() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("UIUpdateLink is available from iOS 18") }
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window for the screen's frames")
+        }
+        let screen = startedScreen(in: scene)
+        defer { screen.stop() }
+        screen.health.setHUDVisible(true)
+        defer { screen.health.setHUDVisible(false) }
+        let t = CACurrentMediaTime()
+        screen.scheduled(presented: t + 0.02, deadline: t + 0.004, now: t)
+        screen.wait(at: t + 0.001)
+        screen.wake(at: t + 0.006)
+        screen.completed(presented: t + 0.02, now: t + 0.009)
+        let report = FrameHealthReport.snapshot(health: screen.health, session: nil, now: t + 0.01)
+        let columns = try XCTUnwrap(report["columns"] as? [String])
+        let row = try XCTUnwrap((report["hitches"] as? [[Any]])?.last)
+        let value = { (name: String) in row[columns.firstIndex(of: name)!] }
+        XCTAssertEqual(value("waited_us") as? Int, 5_000)
+        XCTAssertEqual(Int(value("callback_us") as? UInt32 ?? 0), 4_000, "the 9 ms update less its 5 ms wait")
+        XCTAssertEqual(value("target_offset_us") as? Int, -1_000, "the deadline, from the work's start, which it ran past")
+        // The collector counts it, though its work began after its deadline
+        let snapshot = screen.health.snapshot()
+        XCTAssertEqual(snapshot.worked, 1)
+        XCTAssertEqual(snapshot.late, 1)
+    }
+
+    /// A change of the card's own whose update spans a wait is the card's in the spell after it too: the app's long
+    /// spells leave it out
+    func testACardOnlyUpdateAcrossAWaitIsTheCardsInTheNextSpell() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("UIUpdateLink is available from iOS 18") }
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window for the screen's frames")
+        }
+        let screen = startedScreen(in: scene)
+        defer { screen.stop() }
+        _ = screen.takeMainThread()
+        screen.ownChange()
+        let t = CACurrentMediaTime()
+        screen.scheduled(presented: t + 0.2, deadline: t + 0.03, now: t)
+        screen.wait(at: t + 0.001)
+        screen.wake(at: t + 0.005)
+        screen.completed(presented: t + 0.2, now: t + 0.045)
+        screen.wait(at: t + 0.046)
+        XCTAssertEqual(screen.takeMainThread().long, 0, "1 ms of the spell's 41 is not the card's")
+        XCTAssertEqual(screen.health.snapshot().callbacks, 0, "and it is not one of the app's frames")
+    }
+
+    /// A screen observer started on `scene`, after a window's first frames there.
+    private func startedScreen(in scene: UIWindowScene) -> FrameHealthScreen {
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        addTeardownBlock { window.isHidden = true }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let screen = FrameHealthScreen()
+        screen.start(scene)
+        return screen
+    }
+
     func testTheScreenSeesEachFrameAndTheMainThreadsWorkOnlyWhileItRuns() throws {
         guard #available(iOS 18.0, *) else { throw XCTSkip("UIUpdateLink is available from iOS 18") }
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {

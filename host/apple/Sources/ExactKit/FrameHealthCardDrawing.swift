@@ -199,7 +199,8 @@ enum FrameHealthCardDrawing {
             // Work draws last, so where both reach one height the cause stays visible
             if plot.deadlines { steps(ctx, plot, shown, { $0.budget }, palette.secondary, dotted: true) }
             steps(ctx, plot, shown, { $0.frame }, palette.blue)
-            steps(ctx, plot, shown, { $0.budget > 0 ? $0.work : 0 }, palette.orange)
+            // The screen's work may begin after its deadline: its budget is no sign of whether it was measured
+            steps(ctx, plot, shown, { !plot.deadlines || $0.budget > 0 ? $0.work : 0 }, palette.orange)
             return
         }
         // The moving average at each column's newest frame

@@ -90,6 +90,8 @@ final class FrameHealthChart {
             window.masksToBounds = true
             window.isHidden = true
             layer.actions = still
+            // A glide's fractional offsets take whole pixels, so the lines stay as sharp as when they step
+            (layer.magnificationFilter, layer.minificationFilter) = (.nearest, .nearest)
             layer.isOpaque = true
             layer.anchorPoint = .zero
             layer.chart = self

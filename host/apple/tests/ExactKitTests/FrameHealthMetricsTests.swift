@@ -916,10 +916,10 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertEqual((report["unobserved"] as? [String])?.first, "frame times")
         // Its rows give only what it measures: a late frame's work against its deadline, and its neighbours' work
         XCTAssertEqual(report["columns"] as? [String], ["sequence", "capture", "generation", "age_us", "flags", "target_offset_us",
-            "callback_us", "before_callback_us", "after_offset_us", "after_callback_us", "exact_us", "card_us", "layouts"])
+            "callback_us", "before_callback_us", "after_offset_us", "after_callback_us", "waited_us", "exact_us", "card_us", "layouts"])
         let row = try XCTUnwrap((report["hitches"] as? [[Any]])?.first)
-        XCTAssertEqual(row.count, 13)
-        XCTAssertTrue(row[10] is NSNull && row[11] is NSNull && row[12] is NSNull, "a frame the screen did not split")
+        XCTAssertEqual(row.count, 14)
+        XCTAssertTrue(row[10...].allSatisfy { $0 is NSNull }, "a frame the screen did not split")
         XCTAssertEqual(row[5] as? Int, 8_000, "the deadline, after the update began")
         XCTAssertEqual(row[6] as? UInt32, 10_000, "the work, from the update's start to its last commit")
         XCTAssertTrue(row[8] is NSNull && row[9] is NSNull, "its next frame was not seen")

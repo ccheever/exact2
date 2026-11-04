@@ -75,11 +75,23 @@ package final class HostPhases: @unchecked Sendable {
 
     /// Segments kept: about a second of a busy fling's.
     package static let capacity = 2048
-    /// Whether anything records: the host turns it on where its frame sampler
-    /// may run (not a production bake). Main thread only, as every phase is.
-    package var on = false {
-        didSet { if on && !oldValue { since = clock(); if countSince == nil { countSince = since } } }
+    /// Whether anything records: a frame sampler, which the host runs where
+    /// one may (not a production bake), or a measurement that holds them
+    /// (`hold`), as the card's measure of the screen does in any build. Setting it
+    /// sets the sampler's part. Main thread only, as every phase is.
+    package var on: Bool {
+        get { sampling || holds > 0 }
+        set { let was = on; sampling = newValue; noteStart(wasOn: was) }
     }
+    private var sampling = false, holds = 0
+    /// Keep recording until the matching `hold(false)`, whatever the sampler does.
+    package func hold(_ keep: Bool) {
+        let was = on
+        holds = max(0, holds + (keep ? 1 : -1))
+        noteStart(wasOn: was)
+    }
+    /// Recording covers windows from now, as it starts.
+    private func noteStart(wasOn: Bool) { if on && !wasOn { since = clock(); if countSince == nil { countSince = since } } }
     private var ring: [Segment] = []
     private var next = 0
     /// Recording covers windows from here: when it was turned on, or the end

@@ -49,13 +49,14 @@ final class FrameHealth {
     private(set) var unavailableReason: String?
     private(set) var unavailableCode: String?
     var captureID: UInt64 = 0
-    /// The screen's late frames' work split, by when their updates began (nanoseconds): seconds in Exact's host
-    /// phases and the card's own, and the nodes' views laid out; nil where unmeasured. The newest 32.
-    private(set) var splits: [(at: UInt64, exact: Double?, card: Double, layouts: Int?)] = []
+    /// The screen's late frames' work split, by when their work began (nanoseconds): seconds the main thread waited in
+    /// their updates, seconds of their work in Exact's host phases and the card's own, and the nodes' views laid out;
+    /// nil where unmeasured. The newest 32.
+    private(set) var splits: [(at: UInt64, waited: Double, exact: Double?, card: Double, layouts: Int?)] = []
 
-    /// A late frame of the screen's, its update begun at `start` (seconds), split.
-    func split(at start: Double, exact: Double?, card: Double, layouts: Int?) {
-        splits.append((Self.nanoseconds(start), exact, card, layouts))
+    /// A late frame of the screen's, its work begun at `start` (seconds), split.
+    func split(at start: Double, waited: Double, exact: Double?, card: Double, layouts: Int?) {
+        splits.append((Self.nanoseconds(start), waited, exact, card, layouts))
         if splits.count > 32 { splits.removeFirst(splits.count - 32) }
     }
     var agentCaptureUntil: Double = 0

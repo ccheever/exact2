@@ -693,8 +693,10 @@ final class FrameHealthCardView: UIView {
             override func display() {
                 guard let face = delegate as? Face, let card = face.card, bounds.width > 0, bounds.height > 0 else { return }
                 // At the display's scale, which the layer then takes too
+                // 8-bit sRGB, as the plots: the card's colours are all sRGB, which a wide-colour display's extended range
+                // would hold in twice the bytes
                 let format = UIGraphicsImageRendererFormat(for: face.traitCollection)
-                format.opaque = true
+                (format.opaque, format.preferredRange) = (true, .standard)
                 contentsScale = format.scale
                 let draw = { self.contents = UIGraphicsImageRenderer(bounds: self.bounds, format: format).image { _ in card.drawFace() }.cgImage }
                 if let drawing = card.drawing { drawing(draw) } else { draw() }
