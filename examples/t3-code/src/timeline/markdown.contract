@@ -546,6 +546,9 @@ fn mediaHref(run: ChatRun, scheme: string): string = scheme == "dark" and run.da
 fn linkWords(runs: ChatRun[], link: string): bool = runs.filter((run) => run.kind != "media" and run.href == link and run.text.trim() != "").length > 0
 // Whether a line holds only images and the spaces between them: HTML centres each on the line (`vertical-align: middle`).
 fn imageLine(runs: ChatRun[]): bool = runs.filter((run) => run.kind == "media").length > 0 and runs.filter((run) => run.kind != "media" and run.text.trim() != "").length == 0
+// Whether a line of prose holds an image of no authored height, or one taller than the line: `vertical-align: middle`
+// puts its midpoint on the text's, which centring the line's items draws within a pixel or two.
+fn proseMedia(runs: ChatRun[]): bool = runs.filter((run) => run.kind == "media" and run.icon != "standalone" and not (run.height > 0 and run.height < 25.68)).length > 0
 
 // Inline runs in one text node (a chip's href is how its ChipView finds it, not a destination). Every link with a
 // destination is the anchor's: its press is the link's (`linkOpen`: a web link follows "Open links in", a mailto, irc or
@@ -669,7 +672,7 @@ component FlowRuns
     if source != ""
       citeHold()
   view
-    row flex-grow=(fit ? 0 : 1) min-width=0 width=(fit ? "auto" : "100%") max-width="100%" flex-wrap="wrap" align-items=(imageLine(runs) ? "center" : "flex-start") justify-content=lineJustify(align)
+    row flex-grow=(fit ? 0 : 1) min-width=0 width=(fit ? "auto" : "100%") max-width="100%" flex-wrap="wrap" align-items=(imageLine(runs) or proseMedia(runs) ? "center" : "flex-start") justify-content=lineJustify(align)
       for run, index in runs key=run.id
         // A link's first run (ChatMarkdown's `<a>`): one link node per link, named with the whole link (`run.label`), on its
         // first word or code span; the link's other words and code spans follow as nodes hidden from assistive tech (their
@@ -721,7 +724,7 @@ component FlowRuns
           for chip in chips.filter((chip) => chip.kind == "media" and chip.href == mediaHref(run, markdownScheme)) key=chip.id
             // An image of authored height in a line of prose sits on its middle (`vertical-align: middle`): its
             // midpoint 12.84px below the 14px line's top, as the reference draws a 16px one 4.84px down.
-            if run.height > 0 and run.height < 25.68 and size == 14 and run.icon != "standalone" and not imageLine(runs)
+            if run.height > 0 and run.height < 25.68 and size == 14 and run.icon != "standalone" and not imageLine(runs) and not proseMedia(runs)
               box margin-top=`${12.84 - run.height / 2}px` flex-shrink=0
                 MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link) and linkWords(runs, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`, label=chip.label, menu=chip.menu, imageWidth=run.width, imageHeight=run.height)
             else

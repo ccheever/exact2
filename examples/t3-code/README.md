@@ -817,7 +817,7 @@ above.
   thread whose project has a favicon. An image chip shows a photo glyph, not the image's thumbnail: the staged
   image is drawn by the snapshot module's tile (`T3SnapShot.swift`), not from a file an image source can name.
   The other chips, and a thread whose project icon is a monogram, an emoji or a Lucide glyph, show the nearest
-  SF Symbol to v0.1.6's Lucide glyph. The icon is as tall as the text's cap height, where v0.1.6's is 1em.
+  SF Symbol to v0.1.6's Lucide glyph.
 - A citation's comment opens on ⌥-click of its pill, or by itself after Cite; the reference's
   chip has a pencil button inside it, and here a pill is one press target (LLP 1045.000 §6).
 - A composer chip's name underlines under the pointer only while the window is key, as AppKit tracks
