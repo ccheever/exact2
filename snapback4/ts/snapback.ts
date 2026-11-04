@@ -1,5 +1,6 @@
 export { pick } from './projection.ts';
 import { ReleaseTracker, type ReleaseSnapshot } from './release.ts';
+import { staleRound } from './round-time.ts';
 export type { ReleaseSnapshot } from './release.ts';
 // Snapback4 for an Exact app's TypeScript: the client in Rust
 // (`exact-snapback4-client`), driven here over `fetch`. Natively it is the
@@ -128,8 +129,9 @@ export type Refreshed = { ok: true; session: Session } | { ok: false; offline?: 
 
 /** A round's end: completed (possibly with history still arriving), or why not. `offline`: the server was not
  * reached; `retry`: it asked to be asked again; `busy`: a round is already
- * running; `stale`: this round was replaced (the client was reopened). */
-export interface Round { ok: boolean; acquired?: boolean; acquisition?: Acquisition; offline?: boolean; retry?: boolean; busy?: boolean; stale?: boolean; denied?: Refusal }
+ * running; `stale`: this round was replaced; `abandoned`: newer app time
+ * exceeded its staleRoundMs budget. */
+export interface Round { ok: boolean; acquired?: boolean; acquisition?: Acquisition; abandoned?: true; offline?: boolean; retry?: boolean; busy?: boolean; stale?: boolean; denied?: Refusal }
 
 export interface Acquisition {
   acquired: boolean;
@@ -142,12 +144,15 @@ export interface Acquisition {
   rows: number;
   tables: Record<string, number>;
   failure?: Refusal;
+  abandoned?: true;
 }
 
 export interface Status {
   open: boolean;
   online: boolean | null;
   syncing: boolean;
+  /** A round still in flight past staleRoundMs, measured on the app's clock. */
+  stalled?: { since: number };
   denied: Refusal | null;
   /** Increments whenever rows or the outbox may have changed: read again. */
   revision: number;
@@ -207,6 +212,11 @@ export interface Options {
    * A demonstration/tuning knob; ordinary stream pages keep their budget.
    * Applies when the shared partition is first opened. */
   acquireLimit?: number;
+  /** Contract time in milliseconds, also used by implicit first rounds. */
+  now?: number;
+  /** Abandon a round when new work arrives this many milliseconds after its start.
+   * Default 30,000; applies when the shared partition is first opened. */
+  staleRoundMs?: number;
   /** Password identity: no persona headers or viewer needed. The session is
    * kept under `key`; `now` comes from Contract, never Date.now(). */
   auth?: AuthOptions;
@@ -271,6 +281,9 @@ interface Partition {
   clients: number;
   /** The rounds, one after another: a `sync()` while one runs waits its turn. */
   rounds: Promise<unknown>;
+  active?: RunningRound;
+  now?: number;
+  staleRoundMs: number;
   /** The exchange of a round that stopped and could not be cancelled then. */
   abandoned?: string;
   refreshing?: Promise<Refreshed>;
@@ -285,6 +298,15 @@ interface Partition {
   /** The last client closed it: a new `open` makes another. */
   closing: boolean;
   cleaned: boolean;
+}
+
+interface RunningRound {
+  since?: number;
+  exchange?: string;
+  abandoned: boolean;
+  cancelled?: boolean;
+  cancel?: Promise<boolean>;
+  finish: (done: Round) => void;
 }
 
 /** The partitions a page has open, by path, and those still closing (a
@@ -325,7 +347,8 @@ async function openPartition(options: Options & { viewer: string }, path: string
   try {
     const opened = ok<{ opened: boolean }>(await device.call({ op: 'open', path, origin: options.origin, viewer: options.viewer,
       ...(options.acquireLimit === undefined ? {} : { acquireLimit: options.acquireLimit }) }));
-    return { page, path, origin: options.origin, viewer: options.viewer, device, opened: opened.opened, clients: 0, rounds: Promise.resolve(), routes: new Map(), closing: false, cleaned: false };
+    return { page, path, origin: options.origin, viewer: options.viewer, device, opened: opened.opened, clients: 0, rounds: Promise.resolve(),
+      staleRoundMs: options.staleRoundMs ?? 30_000, routes: new Map(), closing: false, cleaned: false };
   } catch (error) { await device.close?.(); throw error; }
 }
 
@@ -428,6 +451,9 @@ export class Snapback {
   static async open(options: Options): Promise<Snapback> {
     if (options.acquireLimit !== undefined && (!Number.isInteger(options.acquireLimit) || options.acquireLimit < 1 || options.acquireLimit > 10_000))
       throw refusal('E_CLIENT', 'acquireLimit must be an integer from 1 through 10,000', { family: 'client' });
+    if (options.staleRoundMs !== undefined && (!Number.isFinite(options.staleRoundMs) || options.staleRoundMs < 0))
+      throw refusal('E_CLIENT', 'staleRoundMs must be finite nonnegative milliseconds', { family: 'client' });
+    if (options.now !== undefined) clock(options.now);
     if (options.device === 'web') options = { ...options, native: null };
     if (options.device === 'native' && !options.native) throw new Error('Snapback4: device native needs the linked Snapback module');
     if (options.auth) {
@@ -592,9 +618,10 @@ export class Snapback {
   /** A partition that has never synced opens in its first round: start one
    * (or wait for the one running) before reading or writing. Unreached, the
    * device has nothing to answer from: `E_OFFLINE`. */
-  private async ready(): Promise<void> {
+  private async ready(now?: number): Promise<void> {
+    await this.abandonStale(now);
     if (this.partition.opened) return;
-    const round = await this.sync();
+    const round = await this.sync({ now });
     if (this.partition.opened) return;
     // The server's own refusal (a session it does not take) is that refusal.
     if (round.denied && round.offline !== true && round.denied.code !== 'E_OFFLINE') throw refused(round.denied);
@@ -612,7 +639,7 @@ export class Snapback {
     const at = clock(now);
     if (this.options.auth) this.options.auth.now = at;
     const check = this.fence();
-    await this.ready();
+    await this.ready(at);
     check();
     let route = this.partition.routes.get(name);
     if (!route) {
@@ -722,7 +749,7 @@ export class Snapback {
     const at = clock(now);
     if (this.options.auth) this.options.auth.now = at;
     const check = this.fence();
-    await this.ready();
+    await this.ready(at);
     check();
     return ok(await this.call({ op: 'write', name: nameOf(op), args: args as Request, now: at, ...(key === undefined ? {} : { key }) }));
   }
@@ -739,7 +766,7 @@ export class Snapback {
     const written = await this.write(nameOf(op), args as Args, now, key);
     check();
     if (written.state !== 'pending') return written as Sent<ResultOf<O, R>>;
-    const round = await this.sync();
+    const round = await this.sync({ now });
     check();
     return { ...await this.outcome<ResultOf<O, R>>(written.id), round };
   }
@@ -759,8 +786,51 @@ export class Snapback {
     return ok<Outcome<R>>(await this.call({ op: 'outcome', id }));
   }
 
-  async status(): Promise<Status> {
-    return ok<Status>(await this.call({ op: 'status' }));
+  async status(now?: number): Promise<Status> {
+    const partition = this.partition;
+    this.observeTime(now);
+    const status = ok<Status>(await this.call({ op: 'status' }));
+    const active = partition.active;
+    if (active && !active.abandoned && staleRound(active.since, partition.now, partition.staleRoundMs))
+      status.stalled = { since: active.since! };
+    return status;
+  }
+
+  private observeTime(now = this.options.now ?? this.options.auth?.now, partition = this.partition): number | undefined {
+    if (now === undefined) return undefined;
+    const at = clock(now);
+    partition.now = Math.max(partition.now ?? at, at);
+    if (this.options.auth) this.options.auth.now = at;
+    return partition.now;
+  }
+
+  /** @internal Shared by the round queue and the switcher's busy wait. */
+  async abandonStale(now?: number): Promise<boolean> {
+    const partition = this.held;
+    if (!partition || this.closed || partition.closing) return false;
+    const at = this.observeTime(now, partition), active = partition.active;
+    if (!active) return false;
+    if (active.cancel) return active.cancel;
+    if (!staleRound(active.since, at, partition.staleRoundMs)) return false;
+    active.abandoned = true;
+    active.cancel = (async () => {
+      if (active.exchange !== undefined) active.cancelled = await this.cancelRound(partition, active.exchange);
+      const status = await partition.device.call({ op: 'status' }).then(answer => ok<Status>(answer)).catch(() => undefined);
+      partition.routes.clear();
+      active.finish({ ok: false, stale: true, abandoned: true, ...(status ? {
+        acquired: status.acquired, acquisition: { ...status.acquisition, abandoned: true },
+      } : {}) });
+      return true;
+    })();
+    return active.cancel;
+  }
+
+  private async cancelRound(partition: Partition, exchange: string): Promise<boolean> {
+    try {
+      ok(await partition.device.call({ op: 'cancel', exchange }));
+      if (partition.abandoned === exchange) partition.abandoned = undefined;
+      return true;
+    } catch { partition.abandoned = exchange; return false; }
   }
 
   /** One round: publish an acquisition page, drain ordinary changes, send the outbox.
@@ -768,35 +838,61 @@ export class Snapback {
    * or a round ends offline or refused. Reads and writes can run between rounds.
    * Rounds on a partition run one at a time: a `sync()` while another runs
    * (from this client or another source's) waits for it, then runs its own,
-   * so what was written meanwhile is sent too. */
-  sync(options?: { until?: 'acquired' }): Promise<Round> {
-    if (options?.until === 'acquired') return this.acquire();
+   * so what was written meanwhile is sent too. With Contract's `now`, a round
+   * past staleRoundMs is abandoned before waiting. */
+  async sync(options?: { until?: 'acquired'; now?: number }): Promise<Round> {
+    if (options?.until === 'acquired') return this.acquire(options.now);
     if (this.closed) return Promise.reject(new Error('Snapback4: this client is closed'));
     const partition = this.partition;
     const check = this.fence();
-    const run = partition.rounds.then(() => { check(); return this.round(); });
+    const at = this.observeTime(options?.now);
+    await this.abandonStale(options?.now);
+    const run = partition.rounds.then(async () => {
+      check();
+      let finish!: (done: Round) => void;
+      const abandoned = new Promise<Round>(resolve => { finish = resolve; });
+      const active: RunningRound = { since: at === undefined ? undefined : partition.now, abandoned: false, finish };
+      partition.active = active;
+      const work = this.round(active).then(
+        done => active.abandoned ? abandoned : done,
+        error => active.abandoned ? abandoned : Promise.reject(error),
+      );
+      try { return await Promise.race([work, abandoned]); }
+      finally { if (partition.active === active) partition.active = undefined; }
+    });
     partition.rounds = run.catch(() => undefined);
     return run.then(done => {
       // E_AUTH is a completed refusal, even though it forgets the session.
-      if (done.denied?.code !== 'E_AUTH') check();
+      if (!done.abandoned && done.denied?.code !== 'E_AUTH') check();
       return done;
     });
   }
 
-  private async acquire(): Promise<Round> {
+  private async acquire(now?: number): Promise<Round> {
     let done: Round;
     do {
-      done = await this.sync();
+      done = await this.sync({ now });
     } while (done.ok && done.acquired === false && !done.acquisition?.failure);
     return done;
   }
 
-  private async round(): Promise<Round> {
+  private async round(active: RunningRound): Promise<Round> {
     const partition = this.partition;
     const check = this.fence();
     const call = (request: Request): Promise<Request> => {
-      try { check(); } catch (error) { return Promise.reject(error); }
-      return partition.device.call(request).then(answer => { check(); return answer; });
+      try {
+        check();
+        if (active.abandoned) throw refusal('E_STALE', 'this round was abandoned');
+      } catch (error) { return Promise.reject(error); }
+      return partition.device.call(request).then(async answer => {
+        const exchange = (answer.ok as { fetch?: Request } | undefined)?.fetch?.exchange;
+        if (typeof exchange === 'string') active.exchange = exchange;
+        if (active.abandoned) {
+          if (typeof exchange === 'string') await this.cancelRound(partition, exchange);
+          throw refusal('E_STALE', 'this round was abandoned');
+        }
+        check(); return answer;
+      });
     };
     // A round an earlier answer could neither finish nor cancel is cancelled
     // first. Natively that is a superseded answer's round: its reply still
@@ -814,16 +910,24 @@ export class Snapback {
         const exchange = step.fetch.exchange as string;
         try {
           token = this.session?.token;
-          const reply = await this.exchange(step.fetch);
+          const reply = await this.exchange(step.fetch, true, () => !active.abandoned && !partition.closing && !this.closed);
+          if (active.abandoned) {
+            await active.cancel;
+            // Only a confirmed cancellation may send a late reply to the device:
+            // it answers stale. A retired partition must never receive it.
+            if (active.cancelled && !partition.closing && !this.closed)
+              await partition.device.call({ op: 'deliver', exchange, reply }).catch(() => undefined);
+            return { ok: false, stale: true, abandoned: true };
+          }
           step = ok(await call({ op: 'deliver', exchange, reply }));
         } catch (error) {
           // Only this round's own exchange can be cancelled; one that cannot
           // be now is cancelled by the next round.
-          await call({ op: 'cancel', exchange }).catch(() => { partition.abandoned = exchange; });
+          if (!active.abandoned) await call({ op: 'cancel', exchange }).catch(() => { partition.abandoned = exchange; });
           throw error;
         }
       }
-    } finally { partition.routes.clear(); }
+    } finally { if (!active.abandoned) partition.routes.clear(); }
     const done = step.done ?? { ok: false };
     if (done.ok) partition.opened = true;
     if (done.denied?.code === 'E_AUTH') this.invalidate(token);
@@ -900,7 +1004,10 @@ export class Snapback {
   /** Close this client. It refuses every call from now on and says it is not
    * open. The partition closes with the last client that has it open;
    * closing that one again retries a cleanup that failed. */
-  async close(): Promise<void> { await this.releaseHandle(false); }
+  async close(now?: number): Promise<void> {
+    if (this.held && !this.closed && !this.held.closing) await this.abandonStale(now);
+    await this.releaseHandle(false);
+  }
 
   private async releaseHandle(force: boolean): Promise<void> {
     const partition = this.held;
@@ -932,7 +1039,7 @@ export class Snapback {
     const selected = JSON.parse(JSON.stringify({args, options})) as {args: Args; options: UploadAndPlaceOptions};
     const fs = this.options.storage?.fs;
     if (!fs?.readFile) throw refusal('E_CLIENT', 'uploadAndPlace needs storage.fs.readFile under fs.read for the selected path');
-    await this.ready(); check();
+    await this.ready(now); check();
     const bytes = new Uint8Array(await fs.readFile(path)); check();
     // Hex and the enclosing outbox record must fit Exact's 16 MiB storage/call boundary.
     if (!bytes.length || bytes.length > 4 << 20) throw refusal('E_UPLOAD_BYTES', 'select a nonempty file of at most 4 MiB for Exact durable upload storage');
@@ -1019,7 +1126,7 @@ export class Snapback {
     return { ok: true, path: file, type, bytes: bytes.byteLength, ...(name === undefined ? {} : { name }) };
   }
 
-  private async exchange(fetchRequest: Request, authenticate = true): Promise<Request> {
+  private async exchange(fetchRequest: Request, authenticate = true, live = () => true): Promise<Request> {
     const { method, path, body, bodyBytes } = fetchRequest as { method: string; path: string; body?: Json; bodyBytes?: string };
     const headers = this.headers(authenticate);
     const releaseKey = this.releases.identity(headers);
@@ -1033,8 +1140,8 @@ export class Snapback {
     }
     try {
       const response = await fetch(`${this.options.origin.replace(/\/+$/, '')}${path}`, { method, headers, ...(bodyBytes ? {body: Uint8Array.from(bodyBytes.match(/../g) ?? [], b => parseInt(b,16))} : body === undefined ? {} : { body: JSON.stringify(body) }) });
-      this.releases.observe(response, releaseKey);
       const text = await response.text();
+      if (live()) this.releases.observe(response, releaseKey);
       let parsed: Json = null;
       try { parsed = JSON.parse(text) as Json; } catch { parsed = null; }
       return { status: response.status, body: parsed };
@@ -1058,10 +1165,11 @@ export interface Switcher<K extends string = string> {
    * closes (what it keeps stays for its next open), then the key's opens. An
    * open that fails (`code: 'bake'` at build time, `E_OFFLINE`) rejects this
    * call and is tried again by the next; a client whose device gave up
-   * (`usable` false) is reopened. */
-  use<T>(key: K, storage: Options['storage'], native: Options['native'], work: (db: Snapback) => Promise<T>): Promise<T>;
-  /** Let the current client go, once its work in flight is done (a sign-out). */
-  close(): Promise<void>;
+   * (`usable` false) is reopened. Pass Contract's `now` as the last argument
+   * (or in the selected options) to abandon a stale round before waiting. */
+  use<T>(key: K, storage: Options['storage'], native: Options['native'], work: (db: Snapback) => Promise<T>, now?: number): Promise<T>;
+  /** Let the current client go (a sign-out). `now` lets stale rounds go first. */
+  close(now?: number): Promise<void>;
   /** The key now in use, or null. */
   readonly key: K | null;
 }
@@ -1076,44 +1184,69 @@ export interface Switcher<K extends string = string> {
  *   // in a source: personas.use(persona, storage, native, async db => { await db.sync(); … })
  */
 function switcher<K extends string = string>(options: (key: K) => SwitchedOptions): Switcher<K> {
-  type Held = { key: K; opening: Promise<Snapback>; client?: Snapback; busy: Set<Promise<unknown>> };
+  type Held = { key: K; opening: Promise<Snapback>; client?: Snapback; busy: Set<Promise<unknown>>;
+    now?: number; abandoned: Promise<void>; stop: () => void };
   let current: Held | null = null;
+  const retiring = new Set<Held>();
+  const expire = async (held: Held, now?: number): Promise<void> => {
+    if (now !== undefined) held.now = Math.max(held.now ?? now, clock(now));
+    const client = await held.opening.catch(() => null);
+    if (client?.usable && await client.abandonStale(now)) held.stop();
+  };
   // Clients are let go one after another, and the next open waits for the last.
   let released: Promise<void> = Promise.resolve();
-  const release = (held: Held | null): Promise<void> => {
+  const release = (held: Held | null, now?: number): Promise<void> => {
     if (!held) return released;
+    retiring.add(held);
     const before = released;
     released = (async () => {
       await before;
-      await Promise.allSettled([...held.busy]);
-      await (await held.opening.catch(() => null))?.close();
-    })().catch(() => undefined);
+      await expire(held, now);
+      await Promise.race([Promise.allSettled([...held.busy]), held.abandoned]);
+      await (await held.opening.catch(() => null))?.close(held.now);
+    })().catch(() => undefined).finally(() => { retiring.delete(held); });
     return released;
+  };
+  // A second call can advance time while an earlier switch/close is waiting.
+  const advance = (now?: number) => {
+    for (const held of retiring) void expire(held, now).catch(() => undefined);
   };
   return {
     get key() { return current?.key ?? null; },
-    use(key, storage, native, work) {
+    use(key, storage, native, work, now) {
+      const selected = options(key);
+      now ??= selected.now ?? selected.auth?.now;
+      if (now !== undefined) now = clock(now);
+      advance(now);
       if (current?.key !== key || current.client?.usable === false) {
-        const opening = release(current).then(() => {
-          const selected = options(key);
+        const opening = release(current, now).then(() => {
           const name = selected.name ?? Snapback.partitionName(key);
-          return Snapback.open({ ...selected, name: /^[A-Za-z0-9_%][-A-Za-z0-9._%]*$/.test(name) ? name : Snapback.partitionName(name), storage, native });
+          return Snapback.open({ ...selected, now, name: /^[A-Za-z0-9_%][-A-Za-z0-9._%]*$/.test(name) ? name : Snapback.partitionName(name), storage, native });
         });
-        const entry: Held = { key, opening, busy: new Set() };
+        let stop!: () => void;
+        const abandoned = new Promise<void>(resolve => { stop = resolve; });
+        const entry: Held = { key, opening, busy: new Set(), now, abandoned, stop };
         current = entry;
         opening.then(client => { entry.client = client; }, () => { if (current === entry) current = null; });
       }
       const held = current!;
-      const run = held.opening.then(work);
+      if (now !== undefined) held.now = Math.max(held.now ?? now, now);
+      const run = held.opening.then(async client => {
+        await client.abandonStale(now);
+        if (now !== undefined) client.options.now = held.now;
+        return work(client);
+      });
       held.busy.add(run);
       const done = () => { held.busy.delete(run); };
       run.then(done, done);
       return run;
     },
-    close() {
+    close(now) {
+      if (now !== undefined) now = clock(now);
+      advance(now);
       const held = current;
       current = null;
-      return release(held);
+      return release(held, now);
     },
   };
 }

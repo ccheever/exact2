@@ -1446,6 +1446,18 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
 
 ### Progressive history
 
+Pass Contract's `now` to `db.sync({ now })`, and to `Snapback.open({ ...options,
+now })` for implicit rounds. A round older than `staleRoundMs` (default 30,000
+milliseconds) is abandoned when new sync, read, or write work arrives with newer
+time. Exact data modules have no timers or ambient clock: a fetch lost when the
+host suspends or forgets its call may never settle. Abandonment cancels the device
+exchange, releases waiting rounds, and ignores late replies. Its result has
+`abandoned: true` (also in `acquisition`); `status(now)` reports
+`stalled: { since }` before new work abandons it. Pass time as the last argument
+to `switcher.use(key, storage, native, work, now)` and to `switcher.close(now)`
+or `db.close(now)` to recover their stale work too. Without supplied time,
+existing waits are unchanged.
+
 On a server advertising `progressive-acquisition-v1`, one `await db.sync()`
 round publishes one acquisition page (which may pack several groups), drains
 up to four published ordinary stream pages, then sends the outbox. Deferred
