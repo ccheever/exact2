@@ -120,6 +120,8 @@ writeFileSync(
     '  X-Llms-Txt: /llms.txt',
     '/*.md',
     '  Content-Type: text/markdown; charset=utf-8',
+    '# A page by its path only: a pattern matching every path would retype the scripts, styles and fonts too.',
+    ...pages.flatMap(p => [p.path, '  Content-Type: text/html; charset=utf-8']),
   ].join('\n') + '\n'
 );
 
