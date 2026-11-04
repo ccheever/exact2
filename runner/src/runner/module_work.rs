@@ -93,6 +93,23 @@ impl<D: DataSource> Runner<D> {
         (self.module_work.refused.iter()).any(|(_, _, ordered)| *ordered)
     }
 
+    /// Request `ticket` runs on as module work, its reply delivered under the
+    /// source's `token`: its answer's own timer came due first and resumes
+    /// the answer without it (`data_timers.rs`). A module's send in it is
+    /// not cancelled: as a browser's `Promise.race`, the loser runs on.
+    pub(super) fn keep_running(&mut self, ticket: u64, token: u64, fetch: Option<u64>) {
+        let authority = Authority {
+            origin: self.ticket_origin(ticket),
+            invocation: self.ticket_id(ticket),
+            causes: self.ticket_causes(ticket),
+        };
+        self.module_work.tickets.insert(ticket, (token, authority));
+        if let Some(fetch) = fetch {
+            self.module_work.fetches.insert(fetch, ticket);
+        }
+        self.keep_send(ticket);
+    }
+
     /// Request `p` is let go by the commit being made: one with effects is
     /// offered to its source when the commit ends.
     pub(super) fn let_go_request(&mut self, p: PendingReq) {

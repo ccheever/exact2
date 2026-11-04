@@ -427,6 +427,21 @@ impl<D: DataSource> DataSource for Storage<D> {
         self.source.module_delivery(store, token, outcome)
     }
 
+    // The kept request's token is the source's own, as above; the
+    // continuation goes out under one of this executor's.
+    fn timer_before_reply(
+        &mut self,
+        store: &Store,
+        in_flight: exact_runner::InFlight<'_>,
+    ) -> Option<(u64, exact_runner::Request)> {
+        let (token, mut request) = self.source.timer_before_reply(store, in_flight)?;
+        let child = request.continuation?;
+        self.next = self.next.checked_add(1)?;
+        self.pending.insert(self.next, Pending::Child(child));
+        request.continuation = Some(self.next);
+        Some((token, request))
+    }
+
     fn module_landed(
         &mut self,
         store: &mut Store,

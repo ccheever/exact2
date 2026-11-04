@@ -202,6 +202,13 @@ impl<D: DataSource> DataSource for Anonymous<D> {
     ) -> Vec<Option<u64>> {
         self.inner.keep_sent(store, let_go, refused)
     }
+    fn timer_before_reply(
+        &mut self,
+        store: &Store,
+        in_flight: InFlight<'_>,
+    ) -> Option<(u64, exact_runner::Request)> {
+        self.inner.timer_before_reply(store, in_flight)
+    }
     fn module_landed(
         &mut self,
         store: &mut Store,

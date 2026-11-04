@@ -87,6 +87,15 @@ impl DataSource for Module {
         self.keep_sent_now(let_go, refused)
     }
 
+    fn timer_before_reply(
+        &mut self,
+        store: &Store,
+        in_flight: InFlight<'_>,
+    ) -> Option<(u64, Request)> {
+        let _ = store;
+        self.timer_first(&in_flight)
+    }
+
     fn module_landed(
         &mut self,
         store: &mut Store,
