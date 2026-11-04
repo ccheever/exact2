@@ -563,6 +563,7 @@ impl PlanBuilder {
             reader: false,
             placeholder: None,
             placeholder_value: self.no_data(),
+            each: ArgsRange { start: 0, len: 0 },
         });
         ResourcesId(self.plan.resources.len() as u32 - 1)
     }
@@ -980,6 +981,13 @@ impl PlanBuilder {
     /// Replace a resource's arguments.
     pub fn set_resource_args(&mut self, id: ResourcesId, args: ArgsRange) {
         self.plan.resources[id.0 as usize].args = args;
+    }
+
+    /// Over a list (LLP 1017.000 P4c, amended 2026-11-04): the list and the
+    /// key that reads the element, `[list, key]`.
+    pub fn set_resource_each(&mut self, id: ResourcesId, list: Code, key: Code) {
+        let each = self.args(&[list, key]);
+        self.plan.resources[id.0 as usize].each = each;
     }
 
     /// Set the trailing request-context count, after installing arguments.

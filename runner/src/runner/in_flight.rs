@@ -5,6 +5,33 @@
 use super::*;
 
 impl<D: DataSource> Runner<D> {
+    /// The pending flags `pending(x)` reads, from the tickets in flight and
+    /// what waits for its source.
+    pub(super) fn sync_pending_flags(&mut self) {
+        self.pending_res = vec![false; self.plan.resources.len()];
+        self.pending_mut = vec![false; self.plan.mutations.len()];
+        // A stream is pending until its first message (LLP 1016.000 D1).
+        for p in self.pending.iter().filter(|p| p.in_flight()) {
+            match p.target {
+                Target::Resource(i) => self.pending_res[i] = true,
+                Target::Mutation(m) => self.pending_mut[m] = true,
+            }
+        }
+        // A queue's waiting send is pending too (LLP 1092 D4).
+        for m in 0..self.pending_mut.len() {
+            self.pending_mut[m] |= self.queues.waits(m);
+        }
+        // A placeholder shown until the source can answer is pending too,
+        // and so is a send waiting for it.
+        for (i, awaiting) in self.awaiting.iter().enumerate() {
+            self.pending_res[i] |= *awaiting;
+        }
+        for (m, ..) in &self.unsent {
+            self.pending_mut[*m] = true;
+        }
+        self.pending_families();
+    }
+
     /// Every request in flight: the resource's or mutation's name and its ticket.
     pub fn pending(&self) -> Vec<(String, u64)> {
         let mut out: Vec<(String, u64)> = self

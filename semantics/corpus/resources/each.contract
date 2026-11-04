@@ -1,0 +1,51 @@
+// A resource over a list (LLP 1017.000 P4c, amended 2026-11-04): one
+// request for each element, keyed as a row is. An element that joins is
+// asked; the others are not asked again; one that leaves takes its answer
+// with it; a repeated key reads the first element's answer; a key that is
+// written reads what it names.
+shape Got
+  phase: string
+
+shape Row
+  id: number
+  url: string
+
+component App
+  state urls = ["a", "b", "c"]
+  state rows = [Row(id=1, url="x"), Row(id=2, url="y")]
+  resource got = receive(u, "callback") for u in urls as shape Got
+  resource byId = receive(r.url, "row") for r in rows key=r.id as shape Got
+  derive phases = got.map(g => g.phase).join(",")
+  derive count = got.length
+  derive loading = pending(got)
+  action add
+    urls = urls.concat(["d"])
+  action drop
+    urls = urls.filter(u => u != "a")
+  action twice
+    urls = urls.concat(["b"])
+  action rename
+    rows = rows.map(r => Row(r, url=`${r.url}!`))
+  action reorder
+    rows = rows.slice(1).concat(rows.slice(0, 1))
+  view
+    column
+      text phases testId="phases"
+      text `${count} ${byId.length}` testId="count"
+      button "add" press=add testId="add"
+      button "drop" press=drop testId="drop"
+      button "twice" press=twice testId="twice"
+      button "rename" press=rename testId="rename"
+      button "reorder" press=reorder testId="reorder"
+
+test "each element"
+  expect state loading == false
+  expect state count == 3
+  tap "add"
+  expect state count == 4
+  tap "drop"
+  expect state count == 3
+  tap "twice"
+  expect state count == 4
+  tap "reorder"
+  tap "rename"

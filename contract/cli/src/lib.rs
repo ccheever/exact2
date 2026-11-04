@@ -1128,7 +1128,12 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
     let mut b = PlanBuilder::from_plan(plan);
     let pending: Vec<String> = runner.pending().into_iter().map(|(n, _)| n).collect();
     let dated = runner.resources_reading_clock();
-    for i in 0..runner.plan().resources.len() {
+    // A resource over a list compiles nothing: its elements are the
+    // launch's to ask (LLP 1017.000 P4c), and they follow the plan's rows.
+    for i in 0..runner.declared_resources().len() {
+        if runner.plan().resources[i].each.len != 0 {
+            continue;
+        }
         let name = runner
             .plan()
             .str(runner.plan().resources[i].name)

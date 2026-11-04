@@ -140,6 +140,19 @@ extension TextEngine {
         #endif
         return (baseline * scale).rounded() / scale
     }
+    /// Where a line whose baseline is `baseline` below `top` paints it, in
+    /// the same space as `top`. On the Mac a view is on the device's pixel
+    /// grid and its paragraph box where layout put it in the page
+    /// (`PixelGridMac.swift`), so the baseline rounds at its place in the
+    /// view, which is its place on the page, as Chromium rounds a glyph run's
+    /// baseline; on iOS, below `top`.
+    static func paintedLine(_ baseline: CGFloat, top: CGFloat, scale: CGFloat, lineScale: CGFloat = 1) -> CGFloat {
+        #if os(macOS)
+        paintedBaseline(top + baseline, scale: scale, lineScale: lineScale)
+        #else
+        top + paintedBaseline(baseline, scale: scale, lineScale: lineScale)
+        #endif
+    }
     /// The device pixels a point of `ctx`. AppKit keeps a view's backing
     /// scale in the context's base transform, out of its CTM (which reads 1
     /// on a 2x display); UIKit's CTM holds it.
@@ -172,7 +185,7 @@ extension TextEngine {
             let line = spec.ellipsis ? p.ellipsized(index, spec: spec, width: bounds.width) : p.lines[index]
             let baseline = p.baselines[index]
             let x = p.origin(index, align: spec.align, width: bounds.width)
-            TextLinePaint.draw(line, at: CGPoint(x: bounds.minX + x, y: bounds.minY + Self.paintedBaseline(baseline, scale: deviceScale(ctx), lineScale: p.lineScale)), in: ctx)
+            TextLinePaint.draw(line, at: CGPoint(x: bounds.minX + x, y: Self.paintedLine(baseline, top: bounds.minY, scale: deviceScale(ctx), lineScale: p.lineScale)), in: ctx)
         }
         if let dirty {
             p.inkBounds().forEachLine(from: dirty.minY - bounds.minY,

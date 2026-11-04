@@ -273,6 +273,62 @@ fn loopback_sessions_wait_side_by_side_and_take_only_a_code_or_an_error() {
     assert_eq!(settled(&mut r), (a.ticket, 501));
 }
 
+/// A resource over a list (LLP 1017.000 P4c, amended 2026-11-04): one
+/// loopback sign-in for each port, each held on its own address. A port
+/// that joins asks; one that leaves lets only its own session go; the
+/// others take their callbacks independently.
+const LIST: &str = "shape R\n  text: string\ncomponent App\n  state ports = [4411, 4412, 4413]\n  resource signed = signIn(`http://127.0.0.1:${p}/cb`) for p in ports as shape R\n  action add\n    ports = ports.concat([4414])\n  action drop\n    ports = ports.filter(p => p != 4413)\n  view\n    column\n      button press=add testId=\"add\"\n        text \"add\"\n      button press=drop testId=\"drop\"\n        text \"drop\"\n      text signed.map(s => s.text).join(\",\") testId=\"out\"\n";
+
+#[test]
+fn a_resource_over_a_list_holds_a_loopback_sign_in_for_each_element() {
+    let mut r = Runner::boot(
+        contract::compile(LIST).unwrap(),
+        Signer,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let present = |r: &mut Runner<Signer>, out: &exact_runner::RequestOut| {
+        assert!(matches!(
+            auth::arm(r, out, false, Browser::Native, None),
+            Arm::Present(_)
+        ));
+    };
+    let mut open: Vec<exact_runner::RequestOut> = r.take_requests();
+    assert_eq!(open.len(), 3, "three sign-ins wait at once");
+    for out in &open {
+        present(&mut r, out);
+    }
+    let press = |r: &mut Runner<Signer>, id: &str| {
+        let key = r.kernel().find_by_test_id(id)[0];
+        let node = r.kernel().node_by_key(key).unwrap().id;
+        r.dispatch(node, Event::Press).unwrap();
+    };
+    press(&mut r, "add");
+    let fourth = r.take_requests();
+    assert_eq!(
+        fourth.len(),
+        1,
+        "a port that joins asks; the others are not asked again"
+    );
+    present(&mut r, &fourth[0]);
+    open.extend(fourth);
+    assert!(auth::forgotten(&mut r).is_empty(), "four wait at once");
+    let callback = |port: u16| format!("http://127.0.0.1:{port}/cb?code=c&state=s1");
+    // The second takes its callback while the others wait.
+    auth::complete(&mut r, open[1].ticket, Ok(&callback(4412)));
+    assert_eq!(settled(&mut r), (open[1].ticket, 200));
+    // The third leaves: only its session is let go, for the host to cancel.
+    press(&mut r, "drop");
+    assert_eq!(auth::forgotten(&mut r), vec![open[2].ticket]);
+    assert!(r.take_requests().is_empty(), "nobody is asked again");
+    for (i, port) in [(0, 4411), (3, 4414)] {
+        auth::complete(&mut r, open[i].ticket, Ok(&callback(port)));
+        assert_eq!(settled(&mut r), (open[i].ticket, 200));
+    }
+}
+
 /// `authorize` and `authorize cancel` parse as test steps and reach the driver
 /// as its `authorize` operation; anything else after the word is refused
 /// (LLP 1146 D4).

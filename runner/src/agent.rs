@@ -819,7 +819,7 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
     }
     s.push_str("},\"resources\":{");
-    for (i, row) in plan.resources.iter().enumerate() {
+    for (i, row) in runner.declared_resources().iter().enumerate() {
         let name = plan.str(row.name);
         if i > 0 {
             s.push(',');
