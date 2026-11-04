@@ -434,7 +434,7 @@ component BrowserRecentRow
   view
     box position="relative" width="100%" hover=hover testId="browser-recent"
       button press=open aria-label=entry.title testId="browser-recent-open" display="flex" flex-direction="row" align-items="center" gap="0.75rem" width="100%" padding-left="0.75rem" padding-right="2.5rem" padding-top="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" border-width=0 border-radius=0 background-color=(over ? "light-dark(#f4f4f5, #171717)" : "light-dark(#fcfcfc, #000000)")
-        BrowserTabIcon(captured=entry.favicon, fallback=entry.fallback, size=16, color="light-dark(#71717b, #a1a1a1)")
+        BrowserSiteIcon(captured=entry.favicon)
         column flex=1 min-width=0
           text entry.title white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" testId="browser-recent-title"
           text entry.subtitle white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" testId="browser-recent-subtitle"
@@ -451,10 +451,31 @@ component BrowserServerRow
     over = on
   view
     button press=open hover=hover aria-label=`${server.title} ${server.description}` testId=`browser-server-${server.description}` display="flex" flex-direction="row" align-items="center" gap="0.75rem" width="100%" padding="0.75rem" box-sizing="border-box" border-width=0 border-radius=0 background-color=(over ? "light-dark(#f4f4f5, #171717)" : "light-dark(#fcfcfc, #000000)")
-      BrowserTabIcon(captured=server.favicon, fallback=server.fallback, size=16, color="light-dark(#71717b, #a1a1a1)")
+      BrowserSiteIcon(captured=server.favicon)
       column flex=1 min-width=0
         text server.title white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
         text server.description white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+
+// PreviewFaviconIcon: the site's captured icon, 28pt, else BrowserMockup's page drawing: a card with three window dots
+// (destructive, warning, success at 80%) over two muted lines, the second three fifths as long.
+component BrowserSiteIcon
+  props
+    captured: string
+  state failed = ""
+  action didFail(message: string)
+    failed = captured
+  view
+    if captured != "" and failed != captured
+      image captured width="1.75rem" height="1.75rem" flex-shrink=0 object-fit="contain" border-radius="0.25rem" aria-hidden=true error=didFail testId="browser-site-favicon"
+    else
+      column width="1.75rem" height="1.75rem" flex-shrink=0 box-sizing="border-box" padding="0.25rem" gap="0.125rem" overflow="hidden" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 1px 2px #0000000d" aria-hidden=true testId="browser-site-mockup"
+        row gap="0.125rem" flex-shrink=0
+          box width="3px" height="3px" border-radius="624.9375rem" background-color="light-dark(#fb2c36cc, #fb414acc)"
+          box width="3px" height="3px" border-radius="624.9375rem" background-color="#fe9a00cc"
+          box width="3px" height="3px" border-radius="624.9375rem" background-color="#00bd7dcc"
+        column flex=1 margin-top="1px" gap="0.125rem"
+          box width="100%" height="2px" border-radius="624.9375rem" background-color="light-dark(#71717b4d, #a1a1a14d)"
+          box width="60%" height="2px" border-radius="624.9375rem" background-color="light-dark(#71717b33, #a1a1a133)"
 
 // PreviewEmptyState's Empty sits at the top of the page area: its parent is a block, so its flex-1 and
 // justify-center do not stretch it; it is as tall as its content and 48pt padding.

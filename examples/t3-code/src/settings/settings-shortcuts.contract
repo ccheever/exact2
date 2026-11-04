@@ -227,7 +227,7 @@ component ViewReload
 // rootFontApply), where the host's own View zoom takes Safari's levels. An app command with ⌘0, ⌘= or ⌘- takes the host
 // item's place (LLP 1021 §5.3.1); ⇧⌘=, the reference's hidden Zoom In, is a shortcut with no item. A keybinding the person
 // gave one of these chords keeps it, as ViewReload's do. Over a shown Browser page (`page`) the data module decides, as
-// for ⌘R: a page holding the focus takes a chord bound to a preview zoom command.
+// for ⌘R: while the page holds the focus a chord bound to a preview zoom command zooms nothing, as in the reference.
 fn zoomFactor(step: number): number = match [0.254766, 0.279082, 0.305719, 0.334898, 0.366862, 0.401878, 0.440235, 0.482253, 0.528282, 0.578704, 0.633938, 0.694444, 0.760726, 0.833333, 0.912871, 1, 1.095445, 1.2, 1.314534, 1.44, 1.577441, 1.728, 1.892929, 2.0736, 2.271515, 2.48832, 2.725818, 2.985984, 3.270982, 3.583181, 3.925178, 4.299817, 4.710213].at(step + 15) { case some(factor) => factor, case none => 1 }
 component ViewZoom
   props

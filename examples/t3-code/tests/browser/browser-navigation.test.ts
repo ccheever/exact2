@@ -275,7 +275,7 @@ describe('the preview keys and ⇧⌘J', () => {
     expect(previewKeys(s.client).split(' ').sort()).toEqual(['Meta+-=zoom-out', 'Meta+0=reset-zoom', 'Meta+==zoom-in', 'Meta+Plus=zoom-in', 'Meta+l=focus-url', 'Meta+r=refresh']);
     expect(browserView(s.client, s.surface, Date.now()).keys).toBe(previewKeys(s.client));
   });
-  it('a View chord over a shown page acts on the page when it holds the focus, else on the window', async () => {
+  it('a View chord over a shown page: ⌘R reloads the page and a zoom chord zooms nothing while it holds the focus, else the window', async () => {
     const s = setup(), frameId = frameIdOf(s.runtimeId), asked: Obj[] = [];
     const focus = { type: 'identifier', name: 'previewFocus' };
     (s.client.config as Obj).keybindings = [{ command: 'preview.zoomIn', shortcut: { key: '=', modKey: true }, whenAst: focus }];
@@ -285,7 +285,7 @@ describe('the preview keys and ⇧⌘J', () => {
       await browserKey(s.client, frameId, 'chord=meta+r');
       expect(asked).toEqual([{ id: frameId, expression: 'document.hasFocus()', sandbox: 't3-preview-automation' }]);
       await browserKey(s.client, `browser-frame-gone,${frameId}`, 'chord=meta%2B%3D&step=3');
-      expect(frameOf(s).zoom).toBe(1.1);
+      expect(frameOf(s).zoom).toBe(1);
       focused = false;
       await browserKey(s.client, frameId, 'chord=meta+r');
       await browserKey(s.client, frameId, 'chord=meta%2B%3D&step=3');

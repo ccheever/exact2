@@ -464,6 +464,9 @@ fn a_short_list_ends_in_the_padding_before_its_rows() {
             let end = max_top_now(&r);
             assert_eq!(end, (TOP + n as f64 * ROW + END - PORT).max(0.0));
             for action in ["start", "center"] {
+                // From the start: at the end the port already satisfies the
+                // request, which then moves nothing
+                host(&mut r, 0.0);
                 let top = into(&mut r, action, (n - 1) as f64, 0.0);
                 assert_eq!(top, end, "{axis:?}, {n} rows: {action} at the end");
             }
@@ -644,10 +647,10 @@ fn collapsing_scroll_padding_preserves_an_already_visible_nearest_target() {
             let mut r = boot(&app);
             assert_eq!(host(&mut r, 50.0), 50.0);
             r.act("collapse", vec![]).unwrap();
-            assert_eq!(
-                list(&r).correction.unwrap().offset,
-                50.0,
-                "{horizontal}/{inset}/{font}: no initial movement"
+            assert!(
+                list(&r).correction.is_none_or(|c| c.offset == 50.0),
+                "{horizontal}/{inset}/{font}: no initial movement: {:?}",
+                list(&r).correction
             );
             assert_eq!(
                 host(&mut r, 50.0),

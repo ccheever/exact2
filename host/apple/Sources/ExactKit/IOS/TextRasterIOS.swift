@@ -62,6 +62,10 @@ final class TextRasterizer {
     private static let urgentWords = 1_000
     var inFlight: Int { working.count }
     var hasRoom: Bool { working.count < Self.maxInFlight }
+    /// A worker's slot freed, whatever became of its pixels: a pass that
+    /// found none free can go on, and when no pass waits, a paragraph
+    /// whose `display()` the rasterizer refused gets its pass now.
+    var slotFreed: (() -> Void)?
 
     /// Pixels by what they paint. Rows repeat small labels (a reaction's
     /// emoji and count, a relative time), and a list that turns back shows
@@ -330,12 +334,12 @@ final class TextRasterizer {
         // Only a completed worker's mailbox is read, including by agent settlement.
         guard work.group.wait(timeout: .now()) == .success else { return }
         working.remove(at: index)
+        defer { slotFreed?() }
         // Dropped unstarted: no pixels, and no failure either.
         guard !work.wasAbandoned else { return }
         if work.key.clip == nil { keep(work.result, for: work.key, namespace: work.namespace) }
         guard let node = work.node, node.incarnation == work.incarnation else { return }
         node.showTextRaster(work.result, for: work.key)
-        node.presenter?.requestTextPublication()
     }
     /// Jobs whose paragraph left, or whose text or box changed since, or
     /// that the list has already carried past (`passed`), and that no worker

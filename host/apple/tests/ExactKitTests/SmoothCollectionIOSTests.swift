@@ -6,8 +6,8 @@ import XCTest
 /// LLP 1070.000 §6.2, LLP 1010 §6.8: a correction marked smooth (a smooth
 /// `scrollIntoView`, or a `scroll-behavior: smooth` list following its end)
 /// is one 0.3 s ease-in-out motion of the port; while it runs the fill
-/// reports no travel (which would cancel a request); a later smooth target
-/// retargets it from what shows; an ordinary correction is set at once.
+/// reports no travel; a later smooth target retargets it from what shows;
+/// an ordinary correction is set at once.
 final class SmoothCollectionIOSTests: XCTestCase {
     private var window: UIWindow!
     override func tearDown() { window?.isHidden = true; window = nil; super.tearDown() }
@@ -161,6 +161,37 @@ final class SmoothCollectionIOSTests: XCTestCase {
         XCTAssertEqual(scroll.contentOffset.y, stopped, accuracy: 0.5, "left where the drag found it")
     }
 
+    /// LLP 1070.000 §2.5: a tap on the status bar is the reader's move of the
+    /// list, as a drag is, though no finger touches it: it stops a smooth
+    /// request where the port is, for UIKit's scroll to the top, a correction
+    /// of it planned before the tap no longer lands, and the next report says
+    /// the reader made a gesture, which ends the request.
+    func testAStatusBarTapStopsASmoothRequestAndIsTheReadersGesture() throws {
+        let p = presenter()
+        list(p, correction: NSNull())
+        let scroll = try XCTUnwrap(p.views[1]?.scroll)
+        let seq = String(try XCTUnwrap(p.collections.entries[1]?.cursor.sequence))
+        var flags: [UInt32] = []
+        p.collections.onFeedback = { data in flags.append((0..<4).reduce(UInt32(0)) { $0 | UInt32(data[92 + $1]) << ($1 * 8) }) }
+        var request = collections(revision: 2, correction: ["scrollSequence": seq, "offset": 800, "smooth": true])
+        request["items"] = (request["items"] as? [[String: Any]])?.map { $0.merging(["seeking": true, "request": 1]) { _, new in new } }
+        p.apply(wireBatch([request]))
+        wait("on its way") { scroll.contentOffset.y > 200 }
+        XCTAssertFalse(try XCTUnwrap(p.collections.entries[1]).gesture)
+        XCTAssertTrue(try XCTUnwrap(p.views[1]).scrollViewShouldScrollToTop(scroll))
+        XCTAssertFalse(moving(p)); XCTAssertFalse(p.collections.animating.contains(1))
+        let stopped = scroll.contentOffset.y
+        spin(0.2)
+        XCTAssertEqual(scroll.contentOffset.y, stopped, accuracy: 0.5, "left where the tap found it")
+        XCTAssertEqual(flags.last.map { $0 & 64 }, 64, "the reader's gesture is reported")
+        // A batch that still carries the request's correction, planned before the tap
+        request["items"] = (request["items"] as? [[String: Any]])?.map { $0.merging(["revision": 3]) { _, new in new } }
+        p.apply(wireBatch([request]))
+        spin(0.2)
+        XCTAssertFalse(moving(p))
+        XCTAssertEqual(scroll.contentOffset.y, stopped, accuracy: 0.5, "the correction is stale")
+    }
+
     /// A sent message's end-follow arrives in the batch whose composer
     /// shrinks back: the port's resize is not the reader moving, so the
     /// correction planned before it still lands.
@@ -283,6 +314,20 @@ final class SmoothCollectionIOSTests: XCTestCase {
         XCTAssertNil(p.collections.offsetDrivers[1], "no motion")
         XCTAssertFalse(p.collections.animating.contains(1))
         XCTAssertGreaterThan(scroll.contentOffset.y, 0.2, "set there, to the pixel")
+    }
+
+    /// LLP 1070.000 §1: under Reduce Motion a smooth correction lands at once.
+    func testUnderReduceMotionASmoothCorrectionLandsAtOnce() throws {
+        let p = presenter()
+        let before = DisplayPreferences.agent
+        DisplayPreferences.agent = (reducedMotion: true, reducedTransparency: false)
+        defer { DisplayPreferences.agent = before }
+        list(p, correction: NSNull())
+        let scroll = try XCTUnwrap(p.views[1]?.scroll)
+        p.apply(wireBatch([collections(revision: 2, correction: ["scrollSequence": "0", "offset": 1200, "smooth": true])]))
+        XCTAssertFalse(p.collections.animating.contains(1))
+        XCTAssertNil(p.collections.offsetDrivers[1])
+        XCTAssertEqual(scroll.contentOffset.y, 1200, accuracy: 0.5)
     }
 
     /// A smooth correction under half a point (a port rounded to a device

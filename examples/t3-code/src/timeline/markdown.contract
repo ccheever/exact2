@@ -16,86 +16,14 @@ use TableCopyButton from "./markdown-table-copy.contract"
 use MermaidDiagram, MermaidFrameView from "./mermaid-frame.contract"
 use ProjectGlyph from "../sidebar/sidebar-shapes.contract"
 use SidebarProjectGlyph from "../sidebar/sidebar-icons-kit.contract"
-use hoverTipAtFrame from "../shell/hover-layer.contract" // a pull request link's card
+use HoverTip, hoverTipAtFrame from "../shell/hover-layer.contract" // a pull request link's card, a link's focus tooltip
 use heldModifiers from "../shared/press-modifiers.contract"
 use LinkMenuRow, FileLinkButton from "./link-menus.contract"
 use EditorMenuIcon from "../composer/composer-editor.contract" // a pull request chip's state glyph
 use SkillChip from "./skill-chip.contract"
 use TaskCheckbox, DiagramToggle, lineJustify from "./markdown-controls.contract"
 use ChipInk, noChipInks, inkOf, inkIn, contextRun, runAccent, chipAccent, chipIcon, chipFamily, docKind from "./markdown-chip-inks.contract"
-shape ChatRun
-  id: string
-  text: string
-  weight: number
-  slant: string
-  mono: bool
-  href: string
-  kind: string
-  icon: string
-  // Every run of a link: the whole link's text (markdown.rs link_labels), the link node's name on its first word, the
-  // mark that hides its other words; "" elsewhere and on a link that starts with a code span (it draws no link node).
-  label: string
-  // A media run inside a link's text: the link's destination (MarkdownAnchor's `<a>` around the `<img>`); "" elsewhere.
-  link: string
-  // Inside a GFM strikethrough (`<del>`): drawn with a line through.
-  strike: bool
-  // A raw HTML image's media run (markdown_media.rs inline_html_image): its authored size in px (0 when unsaid) and
-  // its dark appearance's href ("" when it has none); `href` is the light one's.
-  width: number
-  height: number
-  dark: string
-  findParts: FindPart[]
-shape ChatCell
-  id: string
-  runs: ChatRun[]
-// A table row (markdown_tables.rs): its cells, one per column.
-shape ChatTableRow
-  id: string
-  header: bool
-  cells: ChatCell[]
-// A table column: the cell that sizes it (drawn invisibly in every row, so the
-// host's own metrics set the width) and its share of any spare room (its estimated width).
-shape ChatColumn
-  id: string
-  sizer: ChatRun[]
-  header: bool
-  grow: number
-  // GFM alignment from the table's rule row: "left", "right" or "center" (markdown_table_align.rs).
-  align: string
-shape ChatBlock
-  id: string
-  kind: string
-  depth: number
-  marker: string
-  text: string
-  href: string
-  header: bool
-  runs: ChatRun[]
-  cells: ChatCell[]
-  gap: number
-  flow: bool
-  rows: ChatTableRow[]
-  columns: ChatColumn[]
-  markdown: string
-  csv: string
-  closedFence: bool
-  // A GFM task item (markdown_links.rs task_items): "open", "done" or "", and its `[`'s offset in the file's text,
-  // -1 where the checkbox is GFM's disabled one (the transcript, a read-only file).
-  task: string
-  taskOffset: number
-  // An ordered list item's marker gutter in `ch` when the list's widest marker has several digits
-  // (markdown_headings.rs list_gutters), 0 for the default 1.25rem.
-  gutter: number
-  // The block's own words' direction (markdown_direction.rs): "rtl", "ltr", or "" without letters.
-  dir: string
-  dark: string // an image's `prefers-color-scheme: dark` source; `href` holds the light one (markdown-parse Html)
-  width: number // an HTML image's authored size in px, 0 when unsaid
-  height: number
-  // The `text-align` of a `<p align>` or `<div align>` around the block (markdown-parse Block), "" for the reader's.
-  align: string
-  findParts: FindPart[]
-  // A code block's find part each line starts in, then its last part (markdown_find.rs find_lines); none for one part.
-  findLines: number[]
+use ChatRun, ChatCell, ChatTableRow, ChatColumn, ChatBlock from "./markdown-blocks.contract"
 shape ChatDocument
   id: string
   blocks: ChatBlock[]
@@ -546,6 +474,12 @@ fn mediaHref(run: ChatRun, scheme: string): string = scheme == "dark" and run.da
 fn linkWords(runs: ChatRun[], link: string): bool = runs.filter((run) => run.kind != "media" and run.href == link and run.text.trim() != "").length > 0
 // Whether a line holds only images and the spaces between them: HTML centres each on the line (`vertical-align: middle`).
 fn imageLine(runs: ChatRun[]): bool = runs.filter((run) => run.kind == "media").length > 0 and runs.filter((run) => run.kind != "media" and run.text.trim() != "").length == 0
+// Whether a line holds only images, each of authored height under 25.68px: CSS centres each on the text's middle
+// (`vertical-align: middle`), and the line keeps the text's strut, so it is taller than its tallest image and an image
+// sits below its top (a 24px one 0.81px, in a 24.81px line). Over 25.68px the tallest image is the line.
+fn smallImageLine(runs: ChatRun[]): bool = imageLine(runs) and runs.filter((run) => run.kind == "media" and not (run.height > 0 and run.height < 25.68)).length == 0
+// Whether a line holds a shown image beside an "Image unavailable" label (a media run whose chip is blocked).
+fn imageBesideLabel(runs: ChatRun[], chips: ChipView[], scheme: string): bool = runs.filter((run) => run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == mediaHref(run, scheme) and chip.icon != "blocked").length > 0).length > 0
 // Whether a line of prose holds an image of no authored height, or one taller than the line: `vertical-align: middle`
 // puts its midpoint on the text's, which centring the line's items draws within a pixel or two.
 fn proseMedia(runs: ChatRun[]): bool = runs.filter((run) => run.kind == "media" and run.icon != "standalone" and not (run.height > 0 and run.height < 25.68)).length > 0
@@ -639,6 +573,9 @@ component FlowRuns
     fragmentJump: action
     citeHold: action
     markdownScheme: string
+    hoverTipAt: action
+    keyboardLast: bool
+    rem: number
   props
     runs: ChatRun[]
     size: number
@@ -667,6 +604,18 @@ component FlowRuns
       fragmentJump(href, e)
     else
       linkOpen("link", href, e)
+  // A web link that takes a visible focus shows its URL above the whole link (the anchor's Tooltip, side top), placed by
+  // the union of its first and last runs' boxes, as the `<a>`'s getBoundingClientRect is: an inline box of 14px text,
+  // 16.5px tall and 3px below the top of its 22.75px line.
+  action linkTip(index: number, href: string, on: bool)
+    if keyboardLast or not on
+      // A link that ends in an image ends in the image's own node, which has no link id: its first run places it then.
+      let first = frame(linkNode(scope, blockId, runs, index))
+      let last = frame(linkNode(scope, blockId, runs, linkLast(runs, index, href)))
+      let top = last.width > 0 ? min(first.y, last.y) : first.y
+      let right = last.width > 0 ? max(first.x + first.width, last.x + last.width) : first.x + first.width
+      let bottom = last.width > 0 ? max(first.y + first.height, last.y + last.height) : first.y + first.height
+      hoverTipAt(HoverTip(key=linkNode(scope, blockId, runs, index), kind="tip", text=href, lines=[], side="top", align="center", x=first.x, y=top + 3, width=right - first.x, height=bottom - top - 6.25, estimate=1.65625 * rem, wide=0, testId="markdown-link-tooltip"), "trigger", on)
   // ChatMarkdown's selectInlineCode: word selection stops at hyphens and dots, so a double-click takes the whole code
   // span. The double-click is the span's alone, so in an answer it also starts Cite's wait, as AnswerMarkdown's would.
   action selectCode(id: string, length: number)
@@ -674,7 +623,7 @@ component FlowRuns
     if source != ""
       citeHold()
   view
-    row flex-grow=(fit ? 0 : 1) min-width=0 width=(fit ? "auto" : "100%") max-width="100%" flex-wrap="wrap" align-items=(imageLine(runs) or proseMedia(runs) ? "center" : "flex-start") justify-content=lineJustify(align)
+    row flex-grow=(fit ? 0 : 1) min-width=0 width=(fit ? "auto" : "100%") max-width="100%" flex-wrap="wrap" align-items=((imageLine(runs) and not smallImageLine(runs)) or proseMedia(runs) ? "center" : "flex-start") justify-content=lineJustify(align)
       for run, index in runs key=run.id
         // A link's first run (ChatMarkdown's `<a>`): one link node per link, named with the whole link (`run.label`), on its
         // first word or code span; the link's other words and code spans follow as nodes hidden from assistive tech (their
@@ -684,18 +633,19 @@ component FlowRuns
         // handler opens none of them, and a fragment's scrolls to its heading (fragmentJump); their right-click is the
         // shell's, as the anchor's onContextMenu returns before preventDefault for them. A code span is part of its link
         // (`.chat-markdown code` inside the `<a>`, after the favicon).
+        // Each link is one Tab stop, its first run, as Chromium tabs to every `<a>` whatever the Keyboard Navigation setting.
         if run.kind == "link-start" and linkRun(run, chips) and webLink(run.href)
-          link href=run.href press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start" title=""
+          link id=linkNode(scope, blockId, runs, index) href=run.href press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" focus=linkTip(index, run.href, true) blur=linkTip(index, run.href, false) tabindex=0 aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start" title=""
             box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
               LinkFavicon(icon=run.icon, color="light-dark(#1447e6, #50a2ff)")
             LinkRunWords(run=run, size=size, weight=weight, top="0.153125rem")
         if run.kind == "link-start" and linkRun(run, chips) and not webLink(run.href)
-          link href=run.href press=open(run.href) aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start" title=""
+          link href=run.href press=open(run.href) tabindex=0 aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start" title=""
             LinkRunWords(run=run, size=size, weight=weight, top="0.153125rem")
-        // A web or fragment link's later word or code span: its press and menu are the link's. Only a web link's is a Tab
-        // stop (as it was); a fragment's is not, the `<a>` being one stop (its link node above).
+        // A web or fragment link's later word or code span: its press and menu are the link's, and it is no Tab stop (the
+        // `<a>` is one stop, its link node above).
         if run.kind == "link" and linkRun(run, chips) and webLink(run.href)
-          box press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" tabindex=0 aria-hidden=(run.label != "") cursor="pointer" height="1.421875rem" padding-top=(run.mono ? "0.153125rem" : "0px") box-sizing="border-box" flex-shrink=0
+          box id=linkNode(scope, blockId, runs, index) press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" tabindex=-1 aria-hidden=(run.label != "") cursor="pointer" height="1.421875rem" padding-top=(run.mono ? "0.153125rem" : "0px") box-sizing="border-box" flex-shrink=0
             LinkRunWords(run=run, size=size, weight=weight, top="0px")
         if run.kind == "link" and linkRun(run, chips) and pressLink(run.href) and not webLink(run.href)
           box press=open(run.href) tabindex=-1 aria-hidden=(run.label != "") cursor="pointer" height="1.421875rem" padding-top=(run.mono ? "0.153125rem" : "0px") box-sizing="border-box" flex-shrink=0
@@ -726,9 +676,14 @@ component FlowRuns
           for chip in chips.filter((chip) => chip.kind == "media" and chip.href == mediaHref(run, markdownScheme)) key=chip.id
             // An image of authored height in a line of prose sits on its middle (`vertical-align: middle`): its
             // midpoint 12.84px below the 14px line's top, as the reference draws a 16px one 4.84px down.
-            if run.height > 0 and run.height < 25.68 and size == 14 and run.icon != "standalone" and not imageLine(runs) and not proseMedia(runs)
+            if run.height > 0 and run.height < 25.68 and size == 14 and run.icon != "standalone" and (smallImageLine(runs) or (not imageLine(runs) and not proseMedia(runs)))
               box margin-top=`${12.84 - run.height / 2}px` flex-shrink=0
                 MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link) and linkWords(runs, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`, label=chip.label, menu=chip.menu, imageWidth=run.width, imageHeight=run.height)
+            // ChatMarkdownImageFallback's label is an inline-block on the text's baseline, 16.31px above the middle an image
+            // beside it is centred on (its box 28.5px tall, centring would put it 14.25px above).
+            else if chip.icon == "blocked" and run.icon != "standalone" and imageLine(runs) and imageBesideLabel(runs, chips, markdownScheme)
+              box position="relative" top="-2.06px" flex-shrink=1 min-width=0 max-width="100%"
+                MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=false, link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=false, owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`, label=chip.label, menu=chip.menu, imageWidth=run.width, imageHeight=run.height)
             else
               MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link) and linkWords(runs, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`, label=chip.label, menu=chip.menu, imageWidth=run.width, imageHeight=run.height)
         // With no media chip (a pull request's text) an image inside a link's text is the link's word, its alt text.
@@ -811,6 +766,13 @@ component LinkRunWords
     else
       text margin-top=top font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.74375rem" line-height="0.875rem" white-space="pre" font-weight=runWeight(run.weight) font-style=run.slant padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color="light-dark(#18181b1a, #f5f5f51a)" color="light-dark(#18181b, #f5f5f5)" text-decoration-line=(run.strike ? "line-through" : "none")
         FindParts(parts=run.findParts)
+
+// A link run's node id (FlowRuns): the tooltip of its link's focus is placed by its first and last runs.
+fn linkNode(scope: string, blockId: string, runs: ChatRun[], index: number): string = `link-${scope}-${blockId}-${runs.slice(index, index + 1).map((run) => run.id).join("")}`
+// The index of the last run of the link that starts at `start`: the runs after it up to the first that is not the link's.
+fn linkLast(runs: ChatRun[], start: number, href: string): number = start + runs.filter((run, at) => at > start and runs.slice(start + 1, at + 1).filter((other) => not linkWithin(other, href)).length == 0).length
+// Whether a run is a word of the link to `href`, or an image inside its text.
+fn linkWithin(run: ChatRun, href: string): bool = (run.kind == "link" and run.href == href) or (run.kind == "media" and run.link == href)
 
 // Whether a run starts its link: the run before it is not the same link's word or image.
 fn linkLeads(runs: ChatRun[], id: string, link: string): bool = runs.slice(max(0, runs.map((r) => r.id).indexOf(id) - 1), max(0, runs.map((r) => r.id).indexOf(id))).filter((r) => r.href == link or r.link == link).length == 0
@@ -1181,6 +1143,8 @@ component CodeBlock
   derive codeAt = ms < 0 ? 0 : citeCodeLabel(block, code).length + (citeCodeLabel(block, code) != "" ? 1 : 0)
   action toggleWrap
     flipped = not flipped
+  // The code is a Tab stop (Shiki's `<pre tabindex="0">`), and so are its header's buttons, as Chromium's are whatever the
+  // Keyboard Navigation setting.
   view
     column direction="ltr" text-align="start" width="100%" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #00000000)" background-color="light-dark(#fafafa, #ffffff09)" overflow="hidden"
       row width="100%" height="1.875rem" padding-top="0.375rem" padding-right="0.375rem" padding-left="0.75rem" box-sizing="border-box" align-items="center" justify-content="space-between" gap="0.5rem"
@@ -1193,24 +1157,24 @@ component CodeBlock
             text (block.href != "" ? block.href : "text") font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#18181bb8, #f5f5f5b8)" line-clamp=1
         row gap="0.125rem" align-items="center"
           Tip(label=(wrap ? "Disable line wrap" : "Wrap lines"), side="top", align="center", offset=28)
-            button press=toggleWrap aria-label=(wrap ? "Disable line wrap" : "Wrap lines") width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(wrap ? "light-dark(#fafafa, #ffffff08)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+            button press=toggleWrap aria-label=(wrap ? "Disable line wrap" : "Wrap lines") tabindex=0 width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(wrap ? "light-dark(#fafafa, #ffffff08)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
               Icon(name="text-wrap", size=12, color="light-dark(#18181b, #f5f5f5)")
           if canRun
             Tip(label="Run in terminal", side="top", align="center", offset=28)
-              button press=local("run-terminal", block.id, block.text) aria-label="Run in terminal" testId=`run-terminal-${block.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+              button press=local("run-terminal", block.id, block.text) aria-label="Run in terminal" tabindex=0 testId=`run-terminal-${block.id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                 Icon(name="play", size=12, color="light-dark(#18181b, #f5f5f5)")
           Tip(label="Copy code", side="top", align="center", offset=28)
             CopyCodeButton(block=block, local=local, copied=(copiedText == block.text ? copiedNonce : 0))
       if code.filter((hl) => hl.code == block.text).length == 0
         if wrap
           if ms < 0
-            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color=ink
+            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") tabindex=0 width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color=ink
               FindParts(parts=block.findParts)
           else
-            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color=ink
+            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") tabindex=0 width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color=ink
               MarkedText(value=block.text, at=codeAt, ms=ms, me=me)
         else
-          scroll width="100%" overflow-x="scroll" overflow-y="hidden"
+          scroll tabindex=0 width="100%" overflow-x="scroll" overflow-y="hidden"
             if ms < 0
               text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize line-height=1.375 white-space="pre" color=ink
                 FindParts(parts=block.findParts)
@@ -1219,7 +1183,7 @@ component CodeBlock
                 MarkedText(value=block.text, at=codeAt, ms=ms, me=me)
       for hl in code.filter((hl) => hl.code == block.text) key=hl.id
         if wrap
-          text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color=ink
+          text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") tabindex=0 width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color=ink
             for token in hl.tokens key=token.id
               if ms < 0
                 text color=(plainFence(block.href) ? ink : synColor(token.cls)) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
@@ -1228,7 +1192,7 @@ component CodeBlock
                 text color=(plainFence(block.href) ? ink : synColor(token.cls)) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
                   MarkedText(value=token.text, at=codeAt + token.at, ms=ms, me=me)
         else
-          scroll width="100%" overflow-x="scroll" overflow-y="hidden"
+          scroll tabindex=0 width="100%" overflow-x="scroll" overflow-y="hidden"
             text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize line-height=1.375 white-space="pre" color=ink
               for token in hl.tokens key=token.id
                 if ms < 0
@@ -1273,7 +1237,7 @@ component MermaidBlock
             text block.href font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#18181bb8, #f5f5f5b8)" line-clamp=1
           row gap="0.125rem" align-items="center" role="toolbar" aria-label="Code block actions"
             Tip(label=(wrap ? "Disable line wrap" : "Wrap lines"), side="top", align="center", offset=28)
-              button press=toggleWrap aria-label=(wrap ? "Disable line wrap" : "Wrap lines") width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(wrap ? "light-dark(#fafafa, #ffffff08)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+              button press=toggleWrap aria-label=(wrap ? "Disable line wrap" : "Wrap lines") tabindex=0 width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(wrap ? "light-dark(#fafafa, #ffffff08)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                 Icon(name="text-wrap", size=12, color="light-dark(#18181b, #f5f5f5)")
             Tip(label="Show diagram", side="top", align="center", offset=28)
               DiagramToggle(label="Show diagram", icon="workflow", press=toggleCode)
@@ -1324,7 +1288,7 @@ component CopyCodeButton
   action hover(over: bool)
     hovered = over
   view
-    button press=local("copy-code", block.id, block.text) hover=hover aria-label="Copy code" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+    button press=local("copy-code", block.id, block.text) hover=hover aria-label="Copy code" tabindex=0 width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
       MorphCopyCheck(on=(copied > 0 and copied != codeCopyDone), size=12, color=(hovered ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"), weight=2, still=still)
 
 // MarkdownTable (ChatMarkdown.tsx at v0.1.5; MIT, see LICENSE-T3): a full-width table of 14pt cells at its size,
