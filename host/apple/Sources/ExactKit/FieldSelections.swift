@@ -92,6 +92,11 @@ final class FieldSelections {
     /// change: no `beforeinput` and no `maxlength` apply to it.
     var replacing: Set<UInt32> = []
     #if os(macOS)
+    /// The field a press focused, by the press's timestamp, with the
+    /// selection a script set from that focus on (`pressing`).
+    private var pressFocus: [UInt32: (press: TimeInterval, selection: FieldSelection?)] = [:]
+    /// Fields whose press `pressing` is tracking.
+    private var pressed: Set<UInt32> = []
     private var observer: NSObjectProtocol?
     #endif
 
@@ -193,6 +198,9 @@ final class FieldSelections {
     /// shown now, else the editor's is what was last seen.
     func focused(_ node: NodeView) {
         guard Self.tracks(node) else { return }
+        #if os(macOS)
+        focused(node, by: NSApp.currentEvent)
+        #endif
         quietly {
             if let s = pending.removeValue(forKey: node.id) {
                 _ = node.showSelection(s.range)
@@ -330,7 +338,39 @@ final class FieldSelections {
         set(node, FieldSelection(start: 0, end: length))
     }
 
+    #if os(macOS)
+    /// The event the field took the focus in, when it is a press: for that
+    /// press's `pressing` (the window makes a pressed view first responder
+    /// before its `mouseDown`), which alone matches its timestamp.
+    func focused(_ node: NodeView, by event: NSEvent?) {
+        if let event, event.type == .leftMouseDown { pressFocus[node.id] = (event.timestamp, nil) }
+    }
+
+    /// A press on `node`'s field, `track` its editor's tracking. The press
+    /// that focuses the field runs the field's `focus` handler before the
+    /// editor puts the caret where the press is (the window focuses a pressed
+    /// view before its `mouseDown`); a selection a script sets from that
+    /// focus on (an address bar's select on focus) is shown again once the
+    /// press ends, as Chrome keeps it. A press that selects text itself (a
+    /// drag, a double-click) keeps what it selected, and a press on a field
+    /// that already had the focus is the editor's alone.
+    func pressing(_ node: NodeView, _ event: NSEvent, _ track: () -> Void) {
+        guard Self.tracks(node), !pressed.contains(node.id) else { return track() }
+        pressed.insert(node.id)
+        defer { pressed.remove(node.id) }
+        track()
+        guard let focus = pressFocus.removeValue(forKey: node.id), focus.press == event.timestamp, let s = focus.selection,
+              presenter.views[node.id] === node, let live = node.liveSelection, live.length == 0, !s.same(FieldSelection(live)) else { return }
+        quietly { _ = node.showSelection(s.range) }
+        last[node.id] = s
+        scripted[node.id] = s
+    }
+    #endif
+
     func set(_ node: NodeView, _ s: FieldSelection, notify: Bool = true) {
+        #if os(macOS)
+        if pressFocus[node.id] != nil { pressFocus[node.id]?.selection = s }
+        #endif
         if current(node) != s { selectionChanged(node) }
         let again = scripted[node.id] == s
         scripted[node.id] = s
@@ -375,6 +415,9 @@ final class FieldSelections {
         last.removeAll()
         scripted.removeAll()
         pending.removeAll()
+        #if os(macOS)
+        pressFocus.removeAll()
+        #endif
     }
 }
 

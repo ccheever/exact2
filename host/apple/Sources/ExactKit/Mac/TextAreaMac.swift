@@ -89,7 +89,8 @@ package final class TextArea: NSTextView {
     package override func mouseDown(with event: NSEvent) {
         guard let owner else { return super.mouseDown(with: event) }
         if owner.pressesUntracked(self, event) { return }
-        owner.tracksPointer(event) { super.mouseDown(with: event) }
+        guard let fields = owner.presenter?.fieldSelections else { return owner.tracksPointer(event) { super.mouseDown(with: event) } }
+        fields.pressing(owner, event) { owner.tracksPointer(event) { super.mouseDown(with: event) } }
     }
     // The agent's window is never key: its every click counts, as at a node (`NodeView.everyClickCounts`).
     package override func acceptsFirstMouse(for event: NSEvent?) -> Bool { NodeView.everyClickCounts || super.acceptsFirstMouse(for: event) }
@@ -847,7 +848,8 @@ private func drawBareFieldMask(_ field: NSTextField) -> Bool {
 private func pressingField(_ owner: Any?, _ event: NSEvent, _ editor: NSView, _ track: () -> Void) {
     guard let node = owner as? NodeView else { return track() }
     if node.pressesUntracked(editor, event) { return }
-    node.tracksPointer(event, track)
+    guard let fields = node.presenter?.fieldSelections else { return node.tracksPointer(event, track) }
+    fields.pressing(node, event) { node.tracksPointer(event, track) }
 }
 /// The field editor selects the whole value as it takes a field, which is
 /// no `select` of the person's; a selection a script set while the field
