@@ -576,8 +576,12 @@ package final class Presenter {
         ].filter { !$0.isEmpty }
     }
 
-    /// The viewport's size in points: what the kernel lays out under.
-    var viewportSize: CGSize { viewport.contentSize }
+    /// The viewport's size in CSS px, its points over the page zoom
+    /// (ZoomMac.swift): what the kernel lays out under.
+    var viewportSize: CGSize {
+        let size = viewport.contentSize, zoom = viewport.magnification
+        return CGSize(width: size.width / zoom, height: size.height / zoom)
+    }
     /// The first root's frame size, zero before the first batch.
     var rootSize: CGSize { root.subviews.first?.frame.size ?? .zero }
     /// The page's canvas colour: the first root's background (white when unset).
@@ -657,7 +661,7 @@ package final class Presenter {
     /// Size the document to its roots, never smaller than the viewport.
     func fitDocument() {
         viewport.invalidateDocumentFit()
-        var size = viewport.contentSize
+        var size = viewportSize
         for r in root.subviews {
             // What overflows a root that does not clip is the document's (`content`).
             let v = r as? NodeView, extent = v.flatMap { $0.scroll == nil && !$0.overflowClips && !$0.isHidden ? $0.content : nil }

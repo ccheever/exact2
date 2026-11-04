@@ -124,8 +124,9 @@ package final class PageScrollView: NSScrollView {
               contentInsets.bottom == 0, contentInsets.right == 0,
               newSize.width.isFinite, newSize.height.isFinite,
               newSize.width > 0, newSize.height > 0 else { return }
-        let width = fit.clipSize.width + newSize.width - fit.frameSize.width
-        let height = fit.clipSize.height + newSize.height - fit.frameSize.height
+        // The clip is in CSS px, the frame in points: the change over the page zoom.
+        let width = fit.clipSize.width + (newSize.width - fit.frameSize.width) / magnification
+        let height = fit.clipSize.height + (newSize.height - fit.frameSize.height) / magnification
         guard width.isFinite, height.isFinite, width > 0, height > 0 else { return }
         var size = document.frame.size
         if size.width <= fit.clipSize.width, newSize.width < fit.frameSize.width {

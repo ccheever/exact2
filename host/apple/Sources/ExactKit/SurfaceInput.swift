@@ -218,7 +218,7 @@ extension NodeView {
 
 #if os(macOS)
 extension NodeView {
-    package var canvasScale: CGFloat { metal?.layer?.contentsScale ?? window?.backingScaleFactor ?? 1 }
+    package var canvasScale: CGFloat { metal?.layer?.contentsScale ?? pixelScale ?? 1 }
     package func focusCanvas() -> Bool {
         guard canvases?.wantsInput(id) == true, acceptsFirstResponder, let window else { return false }
         if window.firstResponder !== self { window.makeFirstResponder(self) }

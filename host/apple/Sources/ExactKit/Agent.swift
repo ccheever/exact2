@@ -52,7 +52,7 @@ public final class Agent {
             #if os(iOS) || os(tvOS)
             let reach = presenter.reach(of: node)
             #else
-            let reach = CGRect(origin: .zero, size: presenter.viewport.bounds.size)
+            let reach = CGRect(origin: .zero, size: presenter.viewportSize)
             #endif
             guard let fragment = fragments.first(where: { reach.contains(CGPoint(x: $0.midX, y: $0.midY)) }) ?? fragments.first else { return nil }
             bounds = fragment

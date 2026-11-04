@@ -781,7 +781,7 @@ final class RasterLoader {
     /// The view's device pixels per point.
     private static func displayScale(_ view: NodeView) -> CGFloat {
         #if os(macOS)
-        return view.window?.backingScaleFactor ?? 1
+        return view.pixelScale ?? 1
         #else
         return view.traitCollection.displayScale
         #endif
@@ -805,7 +805,7 @@ final class RasterLoader {
     /// for the size it paints. Before the metadata, the box's longest side.
     private func requestedPixel(_ view: NodeView, _ metadata: RasterMetadata?) -> Int {
         #if os(macOS)
-        let scale = view.window?.backingScaleFactor ?? 1
+        let scale = view.pixelScale ?? 1
         #else
         let scale = view.traitCollection.displayScale
         #endif

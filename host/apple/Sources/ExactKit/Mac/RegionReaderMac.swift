@@ -213,7 +213,7 @@ final class RegionReaderParagraph {
         let content = node.contentBox()
         let port = node.presenter?.textScrollportRect(node) ?? node.visibleRect
         guard !port.isEmpty else { return }
-        let scale = Int(node.window?.backingScaleFactor ?? 2)
+        let scale = Int((node.pixelScale ?? 2).rounded(.up))
         // Overscan within the existing pixel budget, always horizontally bounded
         // even when CSS normal lets a million-character word overflow.
         let top = (pointRequest == nil ? candidateTop : nil) ?? max(0, port.minY - content.minY)

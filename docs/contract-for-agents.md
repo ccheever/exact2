@@ -2956,9 +2956,9 @@ with no chord, so ⌘W reaches the page; declare `-exact-menu-remove="close-all"
 with it, or AppKit's Close All ⌥⌘W shows as a row of its own.
 `close-window=Meta+Shift+W` gives it ⇧⌘W instead: one `aria-keyshortcuts`
 chord with `Meta` that is not the host's or the system's own. View has Actual Size
-⌘0, Zoom In ⌘+ and Zoom Out ⌘-, which scale the root font size, the app's
-`setRootFontSize` included, and leave `px` as it is. See the grammar’s “The
-Mac’s menu bar”.
+⌘0, Zoom In ⌘+ and Zoom Out ⌘-, a page zoom as a browser's: the viewport,
+`px` and `rem` all follow it; an app's own zoom commands set it with
+`setPageZoom(factor)`. See the grammar’s “The Mac’s menu bar”.
 
 Two more presentations of a button reach past the window
 ([LLP 1133.025](../llp/1133.025-desktop.rfc.md) D4, D5). `dock` beside a menu
