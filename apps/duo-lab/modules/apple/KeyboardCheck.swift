@@ -29,6 +29,10 @@ private final class KeyboardCheck: NSObject, UINavigationControllerDelegate {
 
     func update(_ route: ExactRoute) {
         routes[ObjectIdentifier(route.controller)] = route
+        // PROTO (rule 4): a route that says `data-minimize="scroll-down"` minimizes its bar as its scroller scrolls down
+        if #available(iOS 27.0, *), route.data[.minimize] == "scroll-down" {
+            route.controller.navigationItem.navigationBarMinimization.minimizationBehavior = .onScrollDown
+        }
         guard route.data[.keyboardScreen] != nil else { return }
         let items = route.controller.navigationItem.rightBarButtonItems ?? []
         if items.contains(where: { $0.accessibilityIdentifier == "keyboard-record" }),

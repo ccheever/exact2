@@ -1,7 +1,9 @@
 // PROTO (rule 4, "Exact describes, UIKit drives"): a large title over a scroller, and boxes
 // that depend on the route's top edge, which moves as the title collapses: a chip at
 // `top: 12px`, a panel pinned to both edges, a narrower one capped at a height its room passes
-// partway through the collapse (not linear in the edge), and content centred in the route.
+// partway through the collapse (not linear in the edge), and content centred in the route. The
+// bar then minimizes as the list scrolls on (`data-minimize`, Duo Lab's route hook), which moves
+// the edge further, to the status bar.
 routes nav
   tab home "/"
     detail "/detail"
@@ -17,7 +19,7 @@ component EdgeFollow
         for t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
             for e in t.stack key=e.id
-              column navigationKey=`${e.id}` testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
+              column navigationKey=`${e.id}` testId=`route-${e.name}` hatch="keyboard-route" data-minimize="scroll-down" position="absolute" inset=0 display="flex" flex-direction="column"
                 header testId="header" display="flex" align-items="center" padding="8px 16px"
                   text "Edges" role="heading" aria-level=1
                 scroll testId="edge-scroll" flex=1 min-height=0

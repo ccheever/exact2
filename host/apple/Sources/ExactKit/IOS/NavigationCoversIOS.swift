@@ -117,10 +117,12 @@ extension NavigationHost {
                     let full = c.view.convert(bar.bounds, from: bar).minY + bar.sizeThatFits(CGSize(width: bar.bounds.width, height: .greatestFiniteMagnitude)).height + c.additionalSafeAreaInsets.top
                     if full > safe.top { safe.top = full }
                 }
-                // PROTO (rule 4, `EdgeFramesIOS.swift`): where the top edge rests, and whether a large title moves it
+                // PROTO (rule 4, `EdgeFramesIOS.swift`): where the top edge rests, and whether UIKit moves it: a large
+                // title collapsing, the bar minimizing as configured, or UIKit having moved it where the system decides
                 c.restingTop = safe.top
                 #if os(iOS)
-                if c.navigationItem.largeTitleDisplayMode == .always && !barless { presenter.movingTops.insert(c.node.id) } else { presenter.movingTops.remove(c.node.id) }
+                let moves = c.navigationItem.largeTitleDisplayMode == .always || Self.minimizes(c.navigationItem) || presenter.movedTops.contains(c.node.id)
+                if moves && !barless { presenter.movingTops.insert(c.node.id) } else { presenter.movingTops.remove(c.node.id) }
                 #endif
                 // PROTO (r2 §2.1): the bottom clearance is the part of the inset the block still overlaps (a block the
                 // keyboard ends above the bars has none), measured from the block, not the root laid out inside it.
@@ -255,6 +257,17 @@ extension NavigationHost {
         // An inspector's column coming in: its route's are told first, still (`tellStill`).
         tellStill(changes, owners) { if !$0.isEmpty || !$1.isEmpty { presenter.onCovers?($0, $1) } }
     }
+
+    #if os(iOS)
+    /// PROTO (rule 4): whether `item`'s bar is configured to minimize as its scroller scrolls with the safe area
+    /// following it (`UIBarMinimization`). Under `.automatic` the system decides, and measured on an iPhone 18 Pro and
+    /// the open Duo it minimizes nothing; a route UIKit moves anyway is caught at its first move (`placeEdge`).
+    static func minimizes(_ item: UINavigationItem) -> Bool {
+        guard #available(iOS 27.0, *) else { return false }
+        let minimization = item.navigationBarMinimization
+        return minimization.safeAreaAdjustment != .disabled && [.onScrollDown, .onScrollUp].contains(minimization.minimizationBehavior)
+    }
+    #endif
 
     /// Whether the kernel pads `c`'s top by its cover (`reportCovers`): a
     /// route whose title's scroller goes under the bar keeps its top cover,

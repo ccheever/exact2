@@ -1,5 +1,5 @@
 // PROTO (rule 4, "Exact describes, UIKit drives"; notes `design/rule4-proto.md`). A route
-// whose top edge moves (a large title collapsing) has the boxes that depend on that edge
+// whose top edge moves (a large title collapsing, the bar minimizing) has the boxes that depend on that edge
 // laid out a second time by the kernel, with the edge at the block's top
 // (`Kernel::trial_clearance_frames`), and each such box arrives with both frames (`far`
 // ops). UIKit moves the edge; in its own pass for the route's controller
@@ -41,7 +41,11 @@ extension Presenter {
     /// as far as UIKit has moved the edge from its resting place (`restingTop`) toward the
     /// block's top.
     func placeEdge(_ c: RouteController) {
-        guard let frames = edgeFrames[c.node.id], !frames.isEmpty, c.restingTop > 0, c.viewIfLoaded?.window != nil else { return }
+        guard c.restingTop > 0, c.viewIfLoaded?.window != nil else { return }
+        guard let frames = edgeFrames[c.node.id], !frames.isEmpty else {
+            noteUnforeseenMove(c)
+            return
+        }
         let t = Double(min(1, max(0, (c.restingTop - c.view.safeAreaInsets.top) / c.restingTop)))
         guard t != c.placedEdge else { return }
         c.placedEdge = t
@@ -58,6 +62,18 @@ extension Presenter {
             applyGeometry(op)
         }
         regridMoved()
+    }
+
+    /// Registers `c`'s route as one whose top edge moves when UIKit has moved the edge outside a transition though
+    /// nothing configured says it would (a bar minimizing under `.automatic`, where the system decides): its boxes
+    /// follow from the far pass that registration owes, measured 0.7 to 5.5 ms after this first move on an iPhone 18 Pro (five runs).
+    private func noteUnforeseenMove(_ c: RouteController) {
+        let id = c.node.id
+        guard !movingTops.contains(id), c.transitionCoordinator == nil, c.view.safeAreaInsets.top < c.restingTop - 0.5 else { return }
+        movedTops.insert(id)
+        movingTops.insert(id)
+        deliveredMovingTops.insert(id)
+        onMovingTops?([(id, true)])
     }
 
     /// Whether `v`, or a box holding it under `root`, reaches the top edge.
