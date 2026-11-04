@@ -1,6 +1,6 @@
 # Agent resources
 
-Give your coding agent these docs, or let it read any page as Markdown.
+Each section below is one way for an agent to read or use these docs, with the command, URL or header it needs.
 
 ## Start prompt
 

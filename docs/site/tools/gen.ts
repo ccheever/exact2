@@ -3,7 +3,7 @@ import { createHighlighter } from 'shiki';
 import { execSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, normalize, relative, resolve } from 'node:path';
-import { sections, type NavPage } from '../constants/navigation.ts';
+import { agentRows, sections, type NavPage } from '../constants/navigation.ts';
 import { redirects } from '../constants/redirects.ts';
 
 const SITE = resolve(import.meta.dir, '..');
@@ -387,13 +387,23 @@ const dateOf = (source: string) => {
 const none: Link = { title: '', href: '' };
 const prompt = (url: string) => encodeURIComponent(`Read this documentation page, so I can ask questions about it:\n\n${url}`);
 const listed = pages.filter(p => !p.hidden);
+const firstPage = (section: (typeof sections)[number]) => section.pages.find(p => !p.hidden && !p.landing);
+const AGENT_INTRO = 'Give your coding agent these docs, or let it read any page as Markdown.';
+const agentLinks = agentRows.map((r, i) => ({ id: `${i}`, title: r.title, detail: r.detail, href: `/agents#${r.anchor}` }));
+// The home page's cards and agent rows, which its HTML draws from nav, written into its Markdown too.
+const homeMarkdown = () => {
+  const md = (path: string, anchor = '') => `${ORIGIN}${path === '/' ? '/index' : path}.md${anchor ? `#${anchor}` : ''}`;
+  const cards = sections.filter(s => s.card && firstPage(s)).map(s => `- [${s.card!.title}](${md(firstPage(s)!.path)}): ${s.card!.description}`);
+  const rows = agentRows.map(r => `- [${r.title}](${md('/agents', r.anchor)}): ${r.detail}.`);
+  return `\n## Explore the docs\n\n${cards.join('\n')}\n\n## For AI agents\n\n${AGENT_INTRO} [See all agent resources](${md('/agents')}).\n\n${rows.join('\n')}\n`;
+};
 pages.forEach(page => {
   const i = listed.indexOf(page);
   const { blocks, toc } = render(page);
   const markdownPath = page.path === '/' ? '/index.md' : `${page.path}.md`;
   const markdownUrl = ORIGIN ? ORIGIN + markdownPath : `${GITHUB}/docs/${page.source}`;
   const markdown = markdownOf(page.tokens, page.source);
-  writeFileSync(join(MARKDOWN, `${page.route}.md`), `${page.tocDepth === 3 ? `# ${page.title}\n\n` : ''}${markdown.replace(/^## .*\n+/, '')}\n`);
+  writeFileSync(join(MARKDOWN, `${page.route}.md`), `${page.tocDepth === 3 ? `# ${page.title}\n\n` : ''}${markdown.replace(/^## .*\n+/, '')}\n${page.route === 'home' ? homeMarkdown() : ''}`);
   const data = {
     slug: page.route,
     section: sections.find(x => x.pages.some(n => n.source === page.source))?.title ?? '',
@@ -419,10 +429,12 @@ pages.forEach(page => {
 
 const nav = {
   year: `${new Date().getUTCFullYear()}`,
+  agentIntro: AGENT_INTRO,
+  agents: agentLinks,
   groups: sections.filter(section => section.pages.some(p => !p.hidden && !p.landing)).map((section, g) => ({
     id: `${g}`,
     title: section.title,
-    card: { id: `${g}`, title: section.card?.title ?? section.title, href: section.pages.find(p => !p.hidden && !p.landing)!.path, route: section.pages.find(p => !p.hidden && !p.landing)!.route, depth: 0, description: section.card?.description ?? '', parent: '', children: 0 },
+    card: { id: `${g}`, title: section.card?.title ?? '', href: section.card ? firstPage(section)!.path : '', route: firstPage(section)!.route, depth: 0, description: section.card?.description ?? '', parent: '', children: 0 },
     items: section.pages.filter(p => !p.hidden && !p.landing).flatMap(p => {
       const doc = bySource.get(p.source)!;
       const own = pages.filter(x => x.source === p.source);

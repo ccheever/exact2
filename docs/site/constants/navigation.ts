@@ -37,12 +37,6 @@ export const sections: NavSection[] = [
         source: 'start-here.md',
         description: 'Build an app with Exact: the idea, the workflow, and the one screen every app starts from.',
       },
-      {
-        route: 'agents',
-        path: '/agents',
-        source: 'site/pages/agents.md',
-        description: 'Give your coding agent these docs, or let it read any page as Markdown.',
-      },
     ],
   },
   {
@@ -412,4 +406,25 @@ export const sections: NavSection[] = [
       },
     ],
   },
+  {
+    title: 'For AI agents',
+    pages: [
+      {
+        route: 'agents',
+        path: '/agents',
+        source: 'site/pages/agents.md',
+        description: 'Give your coding agent these docs, or let it read any page as Markdown.',
+      },
+    ],
+  },
+];
+
+// The home page's For AI agents rows, in its HTML and its Markdown. Each opens a section of pages/agents.md.
+export const agentRows: { title: string; detail: string; anchor: string }[] = [
+  { title: 'Start prompt', detail: 'The one file to read first', anchor: 'start-prompt' },
+  { title: 'Markdown pages', detail: 'Add .md to any page URL', anchor: 'markdown-pages' },
+  { title: 'llms.txt', detail: 'Every page in one index', anchor: 'llmstxt' },
+  { title: 'Open in your agent', detail: 'Claude, ChatGPT, Cursor, Codex', anchor: 'open-in-your-agent' },
+  { title: 'Terminal lookups', detail: "Answers from an app's folder", anchor: 'terminal-lookups' },
+  { title: 'Feedback', detail: 'Report an error in a page', anchor: 'feedback' },
 ];

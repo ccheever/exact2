@@ -99,9 +99,17 @@ shape NavGroup
   card: NavItem
   items: NavItem[]
 
+shape AgentLink
+  id: string
+  title: string
+  detail: string
+  href: string
+
 shape Nav
   groups: NavGroup[]
   year: string
+  agentIntro: string
+  agents: AgentLink[]
 
 shape Moved
   to: string
