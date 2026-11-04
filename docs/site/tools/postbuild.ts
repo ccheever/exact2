@@ -85,11 +85,10 @@ for (const p of pages) {
 copyFileSync(resolve(SITE, '../../assets/brand/exact-mark.svg'), join(DIST, 'favicon.svg'));
 const FAVICON = '<link rel="icon" href="/favicon.svg" type="image/svg+xml">';
 
-// A reader's stored theme and sidebar, applied before first paint: the runtime starts at idle and would
-// apply them a frame late. The keys and values are persisted state's (host/web-js/persist.js), and the
-// theme is applied as `setScheme` applies it.
+// apply stored preferences before first paint; sidebar overrides expire when the runtime has mounted.
+// the keys are persisted state's (host/web-js/persist.js); theme follows `setScheme`.
 const BASE = '<base href="/">';
-const PREPAINT = `${BASE}<script>try{let g=k=>JSON.parse(localStorage.getItem("exact.state."+k)),t=g("theme"),e=document.documentElement;if(t=="light"||t=="dark")e.style.colorScheme=t;if(g("sidebar")===false)e.dataset.sidebar="hidden"}catch{}</script><style>[data-sidebar=hidden] [data-testid=sidebar-shown]{width:0!important;visibility:hidden}[data-sidebar=hidden] [data-testid=sidebar-rail]{width:clamp(0px,(100vw - 960px)*1000,48px)!important}</style>`;
+const PREPAINT = `${BASE}<script>try{let g=k=>JSON.parse(localStorage.getItem("exact.state."+k)),t=g("theme"),e=document.documentElement;if(t=="light"||t=="dark")e.style.colorScheme=t;if(g("sidebar")===false)e.dataset.sidebar="hidden"}catch{}</script><style>[data-sidebar=hidden] #exact-root:not([data-boot-ms]) [data-testid=sidebar-shown]{width:0!important;visibility:hidden}[data-sidebar=hidden] #exact-root:not([data-boot-ms]) [data-testid=sidebar-rail]{width:calc(48px - clamp(0px,(960px - 100vw)*1000,48px))!important}</style>`;
 
 const json = (value: unknown) => JSON.stringify(value).replace(/</g, '\\u003c');
 function structuredData(p: Page): object {
