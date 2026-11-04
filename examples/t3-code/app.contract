@@ -158,6 +158,11 @@ component T3Code
     renameHoldsKeys
     renameFocused
     inlineDocumentViewportWidth
+    sidebarSheetMode // the sidebar as a sheet under 768 CSS px, its open state and its setter (beside narrowDiff)
+    sidebarSheetShown
+    sidebarInline
+    sidebarVisible
+    sidebarSheetSet
     inlineDocumentViewportHeight
     inlineDocumentShortcut
     richPromptPreview
@@ -400,7 +405,7 @@ component T3Code
   state usageDays = 0
   state usageBreakdown = "model"
   state usageRefresh = 0
-  resource usage = usagePage(utilityPage == "usage", usageMetric, usageDays, usageBreakdown, usageRefresh, viewport.width, data.sidebarOpen ? sidebarWidth : 0, wallTime.epochAtZero + elapsed, data.revision) as shape UsageView
+  resource usage = usagePage(utilityPage == "usage", usageMetric, usageDays, usageBreakdown, usageRefresh, viewport.width, sidebarInline ? sidebarWidth : 0, wallTime.epochAtZero + elapsed, data.revision) as shape UsageView
   resource usageShortcuts = usageKeys(data.revision) as shape UsageKey[]
   action usageMetricSet(value: string)
     usageMetric = value
@@ -865,7 +870,7 @@ component T3Code
   // edit releases it (modifierKey, write); a collapsed sidebar shows no notice, so the composer keeps its own undo.
   state undoReleasedUntil = 0
   state undoHeldKey = ""
-  derive undoClaimed = data.sidebarOpen and data.sidebar.undoUntil > undoReleasedUntil
+  derive undoClaimed = sidebarVisible and data.sidebar.undoUntil > undoReleasedUntil
   action releaseUndoClaim
     if data.sidebar.undoUntil > undoReleasedUntil
       undoReleasedUntil = data.sidebar.undoUntil
@@ -953,13 +958,24 @@ component T3Code
   resource sidebarLaunch = sidebarLaunchWidth(viewport.width, data.revision) as shape number // threadSidebarWidth.ts (sidebar-width.ts): no stored width sizes the sidebar once at load
   derive sidebarWidth = draggedWidth == 0 and sidebarLaunch > 0 ? sidebarLaunch : min(max(max(208, data.sidebarMinWidth), draggedWidth > 0 ? draggedWidth : data.sidebarWidth), max(max(208, data.sidebarMinWidth), viewport.width - 640)) // a stored width: at least the minimum (13rem, or the brand at the Interface font size: sidebar-min-width.ts), leaving 40rem of main content
   derive narrowDiff = viewport.width <= 980
+  // ui/sidebar.tsx SIDEBAR_MOBILE_QUERY (max-width: 767px): under 768 CSS px the sidebar leaves the row and opens as a
+  // sheet over the window, whose open state (openMobile) is its own, starts closed and outlives a wider window in
+  // between. The reference's View zoom scales its CSS px, so the window counts at the zoom: one Zoom In at the 840pt
+  // minimum width is under the breakpoint.
+  derive sidebarSheetMode = viewport.width < 768 * zoomFactor(zoomStep)
+  state sidebarSheetOpen = false
+  derive sidebarSheetShown = sidebarSheetMode and sidebarSheetOpen
+  derive sidebarInline = data.sidebarOpen and not sidebarSheetMode
+  derive sidebarVisible = sidebarSheetMode ? sidebarSheetOpen : data.sidebarOpen // useSidebarVisibility
+  action sidebarSheetSet(open: bool)
+    sidebarSheetOpen = open
   state diffUserWidth = 540
-  derive diffWidth = narrowDiff ? (viewport.width <= 760 ? min(viewport.width * 0.88, 384) : min(448, max(320, viewport.width * 0.42))) : max(360, min(diffUserWidth, min(floor(viewport.width * 0.7), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 360)))
+  derive diffWidth = narrowDiff ? (viewport.width <= 760 ? min(viewport.width * 0.88, 384) : min(448, max(320, viewport.width * 0.42))) : max(360, min(diffUserWidth, min(floor(viewport.width * 0.7), viewport.width - (sidebarInline ? sidebarWidth : 0) - 360)))
   action resizeDiff(dx: number, dy: number)
-    diffUserWidth = max(360, min(diffWidth - dx, min(floor(viewport.width * 0.7), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 360)))
+    diffUserWidth = max(360, min(diffWidth - dx, min(floor(viewport.width * 0.7), viewport.width - (sidebarInline ? sidebarWidth : 0) - 360)))
   action finishDiffResize(vx: number, vy: number)
     diffUserWidth = diffWidth
-  derive conversationWidth = viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - ((data.diffOpen or rightPanel or shell.panel.open) and not narrowDiff ? diffWidth : 0)
+  derive conversationWidth = viewport.width - (sidebarInline ? sidebarWidth : 0) - ((data.diffOpen or rightPanel or shell.panel.open) and not narrowDiff ? diffWidth : 0)
   members "./src/composer/composer-controls-members.contract"
   members "./src/settings/settings-members.contract"
   action editOrigin(value: string) // the window's half fills the credential from a pasted pairing URL
@@ -1181,7 +1197,10 @@ component T3Code
       if name == "sidebar.toggle"
         // The sidebar owns its button chord, so keyboardDispatch has no row for it.
         if not modal and not paletteOpen and not settingsOpen
-          command("sidebar", "", data.sidebarOpen ? "closed" : "open", 0)
+          if sidebarSheetMode
+            sidebarSheetOpen = not sidebarSheetOpen
+          else
+            command("sidebar", "", data.sidebarOpen ? "closed" : "open", 0)
       else
         let candidates = shortcuts.filter((item) => item.command == name)
         match candidates.at(0)

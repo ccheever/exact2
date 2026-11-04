@@ -59,6 +59,7 @@ use DialogFinalFocus from "../shared/dialog-trap.contract"
 // The conversation column: header, transcript (or the empty thread), composer stack and alerts.
 component ChatColumn
   inject
+    sidebarInline: bool // the sidebar is in the row, not the narrow window's sheet (app.contract)
     frameMoved: action
     workspaceEntered: action // the workspace areas F6 moves between (shell-members.contract)
     threadFind: ThreadFindView
@@ -360,7 +361,7 @@ component ChatColumn
               SubagentBar(data=data, busy=commandPending, openParent=selectThread, command=command)
             else
               ComposerEditorDock(editor=editor, dark=(scheme == "dark"), op=editorOp)
-              ComposerCard(editor=editor, data=data, viewportWidth=((data.sidebarOpen ? sidebarWidth : 0) + conversationWidth), text=composerText, busy=commandPending, keyModels=settings.keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, stop=stop, onFocus=composerFocus, onBlur=composerBlur, openModels=openModels, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=askRemove, interaction=interaction, command=command, openProviders=openProviderSettings, contextOver=contextOver, urls=attachmentUrls.items)
+              ComposerCard(editor=editor, data=data, viewportWidth=((sidebarInline ? sidebarWidth : 0) + conversationWidth), text=composerText, busy=commandPending, keyModels=settings.keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, stop=stop, onFocus=composerFocus, onBlur=composerBlur, openModels=openModels, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=askRemove, interaction=interaction, command=command, openProviders=openProviderSettings, contextOver=contextOver, urls=attachmentUrls.items)
               if branches.show
                 ComposerStrip(strip=branches, open=optionsOpen, busy=commandPending, openOptions=openOptions, command=command, wide=(stackWidth >= 36 * rem), compact=data.composer.stripCompact, composer=data.composer)
               if data.composer.detachedNotices.length > 0
@@ -406,6 +407,7 @@ component ChatColumn
 // The right panel beside the chat on a wide window: the diff, or the surface chooser.
 component RightPanels
   inject
+    sidebarInline: bool
     workspaceEntered: action // the workspace areas F6 moves between (shell-members.contract)
   props
     data: Snapshot
@@ -459,14 +461,18 @@ component RightPanels
   view
     box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=((data.diffOpen or rightPanel) and not narrowDiff ? 2 : 1) height=1 opacity=0 pointer-events="none"
     if data.diffOpen and not narrowDiff
-      box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0 focusin=entered focusout=left id="workspace-panel" tabindex=-1 role="region" aria-label="Workspace panel"
+      box width=(rightMaximized ? viewport.width - (sidebarInline ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0 focusin=entered focusout=left id="workspace-panel" tabindex=-1 role="region" aria-label="Workspace panel"
         DiffPanel(data=data, shell=shell, command=command, close=panelUi("close", ""), ui=panelUi, maximized=rightMaximized, resize=resizeDiff, finishResize=finishDiffResize, scheme=scheme, sheet=false, detailsOpen=detailsOpen, details=detailsAct, local=chatLocal)
     if rightPanel and not data.diffOpen and not narrowDiff
-      box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0 focusin=entered focusout=left id="workspace-panel" tabindex=-1 role="region" aria-label="Workspace panel"
-        SurfacePanel(shell=shell, resize=resizeDiff, finishResize=finishDiffResize, sheet=false, maximized=rightMaximized, detailsOpen=detailsOpen, still=viewport.prefersReducedMotion, ui=panelUi, details=detailsAct, local=chatLocal, command=command, paletteShow=paletteShow, scheme=scheme, prDetail=prDetail, prDocuments=prDocuments, filesDocuments=filesDocuments, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, look=data.look, confirm=confirm, closePending=closePending, width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth))
+      box width=(rightMaximized ? viewport.width - (sidebarInline ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0 focusin=entered focusout=left id="workspace-panel" tabindex=-1 role="region" aria-label="Workspace panel"
+        SurfacePanel(shell=shell, resize=resizeDiff, finishResize=finishDiffResize, sheet=false, maximized=rightMaximized, detailsOpen=detailsOpen, still=viewport.prefersReducedMotion, ui=panelUi, details=detailsAct, local=chatLocal, command=command, paletteShow=paletteShow, scheme=scheme, prDetail=prDetail, prDocuments=prDocuments, filesDocuments=filesDocuments, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, look=data.look, confirm=confirm, closePending=closePending, width=(rightMaximized ? viewport.width - (sidebarInline ? sidebarWidth : 0) : diffWidth))
 
 // The utility pages (Usage, Pull Requests) and the no-environment/no-projects landing over the main view.
 component PagesCover
+  inject
+    sidebarInline: bool
+    sidebarVisible: bool
+    sidebarSheetShown: bool
   props
     pageCover: bool
     // The window's count of presses outside the page (T3Window), for the Usage page's light dismiss.
@@ -523,8 +529,8 @@ component PagesCover
   state prMaximized = false
   action maximizePr(on: bool)
     prMaximized = on
-  derive prPanelWidth = prMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : min(floor(viewport.width / 2), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 224)
-  derive prListWidth = viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - (prSelected != "" and prPanelOpen ? prPanelWidth : 0)
+  derive prPanelWidth = prMaximized ? viewport.width - (sidebarInline ? sidebarWidth : 0) : min(floor(viewport.width / 2), viewport.width - (sidebarInline ? sidebarWidth : 0) - 224)
+  derive prListWidth = viewport.width - (sidebarInline ? sidebarWidth : 0) - (prSelected != "" and prPanelOpen ? prPanelWidth : 0)
   state usageClosing = ""
   derive usageConfirmOpen = usage.pooled.confirm != "" and usageClosing != usage.pooled.confirm
   action usageCommand(op: string, id: string, value: string, n: number)
@@ -535,12 +541,12 @@ component PagesCover
     command(op, id, value, n)
   view
     if pageCover
-      box position="absolute" left=(data.sidebarOpen ? sidebarWidth : 0) top=0 right=0 bottom=0 inert=(modal or utilityPage == "usage") testId="pages-cover"
+      box position="absolute" left=(sidebarInline ? sidebarWidth : 0) top=0 right=0 bottom=0 inert=(modal or utilityPage == "usage" or sidebarSheetShown) testId="pages-cover"
         if utilityPage == "pull-requests"
           row position="absolute" left=0 top=0 right=0 bottom=0
             PrGuideMaximize(opened=(prSelected != "" and prPanelOpen), ready=(prTab == "guide" and prDetail.guide.enabled and prDetail.guide.hasGuide), change=maximizePr)
             column flex=1 min-width=0 height="100%" display=(prMaximized ? "none" : "flex")
-              PrList(controlsLeft=data.controlsLeft, page=prList, scheme=scheme, query=(prTyped ? prQuery : prList.query), sidebarOpen=data.sidebarOpen, narrow=(prListWidth < 512), compact=(prListWidth < 428), panelOpen=(prSelected != "" and prPanelOpen), togglePanel=prTogglePanel, search=prType, control=prControl, select=prSelect, reload=prReload, addProject=paletteShow("command", "add-project"), act=prAct, back=pageBack)
+              PrList(controlsLeft=data.controlsLeft, page=prList, scheme=scheme, query=(prTyped ? prQuery : prList.query), sidebarOpen=sidebarInline, narrow=(prListWidth < 512), compact=(prListWidth < 428), panelOpen=(prSelected != "" and prPanelOpen), togglePanel=prTogglePanel, search=prType, control=prControl, select=prSelect, reload=prReload, addProject=paletteShow("command", "add-project"), act=prAct, back=pageBack)
             if prSelected != "" and prPanelOpen
               PrPanel(detail=prDetail, documents=prMarkdown.documents, scheme=scheme, width=prPanelWidth, tab=prTab, setTab=prSetTab, close=prClose, reload=prReload, act=prAct, copy=prCopy, still=viewport.prefersReducedMotion, select=prSelect, compact=(prPanelWidth < 480), back=pageBack, local=chatLocal)
             if prSelected != "" and prPanelOpen
@@ -550,10 +556,10 @@ component PagesCover
               PgIcon(name="panel-right", size=16, color="light-dark(#71717b, #a1a1a1)")
         // A landing stays drawn under the Usage modal opened from it.
         if utilityPage == "" or (utilityPage == "usage" and (home.landing == "no-environment" or home.landing == "no-projects" or home.landing == "start-error" or home.landing == "no-thread"))
-          PagesLanding(controlsLeft=data.controlsLeft, home=home, scheme=scheme, sidebarOpen=data.sidebarOpen, busy=commandPending, command=command, addProject=paletteShow("command", "add-project"), openConnections=openConnectionsPage)
+          PagesLanding(controlsLeft=data.controlsLeft, home=home, scheme=scheme, sidebarOpen=sidebarInline, busy=commandPending, command=command, addProject=paletteShow("command", "add-project"), openConnections=openConnectionsPage)
     // The main sidebar trigger is drawn here, whatever the page: after the chat and the page in paint and Tab order,
     // under the dialogs below, which cover the whole window as the reference's portaled dialogs cover SidebarControl.
-    SidebarToggle(open=data.sidebarOpen, controlsLeft=data.controlsLeft, keySidebar=settings.keySidebar, shortcut=sidebarShortcut, inert=(toggleInert or (pageCover and utilityPage == "usage") or prDetail.actions.stack.dialogOpen), toggle=toggleSidebar)
+    SidebarToggle(open=sidebarVisible, controlsLeft=data.controlsLeft, keySidebar=settings.keySidebar, shortcut=sidebarShortcut, inert=(toggleInert or sidebarSheetShown or (pageCover and utilityPage == "usage") or prDetail.actions.stack.dialogOpen), toggle=toggleSidebar)
     // Usage opens as the large modal over the page that opened it (AppRouteModal label "Usage", 3faeb9e6f9 #24847).
     if pageCover and utilityPage == "usage"
       AppRouteModal(label="Usage", modalId="usage-modal", viewportWidth=viewport.width, canvas="light-dark(#fcfcfc, #000000)", border="light-dark(#e4e4e7, #ffffff14)", backdrop="light-dark(#fcfcfc99, #000000a3)", inert=modal, first="usage-environment", last="close-usage", close=pageBack)

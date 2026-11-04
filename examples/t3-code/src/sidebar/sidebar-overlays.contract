@@ -36,6 +36,8 @@ component SidebarOverlays
     data: Snapshot
     width: number
     open: bool
+    // The sidebar is in the row, not the narrow window's sheet, whose rail cannot resize (resolveSidebarResizable).
+    resizable: bool
     busy: bool
     local: action
     run: action
@@ -70,7 +72,7 @@ component SidebarOverlays
       focus(data.sidebar.dialogReturn)
   view
     // The 16pt full-height resize rail over the sidebar's edge (sidebar-rail.contract).
-    if open
+    if open and resizable
       SidebarWindowRail(width=width, hovered=(hoverId == "sidebar-rail"), line=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #262626)"), fill=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #1d1d1d)"), resize=resize, finishResize=finishResize, resetWidth=resetWidth, hoverCard=hoverCard)
     // The lifted row rides above every shelf (the list keeps its empty slot).
     if dragId != "" and dragTarget != "context"

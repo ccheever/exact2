@@ -70,6 +70,7 @@ const GUARDED: Record<string, string> = {
   'scheduled-deliveries.contract "webhook-deliveries-dialog"': 'webhook-deliveries',
   'snapshot.contract "snapshot-setup-dialog"': 'snapshot-setup',
   'ssh-prompt.contract "ssh-password-dialog"': 'ssh-password',
+  'sidebar-sheet.contract "sidebar-sheet"': 'sidebar-sheet',
   'timeline-attachments.contract "image-preview"': 'image-preview',
   'timeline-mermaid.contract "diagram-preview"': 'diagram-preview',
   'timeline-plan.contract "plan-save-dialog"': 'plan-save',
@@ -544,6 +545,7 @@ describe('every modal dialog gives focus back through a surviving observer or it
     'pages-pr-stack.contract "pr-stack-dialog"': ['pages-pr-actions.contract', ['pr-stack-dialog']],
     'usage-bars.contract "reset-credit-dialog"': ['app-overlays.contract', ['reset-credit-dialog']],
     'update-everything.contract "update-everything-confirm"': ['sidebar-overlays.contract', ['update-everything-confirm']],
+    'sidebar-sheet.contract "sidebar-sheet"': ['app-window.contract', ['sidebar-sheet']],
   };
   const own: Record<string, [string, string]> = {
     // AppRouteModal's finalFocus={false}: closing leaves the focus where it is, blurred first (the close button's leave).

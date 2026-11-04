@@ -59,7 +59,8 @@ use ChipPopover, ChipPopoverLayer, ChipPopoverEscape from "../composer/composer-
 use CitationCommentLayer from "../timeline/citation-comment.contract" // a citation chip's comment
 use CiteAction, CiteOffer, citeHeldOffer, citeLineFrame, citeLineShown, citeRestored from "../timeline/diff-cite.contract" // Cite over the timeline
 use AppConfirm from "./shell-panels.contract"
-use DialogFocusFrame, dialogFrame, dialogReturn, dialogBack, dialogLineage from "../shared/dialog-trap.contract"
+use DialogFocusFrame, dialogFrame, dialogReturn, dialogBack, dialogLineage, DialogFinalFocus from "../shared/dialog-trap.contract"
+use SidebarSheet from "../sidebar/sidebar-sheet.contract"
 use PromptLinkPage, PromptLinkView from "../prompt-links/prompt-links.contract"
 use QuitHoldOverlay, quitTypesLatin from "./quit-hold.contract"
 use composerChordKey from "../composer/composer-keys.contract"
@@ -82,6 +83,12 @@ component T3Window
     navigationHistory: NavigationHistory // the steps historyGo takes, which the root offers alone (`historyWays`)
     confirmationFocused: action // the confirmation that holds the focus, for the window's chords (shell-members.contract)
     confirmationClosed: action
+    // The sidebar in the row, or as the narrow window's sheet, and whether it shows (app.contract).
+    sidebarInline: bool
+    sidebarVisible: bool
+    sidebarSheetMode: bool
+    sidebarSheetShown: bool
+    sidebarSheetSet: action
   props
     releaseUndoClaim: action // ⌘B and the sidebar search release the undo notice's claim (app.contract)
     promptLinkPage: PromptLinkView
@@ -672,7 +679,7 @@ component T3Window
   // The history swipe's edge arrow (history-swipe.contract), over the main content beside the sidebar.
   state historySwipe: HistorySwipe = historySwipeIdle()
   action historySwiped(e: HistorySwipeEvent)
-    let left = data.sidebarOpen ? sidebarWidth : 0
+    let left = sidebarInline ? sidebarWidth : 0
     historySwipe = historySwipeStep(historySwipe, e, left, viewport.width - left, viewport.height)
   // Primary presses anywhere in the window outside the Usage page (which takes its
   // own, pages-usage.contract pressDown), counted as they end; a pinned usage popover closes on one, as
@@ -714,7 +721,7 @@ component T3Window
     // outside it, as Base UI's outside press. Its backdrop takes the column's presses and the terminal drawer's under it,
     // the floating player its own (detailsPlayerPointer); a press beside the column (the sidebar, the right panel) closes
     // it here. Over a right panel sheet the popover is the window's, whose backdrop takes every press.
-    if detailsOpen and not detailsSheet and e.buttons == 1 and (e.clientX < (data.sidebarOpen ? sidebarWidth : 0) or e.clientX >= (data.sidebarOpen ? sidebarWidth : 0) + conversationWidth)
+    if detailsOpen and not detailsSheet and e.buttons == 1 and (e.clientX < (sidebarInline ? sidebarWidth : 0) or e.clientX >= (sidebarInline ? sidebarWidth : 0) + conversationWidth)
       detailsAct("dismiss", "", "")
   // The floating player lies above the popover's backdrop: a primary press on it (its pill buttons, its screen, its resize
   // edges) is outside the popover and closes it (ChatColumn's players' pointerdown and pointerup). It closes as the press
@@ -871,7 +878,7 @@ component T3Window
   state dragSettledY = 0
   derive dragCX = dragX0 + dragW / 2 + dragDx
   derive dragCY = dragY0 + dragH / 2 + dragDy
-  derive dragTarget = dragId == "" ? "" : (dragCX > sidebarWidth ? "context" : dragSection == "working" ? "" : (dragSettledY > 0 and dragCY >= dragSettledY ? "settled" : (dragSnoozedY > 0 and dragCY >= dragSnoozedY ? "snoozed" : (dragWorkingY > 0 and dragCY >= dragWorkingY ? "working" : (dragCY < dragDividerY + 36 ? "pinned" : "active")))))
+  derive dragTarget = dragId == "" ? "" : (dragCX > (sidebarSheetShown ? sidebarSheetWidth : sidebarWidth) ? "context" : dragSection == "working" ? "" : (dragSettledY > 0 and dragCY >= dragSettledY ? "settled" : (dragSnoozedY > 0 and dragCY >= dragSnoozedY ? "snoozed" : (dragWorkingY > 0 and dragCY >= dragWorkingY ? "working" : (dragCY < dragDividerY + 36 ? "pinned" : "active")))))
   derive dragVerb = (dragTarget == "" or dragTarget == dragSection or dragTarget == "working" or dragTarget == "snoozed" or dragTarget == "context") ? "" : (dragTarget == "pinned" ? "pin" : (dragTarget == "settled" ? "settle" : (dragSection == "pinned" ? "unpin" : (dragSection == "settled" ? "unsettle" : "wake"))))
   // A Working row follows live status: it drags out only as chat context, never between shelves, so the list
   // neither lifts it nor opens the drop labels (Sidebar.tsx isContextDrag).
@@ -887,17 +894,50 @@ component T3Window
     sidebarFocused = inside
   action toggleSidebar
     releaseUndoClaim() // ⌘B is another key: ⌘Z goes back to the fields (ThreadUndoShortcut)
-    if data.sidebarOpen and not settingsOpen and sidebarFocused
-      sidebarFocused = false
-      focus("sidebar-trigger")
-    command("sidebar", "", data.sidebarOpen ? "closed" : "open", 0)
+    if sidebarSheetMode
+      sidebarSheetSet(not sidebarSheetShown)
+    else
+      if data.sidebarOpen and not settingsOpen and sidebarFocused
+        sidebarFocused = false
+        focus("sidebar-trigger")
+      command("sidebar", "", data.sidebarOpen ? "closed" : "open", 0)
+  // The narrow window's sheet (sidebar-sheet.contract): its laid-out width, which the overlays beside it follow.
+  state sidebarSheetWidth = 0
+  action sidebarSheetMeasured(width: number, height: number)
+    sidebarSheetWidth = width
+  // The sheet closes as its sidebar goes somewhere (Sidebar.tsx, SidebarChrome.tsx: `if (isMobile) setOpenMobile(false)`):
+  // a thread or draft opened (not a ⌘ or ⇧ selection), a new thread, Settings, Pull requests, Usage, Back, Home and a
+  // project's settings.
+  action sheetOpenThread(id: string, how: string)
+    if how == "click" or how == "search"
+      sidebarSheetSet(false)
+    openThread(id, how)
+  action sheetNewThread(e: MouseEvent)
+    sidebarSheetSet(false)
+    sidebarNewThread(e)
+  action sheetOpenSettings
+    sidebarSheetSet(false)
+    openSettings()
+  action sheetNavigate(name: string)
+    sidebarSheetSet(false)
+    openPage(name)
+  // ⌘B under Settings or Usage (keyboard-dispatch.ts sidebarRow) toggles the sheet in a narrow window, as the button does.
+  action shortcutCommand(op: string, id: string, value: string, n: number)
+    if op == "sidebar" and sidebarSheetMode
+      sidebarSheetSet(not sidebarSheetShown)
+    else
+      dispatchCommand(op, id, value, n)
+  action sheetRun(op: string, id: string, value: string)
+    if op == "home" or op == "open-draft" or op == "project-settings-group"
+      sidebarSheetSet(false)
+    sidebarRun(op, id, value)
   action finishResize(vx: number, vy: number)
     command("sidebar", "", "open", sidebarWidth)
   action search(value: string)
     releaseUndoClaim() // the sidebar search's edit hands ⌘Z back to the fields (ThreadUndoShortcut's input listener)
     command("search", "", value, 0)
   // The root rewrite: the composer's left edge, which only the view reads (moved from app.contract).
-  derive composerLeft = (data.sidebarOpen ? sidebarWidth : 0) + (canvas.ready ? canvas.left : (conversationWidth - min(data.look.chatMax, conversationWidth - 2.5 * data.look.fontSize)) / 2) // the chat lane (chat-canvas-view.ts)
+  derive composerLeft = (sidebarInline ? sidebarWidth : 0) + (canvas.ready ? canvas.left : (conversationWidth - min(data.look.chatMax, conversationWidth - 2.5 * data.look.fontSize)) / 2) // the chat lane (chat-canvas-view.ts)
   // The root rewrite: whether Add provider has tried to go past an invalid id (AddProviderDialog shows its error),
   // moved from app.contract. The wizard's fields stay in the root: providerWizard reads them.
   state wizardAttempted = false
@@ -1118,11 +1158,11 @@ component T3Window
       row width="100%" height="100%" min-width=0 position="relative" inert=(sshPrompt.open or activeDocumentPermissions.length > 0) testId="ssh-background"
         // Inert under the composer's file and image previews too: their trap passes over buttons with Keyboard
         // Navigation off (dialog-trap.contract ControlGuard), so nothing behind them may be a Tab stop.
-        row width="100%" height="100%" min-width=0 inert=(modal or (pageCover and utilityPage == "usage") or shell.panel.deviceSetup or shell.composerFile.open or data.composerImagePreview.length > 0)
-          if data.sidebarOpen
+        row width="100%" height="100%" min-width=0 inert=(modal or (pageCover and utilityPage == "usage") or shell.panel.deviceSetup or shell.composerFile.open or data.composerImagePreview.length > 0 or sidebarSheetShown)
+          if sidebarInline
             // The sidebar is the first workspace area (AppSidebarLayout workspaceAreaProps("sidebar", 0, "Threads")).
             column id="workspace-sidebar" height="100%" flex-shrink=0 tabindex=-1 role="region" aria-label="Threads" focusin=workspaceEntered("sidebar")
-              Sidebar(data=data, shell=shell, reduced=viewport.prefersReducedMotion, now=(wallTime.epochAtZero + max(liveNow, elapsed)), width=sidebarWidth, busy=commandPending, keySidebar=settings.keySidebar, keyNewThread=settings.keyNewThread, toggle=toggleSidebar, search=search, openProjects=openProjects, addProject=paletteShow("command", "add-project"), newThread=sidebarNewThread, select=selectThread, openSettings=openSettings, openConnection=openConnection, reconnect=command("reconnect", "", "", 0), resize=resizeSidebar, finishResize=finishResize, command=command, page=utilityPage, pullRequests=home.pullRequests, navigate=openPage, local=sidebarLocal, run=sidebarRun, open=openThread, resetWidth=resetSidebarWidth, hoverCard=sidebarHover, pressDown=sidebarPressDown, hoverId=sidebarHoverId, hoverSeq=sidebarHoverSeq, openProviders=openProviderSettings, scrolled=sidebarScrolled, drag=sidebarDrag, dragEnd=sidebarDragEnd, dragId=shelfDragId, dragTarget=dragTarget, dragVerb=dragVerb, dragOffset=dragOffset, scrollY=sidebarScrollY, focusWithin=sidebarFocusWithin)
+              Sidebar(data=data, shell=shell, reduced=viewport.prefersReducedMotion, now=(wallTime.epochAtZero + max(liveNow, elapsed)), width=sidebarWidth, busy=commandPending, keySidebar=settings.keySidebar, keyNewThread=settings.keyNewThread, toggle=toggleSidebar, search=search, openProjects=openProjects, addProject=paletteShow("command", "add-project"), newThread=sidebarNewThread, select=selectThread, openSettings=openSettings, openConnection=openConnection, reconnect=command("reconnect", "", "", 0), resize=resizeSidebar, finishResize=finishResize, command=command, page=utilityPage, pullRequests=home.pullRequests, navigate=openPage, local=sidebarLocal, run=sidebarRun, open=openThread, resetWidth=resetSidebarWidth, hoverCard=sidebarHover, pressDown=sidebarPressDown, hoverId=sidebarHoverId, hoverSeq=sidebarHoverSeq, openProviders=openProviderSettings, scrolled=sidebarScrolled, drag=sidebarDrag, dragEnd=sidebarDragEnd, dragId=shelfDragId, dragTarget=dragTarget, dragVerb=dragVerb, dragOffset=dragOffset, scrollY=sidebarScrollY, focusWithin=sidebarFocusWithin, sheet=false)
           column flex=1 min-width=0 height="100%" // the drawer sits below the chat column, the composer above it
             ChatColumn(noticeExit=noticeExit, noticeDismiss=noticeDismiss, pageCover=(pageCover or promptLinkPage.show), sidebarWidth=sidebarWidth, canvas=canvas, canvasGesture=canvasGesture, detailsOutside=detailsPlayerPointer, viewport=viewport, scheme=scheme, data=data, shell=shell, settings=settings, rightPanel=(rightPanel or shell.panel.open), narrowDiff=panelSheet, detailsOpen=detailsOpen, details=details, titleMenuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, panelUi=panelUi, detailsAct=detailsAct, titleUi=titleUi, home=home, commandPending=commandPending, lineageStopping=lineageStopping, command=command, paletteShow=paletteShow, foldHold=foldHold, releaseFold=releaseFold, jumpRequest=jumpRequest, composerOwner=composerOwner, chatLocal=chatLocal, markdown=markdown, earlier=earlier, attachmentUrls=attachmentUrls, settingsCore=settingsCore, conversationWidth=conversationWidth, scrollToEnd=scrollToEnd, editor=editor, composerKey=composerKey, composerDrop=composerDrop, editorOp=editorOp, selectThread=selectThread, openModels=openModels, composerText=composerText, modelsOpen=(modelsOpen and composerTarget == ""), optionsOpen=(composerTarget == "" ? optionsOpen : ""), write=write, send=send, stop=command("stop", "", "", 0), composerFocus=composerFocus, composerBlur=composerBlur, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=titleMenuPick, interaction=menuPick("interaction", ""), openProviderSettings=openProviderSettings, branches=branches, timelineNow=(wallTime.epochAtZero + max(liveNow, elapsed)), contextOver=(dragTarget == "context" and editor.drawer.cardWidth > 0 and dragCX >= editor.drawer.cardX and dragCX <= editor.drawer.cardX + editor.drawer.cardWidth and dragCY >= editor.drawer.cardY and dragCY <= editor.drawer.cardY + editor.drawer.cardHeight))
             // The terminal is the last workspace area (ThreadTerminalDrawer workspaceAreaProps("terminal", 5, "Terminal")).
@@ -1131,7 +1171,7 @@ component T3Window
           RightPanels(data=data, narrowDiff=panelSheet, rightMaximized=rightMaximized, viewport=viewport, scheme=scheme, sidebarWidth=sidebarWidth, diffWidth=diffWidth, shell=shell, command=command, panelUi=panelUi, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, rightPanel=(rightPanel or shell.panel.open), detailsOpen=detailsOpen, detailsAct=detailsAct, chatLocal=chatLocal, paletteShow=paletteShow, prDetail=prDetail, prDocuments=prMarkdown.documents, filesDocuments=filesMarkdown.documents, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, confirm=titleMenuPick, closePending=(confirmOp != ""))
         PagesCover(pageCover=pageCover, outside=outsidePresses, data=data, sidebarShortcut=shell.keySidebar, sidebarWidth=sidebarWidth, modal=modal, utilityPage=utilityPage, viewport=viewport, scheme=scheme, usage=usage, usageShortcuts=usageShortcuts, settings=settings, usageMetricSet=usageMetricSet, usageWindowSet=usageWindowSet, usageBreakdownSet=usageBreakdownSet, usageRefreshNow=usageRefreshNow, pageBack=pageBack, prList=prList, prTyped=prTyped, prQuery=prQuery, prSelected=prSelected, prPanelOpen=prPanelOpen, prTogglePanel=prTogglePanel, prType=prType, prControl=prControl, prSelect=prSelect, prReload=prReload, paletteShow=paletteShow, prDetail=prDetail, prMarkdown=prMarkdown, prTab=prTab, prSetTab=prSetTab, prClose=prClose, prAct=prAct, prCopy=prCopy, chatLocal=chatLocal, home=home, commandPending=commandPending, command=command, openConnectionsPage=openConnectionsPage, pagesOp=welcomeImport, toggleInert=(modal or shell.panel.deviceSetup or shell.composerFile.open or data.composerImagePreview.length > 0), toggleSidebar=toggleSidebar)
         if not settingsOpen and utilityPage == "" and not welcome.show
-          PromptLinkPage(link=promptLinkPage, left=(data.sidebarOpen ? sidebarWidth : 0), canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas), run=promptLinkAct)
+          PromptLinkPage(link=promptLinkPage, left=(sidebarInline ? sidebarWidth : 0), canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas), run=promptLinkAct)
         RightSheets(data=data, narrowDiff=panelSheet, modal=(modal or promptLinkPage.show), panelUi=panelUi, viewport=viewport, scheme=scheme, diffWidth=diffWidth, shell=shell, command=command, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, rightPanel=(rightPanel or shell.panel.open), detailsOpen=detailsOpen, detailsAct=detailsAct, chatLocal=chatLocal, paletteShow=paletteShow, prDetail=prDetail, prDocuments=prMarkdown.documents, filesDocuments=filesMarkdown.documents, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, confirm=titleMenuPick, closePending=(confirmOp != ""))
         // A side chat tab's chat view over its pane (side-chat.contract SideChatLayer).
         if not settingsOpen and utilityPage == "" and not welcome.show
@@ -1141,6 +1181,12 @@ component T3Window
         // window's overlays (browser-frames.contract).
         box position="absolute" left=0 top=0 width=0 height=0 inert=(modal or promptLinkPage.show)
           BrowserFrameLayer(frames=shell.panel.frames, slotRight=browserRight, slotTop=browserTop, slotWidth=browserWidth, slotHeight=browserHeight, note=browserNote, zoomSerial=shell.panel.browser.zoomSerial, zoomLabel=shell.panel.browser.zoomLabel, viewportWidth=viewport.width, covered=framesCovered, mini=shell.panel.browserMini, miniFrame=canvas.mini, canvasWidth=canvas.containerWidth, gesture=canvasGesture, outside=detailsPlayerPointer, local=chatLocal)
+        // The narrow window's sidebar (sidebar-sheet.contract): over the chat, the pages and the panels, under the
+        // composer's menus and the window's dialogs, as the reference's portaled sheet (z-sheet) is under its dialogs.
+        DialogFinalFocus(open=sidebarSheetShown, owner="sidebar-sheet")
+        if sidebarSheetShown
+          SidebarSheet(first="sidebar-sheet-trigger", last=(data.updateEverything.running or data.updateEverything.available ? "update-everything" : "sidebar-usage"), escape=(not data.sidebar.searching), dismiss=sidebarSheetSet(false), measured=sidebarSheetMeasured)
+            Sidebar(data=data, shell=shell, reduced=viewport.prefersReducedMotion, now=(wallTime.epochAtZero + max(liveNow, elapsed)), width=sidebarWidth, busy=commandPending, keySidebar=settings.keySidebar, keyNewThread=settings.keyNewThread, toggle=toggleSidebar, search=search, openProjects=openProjects, addProject=paletteShow("command", "add-project"), newThread=sheetNewThread, select=selectThread, openSettings=sheetOpenSettings, openConnection=openConnection, reconnect=command("reconnect", "", "", 0), resize=resizeSidebar, finishResize=finishResize, command=command, page=utilityPage, pullRequests=home.pullRequests, navigate=sheetNavigate, local=sidebarLocal, run=sheetRun, open=sheetOpenThread, resetWidth=resetSidebarWidth, hoverCard=sidebarHover, pressDown=sidebarPressDown, hoverId=sidebarHoverId, hoverSeq=sidebarHoverSeq, openProviders=openProviderSettings, scrolled=sidebarScrolled, drag=sidebarDrag, dragEnd=sidebarDragEnd, dragId=shelfDragId, dragTarget=dragTarget, dragVerb=dragVerb, dragOffset=dragOffset, scrollY=sidebarScrollY, focusWithin=sidebarFocusWithin, sheet=true)
         if optionsOpen != ""
           ComposerMenus(rootCommand=command, data=composerTargetData, session=popoverSession, which=optionsOpen, left=composerLeft, viewport=viewport, close=closeOptions, chooseTrait=menuPick("model-option"), chooseRuntime=menuPick("runtime", ""), command=menuCommand, branches=branches, branchQuery=branchQuery, searchBranches=searchBranches, local=chatLocal)
         ProjectPicker(projectsOpen=projectsOpen, viewport=viewport, paletteShow=paletteShow, data=data, closeModal=closeModal, manageProject=manageProject, commandPending=commandPending, selectProject=selectProject)
@@ -1150,9 +1196,9 @@ component T3Window
           SettingsWindow(settingsOpen=settingsOpen, themeInspecting=(themeInspecting and settingsCore.editor.open), settingsCore=settingsCore, connecting=connecting, connectionRemove=connectionRemove, settingsThemeDialog=settingsThemeDialog, data=data, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, viewport=viewport, scheme=scheme, settingsMenu=settingsMenu, modelsOpen=modelsOpen, providerVisit=providerVisit, paletteOpen=paletteOpen, chipOpen=chipShown, coreClearSearch=coreClearSearch, closeModal=closeModal, commandPending=commandPending, settingsScrollTop=settingsScrollTop, settingsPage=settingsPage, coreMenuClose=coreMenuClose, coreMenu=coreMenu, coreChange=coreChange, coreScope=coreScope, coreNoticeScope=coreNoticeScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, rest=rest, restInput=restInput, restLocal=restLocal, integrations=integrations, snapshotSettings=snapshotSettings, snapshotSetupOpen=snapshotSetupOpen, toggleSnapshots=toggleSnapshots, showSnapshotSetup=showSnapshotSetup, changeSnapshot=settingsCommand("setting-snapshot"), previewSnapshotSound=previewSnapshotSound, recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), bindings=bindings, keybindingQuery=keybindingQuery, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, keybindingDrafts=keybindingDrafts, keybindingRest=keybindingRest, keybindingHeld=holdKeybindingField, scheduled=scheduled, restEditor=restEditor, restOpen=restOpen, storageSettings=storageSettings, archives=archives, restMenu=restMenu, restRaw=restRaw, restMenuOpen=restMenuOpen, restClose=restClose, licenses=licenses, licenseQuery=licenseQuery, editLicenseQuery=editLicenseQuery, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, openConnection=openConnection, connectionOp=connectionOp, connectionAskRemove=connectionAskRemove, connectionMenu=connectionMenu, connectionToggleMenu=connectionToggleMenu, openRoute=openRoute, providerPage=providerPage, providerDialog=providerDialog, providerUi=providerUi, providerOp=providerOp, providerAccent=providerAccent, setupBusy=providerAuthPending, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, editSettingsQueryRoot=editSettingsQuery, coreSearchKeyRoot=coreSearchKey, coreNavigateRoot=coreNavigate, corePickRoot=corePick, settingsCommand=settingsCommand)
         ThemeEditorHost(inspecting=themeInspecting, inspectSet=setThemeInspecting, reveal=themeRevealRequest, usage=themeUsage, kind=settingsThemeDialog, core=settingsCore, viewport=viewport, busy=commandPending, error=modalError, close=coreThemeDialog("", ""), commit=coreChange, live=coreThemeLive, save=coreThemeChange("theme-editor-save", ""))
         WelcomeLayer(welcome=welcome, covered=settingsOpen, viewport=viewport, scheme=scheme, welcomeStep=welcomeStep, commandPending=commandPending, modalError=modalError, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeGo=welcomeGo, welcomeImport=welcomeImport, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, prCopy=prCopy, welcomeSetup=welcomeSetup, providerUi=providerUi, welcomeFinish=welcomeFinish, providerOp=providerOp, setupBusy=providerAuthPending)
-        ShortcutDispatch(items=shortcuts, selectThread=selectThread, newThread=newThread, chatNew=sidebarNewThread, deviceSetting=deviceSetting, toggleDiff=panelUi("toggle", ""), details=detailsAct, openDiff=panelUi("choose", "diff"), closeDiff=panelUi("close", ""), panel=panelUi, prClose=prClose, stop=command("stop", "", "", 0), openOptions=openOptions, selectProvider=selectProvider, selectModel=selectModel, back=closeModal, copyThread=restLocal, palette=paletteShow, run=paletteRun, command=dispatchCommand, settings=openSettings, copy=prCopy, confirm=titleMenuPick)
+        ShortcutDispatch(items=shortcuts, selectThread=selectThread, newThread=newThread, chatNew=sidebarNewThread, deviceSetting=deviceSetting, toggleDiff=panelUi("toggle", ""), details=detailsAct, openDiff=panelUi("choose", "diff"), closeDiff=panelUi("close", ""), panel=panelUi, prClose=prClose, stop=command("stop", "", "", 0), openOptions=openOptions, selectProvider=selectProvider, selectModel=selectModel, back=closeModal, copyThread=restLocal, palette=paletteShow, run=paletteRun, command=shortcutCommand, settings=openSettings, copy=prCopy, confirm=titleMenuPick)
         ProjectDialogs(restEditor=restEditor, restSubject=restSubject, restLabel=restLabel, scheduled=scheduled, projectsSettings=projectsSettings, commandPending=commandPending, modalError=modalError, rest=rest, restRaw=restRaw, restClose=restClose, restOpen=restOpen, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, viewport=viewport, scheme=scheme, sbSet=sbSet, taskBase=taskBaseRoot, cardScripts=(details.scripts.length > 0))
-        SidebarOverlays(data=data, width=sidebarWidth, open=(data.sidebarOpen and not modal), busy=commandPending, local=sidebarLocal, run=sidebarRun, hoverId=sidebarHoverId, hoverLast=sidebarHoverLast, hoverY=sidebarHoverY, dragId=overlayDragId, dragTarget=dragTarget, dragVerb=dragVerb, ghostX=dragCX, ghostY=dragCY, shell=shell, pullRequests=home.pullRequests, viewportHeight=viewport.height, hoverH=sidebarHoverH, resize=resizeSidebar, finishResize=finishResize, resetWidth=resetSidebarWidth, hoverCard=sidebarHover, covered=paletteOpen)
+        SidebarOverlays(data=data, width=(sidebarSheetShown ? sidebarSheetWidth : sidebarWidth), open=((sidebarInline or sidebarSheetShown) and not modal), resizable=sidebarInline, busy=commandPending, local=sidebarLocal, run=sidebarRun, hoverId=sidebarHoverId, hoverLast=sidebarHoverLast, hoverY=sidebarHoverY, dragId=overlayDragId, dragTarget=dragTarget, dragVerb=dragVerb, ghostX=dragCX, ghostY=dragCY, shell=shell, pullRequests=home.pullRequests, viewportHeight=viewport.height, hoverH=sidebarHoverH, resize=resizeSidebar, finishResize=finishResize, resetWidth=resetSidebarWidth, hoverCard=sidebarHover, covered=paletteOpen)
         SettingsModals(snapshotSetupOpen=snapshotSetupOpen, snapshotSettings=snapshotSettings, commandPending=commandPending, modalError=modalError, snapshotSetupWasEnabled=snapshotSetupWasEnabled, snapshotSetupFrom=snapshotSetupFrom, showSnapshotSetup=showSnapshotSetup, toggleSnapshots=toggleSnapshots, changeSnapshot=settingsCommand("setting-snapshot"), recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), connecting=connecting, origin=origin, credential=credential, pairFields=pairFields, data=data, viewport=viewport, scheme=scheme, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, editOrigin=editOrigin, editCredential=editCredential, connectionOp=connectionOp, sbSet=sbSet, closeConnection=closeConnection, providerDialog=providerDialog, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardAttempted=wizardAttempted, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerUi=providerUi, providerAdd=providerAdd, providerOp=providerOp, providerPage=providerPage, providerTarget=providerTarget, setupBusy=providerAuthPending, connectionRemove=connectionRemove, connectionsPage=connectionsPage, connectionAskRemove=connectionAskRemove, routeTarget=routeTarget, routeLabel=routeLabel, localCommand=settingsCommand)
         WindowOverlays(modelsOpen=modelsOpen, data=data, popoverSession=popoverSession, catalog=catalog, viewport=viewport, scheme=scheme, modelQuery=modelQuery, modelTarget=modelTarget, composerLeft=composerLeft, commandPending=commandPending, lineageStopping=lineageStopping, closeModels=closeModels, selectModel=selectModel, searchModels=searchModels, selectProvider=selectProvider, openProviderSettings=openProviderSettings, command=command, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteRun=paletteRun, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, paletteRestore=paletteRestore, details=details, detailsSheet=detailsSheet, detailsDensity=canvas.density, detailsAct=detailsAct, titleMenuOpen=titleMenuOpen, shell=shell, titleMenuX=titleMenuX, titleMenuY=titleMenuY, titleMenuSerial=titleMenuSerial, titleMenuPick=titleMenuPick, titleUi=titleUi, answerRevert=answerRevert, attachmentUrls=attachmentUrls, chatLocal=chatLocal, confirmOp=confirmOp, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct, prDetail=prDetail, prAct=prAct, filesDocuments=filesMarkdown.documents)
         LinkMenuPopover(menuId="chat-link-menu", rows=linkMenuRows, pick=linkMenuPick)
