@@ -746,12 +746,11 @@ Differences that belong to the app:
   not draw the Nightly or Dev artwork. At v0.1.5 the stable app's default also shows no art, but the
   row lets a user opt into Nightly or Dev artwork ("Show Dev or Nightly artwork in the sidebar
   header."); its version pill is offered only on a Dev or Nightly stage.
-- On a 2x display, text rounds its line box in device pixels as the reference's does (main #1429, #1435). Some text
-  still sits one device pixel lower: the user bubble, a reply's paragraphs and the composer's placeholder, because
-  their boxes sit a fraction of a point below the reference's in the bottom-anchored timeline (the bubble's text at
-  59.63 pt, the reference's at 59; the placeholder at 725.75, the reference's at 725.5). A code block's lines also sit
-  one device pixel lower; that cause was not found. The sidebar's search field's text sits one device pixel lower
-  because AppKit's text field draws its text on whole points.
+- On a 2x display, text rounds its line box in device pixels as the reference's does (main #1429, #1435), and the
+  timeline's rows, the composer's text and the sidebar's search field sit where the reference's do. One line can
+  still sit a device pixel lower: the Mac draws a box where layout puts it, a fraction of a device pixel off the grid,
+  where Chromium rounds each box and baseline to device pixels (main's `QUEUE.md`, "The Mac draws boxes off the
+  device's pixel grid"); seen on the third line of the prose sample's code block.
 
 Some checks need a person: physical modifier chords, right-click menus, real pointer drags
 and hovers, macOS notification and screen-capture grants, provider installs and logins, and
