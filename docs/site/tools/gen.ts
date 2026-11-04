@@ -116,14 +116,14 @@ const docs = sections.flatMap(s => s.pages).map(read);
 const bySource = new Map(docs.map(d => [d.nav.source, d]));
 const links: { from: string; to: string; anchor: string; ok: boolean }[] = [];
 
-function target(href: string, from: string): string {
+function target(href: string, from: string, record = true): string {
   if (/^[a-z]+:/i.test(href)) return href;
   const [path, anchor = ''] = href.split('#');
   const source = path ? normalize(join(dirname(from), path)) : from;
   const doc = bySource.get(source);
   if (!doc) return `${GITHUB}/${relative(REPO, resolve(DOCS, source))}${anchor ? `#${anchor}` : ''}`;
   const page = anchor ? doc.anchors.get(anchor) : doc.nav.path;
-  links.push({ from, to: `${source}#${anchor}`, anchor, ok: page !== undefined });
+  if (record) links.push({ from, to: `${source}#${anchor}`, anchor, ok: page !== undefined });
   const at = page ?? doc.nav.path;
   return anchor && !(doc.nav.split && SKIPPED_SECTIONS.has(anchor)) && at !== `${doc.nav.path}/${anchor}` ? `${at}#${anchor}` : at;
 }
@@ -352,6 +352,27 @@ const pages: SitePage[] = docs.flatMap(doc => {
 rmSync(OUT, { recursive: true, force: true });
 rmSync(MARKDOWN, { recursive: true, force: true });
 rmSync(IMAGES, { recursive: true, force: true });
+// A page's Markdown links as its HTML does, to the linked page's Markdown (as docs.expo.dev's do), a file
+// of the repository on GitHub, or an image's copy on the site; code is left as written.
+function markdownHref(href: string, from: string, image: boolean): string {
+  if (/^[a-z]+:/i.test(href)) return href;
+  if (image) return `${ORIGIN}/assets/images/${relative(REPO, resolve(DOCS, dirname(from), href))}`;
+  const at = target(href, from, false);
+  if (!at.startsWith('/')) return at;
+  const [path, anchor] = at.split('#');
+  return `${ORIGIN}${path === '/' ? '/index' : path}.md${anchor ? `#${anchor}` : ''}`;
+}
+function markdownOf(tokens: Token[], from: string): string {
+  return tokens.map(t => {
+    if (t.type === 'code') return t.raw;
+    const spans: string[] = [];
+    return t.raw
+      .replace(/(`+)[\s\S]*?\1/g, span => `\u0000${spans.push(span) - 1}\u0000`)
+      .replace(/(!?)\[([^\[\]]*)\]\(([^)\s]+)((?:\s+"[^"]*")?)\)/g, (_, bang: string, text: string, href: string, title: string) => `${bang}[${text}](${markdownHref(href, from, bang === '!')}${title})`)
+      .replace(/\u0000(\d+)\u0000/g, (_, i: string) => spans[Number(i)]);
+  }).join('').trim();
+}
+
 mkdirSync(OUT, { recursive: true });
 mkdirSync(MARKDOWN, { recursive: true });
 const updated = new Map<string, string>();
@@ -371,7 +392,7 @@ pages.forEach(page => {
   const { blocks, toc } = render(page);
   const markdownPath = page.path === '/' ? '/index.md' : `${page.path}.md`;
   const markdownUrl = ORIGIN ? ORIGIN + markdownPath : `${GITHUB}/docs/${page.source}`;
-  const markdown = page.tokens.map(t => t.raw).join('').trim();
+  const markdown = markdownOf(page.tokens, page.source);
   writeFileSync(join(MARKDOWN, `${page.route}.md`), `${page.tocDepth === 3 ? `# ${page.title}\n\n` : ''}${markdown.replace(/^## .*\n+/, '')}\n`);
   const data = {
     slug: page.route,
