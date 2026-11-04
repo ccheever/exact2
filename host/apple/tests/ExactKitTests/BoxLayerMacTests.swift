@@ -231,6 +231,45 @@ final class BoxLayerMacTests: XCTestCase {
         XCTAssertNotNil(n.layer?.contents, "a radius over a padded content box draws")
     }
 
+    /// A bordered rounded image's pixels end at the border's inner curve
+    /// (CSS Backgrounds 3 §5.3), as Chrome draws an `<img>` with
+    /// `border: 10px; border-radius: 30px`: a 20 px radius over the content
+    /// box, not the border box's 30 px curve cut by the content box's
+    /// square corners.
+    func testABorderedRoundedImageIsClippedToTheBordersInnerCurve() throws {
+        _ = NSApplication.shared
+        let ctx = try XCTUnwrap(CGContext(data: nil, width: 100, height: 100, bitsPerComponent: 8, bytesPerRow: 400,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.setFillColor(red: 1, green: 0, blue: 0, alpha: 1); ctx.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+        let png = try XCTUnwrap(NSBitmapImageRep(cgImage: try XCTUnwrap(ctx.makeImage())).representation(using: .png, properties: [:]))
+        let p = Presenter(), loader = RasterLoader(), resolver = AssetResolver(root: URL(fileURLWithPath: NSTemporaryDirectory()))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        let n = NodeView(id: 1, kind: "image", presenter: p)
+        defer { loader.shutdown(); n.raster = nil; window.close(); withExtendedLifetime(resolver) {} }
+        p.views[1] = n; p.viewport.addSubview(n)
+        n.frame = NSRect(x: 0, y: 0, width: 100, height: 100)
+        var style = round(30); style["border_width"] = 10
+        n.applyStyle(style)
+        n.loadGeneration = 1
+        loader.load(n, source: "data:image/png;base64," + png.base64EncodedString(), resolver: resolver)
+        let end = Date(timeIntervalSinceNow: 5)
+        while n.raster == nil && Date() < end { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
+        XCTAssertNotNil(n.raster)
+        n.applyFieldContent(["rect": [10.0, 10.0, 80.0, 80.0]])
+        let rep = try XCTUnwrap(n.bitmapImageRepForCachingDisplay(in: n.bounds))
+        n.cacheDisplay(in: n.bounds, to: rep)
+        let scale = CGFloat(rep.pixelsWide) / 100
+        func alpha(_ x: CGFloat, _ y: CGFloat) -> CGFloat { rep.colorAt(x: Int(x * scale), y: Int(y * scale))?.alphaComponent ?? -1 }
+        for (x, y) in [(12.0, 12.0), (88.0, 12.0), (12.0, 88.0), (88.0, 88.0)] {
+            XCTAssertEqual(alpha(x, y), 0, "(\(x), \(y)) is inside the border box's curve but outside the content edge's")
+        }
+        for (x, y) in [(20.0, 20.0), (80.0, 80.0), (50.0, 11.0)] {
+            XCTAssertEqual(alpha(x, y), 1, "(\(x), \(y)) is inside the content edge's curve")
+        }
+    }
+
     /// LLP 1116: a padding that resolves at layout (`min(10%, 20px)`
     /// arrives as a calculation's handle) reads the content box the kernel published,
     /// for the box and for each side; without one, the box's bounds.
