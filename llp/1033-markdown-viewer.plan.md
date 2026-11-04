@@ -6,7 +6,7 @@
 **Author:** Charlie Cheever / Codex
 **Implementer:** Codex, starting 2026-09-05
 **Date:** 2026-09-05
-**Revised:** 2026-11-04 (D9: images side by side, `align`, an `<a>` around images); 2026-11-03 (D9)
+**Revised:** 2026-11-04 (D9: images side by side, `align`, an `<a>` around images, bare lines); 2026-11-03 (D9)
 **Related:** LLP 1001 §6, LLP 1008 §3/§5, LLP 1010, LLP 1011, LLP 1030 D2 (the manifest is the one declaration), LLP 1031 D1/D6 (the embedder's value seam), LLP 1016 D1/D2 (the runner does no I/O)
 
 ## Milestone
@@ -757,6 +757,14 @@ tag, as HTML's tree does, so the headings and paragraphs inside it take its
 and places an image in the column by it; `apps/llp` places images. An
 `align` on `<img>` itself (a float) and on elements the parser does not read
 as images (`<h1 align>`) is not read.
+
+**Bare lines, 2026-11-04.** A line of images that no `<p>` holds, at the
+top level or in a `<div>`, is a line box of its own in HTML, with no margins,
+where a `<p>`'s line, inline HTML's and a Markdown image's paragraph have a
+paragraph's. In T3 Code a top-level image line under a `<div>`'s image sits
+right under it, with no paragraph gap (measured at `5d3d78ab93`). Such a
+block has `bare` set (Rust's `Block` only), so a reader that spaces blocks as
+HTML's margins do can leave none around it.
 
 **What may load.** A source with no scheme, a Windows drive path, or one of
 the schemes the caller allows (`Html::schemes`): `http` and `https` by
