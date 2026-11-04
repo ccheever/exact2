@@ -123,7 +123,7 @@ const NOT_MODAL: Record<string, string> = {
   'git.contract "details-branch-picker"': 'Popover',
   'pr-row.contract `details-pr-checks-popover-${row.key}`': 'Popover',
   'settings-a-fonts.contract `font-picker-${rowId}`': 'Popover',
-  'settings-a-hosts.contract "Device tools"': 'Popover',
+  'settings-device-sources.contract `${owner}-${platform.id}-card`': 'Popover (PlatformIcon, openOnHover)',
   'settings-appearance-editor.contract "theme-editor"': 'ThemeEditorPanel, a floating panel that is no modal',
   'settings-b-accent.contract "provider-accent-panel"': 'Popover',
   'settings-mobile-beta.contract mark.caption': 'MobileAppSettingsRow Popover',

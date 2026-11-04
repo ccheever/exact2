@@ -74,7 +74,7 @@ test "Model prices on Limits returns to the environment menu trigger after Escap
   clock +1200 real
   expect tree has "usage-model-prices"
 
-test "Pointer-opened Add host restores Settings search after Escape"
+test "Pointer-opened Machine over SSH restores Settings search after Escape"
   clock +20000 real
   clock +3000 real
   tap "Dismiss notification"
@@ -86,7 +86,9 @@ test "Pointer-opened Add host restores Settings search after Escape"
   tap "settings-integrations"
   clock settle
   type "settings-search" key "End"
-  tap "device-hosts-add"
+  tap "device-sources-add"
+  clock settle
+  tap "device-sources-add-ssh"
   clock settle
   expect tree has "device-host-dialog"
   type "t3-code" key "Escape"

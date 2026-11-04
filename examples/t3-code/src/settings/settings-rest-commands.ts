@@ -13,7 +13,6 @@ import { scheduledTaskCommand } from './scheduled-tasks-commands';
 import { scopedPatch } from './source-control-view';
 import { archiveCommand } from './settings-a-archive';
 import { deviceToolsCommand } from '../device/settings-a-integrations';
-import { devicePlatformsCommand } from '../device/device-support';
 import { telemetryCommand, telemetryLocal } from './settings-a-telemetry';
 import { openLogsFolder } from './diagnostics-view';
 import { browserProfilesLocal } from '../browser/browser-profiles-settings';
@@ -125,7 +124,6 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
   if (op.startsWith('archive-')) return archiveCommand(client, native, storage, op, scope, value);
   if (op === 'browser-link-target') { if (!applyDeviceSetting(client.local, 'browserLinkTarget', value)) throw new ClientError('Unsupported setting.'); await client.savePreferences(storage); return ''; } // "Open links in"
   if (op === 'device-tools') return deviceToolsCommand(client, native, params(value));
-  if (op === 'device-platforms') return devicePlatformsCommand(client, native); // 5318d054a5: Simulator support Refresh
   if (op === 'diag-open-logs') return openLogsFolder(client, native);
   if (op === 'host-credentials') {
     if (splitScope(scope).projectId) throw new ClientError('Source control host settings belong to the environment.');

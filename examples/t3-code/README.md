@@ -809,10 +809,9 @@ above.
 - No development web view inspection on Android: the clone does not run on Android yet.
 - Settings › About has no Legal › Privacy policy row. v0.1.6's reads "How we handle your data, including the anonymous
   usage data T3 Code collects"; the clone collects no usage data (telemetry is out of scope), so that row would be false.
-- Settings › Devices keeps its earlier layout (Device hub, Agent device access, Device hosts with Add host). v0.1.6's
-  page has Use devices and Agents can use devices with the hub's and agent-device's versions inline, then a Device
-  sources section (Local simulators, Add source for SSH, EAS and Simlock hosts, `DeviceSourcesSettings.tsx`); porting
-  it is its own task.
+- Settings › Devices › Device sources never lists Simlock pools: the reference offers them only after Settings › Labs ›
+  Simlock device hosts is on (`LabsSettingsPanel.tsx` `SimlockHostsRow`, `DeviceSourcesSettings.tsx`
+  `supportsSimlock && simlockEnabled`), and Labs is not cloned.
 - A composer reference's icon is v0.1.6's for a file (its Pierre type icon in the scheme's tint), a folder and a
   thread whose project has a favicon. An image chip shows a photo glyph, not the image's thumbnail: the staged
   image is drawn by the snapshot module's tile (`T3SnapShot.swift`), not from a file an image source can name.
