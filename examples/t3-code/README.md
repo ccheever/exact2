@@ -365,7 +365,7 @@ buttons, `-exact-menu="about"` and `"help"`, enabled under a sheet or with no ke
 `UpdateMenuItems`), File shows only Close Window, View starts with Reload and Force Reload (two
 Contract buttons the host files there, `-exact-menu="view"`, which run `reload()`; `ViewReload`)
 and then Actual Size ⌘0, Zoom In ⌘= and Zoom Out ⌘- (the app's own commands, which take the host items'
-places, stepping by half a Chromium zoom level as the root font size; `ViewZoom`), and the window's root removes the Develop
+places, stepping by half a Chromium zoom level as a page zoom, `setPageZoom`; `ViewZoom`), and the window's root removes the Develop
 and Go menus, the help book and Edit's template items (`-exact-menu-remove`, app-window.contract), so
 ⌘D (diff), ⌘O (open in editor) and ⌘1–9 reach the window. Every button chord is a shortcut with no
 item (`-exact-menu="none"`) but one that stands in for a host item (⌘Z, ⌘,), one dispatch button
@@ -503,8 +503,6 @@ filed were moved there or closed). The gaps someone using this app runs into:
   prompt links, whose switch to another machine's Scratch project polls (`fragmentChanged`, queued).
   Time is still an argument, and work outside an answer (the transport's tick, the sidebar's
   graces) is Contract tasks.
-- View's zoom scales the root font size, so every `rem` and inherited text size, but not `px` lengths or
-  the module's native views, where Electron's page zoom scales the whole page.
 - A completed ⌘Q hold leaves the window as it is until the keys go quiet: the reference leaves full
   screen and turns the window transparent first (concealPendingQuitWindow), and Contract has neither.
 - Edit › Undo chosen from the menu while the undo notice claims ⌘Z is thread.undo, also with a field
@@ -674,9 +672,10 @@ Differences that belong to the app:
   its own (one per pane, the reference's renderer has one for all).
 - The last interaction (the activity reporter's and the pull request surfaces' idle rule) is the
   window root's `pointermove`, `pointerdown`, `wheel` and `keycapture`, to the second
-  (app.contract `interacted`). Keys and scrolls the terminal's and the Browser's web views take
-  never reach the root: typing in the terminal alone does not keep the reader recent, where the
-  reference's terminal is in its page (an `iframe` guest's events stay in its page). The root
+  (app.contract `interacted`). The terminal's page reports what bubbles to its own document, as the
+  reference's listeners hear its terminal in their page: a pointer, a press, the wheel and a key the
+  surface leaves alone, not typed text or an arrow, which the surface stops (measured in v0.1.6).
+  The Browser's web view keeps its events, as the reference's guest page does. The root
   hears a hovering pointer only while the window is key (ExactKit's hover tracking, LLP 1115.000
   D7); Chromium's page hears one while its window is key or main, so the two differ only over the
   main window while a panel of the app is key. Over a background window neither hears one.

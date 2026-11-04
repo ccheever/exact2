@@ -70,9 +70,16 @@ const normalizeLayoutZoom = (zoomFactor: number): number => Number.isFinite(zoom
  *  the page's own zoom. */
 export const resolveBrowserLayoutZoomFactor = (previewZoomFactor: number, windowZoomFactor: number): number =>
   normalizeLayoutZoom(previewZoomFactor) / normalizeLayoutZoom(windowZoomFactor);
-/** The main window's zoom as the module reports it (`presentation.browserWindowZoom`); 1 while it reports none. */
-export const readWindowZoom = (presentation: unknown): number =>
-  normalizeLayoutZoom(Number((presentation as { browserWindowZoom?: unknown } | null | undefined)?.browserWindowZoom));
+/** The main window's zoom (View › Zoom In, app.contract `zoomTo`), which the window tells each change; 1 until then. */
+const windowZooms = new WeakMap<object, number>();
+export const readWindowZoom = (client: object): number => windowZooms.get(client) ?? 1;
+/** `chatlocal:window-zoom`: true when the zoom changed, which lays the tabs out again. */
+export function setWindowZoom(client: object, factor: number): boolean {
+  const next = normalizeLayoutZoom(factor);
+  if (readWindowZoom(client) === next) return false;
+  windowZooms.set(client, next);
+  return true;
+}
 
 export function resolveFittedBrowserViewport(setting: PreviewViewportSetting, sourceContent: { width: number; height: number; scale: number } | null, zoomFactor = 1): FixedViewport {
   if (setting._tag !== 'fill') return setting;

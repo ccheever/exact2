@@ -536,7 +536,7 @@ export function browserMiniView(client: T3Client, sessions: (ref: ScopedThreadRe
     pdfUrl: session.server ? previewPdfAssetUrl(session.url, ref.environmentId === client.environmentId ? client.origin : null) ?? '' : '', pdfViewer: emptyViewerFrame(), url: session.url, profileId: session.profileId, environment: ref.environmentId,
     hasWebContents: session.server === true || frameEntry(client, runtimeId) !== null, recording: recordingOf(client, ref, tabId, runtimeId),
     separateWindow: session.server ? serverPictureInPictureKeyOf(client) === serverPictureInPictureKey(ref.threadId, tabId) : desktopPipOpen(client, runtimeId), ...size,
-    windowZoom: readWindowZoom(client.presentation) };
+    windowZoom: readWindowZoom(client) };
 }
 
 /** `surface-browser-mini-*` (id = the floating tab's runtime id): Open in right panel, Pop into separate window, Close.

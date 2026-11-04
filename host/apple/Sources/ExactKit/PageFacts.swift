@@ -292,18 +292,21 @@ package enum PageFacts {
         didSet { changed() }
     }
 
-    /// The scale of the display `view` is drawn on, device pixels a point
+    /// The scale of the display `view` is drawn on, device pixels a CSS px
     /// (LLP 1115.000 D10.3): UIKit's `displayScale` (3 or 2 on a phone), the
     /// window's `backingScaleFactor` on the Mac (2 on a Retina display, 1
-    /// where there is none or no window yet). A hairline (`-exact-hairline`)
+    /// where there is none or no window yet) times the page zoom. A hairline (`-exact-hairline`)
     /// is one device pixel of it, so it is told to the kernel as the root
     /// font size is. Under the agent it is still the display's, which is the
     /// simulator's or the Mac's own, unless the drive names one.
     static func displayScale(_ view: PlatformView?) -> Double {
-        if let agentDisplayScale { return agentDisplayScale }
         #if os(macOS)
-        return Double(max(1, view?.window?.backingScaleFactor ?? 1))
+        // A page zoom magnifies the page's scroll view (ZoomMac.swift): its device pixels are smaller.
+        let zoom = Double((view as? NSScrollView)?.magnification ?? 1)
+        if let agentDisplayScale { return agentDisplayScale * zoom }
+        return Double(max(1, view?.window?.backingScaleFactor ?? 1)) * zoom
         #else
+        if let agentDisplayScale { return agentDisplayScale }
         return Double(max(1, view?.traitCollection.displayScale ?? 1))
         #endif
     }
@@ -400,9 +403,6 @@ extension ExactSession {
         readsOnLineKnown = (generation, reads)
         apply(runtime.setPage(PageFacts.bits(pageWindow, page: view?.window, readsOnLine: reads)))
         apply(runtime.setRootFontSize(PageFacts.rootFontSize))
-        #if os(macOS)
-        if rootZoom != 1 { apply(runtime.setRootFontZoom(rootZoom)) } // a new runner's, View ▸ Zoom In (ZoomMac.swift)
-        #endif
         tellDisplayScale()
     }
     /// LLP 1115.000 D10.3: the display's scale, told with the page's facts
@@ -456,5 +456,12 @@ package enum AppBackground {
             }
         }
     }
+}
+#endif
+
+#if !os(macOS)
+extension ExactSession {
+    /// `setPageZoom` (LLP 1021 §5.3.1): a page zoom is the Mac's so far.
+    func setPageZoom(_ args: [Any]) { log("setPageZoom refused: page zoom is on the Mac host only") }
 }
 #endif

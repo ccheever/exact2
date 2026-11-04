@@ -23,7 +23,7 @@ extension Capture {
     static func paintOrderBitmap(of view: NSView, scale: CGFloat? = nil, prepared: Bool = false) -> NSBitmapImageRep? {
         if !prepared { prepareBackingLayers(of: view) }
         view.displayIfNeeded()
-        let scale = scale ?? view.window?.backingScaleFactor ?? 2
+        let scale = scale ?? view.pixelScale ?? 2
         guard let root = view.layer else { return nil }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }

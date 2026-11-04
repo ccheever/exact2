@@ -46,7 +46,7 @@ extension NodeView {
     /// device pixels, as a textarea's and a paragraph's do (LLP 1008 §3), so
     /// at 2x the baseline, and the rect's top, can be on a half point.
     func cssLine(in box: NSRect, font: NSFont) -> NSRect {
-        let (above, below) = CSSLineBox.extents(font as CTFont, height: usedLineHeight, scale: window?.backingScaleFactor ?? 1)
+        let (above, below) = CSSLineBox.extents(font as CTFont, height: usedLineHeight, scale: pixelScale ?? 1)
         let baseline = box.minY + (box.height - above - below) / 2 + above
         let top = max(box.minY, baseline - CSSLineBox.content(font as CTFont).0)
         return NSRect(x: box.minX, y: top, width: box.width, height: max(0, min(box.maxY, baseline + below) - top))

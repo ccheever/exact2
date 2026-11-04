@@ -54,7 +54,6 @@ enum ResetGate {
         "later(_:done:)": (.page, "a notice's calls, as `tellSoon`'s"),
         "setPage(_:)": (.page, "a key window or activation the teardown moved (a sheet closing) is the page's: it is told again"),
         "setRootFontSize(_:)": (.page, "the page's root font, told with its key window: told again with it"),
-        "setRootFontZoom(_:)": (.page, "the page's zoom, told with its key window: told again with it"),
         "setDisplayScale(_:)": (.page, "the page's display scale, told with its key window: told again with it"),
         "tellSoon(_:)": (.page, "a notice the teardown set off (a key window moving) is the page's: it is told again, at once"),
         "collectionFeedback(_:now:)": (.collections, "a list's report is of its old rows; the new list reports its own port and rows"),

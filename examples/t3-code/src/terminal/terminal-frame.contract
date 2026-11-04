@@ -28,6 +28,8 @@ shape TerminalFrameView
   stats: string
 
 component TerminalFrame
+  inject
+    interacted: action // the frame's web view takes its pointer and keys, which the window root never hears (app.contract)
   props
     frame: TerminalFrameView
     theme: string // terminalTheme JSON (settings-appearance-look.ts)
@@ -49,7 +51,9 @@ component TerminalFrame
   action received(payload: string)
     if payload == "{\"type\":\"boot\"}"
       boots = boots + 1
-    if payload.startsWith("{\"type\":\"ticket\"")
+    if payload == "{\"type\":\"activity\"}"
+      interacted()
+    else if payload.startsWith("{\"type\":\"ticket\"")
       ticket(payload)
     else
       message(payload)
