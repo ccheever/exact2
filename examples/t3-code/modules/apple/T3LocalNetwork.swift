@@ -129,14 +129,16 @@ struct T3LocalExposure: Equatable {
 
 /// The administrator's managed policy as the desktop reads it before the server starts, after T3 Code
 /// (MIT, see LICENSE-T3; reference 5d3d78ab93) packages/shared/src/managedPolicyFile.ts `readManagedPolicy`
-/// and apps/desktop/src/backend/DesktopServerExposure.ts `remoteAllowed`. Only `limits.clients` matters here;
-/// the server validates the whole document and will not start with one it cannot use, so an unreadable or
-/// conflicting policy keeps clients local, as upstream's failed read does.
+/// and apps/desktop/src/backend/DesktopServerExposure.ts `remoteAllowed`, and apps/desktop/src/updates/
+/// DesktopUpdatePolicy.ts. Only `limits.clients`, `limits.updates` and `organization` matter here; the server
+/// validates the whole document and will not start with one it cannot use, so an unreadable or conflicting
+/// policy keeps clients local and turns updates off, as upstream's failed read does.
 enum T3ManagedPolicy {
     static let filePath = "/Library/Application Support/T3Code/policy.json"
     static let profilePath = "/Library/Managed Preferences/com.t3tools.t3code.plist"
 
-    enum Read { case none, document([String: Any]), unusable }
+    /// `unusable` names the source that failed: the profile when both exist, as upstream reports it.
+    enum Read { case none, document([String: Any]), unusable(String) }
 
     /// Whether clients on other devices may connect: a policy's `limits.clients` must include `remote`.
     static func remoteClientsAllowed(file: String = filePath, profile: String = profilePath) -> Bool {
@@ -152,21 +154,47 @@ enum T3ManagedPolicy {
         }
     }
 
+    /// Why the policy stops the desktop updater, or nil when it leaves updates on (DesktopUpdatePolicy's
+    /// `message` where its `mode` is `off`, which getAutoUpdateDisabledReason gives before any other reason).
+    /// A `feedUrl` names an electron-updater feed, which this app has no updater to read.
+    static func updatesDisabledReason(file: String = filePath, profile: String = profilePath) -> String? {
+        func unusable(_ path: String) -> String {
+            "Updates are off because T3 Code cannot use the managed policy at \(path). Contact your administrator."
+        }
+        switch read(file: file, profile: profile) {
+        case .none: return nil
+        case let .unusable(path): return unusable(path)
+        case let .document(document):
+            let source = FileManager.default.fileExists(atPath: profile) ? profile : file
+            guard let organization = (document["organization"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !organization.isEmpty else { return unusable(source) }
+            guard let limitsValue = document["limits"] else { return nil }
+            guard let limits = limitsValue as? [String: Any] else { return unusable(source) }
+            guard let updatesValue = limits["updates"] else { return nil }
+            guard let updates = updatesValue as? [String: Any], let mode = updates["mode"] as? String, ["auto", "off"].contains(mode),
+                  updates["allowNightly"].map({ $0 is Bool }) ?? true,
+                  updates["feedUrl"].map({ ($0 as? String)?.range(of: #"^\s*https://[^\s/]+"#, options: [.regularExpression, .caseInsensitive]) != nil }) ?? true
+            else { return unusable(source) }
+            return mode == "off" ? "\(organization) manages T3 Code updates." : nil
+        }
+    }
+
     /// A configuration profile or the policy file; both at once is refused rather than merged.
     static func read(file: String = filePath, profile: String = profilePath) -> Read {
         let manager = FileManager.default
         var found: [Read] = []
         if manager.fileExists(atPath: profile) {
             guard let data = manager.contents(atPath: profile),
-                  let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) else { return .unusable }
-            found.append(unwrapForced(plist).map(Read.document) ?? .unusable)
+                  let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) else { return .unusable(profile) }
+            guard let document = unwrapForced(plist) else { return .unusable(profile) }
+            found.append(.document(document))
         }
         if manager.fileExists(atPath: file) {
             guard let data = manager.contents(atPath: file),
-                  let document = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return .unusable }
+                  let document = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return .unusable(file) }
             found.append(.document(document))
         }
-        if found.count > 1 { return .unusable }
+        if found.count > 1 { return .unusable(profile) }
         return found.first ?? .none
     }
 

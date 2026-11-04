@@ -55,9 +55,11 @@ final class T3Menus: NSObject, NSMenuItemValidation {
 
     // MARK: Check for Updates…
 
-    /// DesktopUpdates getAutoUpdateDisabledReason: a bundle without an update store (its
-    /// receipt's composition "embedded", app.json deploy.store "0") has no update feed.
-    static func updatesDisabledReason(receipt: URL? = Bundle.main.url(forResource: "receipt", withExtension: "json")) -> String? {
+    /// DesktopUpdates getAutoUpdateDisabledReason: the managed policy's reason first, then a bundle without
+    /// an update store (its receipt's composition "embedded", app.json deploy.store "0") has no update feed.
+    static func updatesDisabledReason(receipt: URL? = Bundle.main.url(forResource: "receipt", withExtension: "json"),
+                                      policy: () -> String? = { T3ManagedPolicy.updatesDisabledReason() }) -> String? {
+        if let reason = policy() { return reason }
         let unavailable = "Automatic updates are not available because no update feed is configured."
         guard let receipt, let data = try? Data(contentsOf: receipt),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return unavailable }

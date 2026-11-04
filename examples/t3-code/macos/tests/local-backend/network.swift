@@ -165,6 +165,33 @@ final class LocalNetworkTests: XCTestCase {
         try write(#"{"schemaVersion":1,"organization":"Example Corp"}"#); XCTAssertFalse(allowed(), "a profile and a file at once are refused")
     }
 
+    func testAManagedPolicyThatTurnsUpdatesOffSaysWhoManagesThem() throws {
+        let dir = scratch("updates-policy"), file = dir.appendingPathComponent("policy.json").path, profile = dir.appendingPathComponent("profile.plist").path
+        let reason = { T3ManagedPolicy.updatesDisabledReason(file: file, profile: profile) }
+        let write = { (text: String) in try text.write(toFile: file, atomically: true, encoding: .utf8) }
+        let unusable = { (path: String) in "Updates are off because T3 Code cannot use the managed policy at \(path). Contact your administrator." }
+        XCTAssertNil(reason(), "no policy")
+        try write(#"{"schemaVersion":1,"organization":"Example Corp","limits":{"clients":["desktop"]}}"#); XCTAssertNil(reason(), "no update limit")
+        try write(#"{"schemaVersion":1,"organization":"Example Corp","limits":{"updates":{"mode":"auto","feedUrl":"https://mirror.example/t3","allowNightly":false}}}"#)
+        XCTAssertNil(reason(), "auto leaves updates on")
+        try write(#"{"schemaVersion":1,"organization":" Example Corp ","limits":{"updates":{"mode":"off"}}}"#)
+        XCTAssertEqual(reason(), "Example Corp manages T3 Code updates.")
+        for bad in [#"{"schemaVersion":1,"organization":"Example Corp","limits":{"updates":{"mode":"never"}}}"#,
+                    #"{"schemaVersion":1,"organization":"Example Corp","limits":{"updates":{"mode":"auto","feedUrl":"http://mirror.example"}}}"#,
+                    #"{"schemaVersion":1,"organization":"Example Corp","limits":{"updates":{"mode":"auto","allowNightly":"no"}}}"#,
+                    #"{"schemaVersion":1,"organization":"","limits":{"updates":{"mode":"off"}}}"#,
+                    #"{"schemaVersion":1,"organization":"Example Corp","limits":[]}"#,
+                    "{not json"] {
+            try write(bad); XCTAssertEqual(reason(), unusable(file), bad)
+        }
+        try FileManager.default.removeItem(atPath: file)
+        let forced: [String: Any] = ["PayloadUUID": "x", "Forced": [["mcx_preference_settings": ["schemaVersion": 1, "organization": "Example Corp", "limits": ["updates": ["mode": "off"]]]]]]
+        try PropertyListSerialization.data(fromPropertyList: forced, format: .xml, options: 0).write(to: URL(fileURLWithPath: profile))
+        XCTAssertEqual(reason(), "Example Corp manages T3 Code updates.", "a configuration profile")
+        try write(#"{"schemaVersion":1,"organization":"Example Corp"}"#); XCTAssertEqual(reason(), unusable(profile), "a profile and a file at once")
+        try "not a plist".write(toFile: profile, atomically: true, encoding: .utf8); XCTAssertEqual(reason(), unusable(profile))
+    }
+
     func testFactsAnswerFromTheCacheAndReadTailscaleOnlyWhenAskedAndOnceAMinute() {
         let network = T3LocalNetwork()
         network.interfaces = { ["en0": [T3NetworkAddress(address: "192.168.1.20", family: "IPv4", isInternal: false)]] }
