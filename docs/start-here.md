@@ -2,6 +2,19 @@
 
 The only required reading; the rest is lookup. A website reads [start-here-site.md](start-here-site.md) instead.
 
+```prompt Build an app with Exact
+Build a new app with Exact in this folder. Use https://github.com/ccheever/exact2/blob/main/docs/start-here.md as the source for each step: it is the only required reading. The exact2 checkout has the same page at docs/start-here.md.
+
+1. If I did not say what the app does, ask me. Find the exact2 checkout (the folder with scripts/exact.mjs); if you cannot find it, ask me where it is.
+2. Run `bun <exact2>/scripts/exact.mjs setup --check`. If it names a missing tool, run `bun <exact2>/scripts/exact.mjs setup`.
+3. Make the app: `bun <exact2>/scripts/exact.mjs new <name>`, then `cd <name>`. Run `bun exact.mjs pattern` and start from the nearest pattern.
+4. Replace the placeholder screen and its tests: the first screen in app.contract, its data in app.ts, and a test in app.test.contract for each thing a person does.
+5. Look up only what you need: `bun exact.mjs docs <heading words>`, `bun exact.mjs contract vocab <name>`, and the recipe the page's table names.
+6. Run `bun exact.mjs verify` until it passes. Fix the app, not the test.
+7. When a doc was wrong or missing, or a step needed a workaround, record it: `bun exact.mjs feedback note "<what happened>"`.
+8. Tell me what you built, what verify reported, and the command that opens the app: `bun exact.mjs web`.
+```
+
 ## The idea
 
 1. **Write the web, ship the platform.** Layout and names are CSS's and HTML's (flex, gap,

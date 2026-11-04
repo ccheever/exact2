@@ -19,7 +19,8 @@ const ROUTES_END = '  // routes: end';
 const SKIPPED_SECTIONS = new Set(['contents']);
 const ORIGIN = site.origin;
 // The one prompt an agent needs: the docs' own Markdown of start-here.md once the site has an origin, GitHub until then.
-const START_URL = ORIGIN ? `${ORIGIN}/start.md` : 'https://github.com/ccheever/exact2/blob/main/docs/start-here.md';
+const GITHUB_START = 'https://github.com/ccheever/exact2/blob/main/docs/start-here.md';
+const START_URL = ORIGIN ? `${ORIGIN}/start.md` : GITHUB_START;
 const START_PROMPT = `Read ${START_URL} before building an app with Exact. It is the only required reading.`;
 const MARKDOWN = join(SITE, 'assets/markdown');
 const EDIT = `https://github.com/ccheever/exact2/edit/main/docs`;
@@ -95,7 +96,8 @@ function routeName(path: string): string {
 }
 
 function read(nav: NavPage): Doc {
-  const tokens = marked.lexer(readFileSync(join(DOCS, nav.source), 'utf8').replaceAll('{{START_PROMPT}}', START_PROMPT), { gfm: true });
+  const text = readFileSync(join(DOCS, nav.source), 'utf8').replaceAll('{{START_PROMPT}}', START_PROMPT).replaceAll(GITHUB_START, START_URL);
+  const tokens = marked.lexer(text, { gfm: true });
   const slug = slugger();
   const anchors = new Map<string, string>();
   const intro: Token[] = [];
@@ -219,6 +221,10 @@ function render(page: SitePage): { blocks: Block[]; toc: TocItem[] } {
           const title = name.join(' ');
           if (lang === 'filetree') {
             block({ kind: 'filetree', depth, text: t.text, tree: tree(t.text) });
+            break;
+          }
+          if (lang === 'prompt') {
+            block({ kind: 'code', depth, lang, title, text: t.text, lines: [] });
             break;
           }
           if (lang === 'diff') {

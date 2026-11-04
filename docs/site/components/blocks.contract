@@ -1,5 +1,5 @@
 use Run, Block from "./shapes.contract"
-use CodeBlock, Terminal from "./code.contract"
+use CodeBlock, Terminal, AgentPrompt from "./code.contract"
 
 // A tab's blocks carry the group "<set>|<index>". A set's first tab shows until the reader picks another.
 fn tabShown(group: string, opened: string[]): bool = opened.includes(group) or (group.endsWith("|0") and not opened.map(x => x.startsWith(group.slice(0, group.length - 1))).includes(true))
@@ -75,8 +75,12 @@ component Blocks
               Runs(runs=block.runs, weight=400)
         else
           if block.kind == "code"
-            view margin-top=16 margin-left=(block.depth * 24)
-              CodeBlock(lang=block.lang, title=block.title, source=block.text, lines=block.lines)
+            if block.lang == "prompt"
+              view margin-top=24 margin-bottom=8
+                AgentPrompt(title=block.title, source=block.text)
+            else
+              view margin-top=16 margin-left=(block.depth * 24)
+                CodeBlock(lang=block.lang, title=block.title, source=block.text, lines=block.lines)
           else
             if block.kind == "terminal"
               view margin-top=16 margin-left=(block.depth * 24)

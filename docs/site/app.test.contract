@@ -185,3 +185,13 @@ test "link cards open their page"
   expect tree has "card-Contract for humans"
   tap "card-Start here"
   expect tree has "h-the-idea"
+
+test "Start here's prompt copies, and shows its text on request"
+  size 1440x900
+  at "/start"
+  expect tree has "agent-prompt"
+  expect tree missing "agent-prompt-text"
+  tap "agent-prompt-toggle"
+  expect tree has "agent-prompt-text"
+  tap "agent-prompt-copy"
+  expect text "agent-prompt-copy" == "Copied"
