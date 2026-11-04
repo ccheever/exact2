@@ -71,14 +71,14 @@ component ThreadErrorBanner
           text "ChatGPT usage limit reached" font-size=14 line-height="20px" font-weight=500 color=colors.warningForeground
           text (data.errorLimit == "workspace" ? "You've reached your workspace's limit for using your ChatGPT plan in other apps. Copy a request to ask your workspace admin for increased usage limits." : "Review your usage settings in ChatGPT.") font-size=14 line-height="20px" color=colors.warningForeground
       else
-        column flex=1 min-width=0 gap=4 padding-top=2 testId="error-banner-text"
+        column flex=1 min-width=0 padding-top=2 align-items="flex-start" testId="error-banner-text"
           if expanded or not data.errorExpandable
             text data.error aria-description=data.errorSummary white-space="pre-wrap" overflow-wrap="anywhere" font-size=14 line-height="20px" color=(data.errorWarning ? colors.warningForeground : colors.dangerForeground)
           else
             text data.errorSummary aria-description=data.error white-space="pre-wrap" overflow-wrap="anywhere" line-clamp=3 font-size=14 line-height="20px" color=(data.errorWarning ? colors.warningForeground : colors.dangerForeground)
           if data.errorExpandable
-            button appearance="none" press=toggle padding=0 border-width=0 background-color="transparent" aria-expanded=expanded testId="error-banner-expand"
-              text (expanded ? "Hide details" : "Show details") font-size=13 line-height="17px" color=colors.primary
+            button appearance="none" press=toggle margin-top=4 padding=0 border-width=0 background-color="transparent" aria-expanded=expanded testId="error-banner-expand"
+              text (expanded ? "Show less" : "Show full error") font-size=14 line-height="20px" font-weight=500 color=colors.iconSubtle
       if data.errorLimit != ""
         button appearance="none" press=action((data.errorLimit == "workspace" ? "chatlocal:admin-request" : "pageslocal:chatgpt-usage"), "", "") min-height=28 margin-top=-2 margin-right=-4 padding-left=9 padding-right=9 border-radius=8 border-width=1 border-style="solid" border-color=colors.primary background-color=colors.primary aria-label=(data.errorLimit == "workspace" ? "Copy request for admin" : "Manage usage") testId="error-banner-action"
           row gap=5 align-items="center"
