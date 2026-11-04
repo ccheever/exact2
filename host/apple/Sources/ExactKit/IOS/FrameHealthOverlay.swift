@@ -158,6 +158,7 @@ final class FrameHealthOverlay: UIView {
             self.screen = screen
             screen.chart = card.chart
             screen.willDraw = { [weak self] in self?.drawWithUpdate() }
+            screen.workload = { DevMenu.session.map { FrameHealth.workload($0.frames, session: $0) } ?? 0 }
             screen.start(scene)
             if screen.running, screenReader.start(claim: false) {
                 screen.health.changed = { [weak self] in self?.refresh() }

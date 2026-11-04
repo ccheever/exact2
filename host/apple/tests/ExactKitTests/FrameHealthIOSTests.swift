@@ -383,6 +383,44 @@ final class FrameHealthIOSTests: XCTestCase {
         overlay.setVisible(false)
     }
 
+    /// A late frame of the screen's names who asked for its update: the app session's workload, and each of Exact's
+    /// frame clock's users asking for frames
+    func testTheScreensLateFrameNamesWhoAskedForIt() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("UIUpdateLink is available from iOS 18") }
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window for the screen's frames")
+        }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        addTeardownBlock { window.isHidden = true }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let screen = FrameHealthScreen()
+        screen.workload = { 1 << 23 | 1 << 19 }
+        screen.start(scene)
+        defer { screen.stop() }
+        screen.health.setHUDVisible(true)
+        defer { screen.health.setHUDVisible(false) }
+        // A live SVG filter's frames, the first held up past its deadline
+        let filter = NSObject()
+        var stalled = false
+        FrameClock.shared.want(filter, .svgFilter) { _ in
+            guard !stalled else { return }
+            stalled = true
+            usleep(60_000)
+        }
+        defer { FrameClock.shared.drop(filter) }
+        func asked() -> UInt64? {
+            let retained = UInt32(min(screen.health.historyStatus().retained, 16))
+            return (0..<retained).map { screen.health.hitch($0).flags }.first { $0 & (1 << 45) != 0 }
+        }
+        let end = Date().addingTimeInterval(3)
+        while asked() == nil, Date() < end { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        let flags = try XCTUnwrap(asked(), "the stalled frame was late, and a live SVG filter asked for it")
+        XCTAssertEqual(flags & (1 << 23 | 1 << 19), 1 << 23 | 1 << 19, "with the session's workload")
+        XCTAssertEqual(flags & (1 << 40), 0, "and no other user of the frame clock")
+    }
+
     func testTheScreenSeesEachFrameAndTheMainThreadsWorkOnlyWhileItRuns() throws {
         guard #available(iOS 18.0, *) else { throw XCTSkip("UIUpdateLink is available from iOS 18") }
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {

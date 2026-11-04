@@ -57,11 +57,20 @@ extension FrameHealth {
     }
 
     /// While a capture runs, the conditions a frame met it under, such as thermal state and Low Power Mode
-    var environmentFlags: UInt64 { captureID != 0 ? FrameHealthEnvironment.flags | (1 << 23) : 0 }
+    /// The capture's conditions: thermal state and Low Power Mode
+    var environmentFlags: UInt64 { captureID != 0 ? FrameHealthEnvironment.flags : 0 }
 
     func frameFlags(_ frames: Frames, session: ExactSession) -> UInt64 {
         guard captureID != 0 else { return 0 }
-        var bits = environmentFlags
+        var bits = environmentFlags | Self.workload(frames, session: session)
+        if hudVisible { bits |= 1 << 35 }
+        if hudDragging { bits |= 1 << 36 }
+        return bits
+    }
+
+    /// What `session` had in flight, and bit 23, which says these bits are known.
+    static func workload(_ frames: Frames, session: ExactSession) -> UInt64 {
+        var bits: UInt64 = 1 << 23
         if frames.motion { bits |= 1 << 16 }
         if frames.spatial { bits |= 1 << 17 }
         if frames.canvas2d { bits |= 1 << 18 }
@@ -69,8 +78,6 @@ extension FrameHealth {
         if session.fillInFlight { bits |= 1 << 20 }
         if session.tickInFlight { bits |= 1 << 21 }
         if frames.hatches { bits |= 1 << 22 }
-        if hudVisible { bits |= 1 << 35 }
-        if hudDragging { bits |= 1 << 36 }
         return bits
     }
 

@@ -28,6 +28,8 @@ final class FrameHealthScreen {
     /// Runs in each update after its `CADisplayLink` callbacks, where an animation makes its changes, and before UIKit
     /// lays out, draws and commits them, so what the card changes goes out with the app's frame
     var willDraw: (() -> Void)?
+    /// The app session's workload flags (`FrameHealth.workload`), which each frame records as its update is scheduled
+    var workload: (() -> UInt64)?
     /// Seconds: one refresh at the display's highest rate
     private(set) var refresh = 1.0 / 60
     private(set) var running = false
@@ -36,8 +38,9 @@ final class FrameHealthScreen {
     /// The passive `UIUpdateLink`
     private var link: AnyObject?
     private var observers: [CFRunLoopObserver] = []
-    /// The update in progress: when it began, its deadline, and when its last transaction was committed
-    private var update: (start: Double, deadline: Double, committed: Double)?
+    /// The update in progress: when it began, its deadline, when its last transaction was committed, and who asked
+    /// for it
+    private var update: (start: Double, deadline: Double, committed: Double, askers: UInt64)?
     /// When UIKit expects the newest frame on screen
     private var newest = 0.0
     /// When the main thread last woke, zero while it waits
@@ -132,7 +135,7 @@ final class FrameHealthScreen {
         let now = CACurrentMediaTime()
         let cardOnly = own > 0 && now - own < Self.idle && (newest == 0 || presented - newest >= Self.idle)
         own = 0
-        if cardOnly { (update, cardUpdate) = (nil, now) } else { update = (now, deadline, 0) }
+        if cardOnly { (update, cardUpdate) = (nil, now) } else { update = (now, deadline, 0, Self.askers(workload?() ?? 0)) }
     }
 
     /// The update completed, and UIKit expects it on screen at `presented`.
@@ -141,10 +144,15 @@ final class FrameHealthScreen {
         guard let update else { return }
         self.update = nil
         let finished = update.committed > 0 ? update.committed : CACurrentMediaTime()
-        health.record(arrival: update.start, target: update.deadline, period: 0, finished: finished, flags: health.environmentFlags)
+        health.record(arrival: update.start, target: update.deadline, period: 0, finished: finished,
+            flags: health.captureID == 0 ? 0 : health.environmentFlags | update.askers)
         chart?.screenFrame(at: presented, work: finished - update.start, budget: update.deadline - update.start)
         newest = max(newest, presented)
     }
+
+    /// What asked for an update as it was scheduled: the app session's `workload`, and, from bit 40, each of Exact's
+    /// frame clock's users asking for frames (`FrameClock.Order`). With none of Exact's, UIKit or the system asked.
+    static func askers(_ workload: UInt64) -> UInt64 { workload | FrameClock.shared.asking << 40 }
 
     /// The main thread woke at `now`, as the main run loop's first observer sees.
     func wake(at now: Double) {

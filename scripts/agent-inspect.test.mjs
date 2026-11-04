@@ -102,12 +102,14 @@ test("the screen's report gives each late frame's work against its deadline, and
   const report = { format: 'exact.frame-health/2', source: 'ui-update', available: true, qualification: 'unqualified', scope: { armed: true },
     retention: { overwrittenSinceClear: '37', expiredAtRead: 0 },
     columns: ['sequence', 'capture', 'generation', 'age_us', 'flags', 'target_offset_us', 'callback_us', 'before_callback_us', 'after_offset_us', 'after_callback_us'],
-    hitches: [['40', '1', '1', 1329860, 2 ** 23 + 10, 10176, 39821, 3695, 39830, 24790], ['53', '1', '1', 531878, 2 ** 23 + 2, 12258, 13461, 10607, null, null]] };
+    hitches: [['40', '1', '1', 1329860, 2 ** 43 + 2 ** 23 + 10, 10176, 39821, 3695, 39830, 24790], ['53', '1', '1', 531878, 2 ** 23 + 2, 12258, 13461, 10607, null, null]] };
   const text = renderFrameHealthReport(report);
   expect(text).toContain("the screen's UI updates against UIKit's deadlines");
   expect(text).toContain('#40 / capture 1 / generation 1 · 1329.860 ms ago · committed past its deadline');
   expect(text).toContain("work 39.821 ms · deadline 10.176 ms after the update began · previous update's work 3.695 ms · next update began 39.830 ms after it, work 24.790 ms");
   expect(text).toContain('next update unseen');
+  expect(text).toContain('workload none at observation · asked by the scroll pump · thermal nominal');
+  expect(text).toContain("asked by none of Exact's frame clock (UIKit or the system)");
   expect(() => renderFrameHealthReport({ ...report, columns: report.columns.slice(1) })).toThrow();
   expect(() => renderFrameHealthReport({ ...report, source: 'exact-app-display-link' })).toThrow();
 });

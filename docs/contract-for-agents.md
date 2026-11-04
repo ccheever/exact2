@@ -3554,7 +3554,12 @@ outside an agent run for production behavior.
 tasks, 20 fill pending, 21 tick pending, 22 hatch frames, 23 workload flags known
 (otherwise bits 16–22 are unavailable); bits 32–33 thermal state
 (0 nominal, 1 fair, 2 serious, 3 critical), 34 Low Power Mode, 35 card shown, 36 card
-dragging. These cached observations do not establish which activity caused the hitch.
+dragging. A `ui-update` row's bits 16–23 are the app session's as its update was
+scheduled, and bits 40–46 the users of Exact's frame clock asking for frames then: 40 the
+session's clock, 41 a list's offset correction, 42 a navigation reveal, 43 the scroll pump,
+44 deferred heavy leaves, 45 a live SVG filter, 46 a textarea's resize grip; with none of
+them, UIKit or the system asked. These cached observations do not establish which
+activity caused the hitch.
 
 Save received text as `report.frame-health.json` if needed, then use
 `bun scripts/agent.mjs trace report.frame-health.json` for the expert readout. This

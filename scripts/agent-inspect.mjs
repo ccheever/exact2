@@ -970,6 +970,8 @@ export function renderFrameHealthMetrics(report) {
     'Bounds include the lower value and exclude the upper value. A frame is a callback that started frame work, timed from the display link; presentation, Core Animation commits, input latency and GPU execution remain unmeasured, so a proxy pass covers callbacks and Exact\'s own work only.'].join('\n');
 }
 
+/** Exact's frame clock's users, from bit 40 of a screen's row (`FrameClock.Order`) */
+const SCREEN_ASKERS = ["the session's clock", "a list's offset correction", 'a navigation reveal', 'the scroll pump', 'heavy leaves', 'a live SVG filter', 'a resize grip'];
 const SCREEN_COLUMNS = ['sequence', 'capture', 'generation', 'age_us', 'flags', 'target_offset_us', 'callback_us', 'before_callback_us', 'after_offset_us', 'after_callback_us'];
 
 /** Read measured boundaries before suggesting causes. Null is missing evidence, never zero cost. */
@@ -1014,7 +1016,7 @@ export function renderFrameHealthReport(report) {
       const next = event.flags & 8 ? `next update began ${ms(event.after_offset_us)} after it, work ${ms(event.after_callback_us)}` : 'next update unseen';
       out.push(`#${event.sequence} / capture ${event.capture} / generation ${event.generation} · ${ms(event.age_us)} ago · ${event.flags & 2 ? 'committed past its deadline' : 'timing event'}`,
         `  work ${ms(event.callback_us)} · deadline ${ms(event.target_offset_us)} after the update began · previous update's work ${ms(event.before_callback_us || null)} · ${next}`,
-        `  workload ${workload} · thermal ${thermal} · low power ${bit(34)}`);
+        `  workload ${workload} · asked by ${SCREEN_ASKERS.filter((_, index) => bit(index + 40)).join(', ') || 'none of Exact\'s frame clock (UIKit or the system)'} · thermal ${thermal} · low power ${bit(34)}`);
       continue;
     }
     out.push(`#${event.sequence} / capture ${event.capture} / generation ${event.generation} · ${ms(event.age_us)} ago · ${reasons.join(', ') || 'timing event'}`,
