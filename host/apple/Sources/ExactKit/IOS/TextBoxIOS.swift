@@ -146,7 +146,8 @@ final class TextBoxLayer: BoxPartLayer {
     /// observer is pending while any is here.
     private static let unaimed = NSHashTable<TextBoxLayer>.weakObjects()
 
-    private static func committed() {
+    /// The observer's work (internal for a test that calls it in a callout).
+    static func committed() {
         let taken = unaimed.allObjects
         unaimed.removeAllObjects()
         var ready: [TextBoxLayer] = []
@@ -158,9 +159,9 @@ final class TextBoxLayer: BoxPartLayer {
         guard !ready.isEmpty else { return }
         // The clocks in a transaction of their own, sent when it commits, as
         // the main thread may sleep through the resize. Opened inside one still
-        // open (a callout's, which a run loop run inside it leaves uncommitted),
-        // it commits with that one; a flush would send the callout's changes
-        // before the callout ends.
+        // open (a callout's, which a run loop run inside it can leave
+        // uncommitted), it commits with that one; a flush would send the
+        // callout's changes before the callout ends.
         CATransaction.begin()
         for box in ready {
             box.removeAnimation(forKey: mark)
