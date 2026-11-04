@@ -16,7 +16,9 @@ package protocol TextPresentation: AnyObject {
     /// (no wider than `width`, when the offer has one); nil where the
     /// reader's runs stand in.
     func editorMarkdown(_ engine: TextEngine, source: Run, atoms: String, faces: String, rtl: Bool, width: CGFloat?) -> [Run]?
-    func attributes(_ run: Run, color: [Double], attributes: inout [NSAttributedString.Key: Any])
+    /// A run's paint attributes; `scale` is the engine's `lineScale`, which
+    /// an inline background's content area rounds to.
+    func attributes(_ run: Run, color: [Double], scale: CGFloat, attributes: inout [NSAttributedString.Key: Any])
     /// The paragraph's whole attributed string, once every run's are set:
     /// what spans runs (an inline box's extent) is read here.
     func finish(_ string: NSMutableAttributedString)

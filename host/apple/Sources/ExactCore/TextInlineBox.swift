@@ -35,8 +35,8 @@ package struct InlineBox: Hashable, Sendable {
 
     /// How far its top stands above the baseline among text in `font`
     /// (the kernel's `InlineBox::ascent`): its descent is the rest.
-    package func ascent(_ font: CTFont) -> CGFloat {
-        let (above, below) = CSSLineBox.content(font)
+    package func ascent(_ font: CTFont, scale: CGFloat = 1) -> CGFloat {
+        let (above, below) = CSSLineBox.content(font, scale: scale)
         let top: CGFloat
         switch align {
         case 1: top = (height + CTFontGetXHeight(font)) / 2
@@ -48,8 +48,8 @@ package struct InlineBox: Hashable, Sendable {
     }
 
     /// Its line box: what it adds above and below the baseline.
-    package func lineBox(_ font: CTFont) -> TextLineBox {
-        let above = ascent(font)
+    package func lineBox(_ font: CTFont, scale: CGFloat = 1) -> TextLineBox {
+        let above = ascent(font, scale: scale)
         return TextLineBox(above: above, below: height - above)
     }
 }
@@ -70,8 +70,8 @@ package extension NSAttributedString.Key {
 extension TextEngine {
     /// The attributes that make a box's U+FFFC the box: CoreText's run
     /// delegate gives it the box's width, ascent and descent.
-    package static func boxAttributes(_ box: InlineBox, font: CTFont, index: Int, into a: inout [NSAttributedString.Key: Any]) {
-        let ascent = box.ascent(font)
+    package static func boxAttributes(_ box: InlineBox, font: CTFont, index: Int, scale: CGFloat = 1, into a: inout [NSAttributedString.Key: Any]) {
+        let ascent = box.ascent(font, scale: scale)
         let metrics = InlineBoxMetrics(ascent: max(0, ascent), descent: max(0, box.height - ascent), width: max(0, box.width))
         var callbacks = CTRunDelegateCallbacks(
             version: kCTRunDelegateVersion1,
@@ -103,7 +103,7 @@ extension TextEngine {
                       CTRunGetGlyphCount(run) > 0 else { continue }
                 var position = CGPoint.zero
                 CTRunGetPositions(run, CFRangeMake(0, 1), &position)
-                placed.append((index, x + position.x, p.baselines[i] - box.ascent(font(spec.runs[index]) as CTFont)))
+                placed.append((index, x + position.x, p.baselines[i] - box.ascent(font(spec.runs[index]) as CTFont, scale: lineScale)))
             }
         }
         // One pair per box in run order; a box on no line (`line-clamp`

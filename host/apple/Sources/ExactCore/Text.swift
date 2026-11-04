@@ -301,43 +301,6 @@ package struct SourceMap: Hashable {
     }
 }
 
-/// CSS line heights use the web host's metrics and Chrome's rounding at scale 1.
-/// UIKit positions glyphs at its face's ascent within that height.
-/// On iOS PresentedText.measure returns nil; FieldChromeIOS keeps UIFont.lineHeight
-/// for native editors. Reader line boxes do not change those control metrics.
-package enum CSSLineBox {
-    /// A text advance as the browser's layout holds it: rounded up to its
-    /// 1/64 px layout unit, never to a whole point (a chip's width).
-    package static func layoutWidth(_ width: CGFloat) -> CGFloat { ceil(width * 64) / 64 }
-
-    /// The content area (an inline background's extent) above and below the baseline.
-    package static func content(_ font: CTFont) -> (CGFloat, CGFloat) {
-        #if canImport(UIKit)
-        // Chrome system-ui uses SFNS's hhea metrics (1980/-432 at 2048 units/em).
-        // SFUI paints the same UI family with different vertical metrics; keep
-        // its glyphs, but use the web's line box for author-laid-out text.
-        if (CTFontCopyPostScriptName(font) as String).hasPrefix(".SFUI-") {
-            let size = CTFontGetSize(font)
-            return ((size * 1980 / 2048).rounded(), (size * 432 / 2048).rounded())
-        }
-        #endif
-        return (CTFontGetAscent(font).rounded(), CTFontGetDescent(font).rounded())
-    }
-
-    /// Above and below the baseline: `line-height: normal` when `height` is
-    /// nil, else the authored line height.
-    package static func extents(_ font: CTFont, height: CGFloat?) -> (CGFloat, CGFloat) {
-        let (ascent, descent) = content(font)
-        guard let height else {
-            let gap = CTFontGetLeading(font).rounded()
-            return (ascent + floor(gap / 2), descent + ceil(gap / 2))
-        }
-        guard height.isFinite else { return (ascent, descent) }
-        let above = ascent + floor((height - ascent - descent) / 2)
-        return (above, height - above)
-    }
-}
-
 /// Where a measured paragraph's lines break, as plain values: what
 /// measurement publishes and painting shapes its own lines from (LLP 1072
 /// §8.1). `clamped`: a `line-clamp`'s last line, made again ending in "…"
@@ -373,6 +336,9 @@ package final class Paragraph {
     /// A `line-clamp` paragraph whose last line ends in "…": that line's
     /// range as it broke, before the ellipsis (`TextEngine.clampedLine`).
     package var clampedRange: CFRange?
+    /// The device pixels a point its line boxes were rounded to
+    /// (`TextEngine.lineScale`), which its baselines paint on.
+    package var lineScale: CGFloat = 1
     package let flowLineHeight: CGFloat
     package let width: CGFloat
     package let height: CGFloat
@@ -627,6 +593,7 @@ package final class TextEngine {
         private let residency: TextResidency
         private let catalog: [Int: [RegisteredFace]]
         private let familyStacks: [String: Int]
+        private let lineScale: CGFloat
         private let restorePresentation: (() -> Void)?
         private let measurer: Checkpoint?
 
@@ -639,6 +606,7 @@ package final class TextEngine {
             residency = engine.residency
             catalog = engine.catalog
             familyStacks = engine.familyStacks
+            lineScale = engine.lineScale
         }
 
         fileprivate func restore(into engine: TextEngine) {
@@ -647,6 +615,11 @@ package final class TextEngine {
             engine.fonts = fonts
             engine.residency = residency
             engine.residency.refreshAfterRestore()
+            // Paragraphs measured at another scale than the window's now are not kept.
+            if lineScale != engine.lineScale {
+                engine.residency = TextResidency(softTargetBytes: residency.softTargetBytes)
+                engine.residency.keepsAnswers = !engine.publishes
+            }
             engine.catalog = catalog
             engine.familyStacks = familyStacks
             engine.canvasTextCache = nil
@@ -657,6 +630,26 @@ package final class TextEngine {
 
     package func checkpoint() -> Checkpoint { Checkpoint(self) }
     package func restore(_ checkpoint: Checkpoint) { checkpoint.restore(into: self) }
+
+    /// The device pixels a point line boxes round to (`CSSLineBox`): 1
+    /// unless the Mac presenter says its window's backing scale.
+    private(set) package var lineScale: CGFloat = 1
+
+    /// Round line boxes to `scale` device pixels a point from now on, in
+    /// this engine and its measurer. Whether it changed: what was measured at
+    /// the old scale is dropped, as a new catalog's is, and the kernel is to
+    /// measure every paragraph again (`exact_text_scale_changed`).
+    @discardableResult
+    package func setLineScale(_ scale: CGFloat) -> Bool {
+        let scale = scale.isFinite ? max(1, scale) : 1
+        guard scale != lineScale else { return false }
+        lineScale = scale
+        residency = TextResidency(softTargetBytes: residency.softTargetBytes)
+        residency.keepsAnswers = !publishes
+        dropMeasuredBreaks()
+        if let m = measurer { Owner.shared.sync { m.setLineScale(scale) } }
+        return true
+    }
 
     /// Replace this session's plan-scoped catalog before layout. A fresh
     /// residency namespace prevents old accepted font identities from aliasing
@@ -844,8 +837,8 @@ package final class TextEngine {
         for (index, r) in spec.runs.enumerated() {
             var a: [NSAttributedString.Key: Any] = [.font: font(r)]
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
-            presentation?.attributes(r, color: spec.color, attributes: &a)
-            if let box = r.box { TextEngine.boxAttributes(box, font: font(r) as CTFont, index: index, into: &a) }
+            presentation?.attributes(r, color: spec.color, scale: lineScale, attributes: &a)
+            if let box = r.box { TextEngine.boxAttributes(box, font: font(r) as CTFont, index: index, scale: lineScale, into: &a) }
             let length = r.text.utf16.count
             if length > 0 { s.setAttributes(a, range: NSRange(location: offset, length: length)) }
             offset += length
@@ -854,7 +847,7 @@ package final class TextEngine {
             if block.shadow == spec.shadow { block.shadow = nil }
             var a: [NSAttributedString.Key: Any] = [.font: font(block)]
             if block.letterSpacing != 0 { a[.kern] = block.letterSpacing }
-            presentation?.attributes(block, color: spec.color, attributes: &a)
+            presentation?.attributes(block, color: spec.color, scale: lineScale, attributes: &a)
             s.addAttribute(.exactClampStyle, value: a, range: NSRange(location: 0, length: s.length))
         }
         TextEngine.setBaseDirection(s, direction: spec.direction)
@@ -1039,7 +1032,7 @@ package final class TextEngine {
         let spec = shape.spec, typesetter = shape.typesetter, insets = shape.lineInsets
         let length = shape.identity.utf16Count
         let strut = spec.strut ?? spec.runs.first
-        func extents(_ run: Run) -> TextLineBox { TextLineBox(font(run) as CTFont, height: run.lineHeight) }
+        func extents(_ run: Run) -> TextLineBox { TextLineBox(font(run) as CTFont, height: run.lineHeight, scale: lineScale) }
         let minimum = strut.map(extents) ?? TextLineBox()
         var explicit = false
         func authoredExtents(_ run: Run) -> TextLineBox {
@@ -1163,7 +1156,7 @@ package final class TextEngine {
                     matched = true
                     if let b = authored.box {
                         // An image's box, wherever its line breaks (LLP 1011.002).
-                        box.include(b.lineBox(font(authored) as CTFont))
+                        box.include(b.lineBox(font(authored) as CTFont, scale: lineScale))
                     } else if authored.lineHeight != nil {
                         // Explicit boxes use authored metrics; fallback ink
                         // can overflow without enlarging the inline box.
@@ -1181,7 +1174,7 @@ package final class TextEngine {
                 let shapedFont = attributes[kCTFontAttributeName] as! CTFont
                 // Normal line height includes the actual emoji/fallback face's
                 // line box, as the browser's does.
-                box.include(TextLineBox(shapedFont, height: nil))
+                box.include(TextLineBox(shapedFont, height: nil, scale: lineScale))
             }
             explicit = explicit || box.explicit
             baselines.append(y + box.baseline)
@@ -1193,13 +1186,13 @@ package final class TextEngine {
             start += count
         }
         // An authored CSS line height fixes the line box, including fractions;
-        // a `normal` one rounds each font metric to whole pixels (CSSLineBox).
+        // a `normal` one rounds each font metric to whole device pixels (CSSLineBox).
         // A width rounds up to the browser's
         // 1/64 layout unit, so text laid out again at its own measured width
         // still fits on its lines.
         // Balancing moves breaks, never the box: it measures as its greedy lines do.
         maxWidth = max(maxWidth, balanced?.widest ?? 0)
-        var height = explicit ? y : ceil(y)
+        var height = explicit ? y : CSSLineBox.normalHeight(y, scale: lineScale)
         // CSS `text-box-trim`: the first line cut at its fonts' text, cap or
         // ex top, the last at their baseline or descent, as the measurer and
         // the painter both see it (`Spec.textBoxTrim`).
@@ -1209,6 +1202,7 @@ package final class TextEngine {
                                   shape: shape, offeredWidth: width, glyphCount: glyphCount)
         paragraph.clampedRange = clampedRange
         paragraph.insets = insets
+        paragraph.lineScale = lineScale
         return paragraph
     }
 

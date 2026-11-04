@@ -34,6 +34,35 @@ impl Kernel {
         self.arena.system_stacks.len()
     }
 
+    /// Measure every paragraph again (LLP 1008 §3): the host's text engine
+    /// rounds line boxes to another display's device pixels now (a Mac window
+    /// moved to a display of another scale). Each paragraph's metric
+    /// revision moves, so no answer from before stands, and the next layout
+    /// measures it. Whether there was any text.
+    pub fn remeasure_text(&mut self) -> bool {
+        let owners: std::collections::BTreeSet<u32> = (self.arena.iter_live())
+            .filter(|&slot| {
+                matches!(
+                    self.arena.node_type(slot),
+                    NodeType::Text | NodeType::TextInput
+                )
+            })
+            .map(|slot| self.arena.measure_owner(slot))
+            .collect();
+        for &owner in &owners {
+            self.arena.revise_text(owner, true);
+            self.arena
+                .flags_mut(owner)
+                .insert(crate::NodeFlags::TEXT_DIRTY);
+            if let (Some(node), Some(layout)) =
+                (self.arena.taffy(owner), self.layout.as_deref_mut())
+            {
+                layout.mark_dirty(node);
+            }
+        }
+        !owners.is_empty()
+    }
+
     /// Say whether Bold Text is on (LLP 1115.000 D12.3): the person's
     /// accessibility setting, which weights the system font, an authored
     /// weight included, and leaves a family the app ships alone. The next

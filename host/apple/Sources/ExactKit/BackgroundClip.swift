@@ -98,7 +98,7 @@ extension TextEngine {
         for index in p.lines.indices {
             let line = spec.ellipsis ? p.ellipsized(index, spec: spec, width: bounds.width) : p.lines[index]
             let origin = CGPoint(x: bounds.minX + p.origin(index, align: spec.align, width: bounds.width),
-                                 y: bounds.minY + paintedBaseline(p.baselines[index], scale: scale))
+                                 y: bounds.minY + paintedBaseline(p.baselines[index], scale: scale, lineScale: p.lineScale))
             for run in (CTLineGetGlyphRuns(line) as? [CTRun]) ?? [] {
                 if (CTRunGetAttributes(run) as NSDictionary)[NSAttributedString.Key.exactHidden] as? Bool == true { continue }
                 let count = CTRunGetGlyphCount(run)

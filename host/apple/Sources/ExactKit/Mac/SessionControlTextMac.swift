@@ -5,6 +5,8 @@ import CExact
 extension ExactSession {
     func installControlText() { installControlText(on: text) }
     func installControlText(on engine: TextEngine) {
+        // Line boxes round to the window's device pixels, as Chrome's do (LLP 1008 §3).
+        engine.setLineScale(backingScale)
         engine.fieldChrome = fieldChrome
         engine.buttonMeasurements = buttonMeasurements
         Owner.shared.sync {
@@ -16,19 +18,29 @@ extension ExactSession {
             exact_set_button_measure(runtime.rt, TextEngine.buttonMeasure)
         }
     }
+    /// The device pixels a point of the session's window, else the main display's.
+    var backingScale: CGFloat {
+        let surface = view ?? presenter.viewport
+        return surface.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+    }
     func primeControlText() {
         let surface = view ?? presenter.viewport
-        _ = fieldChrome.configure(surface.effectiveAppearance, scale: surface.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1)
-        _ = buttonMeasurements.configure(surface.effectiveAppearance, scale: surface.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1)
+        _ = fieldChrome.configure(surface.effectiveAppearance, scale: backingScale)
+        _ = buttonMeasurements.configure(surface.effectiveAppearance, scale: backingScale)
+        text.setLineScale(backingScale)
     }
     func controlTextChanged() {
         guard state != .destroyed else { return }
         let surface = view ?? presenter.viewport
-        let scale = surface.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+        let scale = backingScale
         let fields = fieldChrome.configure(surface.effectiveAppearance, scale: scale)
         let buttons = buttonMeasurements.configure(surface.effectiveAppearance, scale: scale)
         if (fields || buttons), booted {
             apply(runtime.on { runtime.read(exact_control_text_changed(runtime.rt)) })
+        }
+        // A window on a display of another scale: every paragraph is measured again (LLP 1008 §3).
+        if text.setLineScale(scale), booted {
+            apply(runtime.on { runtime.read(exact_text_scale_changed(runtime.rt)) })
         }
     }
 }

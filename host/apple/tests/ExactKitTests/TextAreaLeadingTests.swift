@@ -7,9 +7,9 @@ import AppKit
 
 /// CSS 2 §10.8.1: a textarea's line box taller than its text has half its
 /// leading above the glyphs and half below, as a text node's and an
-/// input's line (`CSSLineBox.extents`); its placeholder and an input's text
-/// share the line. TextKit by itself puts all of a forced line's leading
-/// above the glyphs.
+/// input's line (`CSSLineBox.extents`, rounded to the window's device
+/// pixels); its placeholder and an input's text share the line. TextKit by
+/// itself puts all of a forced line's leading above the glyphs.
 final class TextAreaLeadingMacTests: XCTestCase {
     private let lineHeight: CGFloat = 22.75
     private var window: NSWindow!
@@ -38,7 +38,7 @@ final class TextAreaLeadingMacTests: XCTestCase {
     }
     /// Where CSS puts the baseline of each line in a field.
     private func css(_ f: NSTextView, lines: Int) throws -> [CGFloat] {
-        let above = CSSLineBox.extents(try XCTUnwrap(f.font) as CTFont, height: lineHeight).0
+        let above = CSSLineBox.extents(try XCTUnwrap(f.font) as CTFont, height: lineHeight, scale: window.backingScaleFactor).0
         return (0..<lines).map { CGFloat($0) * lineHeight + above + f.textContainerOrigin.y }
     }
     /// Each line's baseline as TextKit lays it out, in the text view (y down).
@@ -78,7 +78,7 @@ final class TextAreaLeadingMacTests: XCTestCase {
         let expected = try css(f, lines: laid.count)
         for (got, want) in zip(laid, expected) { XCTAssertEqual(got, want, accuracy: 0.01, "\(laid) against CSS's \(expected)") }
         // The caret spans the glyphs on its line.
-        let face = try XCTUnwrap(f.font) as CTFont, (ascent, descent) = CSSLineBox.content(face)
+        let face = try XCTUnwrap(f.font) as CTFont, (ascent, descent) = CSSLineBox.content(face, scale: window.backingScaleFactor)
         let manager = try XCTUnwrap(f.textLayoutManager), content = try XCTUnwrap(manager.textContentManager)
         for (line, offset) in [(0, 0), (1, 3)] {
             let at = try XCTUnwrap(content.location(content.documentRange.location, offsetBy: offset))

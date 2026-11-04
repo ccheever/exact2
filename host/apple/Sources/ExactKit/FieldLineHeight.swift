@@ -20,8 +20,9 @@ extension NSMutableParagraphStyle {
     /// `height` and its glyphs sit up to a point higher than CSS's. Where
     /// CSS keeps the baseline by the field's font, TextKit raises a line
     /// holding a run of a larger descent (an emoji) by the difference. Nil,
-    /// the font's own line height.
-    package func setLineHeight(_ height: CGFloat?, font: PlatformFont) {
+    /// the font's own line height. `scale`: the device pixels a point the
+    /// CSS line box rounds to (`CSSLineBox`).
+    package func setLineHeight(_ height: CGFloat?, font: PlatformFont, scale: CGFloat = 1) {
         lineHeightMultiple = 0
         guard let height else { minimumLineHeight = 0; maximumLineHeight = 0; lineSpacing = 0; return }
         guard height > 0 else {
@@ -36,7 +37,7 @@ extension NSMutableParagraphStyle {
         #else
         let descent = CTFontGetDescent(font as CTFont).rounded() // AppKit's rounds it to a point
         #endif
-        let line = min(height, CSSLineBox.extents(font as CTFont, height: height).0 + descent)
+        let line = min(height, CSSLineBox.extents(font as CTFont, height: height, scale: scale).0 + descent)
         minimumLineHeight = line
         maximumLineHeight = line
         lineSpacing = height - line
