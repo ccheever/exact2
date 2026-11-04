@@ -13,7 +13,10 @@ final class InlineContextIOSTests: XCTestCase {
         let session = ExactApp.shared.makeSession(label: "inline-menu")
         self.session = session
         let p = session.presenter
-        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 800))
+        // In the app's scene, so the window draws
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow()
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
         window.makeKeyAndVisible()
@@ -170,16 +173,223 @@ final class InlineContextIOSTests: XCTestCase {
         XCTAssertEqual(heard, [2])
     }
 
-    func testARoundedParagraphKeepsTheInlinePreviewOnItsRun() throws {
+    func testARunLiftsAPictureOfItsLinesFromItsPlace() throws {
         let p = try presenter()
         defer { p.menus.reset(); window.isHidden = true }
         let node = try XCTUnwrap(p.views[2])
-        node.layer.cornerRadius = 12
+        until("the paragraph is drawn, as one a person presses is") { node.snapshotView(afterScreenUpdates: false) != nil }
+        let interaction = try XCTUnwrap(node.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
+        let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
+        let rect = try XCTUnwrap(rects.first)
+        let config = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: rect.midX, y: rect.midY)))
+        let landed = try XCTUnwrap(p.menus.context.open?.runPreview?.view, "a picture taken as the finger lands, before a press it starts has drawn")
+        let preview = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configuration: config, highlightPreviewForItemWithIdentifier: config.identifier))
+        let (outline, area) = textLines(rects, in: node)
+        XCTAssertTrue(preview.view === landed, "the picture the finger landed on")
+        XCTAssertEqual(preview.parameters.visiblePath?.cgPath, outline.cgPath, "outlined as UIKit outlines text lines, with its padding")
+        XCTAssertEqual(preview.view.bounds.size, area.size, "a picture of the run's area: UIKit would hide all of a paragraph it lifted")
+        XCTAssertEqual((preview.view.layer.mask as? CAShapeLayer)?.path, preview.parameters.visiblePath?.cgPath, "the picture cut to its outline")
+        // On the page's one color: its padding is that color, with none of the text beside the run
+        let drawn = UIGraphicsImageRenderer(bounds: preview.view.bounds).image { preview.view.layer.render(in: $0.cgContext) }
+        var (cr, cg, cb): (CGFloat, CGFloat, CGFloat) = (0, 0, 0)
+        UIColor(cgColor: try XCTUnwrap(p.viewport.layer.backgroundColor)).getRed(&cr, green: &cg, blue: &cb, alpha: nil)
+        XCTAssertEqual(pixel(drawn, at: CGPoint(x: area.width / 2, y: 4)), [cr, cg, cb, 1].map { UInt8(($0 * 255).rounded()) }, "the canvas's color in the padding")
+        let box = node.convert(rect, to: node.superview).offsetBy(dx: -area.minX, dy: -area.minY)
+        XCTAssertEqual(ink(drawn, row: box.midY, from: box.maxX + 2, to: area.width - 2), 0, "none of the text beside the run")
+        XCTAssertTrue(preview.target.container === node.superview && preview.target.center == CGPoint(x: area.midX, y: area.midY),
+                      "from the run's place in the paragraph's superview")
+        p.menus.context.contextMenuInteraction(interaction, willDisplayMenuFor: config, animator: nil)
+        XCTAssertEqual(node.alpha, 1, "the paragraph stays shown")
+        // The run's text changes while the menu shows
+        var style = InlineStyle()
+        try style.set("font_size", .number(18))
+        p.applyParagraph(2, [
+            InlineText(id: 10, parent: 2, props: ["text": "#a-longer-tag", "contextPopover": "tag-menu"], style: style, handlers: ["press", "contextmenu"], paints: true),
+            InlineText(id: 11, parent: 2, props: ["text": " plain text"], style: style, handlers: [], paints: true),
+        ])
+        let returned = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configuration: config, dismissalPreviewForItemWithIdentifier: config.identifier))
+        XCTAssertTrue(returned.view === preview.view && returned.target.container === node.superview, "the same picture returns to the paragraph's place")
+        XCTAssertEqual(returned.parameters.visiblePath?.cgPath, preview.parameters.visiblePath?.cgPath, "with the path that fits it")
+        // UIKit leaves the picture in the window once it has returned it
+        window.addSubview(returned.view)
+        let animator = Animator()
+        p.menus.context.contextMenuInteraction(interaction, willEndFor: config, animator: animator)
+        animator.animations.forEach { $0() }
+        let home = UIGraphicsImageRenderer(bounds: returned.view.bounds).image { returned.view.layer.render(in: $0.cgContext) }
+        XCTAssertEqual(pixel(home, at: CGPoint(x: area.width / 2, y: 4)).last, 0, "it lands without its padding, which would cover the text beside the run")
+        animator.completions.forEach { $0() }
+        XCTAssertNil(returned.view.superview, "off the screen once the menu has ended")
+    }
+
+    func testATransformedParagraphsRunLiftsFromWhereItShows() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let node = try XCTUnwrap(p.views[2])
+        until("the paragraph is drawn") { node.snapshotView(afterScreenUpdates: false) != nil }
+        // A `translate` and a `scale`, as `PressFeedback` composes them
+        node.transform = CGAffineTransform(translationX: 30, y: 40).scaledBy(x: 1.5, y: 1.5)
+        let interaction = try XCTUnwrap(node.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
+        let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
+        let rect = try XCTUnwrap(rects.first)
+        let config = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: rect.midX, y: rect.midY)))
+        let preview = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configuration: config, highlightPreviewForItemWithIdentifier: config.identifier))
+        let area = textLines(rects, in: node).area
+        XCTAssertEqual(preview.target.center, CGPoint(x: area.midX, y: area.midY), "the run's place, where the screen shows it")
+        XCTAssertEqual(preview.view.bounds.size, area.size, "a picture at the screen's scale")
+        XCTAssertEqual(preview.target.transform, .identity, "so the target adds nothing")
+    }
+
+    func testAWrappedRunLiftsAllItsLines() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        var style = InlineStyle()
+        try style.set("font_size", .number(18))
+        func text(_ run: String) {
+            p.applyParagraph(2, [
+                InlineText(id: 10, parent: 2, props: ["text": run, "contextPopover": "tag-menu"], style: style, handlers: ["press", "contextmenu"], paints: true),
+                InlineText(id: 11, parent: 2, props: ["text": " plain text"], style: style, handlers: [], paints: true),
+            ])
+        }
+        text("#tag with enough words in it to wrap onto a second line")
+        let node = try XCTUnwrap(p.views[2])
+        // A panel under part of the paragraph: what lies beneath is not one color, so it is drawn
+        let panel = UIView(frame: CGRect(x: node.frame.minX, y: node.frame.minY - 20, width: node.frame.width / 2, height: node.frame.height + 40))
+        panel.backgroundColor = .systemYellow
+        node.superview?.insertSubview(panel, belowSubview: node)
+        until("the paragraph is drawn") { node.snapshotView(afterScreenUpdates: false) != nil }
+        let interaction = try XCTUnwrap(node.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
+        let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
+        XCTAssertGreaterThanOrEqual(rects.count, 2, "the run wraps")
+        let rect = try XCTUnwrap(rects.first)
+        let config = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: rect.midX, y: rect.midY)))
+        let preview = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configuration: config, highlightPreviewForItemWithIdentifier: config.identifier))
+        let (outline, area) = textLines(rects, in: node)
+        XCTAssertEqual(preview.parameters.visiblePath?.cgPath, outline.cgPath, "UIKit's outline of every line")
+        XCTAssertEqual(preview.view.bounds.size, area.size, "one picture over all of them")
+        let drawn = try XCTUnwrap((preview.view.subviews.first as? UIImageView)?.image, "what lies under it, drawn from the layer tree")
+        let last = node.convert(try XCTUnwrap(rects.last), to: node.superview).offsetBy(dx: -area.minX, dy: -area.minY)
+        XCTAssertEqual(ink(drawn, row: last.midY, from: last.maxX + 2, to: area.width - 2), 0, "none of the text after it on its last line")
+        let yellow = pixel(drawn, at: CGPoint(x: panel.frame.minX + 20 - area.minX, y: 3))
+        XCTAssertTrue(yellow[0] > 200 && yellow[1] > 150 && yellow[2] < 80, "the panel under its first line, drawn: \(yellow)")
+        // The run shortens to one line while the menu shows
+        text("#tag")
+        let now = textLines(node.inlineRects(try XCTUnwrap(p.inlineText(10))), in: node).area
+        let returned = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configuration: config, dismissalPreviewForItemWithIdentifier: config.identifier))
+        XCTAssertTrue(returned.view === preview.view, "the same picture")
+        XCTAssertEqual(returned.target.center, CGPoint(x: now.midX, y: now.midY), "returns to where the run is now")
+    }
+
+    func testARunOnAnOpaqueCoverOverAPictureLiftsOnTheCoversColor() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let node = try XCTUnwrap(p.views[2])
+        // A picture under the paragraph, then an opaque panel over it that covers the run's area: nothing beneath shows
+        let picture = UIImageView(image: UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { UIColor.systemRed.setFill(); $0.fill(CGRect(x: 0, y: 0, width: 4, height: 8)) })
+        picture.frame = node.frame.insetBy(dx: -30, dy: -30)
+        let cover = UIView(frame: node.frame.insetBy(dx: -24, dy: -24))
+        cover.backgroundColor = UIColor(red: 0, green: 0.5, blue: 1, alpha: 1)
+        node.superview?.insertSubview(picture, belowSubview: node)
+        node.superview?.insertSubview(cover, belowSubview: node)
+        until("the paragraph is drawn") { node.snapshotView(afterScreenUpdates: false) != nil }
         let interaction = try XCTUnwrap(node.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
         let rect = try XCTUnwrap(node.inlineRects(try XCTUnwrap(p.inlineText(10))).first)
         let config = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: rect.midX, y: rect.midY)))
-        let preview = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, previewForHighlightingMenuWithConfiguration: config))
-        XCTAssertEqual(try XCTUnwrap(preview.parameters.visiblePath).bounds, rect)
+        let preview = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configuration: config, highlightPreviewForItemWithIdentifier: config.identifier))
+        let area = textLines([rect], in: node).area
+        let drawn = UIGraphicsImageRenderer(bounds: preview.view.bounds).image { preview.view.layer.render(in: $0.cgContext) }
+        XCTAssertFalse(preview.view.subviews.contains { $0 is UIImageView }, "one flat color, nothing drawn")
+        XCTAssertEqual(pixel(drawn, at: CGPoint(x: area.width / 2, y: 4)), [0, 128, 255, 255], "the cover's color in the padding")
+        // A badge listed before the cover but raised over it (`z-index`): composited above, so the color is not flat
+        let badge = UIView(frame: CGRect(x: rect.maxX + 22, y: node.frame.minY + 2, width: 6, height: 6))
+        badge.backgroundColor = .systemRed
+        badge.layer.zPosition = 1
+        node.superview?.insertSubview(badge, belowSubview: cover)
+        let raised = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: rect.midX, y: rect.midY)))
+        let over = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configuration: raised, highlightPreviewForItemWithIdentifier: raised.identifier))
+        // `render(in:)` would draw the badge under the cover, as listed (measured): the screen's own picture
+        XCTAssertTrue(try XCTUnwrap(over.view.subviews.first).isScreens, "the screen, the badge over the cover")
+    }
+
+    func testARunOverABlurLiftsTheScreen() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        let node = try XCTUnwrap(p.views[2])
+        // A blur under the paragraph, which the render server alone draws
+        let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
+        blur.frame = node.frame.insetBy(dx: -20, dy: -20)
+        node.superview?.insertSubview(blur, belowSubview: node)
+        until("the paragraph is drawn") { node.snapshotView(afterScreenUpdates: false) != nil }
+        let interaction = try XCTUnwrap(node.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
+        let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
+        let rect = try XCTUnwrap(rects.first)
+        let config = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: rect.midX, y: rect.midY)))
+        let preview = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configuration: config, highlightPreviewForItemWithIdentifier: config.identifier))
+        XCTAssertTrue(try XCTUnwrap(preview.view.subviews.first).isScreens, "the screen's own picture, blur and all, not one the host drew")
+        XCTAssertEqual(preview.view.bounds.size, textLines(rects, in: node).area.size)
+        let animator = Animator()
+        p.menus.context.contextMenuInteraction(interaction, willEndFor: config, animator: animator)
+        animator.animations.forEach { $0() }
+        XCTAssertEqual(try XCTUnwrap(preview.view.subviews.first).alpha, 0, "it lands as the screen is then, the screen's picture of the area faded, as what lies there may have changed")
+    }
+
+    func testARunLiftsOverTheRootControllersView() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        // An app with no routes: its root controller holds the view
+        let host = UIViewController()
+        window.rootViewController = host
+        host.view.frame = window.bounds
+        host.view.addSubview(p.viewport)
+        let node = try XCTUnwrap(p.views[2])
+        until("the paragraph is drawn") { node.snapshotView(afterScreenUpdates: false) != nil }
+        let interaction = try XCTUnwrap(node.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
+        let rect = try XCTUnwrap(node.inlineRects(try XCTUnwrap(p.inlineText(10))).first)
+        let config = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: rect.midX, y: rect.midY)))
+        let preview = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configuration: config, highlightPreviewForItemWithIdentifier: config.identifier))
+        XCTAssertTrue(preview.target.container === host.view, "over the root controller's view, above every clip in it")
+    }
+
+    /// UIKit's outline of a run's lines where the screen shows them, in the paragraph's superview, in its own
+    /// coordinates, and its area
+    private func textLines(_ rects: [CGRect], in node: UIView) -> (outline: UIBezierPath, area: CGRect) {
+        let outline = UIPreviewParameters(textLineRects: rects.map { NSValue(cgRect: node.convert($0, to: node.superview)) }).visiblePath ?? UIBezierPath()
+        let area = outline.bounds
+        outline.apply(CGAffineTransform(translationX: -area.minX, y: -area.minY))
+        return (outline, area)
+    }
+
+    /// How many pixels of `image` along the row at `y`, from `start` to `end` (points), are dark enough to be text: their
+    /// luminance, not one channel, as a yellow fill has no blue
+    private func ink(_ image: UIImage, row y: CGFloat, from start: CGFloat, to end: CGFloat) -> Int {
+        guard let (bytes, width, height) = rgba(image) else { return -1 }
+        let row = min(height - 1, Int(y * image.scale)), columns = max(0, Int(start * image.scale))..<min(width, Int(end * image.scale))
+        return columns.filter { x in
+            let i = (row * width + x) * 4
+            return bytes[i + 3] > 128 && 0.299 * Double(bytes[i]) + 0.587 * Double(bytes[i + 1]) + 0.114 * Double(bytes[i + 2]) < 100
+        }.count
+    }
+
+    /// `image`'s pixel at `point` (points), RGBA
+    private func pixel(_ image: UIImage, at point: CGPoint) -> [UInt8] {
+        guard let (bytes, width, height) = rgba(image) else { return [] }
+        let i = (min(height - 1, Int(point.y * image.scale)) * width + min(width - 1, Int(point.x * image.scale))) * 4
+        return Array(bytes[i..<i + 4])
+    }
+
+    private func rgba(_ image: UIImage) -> (bytes: [UInt8], width: Int, height: Int)? {
+        guard let picture = image.cgImage else { return nil }
+        let width = picture.width, height = picture.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(data: &bytes, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.draw(picture, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return (bytes, width, height)
+    }
+
+    private func until(_ what: String, _ seconds: Double = 5, _ done: () -> Bool) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !done(), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
+        XCTAssertTrue(done(), what)
     }
 
     func testAWrappedRunsContextOffsetsKeepTheTargetsOrigin() throws {
@@ -226,5 +436,18 @@ final class InlineContextIOSTests: XCTestCase {
         p.applyParagraph(2, [InlineText(id: run.id, parent: run.parent, props: props, style: style, handlers: run.handlers, paints: run.paints), node.inlineText[1]])
         XCTAssertNil(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: tag.midX, y: tag.midY)))
     }
+}
+
+private extension UIView {
+    /// Whether this is a picture the screen took (`resizableSnapshotView`), rather than one the host drew or filled
+    var isScreens: Bool { !(type(of: self) == UIView.self || self is UIImageView) }
+}
+
+/// An animator that keeps what it is given, for a test to run as UIKit runs it: alongside its animation and after it
+private final class Animator: NSObject, UIContextMenuInteractionAnimating {
+    var animations: [() -> Void] = [], completions: [() -> Void] = []
+    var previewViewController: UIViewController? { nil }
+    func addAnimations(_ animations: @escaping () -> Void) { self.animations.append(animations) }
+    func addCompletion(_ completion: @escaping () -> Void) { completions.append(completion) }
 }
 #endif

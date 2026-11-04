@@ -1,7 +1,7 @@
 import { resourceInspection } from "./resource-inspection.js";
 import { oneActivation, suppressedInvocation, releaseAsset as rel } from "./elements.js"; import { reloadOnGone } from "./generation-reload.js"; import { rt as Link } from "./rt-link.js";
 export { liveTime } from "./live-time.js";
-import { commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, inertAncestor, sheetLeaves, liveById, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
+import { commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, inertAncestor, sheetLeaves, liveById, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt, navigation } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots, openTabs, unopened, tp } from "./document.js"; export { Head, unopened, tp }; import { conforms, eq, equal, failureCode, failureReason, loneSurrogate } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
 import * as Ov from "./overlay.js"; import { beatAfter } from "./beat.js"; import { counted, heldAsks, heldReplies, longPollReplied, longPollEnded } from "./held.js"; export { heldAsks, heldReplies }; // optimistic writes shown over answers (the runner's writes.rs)
@@ -213,7 +213,7 @@ export function commit(f, what = "commit", finished) {
     Sched?.scan(true); // a free queue's waiting send is due (LLP 1092 D3)
     return true;
   };
-  return Sh && ok ? Sh.commit(tail, Queue, inflight, After) : tail();
+  return Sh && ok && !navigation.traversing ? Sh.commit(tail, Queue, inflight, After) : tail(); // a history traversal lands at once (navigation.js `traversing`)
 }
 /** A commit made again after a write ended or the source became ready (the runner's `commit_again`). Refused while reads are
  * owed (a reconciling ask), they fail, keeping what they show, before a commit publishes it; a refusal of that leaves nothing owed. */

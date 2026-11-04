@@ -133,6 +133,7 @@ section binds (`rules/RULES.md`, "Agents").
   <suite>` says why one was selected. A suite reads its Cargo dependencies, its imports and
   what its tests name. Shared code that names an app or a host only builds what its caller
   asks for, so an Excord change runs Excord's tests and a Linux host change runs no XCTest. A
+  change to Swift test files alone runs only the XCTest classes they reach (`--only`). A
   read that nothing names can escape the selection; `--audit <suite>` runs a suite with the
   units outside its inputs unreadable to look for one (`docs/testing.md`). Advice, not a check.
 - An unset `EXACT_UPDATE_TRUST` bakes development trust, which checks only an

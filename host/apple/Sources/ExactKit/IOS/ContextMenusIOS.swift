@@ -12,6 +12,7 @@
 // list's rows share shows the row pressed. While the agent paints, this host
 // is off and the popover opens painted (D4, `MenuHost.agentContext`).
 #if os(iOS)
+import AVFoundation
 import UIKit
 
 final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditMenuInteractionDelegate {
@@ -60,9 +61,10 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         var home = CGRect.zero
         var dropped = false
         var controller: PreviewController?
-        /// The picture UIKit lifts (`targeted`) and the node it shows, hidden
-        /// under it while the menu is up, with the opacity it had.
-        var lifted: (picture: UIView, node: UIView, alpha: CGFloat)?
+        /// The preview of an inline run UIKit lifts (`targeted`), taken as the
+        /// finger lands: its picture and path stay the same from the lift to the
+        /// dismissal.
+        var runPreview: UITargetedPreview?
         /// Whether the preview was tapped, and whether its press navigated.
         var committed = false, navigated = false
         init(source: NodeView, popover: NodeView, name: String, point: CGPoint, inlineID: UInt32? = nil) {
@@ -329,6 +331,12 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         owner.interaction = interaction
         if !(view is NodeView) { owner.touched = hit }
         open = owner
+        // A run's picture as the finger lands: UIKit asks for the configuration
+        // before a press it starts has drawn (measured), so the picture holds
+        // none, such as a tappable ancestor's dim
+        if let run, let container = Self.container(of: source), let lines = RunLines(run, in: source, over: container) {
+            owner.runPreview = Self.runPreview(lines, of: source)
+        }
         let configuration = UIContextMenuConfiguration(identifier: NSNumber(value: run?.id ?? source.id), previewProvider: { [weak self, weak owner] in
             guard let self, let owner else { return nil }
             return self.lift(owner)
@@ -419,10 +427,13 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         return controller
     }
 
-    /// The lifted row back in its popover, hidden with it.
+    /// The lifted row back in its popover, hidden with it, and a run's picture
+    /// off the screen: UIKit leaves it in the window once it has returned it
+    /// (filmed and logged, iOS 27.1).
     private func restore(_ owner: Open) {
         menus?.coverClosed()
-        if let lifted = owner.lifted { owner.lifted = nil; if lifted.node.alpha == 0 { lifted.node.alpha = lifted.alpha } }
+        owner.runPreview?.view.removeFromSuperview()
+        owner.runPreview = nil
         if let pop = owner.popover, owner.toggled { owner.toggled = false; presenter?.popoverEvents.changed(pop, open: false) }
         if owner.keyboardConfiguration != nil {
             keyboardInteraction.view?.removeInteraction(keyboardInteraction)
@@ -444,48 +455,301 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         }
     }
 
-    /// UIKit lifts a picture of the node, clipped to its corners, from the
-    /// node's place. Not the node itself: UIKit's live view of a node in a
-    /// list showed a blank platter for a multi-line chat bubble, and a
-    /// bubble's fill went missing in dark mode (r28's chat). The node hides
-    /// under its picture while the menu shows, as UIKit hides a lifted view;
-    /// an inline run's paragraph stays, the rest of it still showing.
+    /// UIKit lifts the node itself, live, clipped to its outline (LLP 1021
+    /// §5.1): it hides the node, lifts it and returns it. A run of text cannot
+    /// lift its paragraph, which UIKit would hide whole: it lifts a picture of
+    /// what lies under the run's lines (`runPreview`), and the paragraph stays
+    /// shown. Both rise over `container(of:)`.
     private func targeted(_ configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
-        guard let owner = open, let source = owner.source, live(source), (owner.touched ?? source).window != nil,
+        guard let owner = open, let source = owner.source, live(source),
               (configuration.identifier as? NSNumber)?.uint32Value == (owner.inlineID ?? source.id) else { return nil }
-        let parameters = UIPreviewParameters()
+        if let id = owner.inlineID {
+            // Nil where the run no longer shows lines, its text gone
+            guard let run = presenter?.inlineText(id), let container = Self.container(of: source),
+                  let lines = RunLines(run, in: source, over: container) else { return nil }
+            // The picture the finger landed on, else one taken now, from the run's place now
+            guard let preview = owner.runPreview ?? Self.runPreview(lines, of: source) else { return nil }
+            owner.runPreview = preview
+            return preview.retargetedPreview(with: lines.target)
+        }
+        // A view the touch fell on that has left the window gives way to the node
         let shown = owner.touched.flatMap { $0.window == nil ? nil : $0 } ?? source
-        if let id = owner.inlineID, let run = presenter?.inlineText(id) {
-            let path = UIBezierPath()
-            source.inlineRects(run).forEach { path.append(UIBezierPath(rect: $0)) }
-            parameters.visiblePath = path
+        let parameters = UIPreviewParameters()
+        // One radius, round or Apple's continuous, as UIKit's own rounded
+        // rectangle, which UIKit keeps through the lift's morph: UIKit applies
+        // any other path only after the morph's first frames, which show the
+        // node square (measured, iOS 27.1). One radius within the tolerance the
+        // layer's own (`applyBoxLayer`) has.
+        if let node = shown as? NodeView {
+            let corners = node.cornerSizes(in: node.bounds), shape = node.style["corner_shape"]
+            if let corner = corners.first, corner.width > 0, corners.allSatisfy({ abs($0.width - corner.width) < 0.01 && abs($0.height - corner.width) < 0.01 }),
+               shape == nil || CornerShape(shape)?.isAppleContinuous == true {
+                parameters.visiblePath = UIBezierPath(roundedRect: node.bounds, cornerRadius: corner.width)
+            } else if corners.contains(where: { $0.width > 0 }) {
+                parameters.visiblePath = node.roundedPath(in: node.bounds)
+            }
+        } else if shown.layer.cornerRadius > 0 {
+            parameters.visiblePath = UIBezierPath(roundedRect: shown.bounds, cornerRadius: shown.layer.cornerRadius)
         }
-        let radius = shown.layer.cornerRadius
-        if radius > 0, parameters.visiblePath == nil { parameters.visiblePath = UIBezierPath(roundedRect: shown.bounds, cornerRadius: radius) }
-        guard let window = shown.window, let parent = shown.superview else { return UITargetedPreview(view: shown, parameters: parameters) }
-        if owner.lifted?.node !== shown, let picture = shown.snapshotView(afterScreenUpdates: false) {
-            if let lifted = owner.lifted, lifted.node.alpha == 0 { lifted.node.alpha = lifted.alpha }
-            owner.lifted = (picture, shown, shown.alpha)
+        guard let target = Self.target(shown) else { return nil }
+        return UITargetedPreview(view: shown, parameters: parameters, target: target)
+    }
+
+    /// A run's lines where the screen shows them in `container`: their boxes,
+    /// and their outline as UIKit outlines text lines, with the padding UIKit
+    /// gives them (`UIPreviewParameters(textLineRects:)`), in the coordinates of
+    /// the outline's area.
+    private struct RunLines {
+        let boxes: [CGRect], outline: UIBezierPath, area: CGRect, container: UIView
+
+        /// Nil where the run shows no lines.
+        init?(_ run: InlineText, in source: NodeView, over container: UIView) {
+            let boxes = source.inlineRects(run).map { source.convert($0, to: container) }.filter { !$0.isEmpty }
+            guard let outline = UIPreviewParameters(textLineRects: boxes.map { NSValue(cgRect: $0) }).visiblePath?.copy() as? UIBezierPath,
+                  !outline.bounds.isEmpty else { return nil }
+            let area = outline.bounds
+            outline.apply(CGAffineTransform(translationX: -area.minX, y: -area.minY))
+            (self.boxes, self.outline, self.area, self.container) = (boxes, outline, area, container)
         }
-        guard let lifted = owner.lifted else { return UITargetedPreview(view: shown, parameters: parameters) }
-        // From the node's place but over the window, so an ancestor that scrolls sideways does not clip the picture as
-        // it grows; its transform is the node's with each ancestor's scale and rotation, and converting the centre takes
-        // the translations.
-        var transform = shown.transform
-        for ancestor in sequence(first: parent, next: { $0.superview }) where ancestor !== window {
+
+        /// The lines' place, where a preview of them rises and returns
+        var target: UIPreviewTarget { UIPreviewTarget(container: container, center: CGPoint(x: area.midX, y: area.midY)) }
+    }
+
+    /// A run's preview: a picture of its lines (`picture`), cut to their
+    /// outline on no color, at the screen's scale, so its target adds no
+    /// transform. The cut holds what UIKit shows of the picture before it
+    /// applies the outline, which it does a few frames into the lift for one
+    /// that is not a rounded rectangle (measured).
+    private static func runPreview(_ lines: RunLines, of source: NodeView) -> UITargetedPreview? {
+        guard let picture = picture(lines, of: source) else { return nil }
+        let cut = CAShapeLayer()
+        cut.path = lines.outline.cgPath
+        picture.layer.mask = cut
+        let parameters = UIPreviewParameters()
+        parameters.visiblePath = lines.outline
+        parameters.backgroundColor = .clear
+        return UITargetedPreview(view: picture, parameters: parameters, target: lines.target)
+    }
+
+    /// The run's area as the screen shows it: its own boxes from the screen
+    /// over its padding (`padding`), else the screen's picture of all of it,
+    /// neighboring text included.
+    private static func picture(_ lines: RunLines, of source: NodeView) -> RunPicture? {
+        let container = lines.container, area = lines.area
+        guard let padding = padding(lines, of: source) else {
+            return container.resizableSnapshotView(from: area, afterScreenUpdates: false, withCapInsets: .zero).map(RunPicture.init(padding:))
+        }
+        let picture = RunPicture(padding: padding)
+        let runArea = lines.boxes.reduce(CGRect.null) { $0.union($1) }
+        if let run = container.resizableSnapshotView(from: runArea, afterScreenUpdates: false, withCapInsets: .zero) {
+            run.frame = runArea.offsetBy(dx: -area.minX, dy: -area.minY)
+            let only = CAShapeLayer(), path = UIBezierPath()
+            for box in lines.boxes { path.append(UIBezierPath(rect: box.offsetBy(dx: -runArea.minX, dy: -runArea.minY))) }
+            only.path = path.cgPath
+            run.layer.mask = only
+            picture.addSubview(run)
+        }
+        return picture
+    }
+
+    /// The run's padding: what lies under its paragraph across its area,
+    /// without the paragraph's other text. It comes from `underneath`: one flat
+    /// color, or the layers there drawn with `render(in:)` while the paragraph,
+    /// and what lies wholly outside the area, is hidden for that call (which
+    /// never reaches the screen), the paragraph's own fill drawn back. Nil where
+    /// only the render server draws there, or the paragraph draws its own box
+    /// or a border.
+    private static func padding(_ lines: RunLines, of source: NodeView) -> UIView? {
+        let container = lines.container, area = lines.area
+        guard !source.boxDrawn, source.layer.borderWidth == 0, let parent = source.superview else { return nil }
+        // From the nearest view under the paragraph that covers the area opaquely: nothing behind it shows
+        let root = sequence(first: parent, next: { $0.superview }).first {
+            $0.layer.opacity >= 1 && ($0.layer.backgroundColor?.alpha ?? 0) >= 1 && covers($0.layer, area, in: container.layer)
+        } ?? source.window ?? container
+        switch underneath(root.layer, across: area, in: container.layer, exceptFor: source.layer) {
+        case .renderServer:
+            return nil
+        case .color(let color):
+            let padding = UIView(frame: CGRect(origin: .zero, size: area.size))
+            padding.layer.backgroundColor = color
+            return padding
+        case .layers(let outside):
+            // The root's coordinates in the container's, from its bounds' origin, which `render(in:)` draws at the context's
+            let b = root.bounds.origin
+            let o = root.convert(b, to: container), x = root.convert(CGPoint(x: b.x + 1, y: b.y), to: container), y = root.convert(CGPoint(x: b.x, y: b.y + 1), to: container)
+            let placement = CGAffineTransform(a: x.x - o.x, b: x.y - o.y, c: y.x - o.x, d: y.y - o.y, tx: o.x, ty: o.y)
+            let radius = source.layer.cornerRadius
+            var corners: UIRectCorner = []
+            for (masked, corner) in [(CACornerMask.layerMinXMinYCorner, UIRectCorner.topLeft), (.layerMaxXMinYCorner, .topRight), (.layerMinXMaxYCorner, .bottomLeft), (.layerMaxXMaxYCorner, .bottomRight)]
+            where source.layer.maskedCorners.contains(masked) { corners.insert(corner) }
+            return UIImageView(image: UIGraphicsImageRenderer(size: area.size, format: UIGraphicsImageRendererFormat(for: container.traitCollection)).image { context in
+                let cg = context.cgContext
+                cg.translateBy(x: -area.minX, y: -area.minY)
+                cg.saveGState()
+                cg.concatenate(placement)
+                let hidden = ([source.layer] + outside).map { ($0, $0.isHidden) }
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                for (layer, _) in hidden { layer.isHidden = true }
+                root.layer.render(in: cg)
+                for (layer, was) in hidden { layer.isHidden = was }
+                CATransaction.commit()
+                cg.restoreGState()
+                if let fill = source.layer.backgroundColor {
+                    cg.setFillColor(fill)
+                    cg.addPath(UIBezierPath(roundedRect: source.convert(source.bounds, to: container), byRoundingCorners: corners, cornerRadii: CGSize(width: radius, height: radius)).cgPath)
+                    cg.fillPath()
+                }
+            })
+        }
+    }
+
+    /// A run's picture (`picture`): its padding, with the run's words over it
+    /// unless the padding is the screen's, which holds them. The padding fades
+    /// as UIKit returns the picture (`willEndFor`), so it lands as the screen
+    /// shows it then.
+    private final class RunPicture: UIView {
+        let padding: UIView
+        init(padding: UIView) {
+            self.padding = padding
+            super.init(frame: CGRect(origin: .zero, size: padding.bounds.size))
+            padding.frame = bounds
+            addSubview(padding)
+        }
+        required init?(coder: NSCoder) { nil }
+    }
+
+    /// What lies under a paragraph across a run's area.
+    private enum Underneath {
+        /// One flat color: nothing paints there but fills that cover all of it.
+        case color(CGColor)
+        /// Layers Core Animation draws in the app (`render(in:)`), and those
+        /// wholly outside the area, which the drawing leaves out.
+        case layers(outside: [CALayer])
+        /// Something only the render server draws (`drawnByRenderServer`), or
+        /// siblings there that `zPosition` reorders, which it alone composites
+        /// in that order.
+        case renderServer
+    }
+
+    /// What lies under `paragraph` across `area` (in `space`), in one walk of
+    /// `root`'s layers in the order they are composited. A layer counts as only its fill where
+    /// it is sure to paint nothing else; the color is flat where every fill
+    /// there, from the last opaque one that covers the whole area up, covers it
+    /// too, at full opacity. Anything else is drawn, never guessed.
+    private static func underneath(_ root: CALayer, across area: CGRect, in space: CALayer, exceptFor paragraph: CALayer) -> Underneath {
+        var flat = false, fills: [CGColor] = [], outside: [CALayer] = [], reordered = false
+        func paint(_ layer: CALayer, opacity: Float) {
+            if layer !== paragraph, paintsBeyondItsFill(layer) { flat = false; return }
+            guard let fill = layer.backgroundColor, fill.alpha > 0 else { return }
+            let whole = opacity >= 1 && covers(layer, area, in: space)
+            if whole, fill.alpha >= 1 { fills = [fill]; flat = true } else if whole, flat { fills.append(fill) } else { flat = false }
+        }
+        // Nil where the render server alone draws something of `layer`'s in the area; else whether any of it lies there
+        func visit(_ layer: CALayer, opacity: Float) -> Bool? {
+            guard !layer.isHidden, layer.opacity > 0 else { return false }
+            let alpha = opacity * layer.opacity, inside = layer.convert(layer.bounds, to: space).intersects(area)
+            if inside {
+                if drawnByRenderServer(layer) { return nil }
+                paint(layer, opacity: alpha)
+            }
+            if layer === paragraph { return true }
+            if layer.masksToBounds, !inside { return false }
+            var reaches = inside, away: [CALayer] = []
+            // In the order Core Animation composites them: by `zPosition` (a `z-index`'s rank, `PaintOrder`), then as listed
+            let ordered = (layer.sublayers ?? []).enumerated().sorted { ($0.element.zPosition, $0.offset) < ($1.element.zPosition, $1.offset) }
+            var reachingAt: [Int] = []
+            for (index, sublayer) in ordered {
+                guard let reached = visit(sublayer, opacity: alpha) else { return nil }
+                if reached { reaches = true; reachingAt.append(index) } else { away.append(sublayer) }
+            }
+            if reachingAt != reachingAt.sorted() { reordered = true }
+            if reaches { outside += away }
+            return reaches
+        }
+        guard visit(root, opacity: 1) != nil else { return .renderServer }
+        if flat, let color = composite(fills) { return .color(color) }
+        // `render(in:)` draws siblings as listed, not by `zPosition` (measured): where that reorders what lies there, the screen
+        return reordered ? .renderServer : .layers(outside: outside)
+    }
+
+    /// Whether `layer`'s fill covers all of `area` (in `space`): unmasked and
+    /// upright there, its bounds hold the area clear of its rounded corners.
+    private static func covers(_ layer: CALayer, _ area: CGRect, in space: CALayer) -> Bool {
+        let b = layer.bounds, corner = [CGPoint(x: b.minX, y: b.minY), CGPoint(x: b.maxX, y: b.minY), CGPoint(x: b.minX, y: b.maxY)].map { layer.convert($0, to: space) }
+        guard layer.mask == nil, abs(corner[0].y - corner[1].y) < 0.01, abs(corner[0].x - corner[2].x) < 0.01 else { return false }
+        let bounds = layer.convert(b, to: space), r = layer.cornerRadius
+        return bounds.contains(area) && (r == 0 || bounds.insetBy(dx: r, dy: 0).contains(area) || bounds.insetBy(dx: 0, dy: r).contains(area))
+    }
+
+    /// Whether only the render server draws `layer`: filters (blurs and
+    /// materials), video, Metal, a 3D transform, and content another process
+    /// draws (a web view, an embedded platform view), which `render(in:)` leaves
+    /// out. It draws masks and rounded clips (measured, iOS 27.1).
+    private static func drawnByRenderServer(_ layer: CALayer) -> Bool {
+        if let node = layer.delegate as? NodeView, ["iframe", "native", "video"].contains(node.kind) { return true }
+        return layer is CAMetalLayer || layer is AVPlayerLayer || layer is AVSampleBufferDisplayLayer || layer is AVCaptureVideoPreviewLayer
+            || layer.filters?.isEmpty == false || layer.backgroundFilters?.isEmpty == false || layer.compositingFilter != nil
+            || !CATransform3DIsAffine(layer.transform)
+    }
+
+    /// Fills over one another, the first opaque, as one color: each over the
+    /// ones before it (source over, in extended sRGB).
+    private static func composite(_ fills: [CGColor]) -> CGColor? {
+        guard let space = CGColorSpace(name: CGColorSpace.extendedSRGB) else { return nil }
+        var rgb: [CGFloat]?
+        for fill in fills {
+            guard let c = fill.converted(to: space, intent: .defaultIntent, options: nil)?.components, c.count == 4 else { return nil }
+            rgb = rgb.map { under in (0..<3).map { c[$0] * c[3] + under[$0] * (1 - c[3]) } } ?? Array(c.prefix(3))
+        }
+        return rgb.flatMap { CGColor(colorSpace: space, components: $0 + [1]) }
+    }
+
+    /// Whether `layer` may paint more than its fill: text, a picture, a drawn
+    /// box, a border, a shadow, a mask or a layer that draws itself.
+    private static func paintsBeyondItsFill(_ layer: CALayer) -> Bool {
+        if layer.borderWidth > 0 || layer.shadowOpacity > 0 || layer.mask != nil { return true }
+        if let node = layer.delegate as? NodeView {
+            return node.isParagraph || node.boxDrawn || node.kind == "image" || node.kind == "canvas" || node.symbolView != nil || node.style["background_image"] != nil
+        }
+        return layer.contents != nil || layer is CAShapeLayer || layer is CATextLayer || layer is CAGradientLayer || layer is CAReplicatorLayer || layer is CAEmitterLayer
+    }
+
+    /// The view UIKit highlights, lifts and returns a preview over: the view of
+    /// the controller that holds `view` (its route's, a sheet's, or the root
+    /// controller's in an app with no routes), which the bars stay above.
+    /// UIKit's own is the view's superview, and an ancestor that clips, such as
+    /// a strip that scrolls sideways, then cuts the preview, its corners and its
+    /// shadow as it grows (as it cuts a collection view's cell). The superview
+    /// where no controller holds it; nil outside a window.
+    private static func container(of view: UIView) -> UIView? {
+        guard view.window != nil, let parent = view.superview else { return nil }
+        return sequence(first: parent, next: { $0.superview }).first(where: { $0.next is UIViewController }) ?? parent
+    }
+
+    /// Where UIKit highlights, lifts and returns `view` itself: over
+    /// `container(of:)`, centered on the view, with the view's transform, as
+    /// UIKit's own target for a view carries it (`UITargetedPreview(view:parameters:)`),
+    /// and each ancestor's scale and rotation; converting the center takes the
+    /// translations.
+    private static func target(_ view: UIView) -> UIPreviewTarget? {
+        guard let container = container(of: view), let parent = view.superview else { return nil }
+        var transform = view.transform
+        for ancestor in sequence(first: parent, next: { $0.superview }) {
+            if ancestor === container { break }
             let t = ancestor.transform
             transform = transform.concatenating(CGAffineTransform(a: t.a, b: t.b, c: t.c, d: t.d, tx: 0, ty: 0))
         }
-        let target = UIPreviewTarget(container: window, center: parent.convert(shown.center, to: window), transform: transform)
-        return UITargetedPreview(view: lifted.picture, parameters: parameters, target: target)
+        transform.tx = 0
+        transform.ty = 0
+        return UIPreviewTarget(container: container, center: view.convert(CGPoint(x: view.bounds.midX, y: view.bounds.midY), to: container), transform: transform)
     }
+
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configuration: UIContextMenuConfiguration, highlightPreviewForItemWithIdentifier identifier: NSCopying) -> UITargetedPreview? {
         targeted(configuration)
     }
-    func contextMenuInteraction(_ interaction: UIContextMenuInteraction, previewForHighlightingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
-        targeted(configuration)
-    }
-    func contextMenuInteraction(_ interaction: UIContextMenuInteraction, previewForDismissingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configuration: UIContextMenuConfiguration, dismissalPreviewForItemWithIdentifier identifier: NSCopying) -> UITargetedPreview? {
         // After a commit that navigated, the source is under the new screen.
         open?.navigated == true ? nil : targeted(configuration)
     }
@@ -555,7 +819,6 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willDisplayMenuFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
         menus?.focus.setAside()
         if let owner = open, let pop = owner.popover { owner.toggled = true; presenter?.popoverEvents.changed(pop, open: true) }
-        if let owner = open, owner.inlineID == nil, let lifted = owner.lifted { lifted.node.alpha = 0 } // under its picture (`targeted`)
     }
 
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration, animator: UIContextMenuInteractionAnimating?) {
@@ -563,10 +826,12 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         if let animator { animator.addCompletion(focus) } else { focus() }
         guard let owner = open, owner.configuration === configuration else { return }
         if let pop = owner.popover, owner.toggled { owner.toggled = false; presenter?.popoverEvents.changed(pop, open: false) }
-        let lifted = owner.lifted
+        // A run's picture lands without its padding, which would otherwise show
+        // until the completion, about a second after the menu starts closing
+        // (filmed and logged), covering the text beside the run or what has
+        // changed under it since
+        if let picture = owner.runPreview?.view as? RunPicture { animator?.addAnimations { picture.padding.alpha = 0 } }
         let finish = { [weak self, weak owner] in
-            // Shown again even when another menu has opened since.
-            if let lifted, lifted.node.alpha == 0 { lifted.node.alpha = lifted.alpha }
             guard let self, let owner, self.open === owner else { return }
             self.restore(owner)
             self.open = nil

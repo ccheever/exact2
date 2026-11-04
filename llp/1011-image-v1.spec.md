@@ -487,8 +487,9 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   content box, `contain` and `cover` scale by the smaller/larger ratio,
   `none` is the natural size, `scale-down` the smaller of `none` and
   `contain`, and any other value is the initial `fill`; centered, clipped
-  to the content box and to the border box's rounded path (`border_radius`
-  clips the picture as on the web).
+  to the content edge's curve, each `border_radius` less the border and
+  padding beside it, as the web trims replaced content (CSS Backgrounds 3
+  §5.3): a bordered rounded picture ends at the border's inner curve.
 - **Accessibility:** the label becomes the view's accessibility label;
   `hint`/`role`/`headingLevel` are not applied to images (nor to any node
   yet) — declared in §6.

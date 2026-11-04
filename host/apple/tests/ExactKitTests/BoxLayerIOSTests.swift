@@ -475,6 +475,43 @@ final class BoxLayerIOSTests: XCTestCase {
     /// opaque half takes the tint, the transparent half stays clear, and a
     /// `light-dark()` tint follows a live appearance change. Without the row
     /// the pixels are the sublayer's contents again.
+    /// A bordered rounded image's pixels end at the border's inner curve
+    /// (CSS Backgrounds 3 §5.3), as `BoxLayerMacTests` checks on AppKit.
+    func testABorderedRoundedImageIsClippedToTheBordersInnerCurve() throws {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let png = try XCTUnwrap(UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100), format: format).image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+        }.pngData())
+        let p = Presenter(), loader = RasterLoader(), resolver = AssetResolver(root: URL(fileURLWithPath: NSTemporaryDirectory()))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
+        defer { loader.shutdown(); window.isHidden = true }
+        p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
+        let image = NodeView(id: 1, kind: "image", presenter: p)
+        defer { image.raster = nil }
+        p.views[1] = image; p.viewport.addSubview(image)
+        image.frame = CGRect(x: 0, y: 0, width: 100, height: 100)
+        image.applyStyle(["border_width": 10, "border_radius_top_left": 30, "border_radius_top_right": 30,
+            "border_radius_bottom_left": 30, "border_radius_bottom_right": 30])
+        image.loadGeneration = 1
+        loader.load(image, source: "data:image/png;base64," + png.base64EncodedString(), resolver: resolver)
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while image.raster == nil, Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+        XCTAssertNotNil(image.raster)
+        image.applyFieldContent(["rect": [10.0, 10.0, 80.0, 80.0]])
+        image.layer.displayIfNeeded()
+        let context = try XCTUnwrap(CGContext(data: nil, width: 100, height: 100, bitsPerComponent: 8, bytesPerRow: 400,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        image.layer.render(in: context)
+        let bytes = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+        func alpha(_ x: Int, _ y: Int) -> UInt8 { bytes[y * 400 + x * 4 + 3] }
+        for (x, y) in [(12, 12), (88, 12), (12, 88), (88, 88)] {
+            XCTAssertEqual(alpha(x, y), 0, "(\(x), \(y)) is inside the border box's curve but outside the content edge's")
+        }
+        for (x, y) in [(20, 20), (80, 80), (50, 11)] {
+            XCTAssertEqual(alpha(x, y), 255, "(\(x), \(y)) is inside the content edge's curve")
+        }
+    }
+
     func testATintedImageIsItsAlphaInTheTint() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("exact-image-tint-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
