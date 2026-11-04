@@ -273,7 +273,7 @@ struct TextRasterJob {
             let inset = insets.at(CTLineGetStringRange(line).location)
             return CGPoint(x: box.minX + inset.left + TextEngine.penOffset(line, flush: flush, room: Double(box.width - inset.width), rtl: insets.rtl,
                                                                            whiteSpace: whiteSpace, source: source),
-                           y: box.minY + TextEngine.paintedBaseline(baseline, scale: scale, lineScale: lineScale))
+                           y: TextEngine.paintedLine(baseline, top: box.minY, scale: scale, lineScale: lineScale))
         }
         if ellipsis {
             lines = lines.map { line in
@@ -380,7 +380,7 @@ struct TextRasterJob {
         guard glyphs.lines.count == baselines.count else { return nil }
         let bounds = CGRect(origin: .zero, size: size)
         let positions = zip(glyphs.lines, baselines).map {
-            CGPoint(x: box.minX + $0.origin, y: box.minY + TextEngine.paintedBaseline($1, scale: scale, lineScale: lineScale))
+            CGPoint(x: box.minX + $0.origin, y: TextEngine.paintedLine($1, top: box.minY, scale: scale, lineScale: lineScale))
         }
         var painted = CGRect.null
         for (line, position) in zip(glyphs.lines, positions) {

@@ -24,8 +24,11 @@ extension NodeView {
     /// already (`layoutField`).
     func nativeEditorRect(in proposed: NSRect) -> NSRect? {
         guard isNativeTextControl, let rect = kernelContentBox else { return nil }
+        // Layout's insets less what the drawn box lost to the pixel grid, so
+        // the text keeps layout's width (`PixelGridMac.swift`).
         let content = proposed.insetBy(left: rect.minX, top: rect.minY,
-            right: max(0, bounds.width - rect.maxX), bottom: max(0, bounds.height - rect.maxY))
+            right: max(0, layoutBounds.width - rect.maxX) + bounds.width - layoutBounds.width,
+            bottom: max(0, layoutBounds.height - rect.maxY) + bounds.height - layoutBounds.height)
         let line = field?.font.map { cssLine(in: content, font: $0) } ?? content
         return fieldInCell ? line : line.insetBy(dx: -Self.editorPadding, dy: 0)
     }

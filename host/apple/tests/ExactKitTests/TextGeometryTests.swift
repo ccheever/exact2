@@ -832,7 +832,13 @@ extension TextGeometryTests {
                 // CSS Text 3 §7.1: a line wider than its box is start-aligned (left to right, here).
                 let x = max(0, CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(bounds.width))))
                 context.saveGState()
-                context.translateBy(x: bounds.minX + x, y: bounds.minY + baseline.rounded())
+                // On the Mac a baseline rounds at its place in the view, on iOS below the box's top (`TextEngine.paintedLine`).
+                #if os(macOS)
+                let y = (bounds.minY + baseline).rounded()
+                #else
+                let y = bounds.minY + baseline.rounded()
+                #endif
+                context.translateBy(x: bounds.minX + x, y: y)
                 context.scaleBy(x: 1, y: -1)
                 context.textPosition = .zero
                 CTLineDraw(line, context)

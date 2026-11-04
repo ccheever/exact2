@@ -542,6 +542,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// Where children go: the scroll document view, or this view; a glass
     /// group innermost (`GlassGroup.swift`).
     var container: NSView { glassGroupContent ?? baseContainer }
+    package var grid: GridPlace? // where layout put this box and where it is drawn (`PixelGridMac.swift`)
 
     // @ref LLP 1001 §1 — two semantic materials, not sampled blur constants.
     // AppKit owns accessibility/appearance adaptation, including Reduce
@@ -1321,9 +1322,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     func fitScroll() {
         guard let scroll, let document = scroll.documentView else { return }
-        let visible = scroll.contentView.bounds.size
-        let origin = scroll.kernelDocumentOrigin
-        let size = CGSize(width: max(content.width - origin.x, visible.width), height: max(content.height - origin.y, visible.height))
+        let visible = scroll.contentView.bounds.size, origin = scroll.kernelDocumentOrigin, o = grid?.origin ?? .zero, s = presenter?.gridScale ?? 1
+        let size = CGSize(width: max(PixelGrid.length(content.width, from: o, vertical: false, scale: s) - origin.x, visible.width), height: max(PixelGrid.length(content.height, from: o, vertical: true, scale: s) - origin.y, visible.height)) // ending where its last edge is drawn (`PixelGridMac.swift`)
         if document.frame.size != size { document.setFrameSize(size) }
     }
 
