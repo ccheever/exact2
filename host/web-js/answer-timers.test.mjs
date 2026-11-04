@@ -88,8 +88,8 @@ test("an answer's timer is a clock entry it owns, and only timers out count for 
     expect(() => tsf.setTimeout(() => {}, 1)).toThrow('setTimeout() is unavailable here');
     tsf.answering.call = null;
 
-    // The page races them for real, where natively an answer waits on one thing at a time and its timer runs
-    // after the fetch lands (js/tests/it/timers.rs): a timer wins over a hung fetch, and one that aborts it ends it.
+    // The page races them, as native hosts do (js/tests/it/timers.rs): a timer wins over a hung fetch, and one
+    // that aborts it ends it.
     const racing = {};
     tsf.answering.call = racing;
     const raced = Promise.race([tsf.fetch('https://x.test/hung').then(() => 'fetched'), new Promise(r => tsf.setTimeout(() => r('slept'), 100))]);

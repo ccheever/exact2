@@ -1037,11 +1037,14 @@ answer has given its value) throws, and an answer that gives its value, fails
 or is let go clears the rest, whose callbacks never run. At build each timer
 fires at once, so a source that waits still bakes.
 
-Natively, and in the web's wasm target, an answer waits on one thing at a
-time, and a fetch it awaits goes first: a timer raced against that fetch
-(`Promise.race`, or a `setTimeout` that calls `abort()`) runs only after the
-fetch lands, so it cannot cut the fetch short, and the journal says so once
-per answer. On the web JS target, whose answers run in the page, both work.
+A timer raced against a fetch its answer awaits (`Promise.race`, or a
+`setTimeout` that calls `abort()`) runs on time, a module's call included:
+natively the fetch then runs on as module work, its late reply delivered
+with no answer awaiting it, and an aborted one is cancelled. In a
+worker-placed source, an ordered set's member and the web's wasm target, an
+answer waits on one thing at a time: the fetch goes first and the timer runs
+only after it lands (LLP 1027.000 D1, amended 2026-11-04); the journal says
+so once per answer, except for a set's member on the main thread.
 For a deadline on every host, give the fetch `exactTimeout`: the host keeps
 it on real time, not the app's clock. `AbortSignal.timeout(ms)` is one too:
 on every host a fetch carrying it takes its time left as a real-time

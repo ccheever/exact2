@@ -1079,9 +1079,11 @@
     var p = pending.get(ticket);
     p.claimed = true;
     if (p.call !== call) { p.call = call; call.tickets.push(ticket); }
-    // An answer waits on one thing at a time here: its timer runs after the fetch lands (the web races them).
-    if (!p.timed && !call.toldRace && timers.armed(call)) { call.toldRace = true; journal("data: an answer awaits a fetch while a timer of its own is armed: the timer runs only after the fetch lands, so it cannot cut the fetch short as it can on the web; give the fetch AbortSignal.timeout or exactTimeout"); }
-    return JSON.stringify({ tag: 1, call: call.id, ticket: ticket });
+    // Its own timer, if due first, resumes it while the fetch runs on as module work (`__exact_adopt`), as a browser
+    // races them. A worker's answer, or one in the web's module realm, waits on one thing at a time: the timer runs after.
+    var due = moduleWide && moving && !p.stream ? timers.race(call, p.signal) : undefined;
+    if (due === undefined && !p.timed && !call.toldRace && timers.armed(call)) { call.toldRace = true; journal("data: an answer awaits a fetch while a timer of its own is armed: the timer runs only after the fetch lands, so it cannot cut the fetch short as it can on the web; give the fetch AbortSignal.timeout or exactTimeout"); }
+    return JSON.stringify({ tag: 1, call: call.id, ticket: ticket, timer: due });
   }
   // An answer is given when its value is ready, as in a browser (LLP 1097
   // D1): the storage it started and did not await finishes after it, as the
@@ -1138,7 +1140,7 @@
       // A fetch of its own already handed out and still in flight: asked
       // again once it lands (natively; the module realm runs one at a time).
       var inFlight = false;
-      pending.forEach(function (p) { if (p.call === call && p.claimed) inFlight = true; });
+      pending.forEach(function (p) { if (p.call === call && p.claimed && !p.module) inFlight = true; }); // (one its timer outran runs on alone)
       if (moduleWide && inFlight) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
       if (call.status === "done") handSocketOps(call);
       return reply(call, call.status === "done" ? ok(call.value, call.epoch !== gcEpoch()) : fail(call.error));
