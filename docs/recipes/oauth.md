@@ -1,4 +1,4 @@
-# Recipe: sign in with OAuth (Google, Microsoft, Auth0, Okta…)
+# Recipe: sign in with OAuth (Google, Microsoft, Auth0, Okta and more)
 
 `@exact/oauth` signs a person in and keeps them signed in: PKCE in the system
 browser, refresh, requests with the token, sign-out. Write no token request,
