@@ -483,9 +483,10 @@ component T3Code
     transportSignal("foreground") // returning to the app: probe a live socket, look for a better route, wake a waiting retry
   // When the reader last pointed, typed or scrolled, to the second: the window listeners of backgroundActivityReporter.ts
   // (pointermove, keydown, wheel) and useLiveRefresh.ts (those and pointerdown). T3Window's root hears them; a hovering
-  // pointer's move goes only to the innermost node that hears `pointermove`, so each such node calls this too. The data
-  // module gets each new second (activityInteraction); the first after six idle minutes is useLiveRefresh's resume, which
-  // reads the pull request surfaces again (activityResumed, LIVE_REFRESH_IDLE_AFTER_MS).
+  // pointer's move goes only to the innermost node that hears `pointermove`, so each such node calls this too, and so
+  // does the terminal's page, whose web view takes its own events (terminal-frame.contract). The data module gets each
+  // new second (activityInteraction); the first after six idle minutes is useLiveRefresh's resume, which reads the pull
+  // request surfaces again (activityResumed, LIVE_REFRESH_IDLE_AFTER_MS).
   state interactedAt = 0
   mutation interactionNoted as shape number
   mutation interactionResumed as shape number refreshes prList, prDetail

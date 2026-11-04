@@ -5,6 +5,7 @@
 //
 // - page → app: boot, ticket, focus, link, command, selection-ready, contextmenu, selection-dismiss,
 //   selection-moved, exited, error, auth-error, auth-recovered, stats; each carries the identity the config named.
+//   Also activity, with no identity: the reader pointed, clicked, scrolled or pressed a key the surface left alone.
 // - app → page: config (theme, font, visible, keybindings, closePending and the session), socket (a URL with a
 //   fresh ticket, or none), transcript, system, focus, clearSelection, selectAll, scrollToBottom, paste,
 //   pasteClipboard, stats.
@@ -684,6 +685,29 @@ class TerminalPage {
   }
 }
 
+/** The events the reference's idle rule hears on its document (useLiveRefresh.ts INTERACTION_EVENTS; the
+ * backgroundActivityReporter.ts window listeners hear three of them). */
+const INTERACTION_EVENTS = ["pointerdown", "pointermove", "keydown", "wheel"] as const;
+/** The app counts the reader's activity to the second (app.contract `interacted`). */
+const ACTIVITY_REPORT_MS = 1000;
+
+/**
+ * The reader's activity in this page, for the window's idle rule: the reference's terminal is in its page, so those
+ * listeners hear what bubbles out of the surface there. They listen in the bubble phase, so a key the surface encodes
+ * and stops (typed text, arrows) is not heard, while a pointer, the wheel and a lone modifier are. Listening the same way
+ * here hears the same events. Each second's first is reported.
+ */
+export function reportInteraction(target: Pick<Document, "addEventListener">, report: () => void, now: () => number = Date.now): void {
+  let reportedAt = -Infinity;
+  const heard = () => {
+    const at = now();
+    if (at - reportedAt < ACTIVITY_REPORT_MS) return;
+    reportedAt = at;
+    report();
+  };
+  for (const event of INTERACTION_EVENTS) target.addEventListener(event, heard, { passive: true });
+}
+
 /** The framed page: every app message is `receive`'s; it asks for its config once it listens. */
 function boot(): void {
   const style = document.createElement("style");
@@ -701,6 +725,7 @@ function boot(): void {
   // The web view became the window's first responder (a click, the app's `focus`): the surface takes the keys.
   window.addEventListener("focus", () => page.receive({ type: "focus" }));
   window.addEventListener("pagehide", () => page.dispose());
+  reportInteraction(document, () => post({ type: "activity" }));
   window.addEventListener("error", (event) => post({ type: "error", message: event.message }));
   window.addEventListener("unhandledrejection", (event) =>
     post({ type: "error", message: event.reason instanceof Error ? event.reason.message : String(event.reason) }),
