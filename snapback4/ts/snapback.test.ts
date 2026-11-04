@@ -1131,7 +1131,7 @@ test('open refuses invalid acquisition budgets with E_CLIENT before opening stor
   }
 });
 
-test.skipIf(!process.env.SNAPBACK4_BIN)('acquireLimit survives commit recovery in shared web handles; until acquired yields between turns', async () => {
+test('acquireLimit survives commit recovery in shared web handles; until acquired yields between turns', async () => {
   const project = join(scratch, 'progressive-server');
   mkdirSync(join(project, 'snapback'), { recursive: true });
   writeFileSync(join(project, 'snapback/schema.q'), `use personas alice

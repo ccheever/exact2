@@ -240,6 +240,6 @@ section binds (`rules/RULES.md`, "Agents").
   executor (the browser, for motion on the web) — never a cargo feature on a core crate.
   Each crate depends on strictly less than the one above it; there is no build matrix.
 
-Snapback4 consumers use published `snapback4@0.4.33` and the matching immutable
+Snapback4 consumers use published `snapback4@0.4.53` and the matching immutable
 Rust revision in `snapback4/Cargo.toml`; rebuild an app’s device with
 `bun exact.mjs snapback --rebuild` after changing these pins.
