@@ -41,6 +41,61 @@ routes nav
   learnContractForHumansPlatformFactsAndLocalization "/learn/contract-for-humans/platform-facts-and-localization" render=build activate=idle
   learnContractForHumansTestingDiagnosticsAndDelivery "/learn/contract-for-humans/testing-diagnostics-and-delivery" render=build activate=idle
   learnContractForHumansWhereToGoNext "/learn/contract-for-humans/where-to-go-next" render=build activate=idle
+  recipeAfterAWrite "/recipes/after-a-write" render=build activate=idle
+  recipeAppJson "/recipes/app-json" render=build activate=idle
+  recipeBackgroundTransfers "/recipes/background-transfers" render=build activate=idle
+  recipeBackgroundWork "/recipes/background-work" render=build activate=idle
+  recipeChatThread "/recipes/chat-thread" render=build activate=idle
+  recipeContentDesign "/recipes/content-design" render=build activate=idle
+  recipeDatesAndDays "/recipes/dates-and-days" render=build activate=idle
+  recipeDevice "/recipes/device" render=build activate=idle
+  recipeEditSheet "/recipes/edit-sheet" render=build activate=idle
+  recipeEditableRows "/recipes/editable-rows" render=build activate=idle
+  recipeErrorAlert "/recipes/error-alert" render=build activate=idle
+  recipeFetchLoadingError "/recipes/fetch-loading-error" render=build activate=idle
+  recipeFilesAndGrants "/recipes/files-and-grants" render=build activate=idle
+  recipeFirstLaunch "/recipes/first-launch" render=build activate=idle
+  recipeFoldables "/recipes/foldables" render=build activate=idle
+  recipeFunctions "/recipes/functions" render=build activate=idle
+  recipeGroupedForm "/recipes/grouped-form" render=build activate=idle
+  recipeIosDriving "/recipes/ios-driving" render=build activate=idle
+  recipeKeyboardAndFocus "/recipes/keyboard-and-focus" render=build activate=idle
+  recipeListRows "/recipes/list-rows" render=build activate=idle
+  recipeLocalNetwork "/recipes/local-network" render=build activate=idle
+  recipeMoney "/recipes/money" render=build activate=idle
+  recipeMotion "/recipes/motion" render=build activate=idle
+  recipeNativeModule "/recipes/native-module" render=build activate=idle
+  recipeNativeViews "/recipes/native-views" render=build activate=idle
+  recipeNavigationStack "/recipes/navigation-stack" render=build activate=idle
+  recipeNfc "/recipes/nfc" render=build activate=idle
+  recipeNumberField "/recipes/number-field" render=build activate=idle
+  recipeNumericReadout "/recipes/numeric-readout" render=build activate=idle
+  recipeOauth "/recipes/oauth" render=build activate=idle
+  recipePermissions "/recipes/permissions" render=build activate=idle
+  recipePersistedSetting "/recipes/persisted-setting" render=build activate=idle
+  recipePortingAndRelease "/recipes/porting-and-release" render=build activate=idle
+  recipePortsAndBrowsers "/recipes/ports-and-browsers" render=build activate=idle
+  recipeProperties "/recipes/properties" render=build activate=idle
+  recipePurchases "/recipes/purchases" render=build activate=idle
+  recipeRandomAndShuffle "/recipes/random-and-shuffle" render=build activate=idle
+  recipeRandomRolls "/recipes/random-rolls" render=build activate=idle
+  recipeResponsiveColumns "/recipes/responsive-columns" render=build activate=idle
+  recipeRestBackend "/recipes/rest-backend" render=build activate=idle
+  recipeSequencer "/recipes/sequencer" render=build activate=idle
+  recipeSignIn "/recipes/sign-in" render=build activate=idle
+  recipeSnapbackAuth "/recipes/snapback-auth" render=build activate=idle
+  recipeSnapbackTests "/recipes/snapback-tests" render=build activate=idle
+  recipeSnapback "/recipes/snapback" render=build activate=idle
+  recipeSymbols "/recipes/symbols" render=build activate=idle
+  recipeTabs "/recipes/tabs" render=build activate=idle
+  recipeTamber "/recipes/tamber" render=build activate=idle
+  recipeTests "/recipes/tests" render=build activate=idle
+  recipeTheme "/recipes/theme" render=build activate=idle
+  recipeTimerInAComponent "/recipes/timer-in-a-component" render=build activate=idle
+  recipeTimerThatSurvivesRelaunch "/recipes/timer-that-survives-relaunch" render=build activate=idle
+  recipeTimers "/recipes/timers" render=build activate=idle
+  recipeUsbHidSerial "/recipes/usb-hid-serial" render=build activate=idle
+  recipeWebLook "/recipes/web-look" render=build activate=idle
   recipeWebsite "/recipes/website" render=build activate=idle
   components "/_components" render=build activate=idle
   // routes: end
