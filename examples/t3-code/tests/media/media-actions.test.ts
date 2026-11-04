@@ -329,7 +329,7 @@ describe('media views', () => {
   });
   test('Markdown: MarkdownMedia draws a sound\'s audio chip, a file chip or the unavailable label by the chip\'s kind', () => {
     const media = contractComponent('src/media/media-markdown.contract', 'MarkdownMedia');
-    const scope = (kind: string, access: string) => ({ kind, access, target: 'media:/repo/a', urls: [], alt: '' });
+    const scope = (kind: string, access: string) => ({ kind, access, target: 'media:/repo/a', urls: [], alt: '', standalone: false });
     const drawn = (marker: string, kind: string, access: string) => media.drawn(marker, {}, scope(kind, access));
     const label = 'MediaUnavailableLabel(alt=alt, kind=kind';
     expect([drawn('AudioChip(', 'audio', 'environment'), drawn('AudioChip(', 'audio', 'direct'), drawn(label, 'audio', 'environment')]).toEqual([true, true, false]);

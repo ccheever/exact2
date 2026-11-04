@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { markdownHtmlImages } from '../../src/media/media-html';
 import { markdownGallery, markdownMediaChips } from '../../src/media/media-views';
 import { messageChips } from '../../src/timeline/message-chips';
+import { contractFns } from '../support/contract-action-fixture';
 
 const picture = `<picture>
 <source media="(prefers-color-scheme: dark)" srcset="dark.png 2x, ignored.png 3x">
@@ -103,4 +104,13 @@ test('images on one line box, a centred row, a linked image and sized and themed
   expect(hrefs).toContain('t3-file:shots/a.png');
   // A linked image's press is its link's: it is not one of the gallery's.
   expect(markdownGallery({ text, root: '/repo', scope: {} }, 'light').map(image => image.name)).not.toContain('linked');
+});
+
+test('a line centres its items when it holds an image of no authored height or one taller than the line', () => {
+  const fns = contractFns('src/timeline/markdown.contract') as { proseMedia: (runs: unknown[]) => boolean; imageLine: (runs: unknown[]) => boolean };
+  const word = { kind: '', text: 'before', icon: '', height: 0 };
+  const image = (height: number, icon = '') => ({ kind: 'media', text: 'alt', icon, height });
+  expect([fns.proseMedia([word, image(0)]), fns.proseMedia([word, image(32)]), fns.proseMedia([word, image(16)]), fns.proseMedia([image(0, 'standalone')]), fns.proseMedia([word])])
+    .toEqual([true, true, false, false, false]);
+  expect([fns.imageLine([image(0), image(16)]), fns.imageLine([word, image(0)])]).toEqual([true, false]);
 });
