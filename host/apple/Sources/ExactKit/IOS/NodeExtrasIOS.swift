@@ -25,7 +25,7 @@ final class TextSpecs {
     var rasterSpec: Spec?
     var cached: Spec? { didSet { headroom = nil } }
     var headroom: Float?
-    var raster: CGImage?
+    var raster: TextInk?
     var rasterLayer: CALayer?
     /// The layer at the paragraph's place (`NodeView.placeTextRaster`), whose
     /// lines hold `rasterLayer` (`NodeView.makeTextBox`).
@@ -217,7 +217,7 @@ extension NodeView {
     var textRasterSpec: Spec? { get { specs?.rasterSpec } set { if newValue != nil || specs != nil { textMore.rasterSpec = newValue } } }
     var cachedTextSpec: Spec? { get { specs?.cached } set { if newValue != nil || specs != nil { textMore.cached = newValue } } }
     var cachedTextHeadroom: Float? { get { specs?.headroom } set { if newValue != nil || specs != nil { textMore.headroom = newValue } } }
-    var textRaster: CGImage? { get { specs?.raster } set { if newValue != nil || specs != nil { textMore.raster = newValue } } }
+    var textRaster: TextInk? { get { specs?.raster } set { if newValue != nil || specs != nil { textMore.raster = newValue } } }
     var textRasterLayer: CALayer? { get { specs?.rasterLayer } set { if newValue != nil || specs != nil { textMore.rasterLayer = newValue } } }
     var textBoxLayer: TextBoxLayer? { get { specs?.rasterBox } set { if newValue != nil || specs != nil { textMore.rasterBox = newValue } } }
     var textRasterFrame: CGRect { get { specs?.rasterFrame ?? .zero } set { if newValue != .zero || specs != nil { textMore.rasterFrame = newValue } } }

@@ -19,7 +19,7 @@ final class TextRasterRaceIOSTests: XCTestCase {
     private func bytes(_ r: TextRasterImage?) -> Data {
         guard let r else { return Data() }
         #if os(iOS)
-        return (r.image.dataProvider?.data as Data?) ?? Data()
+        return (r.pixels?.dataProvider?.data as Data?) ?? Data()
         #else
         r.surface.lock(options: .readOnly, seed: nil)
         defer { r.surface.unlock(options: .readOnly, seed: nil) }

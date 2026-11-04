@@ -29,11 +29,13 @@ final class TextRasterIOSTests: XCTestCase {
             ["op": "frame", "id": 2, "x": 0.0, "y": 500.0, "w": 300.0, "h": 40.0],
         ]))
         // First display asks for pixels too; let that settle, then take them
-        // away, so what follows is the pump's alone.
+        // away, and the kept ones that would show them again, so what follows
+        // is the pump's alone.
         window.layoutIfNeeded(); p.viewport.layer.displayIfNeeded()
         p.views[2]?.layer.displayIfNeeded()
         drain(p)
         p.views[2]?.dropTextRaster()
+        p.textRasters.dropKept()
         // The pump the publication woke stays out of it: each test calls it.
         p.scrollPump.reset()
         return session
@@ -107,8 +109,9 @@ final class TextRasterIOSTests: XCTestCase {
         XCTAssertNotEqual(raster.frame, box, "crop exercises the aligned-ink path")
         XCTAssertEqual(raster.frame.minX * 3, (raster.frame.minX * 3).rounded(), accuracy: 1e-9)
         XCTAssertEqual(raster.frame.minY * 3, (raster.frame.minY * 3).rounded(), accuracy: 1e-9)
-        XCTAssertEqual(raster.image.width, Int((raster.frame.width * 3).rounded()))
-        XCTAssertEqual(raster.image.height, Int((raster.frame.height * 3).rounded()))
+        let pixels = try XCTUnwrap(raster.pixels)
+        XCTAssertEqual(pixels.width, Int((raster.frame.width * 3).rounded()))
+        XCTAssertEqual(pixels.height, Int((raster.frame.height * 3).rounded()))
         XCTAssertTrue(raster.covered.contains(raster.frame), "crop keeps the larger covered region")
     }
 
@@ -134,6 +137,42 @@ final class TextRasterIOSTests: XCTestCase {
         XCTAssertEqual(p.textRasters.inFlight, 0)
         XCTAssertFalse(node.textRasterFailed, "the dropped job is not a failure")
         XCTAssertTrue(node.textRasterSettled)
+    }
+
+    /// A kept raster counts its key's text too: a long paragraph clamped to one line, whose drawing is
+    /// small, is past an entry's allowance and is not kept, so showing it again takes a worker; a short
+    /// one is kept and shows again at once
+    func testAKeptRasterCountsItsTextSoALongClampedParagraphIsNotKept() throws {
+        let session = ExactApp.shared.makeSession(label: "text-kept-long")
+        defer { session.destroy(); RegionTextExecutor.queue.isSuspended = false }
+        let p = session.presenter
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        let long = String(repeating: "Why a magazine measures first. ", count: 2400)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "A short paragraph"], "style": ["font_size": 16.0, "line_clamp": 1]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": long], "style": ["font_size": 16.0, "line_clamp": 1]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 2000.0],
+            // Below the 400 pt scrollport, inside the lead.
+            ["op": "frame", "id": 2, "x": 0.0, "y": 500.0, "w": 300.0, "h": 24.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 540.0, "w": 300.0, "h": 24.0],
+        ]))
+        let short = try XCTUnwrap(p.views[2]), clamped = try XCTUnwrap(p.views[3])
+        XCTAssertGreaterThan(long.utf8.count, 64 * 1024, "past an entry's allowance")
+        p.refreshVisibleText()
+        drain(p)
+        XCTAssertTrue(short.textRasterReady && clamped.textRasterReady, "both painted once")
+        short.dropTextRaster(); clamped.dropTextRaster()
+        RegionTextExecutor.queue.isSuspended = true
+        p.refreshVisibleText()
+        XCTAssertTrue(short.textRasterReady, "the short paragraph's is kept and shows again")
+        XCTAssertFalse(clamped.textRasterReady, "the long one's is not kept")
+        XCTAssertEqual(p.textRasters.inFlight, 1, "a worker paints it again")
     }
 
     func testAJobForAParagraphTheListCarriedPastAtSpeedIsDroppedAndOwedAgain() throws {

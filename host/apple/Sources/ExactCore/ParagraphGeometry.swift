@@ -323,41 +323,51 @@ package struct MeasuredGlyphs {
         package let box: CGRect
     }
     package let lines: [Line]
-    package var bytes: Int {
-        lines.reduce(32) { total, line in
-            total + MemoryLayout<Line>.stride + line.runs.reduce(32) {
-                $0 + MemoryLayout<Run>.stride + 256 + $1.glyphs.count * (MemoryLayout<CGGlyph>.stride + MemoryLayout<CGPoint>.stride)
-            }
-        }
-    }
+    package var bytes: Int { lines.reduce(32) { $0 + $1.bytes } }
     package init?(_ paragraph: Paragraph, spec: Spec, width: CGFloat) {
         guard spec.reusesMeasuredGlyphs, spec.runs.reduce(0, { $0 + $1.text.utf16.count }) <= 1024 else { return nil }
         var lines: [Line] = []
         for (index, line) in paragraph.lines.enumerated() {
-            var runs: [Run] = []
-            for run in CTLineGetGlyphRuns(line) as! [CTRun] {
-                let attributes = CTRunGetAttributes(run) as NSDictionary
-                let font = attributes[kCTFontAttributeName] as! CTFont
-                guard !CTFontGetSymbolicTraits(font).contains(.traitColorGlyphs), CTRunGetTextMatrix(run).isIdentity else { return nil }
-                let count = CTRunGetGlyphCount(run)
-                var glyphs = [CGGlyph](repeating: 0, count: count)
-                var positions = [CGPoint](repeating: .zero, count: count)
-                if count > 0 {
-                    CTRunGetGlyphs(run, CFRange(), &glyphs)
-                    CTRunGetPositions(run, CFRange(), &positions)
-                }
-                // CTFontDrawGlyphs differs from CTLineDraw for cursive attachment
-                // with vertical offsets. Keep that ink on CoreText's line path.
-                guard positions.allSatisfy({ $0.y == 0 }) else { return nil }
-                runs.append(Run(font: font, glyphs: glyphs, positions: positions))
-            }
-            var ascent: CGFloat = 0, descent: CGFloat = 0
-            let advance = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, nil))
-            lines.append(Line(runs: runs, origin: paragraph.origin(index, align: spec.align, width: width),
-                              ink: CTLineGetBoundsWithOptions(line, .useGlyphPathBounds),
-                              box: CGRect(x: 0, y: -ascent, width: advance, height: ascent + descent)))
+            guard let glyphs = Line(line, origin: paragraph.origin(index, align: spec.align, width: width)) else { return nil }
+            lines.append(glyphs)
         }
         self.lines = lines
+    }
+}
+
+extension MeasuredGlyphs.Line {
+    /// A laid-out line's glyph values, its pen at `origin`, without the
+    /// runs `paints` leaves out. Nil where CoreText's line drawing differs
+    /// from its glyphs drawn alone: a colour glyph, a run's own text
+    /// matrix, or cursive attachment with vertical offsets.
+    package init?(_ line: CTLine, origin: CGFloat, paints: (CTRun) -> Bool = { _ in true }) {
+        var runs: [MeasuredGlyphs.Run] = []
+        for run in CTLineGetGlyphRuns(line) as! [CTRun] where paints(run) {
+            let attributes = CTRunGetAttributes(run) as NSDictionary
+            let font = attributes[kCTFontAttributeName] as! CTFont
+            guard !CTFontGetSymbolicTraits(font).contains(.traitColorGlyphs), CTRunGetTextMatrix(run).isIdentity else { return nil }
+            let count = CTRunGetGlyphCount(run)
+            var glyphs = [CGGlyph](repeating: 0, count: count)
+            var positions = [CGPoint](repeating: .zero, count: count)
+            if count > 0 {
+                CTRunGetGlyphs(run, CFRange(), &glyphs)
+                CTRunGetPositions(run, CFRange(), &positions)
+            }
+            // CTFontDrawGlyphs differs from CTLineDraw for cursive attachment
+            // with vertical offsets. Keep that ink on CoreText's line path.
+            guard positions.allSatisfy({ $0.y == 0 }) else { return nil }
+            runs.append(MeasuredGlyphs.Run(font: font, glyphs: glyphs, positions: positions))
+        }
+        var ascent: CGFloat = 0, descent: CGFloat = 0
+        let advance = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, nil))
+        self.init(runs: runs, origin: origin, ink: CTLineGetBoundsWithOptions(line, .useGlyphPathBounds),
+                  box: CGRect(x: 0, y: -ascent, width: advance, height: ascent + descent))
+    }
+
+    package var bytes: Int {
+        MemoryLayout<Self>.stride + runs.reduce(32) {
+            $0 + MemoryLayout<MeasuredGlyphs.Run>.stride + 256 + $1.glyphs.count * (MemoryLayout<CGGlyph>.stride + MemoryLayout<CGPoint>.stride)
+        }
     }
 }
 

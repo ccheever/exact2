@@ -220,8 +220,9 @@ final class ProfileColorTests: XCTestCase {
                 } else { XCTAssertTrue(ink.wantsExtendedDynamicRangeContent) }
             }
             #else
-            XCTAssertEqual(image.image.bitsPerComponent, 16)
-            if #available(iOS 18, tvOS 18, *) { XCTAssertEqual(image.image.contentHeadroom, image.headroom, accuracy: 0.001) }
+            let pixels = try XCTUnwrap(image.pixels)
+            XCTAssertEqual(pixels.bitsPerComponent, 16)
+            if #available(iOS 18, tvOS 18, *) { XCTAssertEqual(pixels.contentHeadroom, image.headroom, accuracy: 0.001) }
             let session = ExactApp.shared.makeSession()
             defer { session.destroy() }
             session.presenter.apply(wireBatch([

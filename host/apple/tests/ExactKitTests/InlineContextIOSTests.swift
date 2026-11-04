@@ -16,7 +16,7 @@ final class InlineContextIOSTests: XCTestCase {
         self.session = session
         let p = session.presenter
         // In the app's scene, so the window draws
-        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        let scene = hostedWindowScene()
         window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow()
         window.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
         p.viewport.frame = window.bounds
@@ -223,6 +223,79 @@ final class InlineContextIOSTests: XCTestCase {
         XCTAssertEqual(pixel(home, at: CGPoint(x: area.width / 2, y: 4)).last, 0, "it lands without its padding, which would cover the text beside the run")
         animator.completions.forEach { $0() }
         XCTAssertNil(returned.view.superview, "off the screen once the menu has ended")
+    }
+
+    /// Another paragraph's words under the run, which their layer draws
+    /// (`DrawnInk`), lift as copies that draw them again: no snapshot of the
+    /// screen, and no store of Core Animation's shared
+    func testARunOverAnotherParagraphsDrawnWordsLiftsCopiesOfThem() throws {
+        guard hostedWindowScene() != nil else { throw missing("scene", "the preview's picture and the window are drawn only in a scene's window") }
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        p.apply(wireBatch([
+            ["op": "create", "id": 5, "kind": "text", "props": ["text": "Words under the run"], "style": ["font_size": 18.0, "text_color": [255.0, 59.0, 48.0, 255.0]]],
+            ["op": "children", "id": 1, "ids": [5, 2, 3]],
+            ["op": "frame", "id": 5, "x": 20, "y": 100, "w": 300, "h": 30],
+        ]))
+        let node = try XCTUnwrap(p.views[2]), under = try XCTUnwrap(p.views[5])
+        until("both paragraphs are drawn") { (under.textRasterLayer as? DrawnInk)?.contents != nil && node.snapshotView(afterScreenUpdates: false) != nil }
+        let drawing = try XCTUnwrap((under.textRasterLayer as? DrawnInk)?.drawing, "one colour: its layer draws it")
+        let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
+        let preview = try lift(p, node, at: try XCTUnwrap(rects.first))
+        XCTAssertFalse(preview.view.subviews.contains { $0.isScreens }, "no snapshot of the screen")
+        func layers(_ layer: CALayer) -> [CALayer] { [layer] + (layer.sublayers ?? []).flatMap(layers) }
+        let copies = layers(preview.view.layer).compactMap { $0 as? DrawnInk }.filter { $0.drawing === drawing }
+        XCTAssertEqual(copies.count, 1, "the words under the run copied by a layer that draws them again")
+        let store = try XCTUnwrap(under.textRasterLayer?.contents) as AnyObject
+        XCTAssertFalse(layers(preview.view.layer).contains { ($0.contents as AnyObject?) === store }, "sharing no store")
+        XCTAssertLessThan(difference(preview, over: rects, of: node), 8, "the run's words and the words under them as the window shows them")
+    }
+
+    /// A numeral roll under way under the run shows two numbers at once, which a copy of its layer cannot:
+    /// the picture is the screen's
+    func testARunOverARollingNumberTakesTheScreen() throws {
+        guard hostedWindowScene() != nil else { throw missing("scene", "the preview's picture and the window are drawn only in a scene's window") }
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        try XCTSkipIf(UIAccessibility.isReduceMotionEnabled, "Reduce Motion: nothing rolls")
+        p.apply(wireBatch([
+            ["op": "create", "id": 5, "kind": "text", "props": ["text": "41"], "style": ["font_size": 18.0, "content_transition": "numeric"]],
+            ["op": "children", "id": 1, "ids": [5, 2, 3]],
+            ["op": "frame", "id": 5, "x": 20, "y": 100, "w": 300, "h": 30],
+        ]))
+        let node = try XCTUnwrap(p.views[2]), under = try XCTUnwrap(p.views[5])
+        until("both paragraphs are drawn") { (under.textRasterLayer as? DrawnInk)?.contents != nil && node.snapshotView(afterScreenUpdates: false) != nil }
+        p.apply(wireBatch([["op": "props", "id": 5, "set": ["text": "42"]]]))
+        _ = p.refreshVisibleText()
+        p.paintVisibleText()
+        p.textRasters.settleVisible([under])
+        XCTAssertNotNil(under.textRasterLayer?.animation(forKey: kCATransition), "the number rolls")
+        let preview = try lift(p, node, at: try XCTUnwrap(node.inlineRects(try XCTUnwrap(p.inlineText(10))).first))
+        XCTAssertTrue(try XCTUnwrap(preview.view.subviews.first).isScreens, "the screen's picture of the roll")
+    }
+
+    /// A fade between two layouts of a paragraph's lines shows the old lines where no current frame says, so
+    /// with one under way anywhere the picture is the screen's, though the paragraph's current lines lie away
+    /// from the run; a fade of a layer's colours, which ends in what a copy shows, leaves copies
+    func testARunWhileLinesFadeTakesTheScreen() throws {
+        guard hostedWindowScene() != nil else { throw missing("scene", "the preview's picture and the window are drawn only in a scene's window") }
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        p.apply(wireBatch([
+            ["op": "create", "id": 5, "kind": "text", "props": ["text": "Words far below the run"], "style": ["font_size": 18.0]],
+            ["op": "children", "id": 1, "ids": [5, 2, 3]],
+            ["op": "frame", "id": 5, "x": 20, "y": 400, "w": 300, "h": 30],
+        ]))
+        let node = try XCTUnwrap(p.views[2]), far = try XCTUnwrap(p.views[5])
+        until("both paragraphs are drawn") { (far.textRasterLayer as? DrawnInk)?.contents != nil && node.snapshotView(afterScreenUpdates: false) != nil }
+        let rect = try XCTUnwrap(node.inlineRects(try XCTUnwrap(p.inlineText(10))).first)
+        XCTAssertFalse(textLines([rect], in: node).area.intersects(far.frame), "the paragraph lies away from the run")
+        XCTAssertFalse(try XCTUnwrap(try lift(p, node, at: rect).view.subviews.first).isScreens, "at rest, copies")
+        try XCTUnwrap(node.superview).layer.add(CATransition(), forKey: nil)
+        XCTAssertFalse(try XCTUnwrap(try lift(p, node, at: rect).view.subviews.first).isScreens, "a fade of the page's colours: copies")
+        try XCTUnwrap(node.superview).layer.removeAllAnimations()
+        try XCTUnwrap(far.textRasterLayer?.superlayer, "the paragraph's lines").add(CATransition(), forKey: nil)
+        XCTAssertTrue(try XCTUnwrap(try lift(p, node, at: rect).view.subviews.first).isScreens, "the screen's picture of the fade")
     }
 
     func testATranslucentParagraphsRunLiftsItsWordsTranslucent() throws {

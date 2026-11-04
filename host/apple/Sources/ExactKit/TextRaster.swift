@@ -47,7 +47,7 @@ struct TextRasterKey: Hashable {
 
 struct TextRasterImage {
     #if os(iOS) || os(tvOS)
-    let image: CGImage
+    let content: TextInk
     #else
     let surface: IOSurface
     #endif
@@ -68,15 +68,57 @@ struct TextRasterImage {
     /// What the lines painted, and their shadows alone, uncut by the job's
     /// limit or clip, in the box's space (`TextRasterKey.serves`).
     var ink = CGRect.null, shadows = CGRect.null
-    /// The one colour the paragraph paints in, when `image` is its coverage
-    /// alone (one byte a pixel) for a layer to show in that colour
-    /// (`TextRasterJob.tints`); nil when `image` holds the colours.
-    var tint: CGColor? = nil
 }
+
+#if os(iOS) || os(tvOS)
+/// A paragraph's ink as its layer shows it: pixels, or text in one sRGB colour
+/// that the layer draws itself (`DrawnInk`), which Core Animation keeps at one
+/// byte a pixel and colours as it composites, as it keeps a `UILabel`'s.
+enum TextInk {
+    case pixels(CGImage)
+    case drawn(TextDrawing)
+}
+
+/// Text in one sRGB colour as its glyphs, to paint into the context Core
+/// Animation hands the ink layer's `draw(in:)`: the layer's points, y down,
+/// scaled to its pixels. Made on a worker and painted on the main thread, so
+/// it holds glyph values, never CoreText's layout objects (`MeasuredGlyphs`).
+final class TextDrawing {
+    /// Where the layer is in the box, in points
+    let frame: CGRect
+    let scale: CGFloat
+    let color: CGColor
+    let smooths: Bool
+    /// The lines whose ink reaches the frame, and each one's pen, in the box's
+    /// points with y down: a band of a tall paragraph keeps its own lines
+    let lines: [MeasuredGlyphs.Line]
+    let positions: [CGPoint]
+
+    init(_ lines: [MeasuredGlyphs.Line], at positions: [CGPoint], frame: CGRect, scale: CGFloat, color: CGColor, smooths: Bool) {
+        let reach = frame.insetBy(dx: -1 / scale, dy: -1 / scale)
+        let kept = zip(lines, positions).filter { line, pen in
+            !line.ink.isNull && !line.ink.isEmpty
+                && reach.intersects(CGRect(x: pen.x + line.ink.minX, y: pen.y - line.ink.maxY, width: line.ink.width, height: line.ink.height))
+        }
+        (self.lines, self.positions) = (kept.map(\.0), kept.map(\.1))
+        (self.frame, self.scale, self.color, self.smooths) = (frame, scale, color, smooths)
+    }
+
+    /// The bytes its glyph values hold, as `MeasuredGlyphs.bytes` counts them
+    var bytes: Int { lines.reduce(32) { $0 + $1.bytes } + positions.count * MemoryLayout<CGPoint>.stride }
+
+    /// Paints its glyphs into a context in the layer's points, y down
+    func paint(_ ctx: CGContext) {
+        ctx.translateBy(x: -frame.minX, y: -frame.minY)
+        TextRasterJob.paintGlyphs(lines, at: positions, color: color, smooths: smooths, into: ctx)
+    }
+}
+#endif
 
 extension TextRasterImage {
     #if os(iOS) || os(tvOS)
-    init(_ pixels: CGImage, frame: CGRect, covered: CGRect, headroom: Float) { self.init(image: pixels, frame: frame, covered: covered, headroom: headroom) }
+    init(_ pixels: CGImage, frame: CGRect, covered: CGRect, headroom: Float) { self.init(content: .pixels(pixels), frame: frame, covered: covered, headroom: headroom) }
+    init(_ drawing: TextDrawing, covered: CGRect) { self.init(content: .drawn(drawing), frame: drawing.frame, covered: covered, headroom: 0) }
     #else
     init(_ pixels: IOSurface, frame: CGRect, covered: CGRect, headroom: Float) { self.init(surface: pixels, frame: frame, covered: covered, headroom: headroom) }
     #endif
@@ -137,10 +179,6 @@ struct TextRasterJob {
     /// Core Animation doesn't map a layer shadow's color to the limit. Runs'
     /// own HDR shadows (`exactShadow`) are painted there too.
     var shadow: TextRunShadow? = nil
-    /// Paint one-colour text as coverage alone, for a layer that colours it
-    /// as it composites (`TextRasterImage.tint`): a quarter of the bytes,
-    /// and Core Graphics' cheaper glyph path, as a `UILabel`'s backing store.
-    var tints = false
     /// `-webkit-font-smoothing: antialiased` (`Spec.antialiased`).
     var antialiased = false
     var measuredGlyphs: MeasuredGlyphs? = nil
@@ -188,7 +226,6 @@ struct TextRasterJob {
     /// and a shadow cast 512 points to one side about 2 MB.
     static let maxShadowReach: CGFloat = 512
     private static let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
-    private static let gray = CGColorSpaceCreateDeviceGray()
     private static let p3 = CGColorSpace(name: CGColorSpace.displayP3)!
     private static let extended = CGColorSpace(name: CGColorSpace.extendedSRGB)!
     /// The bitmap's space and its colours' peak (LLP 1100 D2, D8): extended
@@ -326,16 +363,25 @@ struct TextRasterJob {
         // Truncation inserts runs whose paint need not occur in the source.
         let runs = lines.flatMap { CTLineGetGlyphRuns($0) as! [CTRun] }
         let (space, headroom, deep) = format(runs)
-        if let tint = tints && headroom == 0 && !deep ? oneColor(runs) : nil {
-            guard let mask = bitmap(width: width, height: height, space: Self.srgb, headroom: 0, deep: false, alphaOnly: true, paint: {
-                paint(lines, positions, frame: frame, height: height, scale: scale, pass: .ink, into: $0)
-            }) else { return nil }
-            var out = TextRasterImage(mask.pixels, frame: frame, covered: covered, headroom: 0)
-            out.ink = painted; out.shadows = shadowed
-            // The colour's alpha is in the coverage already.
-            out.tint = tint.copy(alpha: 1)
-            return out
+        #if os(iOS) || os(tvOS)
+        // One sRGB colour with no HDR shadow to cast is drawn by the
+        // paragraph's layer (`TextInk.drawn`), not painted here: Core
+        // Animation keeps it at one byte a pixel, as a `UILabel`'s. Pixels
+        // stay where the glyphs alone are not the line's ink: an underline or
+        // a line-through, which CoreText draws with its line, or a glyph
+        // `MeasuredGlyphs.Line` cannot take. A wide colour stays pixels too:
+        // that store was seen to narrow it (Display P3's red rendered at 1.065
+        // where its drawing painted 1.225, extended linear sRGB, iOS 27.1
+        // simulator, not on every run).
+        if space === Self.srgb, shadow == nil, let color = oneColor(runs), !runs.contains(where: Self.decorated) {
+            let glyphs = lines.compactMap { MeasuredGlyphs.Line($0, origin: 0, paints: Self.paints) }
+            if glyphs.count == lines.count {
+                var out = TextRasterImage(TextDrawing(glyphs, at: positions, frame: frame, scale: scale, color: color, smooths: !antialiased), covered: covered)
+                out.ink = painted; out.shadows = shadowed
+                return out
+            }
         }
+        #endif
         // Runs' own HDR shadows, each once.
         var casters: [TextRunShadow] = []
         for run in runs where (CTRunGetAttributes(run) as NSDictionary)[NSAttributedString.Key.exactHidden] as? Bool != true {
@@ -397,30 +443,23 @@ struct TextRasterJob {
         let w = extent.pixels?.width ?? (frame.width * scale).rounded(.up)
         let h = extent.pixels?.height ?? (frame.height * scale).rounded(.up)
         guard w.isFinite, h.isFinite, w > 0, h > 0, w < CGFloat(Int.max), h < CGFloat(Int.max) else { return nil }
-        let width = Int(w), height = Int(h)
+        #if os(iOS) || os(tvOS)
+        // One colour, the fast path's: the paragraph's layer draws its glyphs
+        var out = TextRasterImage(TextDrawing(glyphs.lines, at: positions, frame: frame, scale: scale, color: color, smooths: !antialiased),
+                                  covered: covered.rect)
+        #else
         // The fast path admits sRGB ink; wide/HDR colors retain the full paint path.
-        guard let pixels = bitmap(width: width, height: height, space: Self.srgb, headroom: 0, deep: false, alphaOnly: tints, paint: { ctx in
+        let width = Int(w), height = Int(h)
+        guard let pixels = bitmap(width: width, height: height, space: Self.srgb, headroom: 0, deep: false, paint: { ctx in
             ctx.translateBy(x: 0, y: CGFloat(height))
             ctx.scaleBy(x: scale, y: -scale)
             ctx.translateBy(x: -frame.minX, y: -frame.minY)
-            ctx.setShouldSmoothFonts(!antialiased)
-            ctx.setFillColor(color)
-            for (line, position) in zip(glyphs.lines, positions) {
-                ctx.saveGState()
-                ctx.translateBy(x: position.x, y: position.y)
-                ctx.scaleBy(x: 1, y: -1)
-                ctx.textMatrix = .identity
-                ctx.textPosition = .zero
-                for run in line.runs where !run.glyphs.isEmpty {
-                    CTFontDrawGlyphs(run.font, run.glyphs, run.positions, run.glyphs.count, ctx)
-                }
-                ctx.restoreGState()
-            }
+            Self.paintGlyphs(glyphs.lines, at: positions, color: color, smooths: !antialiased, into: ctx)
             ctx.flush()
         }) else { return nil }
         var out = TextRasterImage(pixels.pixels, frame: frame, covered: covered.rect, headroom: 0)
+        #endif
         out.ink = painted
-        if tints { out.tint = color.copy(alpha: 1) }
         return out
     }
 
@@ -463,14 +502,13 @@ struct TextRasterJob {
     #endif
 
     /// One bitmap: `deep` is half float in extended sRGB, tagged with its
-    /// headroom; `alphaOnly` one byte a pixel, coverage alone; else four
-    /// bytes a pixel. `keepsImage`: the pixels as an image too, to draw from.
-    private func bitmap(width: Int, height: Int, space: CGColorSpace, headroom: Float, deep: Bool, alphaOnly: Bool = false,
+    /// headroom; else four bytes a pixel. `keepsImage`: the pixels as an
+    /// image too, to draw from.
+    private func bitmap(width: Int, height: Int, space: CGColorSpace, headroom: Float, deep: Bool,
                         keepsImage: Bool = false, paint: (CGContext) -> Void) -> (pixels: Pixels, image: CGImage?)? {
-        let pixelBytes = deep ? 8 : alphaOnly ? 1 : 4
+        let pixelBytes = deep ? 8 : 4
         let bitmapInfo = deep
             ? CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.floatComponents.rawValue | CGBitmapInfo.byteOrder16Little.rawValue
-            : alphaOnly ? CGImageAlphaInfo.alphaOnly.rawValue
             : CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
         #if os(macOS)
         guard width > 0, height > 0,
@@ -500,7 +538,7 @@ struct TextRasterJob {
         guard !rowOverflow, !overflow else { return nil }
         return withScratch(bytes) { scratch -> (pixels: Pixels, image: CGImage?)? in
             guard let ctx = CGContext(data: scratch, width: width, height: height, bitsPerComponent: deep ? 16 : 8,
-                                      bytesPerRow: row & ~63, space: alphaOnly ? Self.gray : space, bitmapInfo: bitmapInfo)
+                                      bytesPerRow: row & ~63, space: space, bitmapInfo: bitmapInfo)
             else { return nil }
             paint(ctx)
             guard var image = ctx.makeImage() else { return nil }
@@ -529,4 +567,36 @@ struct TextRasterJob {
         for (line, position) in zip(lines, positions) { TextLinePaint.draw(line, at: position, in: ctx, scale: scale, pass: pass) }
         ctx.flush()
     }
+
+    /// Glyph lines in one colour into a context in the box's points, y down,
+    /// each line's pen at its position: a bitmap's, or an ink layer's
+    /// (`TextDrawing`)
+    static func paintGlyphs(_ lines: [MeasuredGlyphs.Line], at positions: [CGPoint], color: CGColor, smooths: Bool, into ctx: CGContext) {
+        ctx.setShouldSmoothFonts(smooths)
+        ctx.setFillColor(color)
+        for (line, position) in zip(lines, positions) {
+            ctx.saveGState()
+            ctx.translateBy(x: position.x, y: position.y)
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.textMatrix = .identity
+            ctx.textPosition = .zero
+            for run in line.runs where !run.glyphs.isEmpty {
+                CTFontDrawGlyphs(run.font, run.glyphs, run.positions, run.glyphs.count, ctx)
+            }
+            ctx.restoreGState()
+        }
+    }
+
+    #if os(iOS) || os(tvOS)
+    /// A run CoreText decorates as it draws its line: an underline or a line-through
+    private static func decorated(_ run: CTRun) -> Bool {
+        let attributes = CTRunGetAttributes(run) as NSDictionary
+        return [NSAttributedString.Key.underlineStyle, .strikethroughStyle].contains { ((attributes[$0] as? NSNumber)?.intValue ?? 0) != 0 }
+    }
+
+    /// A run that paints: a hidden one paints nothing
+    private static func paints(_ run: CTRun) -> Bool {
+        (CTRunGetAttributes(run) as NSDictionary)[NSAttributedString.Key.exactHidden] as? Bool != true
+    }
+    #endif
 }

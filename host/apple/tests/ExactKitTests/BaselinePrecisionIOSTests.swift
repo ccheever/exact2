@@ -44,8 +44,8 @@ final class BaselinePrecisionIOSTests: XCTestCase {
                 let job = TextRasterJob(source: engine.attributed(spec), ranges: paragraph.lines.map { CTLineGetStringRange($0) },
                                         baselines: paragraph.baselines, flush: 0, box: CGRect(x: 0, y: 0, width: 80, height: 30),
                                         size: CGSize(width: 80, height: 30), scale: scale)
-                let raster = try XCTUnwrap(job.render(lines: paragraph.lines))
-                let worker = render { _ in UIImage(cgImage: raster.image, scale: scale, orientation: .up).draw(in: raster.frame) }
+                let raster = try XCTUnwrap(job.render(lines: paragraph.lines)), pixels = try XCTUnwrap(raster.pixels)
+                let worker = render { _ in UIImage(cgImage: pixels, scale: scale, orientation: .up).draw(in: raster.frame) }
                 let actual = try inkRows(exact), expected = try inkRows(native)
                 XCTAssertEqual(try inkRows(worker), actual, "the worker and direct painter place the same ink")
                 print("painted baseline \(scale)x \(size)pt: Exact ink=\(actual) UILabel ink=\(expected) normal heights=\(paragraph.height)/\(label.bounds.height)")

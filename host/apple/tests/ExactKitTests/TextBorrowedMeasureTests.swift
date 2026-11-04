@@ -382,7 +382,7 @@ extension TextGeometryTests {
         let width = surface.width * surface.bytesPerElement, height = surface.height, row = surface.bytesPerRow
         let base = surface.baseAddress
         #else
-        let image = raster.image
+        let image = raster.pixels!
         let data = image.dataProvider!.data!
         let width = image.width * image.bitsPerPixel / 8, height = image.height, row = image.bytesPerRow
         let base = UnsafeRawPointer(CFDataGetBytePtr(data))!

@@ -70,8 +70,9 @@ final class TextRasterizer {
     /// Pixels by what they paint. Rows repeat small labels (a reaction's
     /// emoji and count, a relative time), and a list that turns back shows
     /// what it just left: those take the pixels another view already paid
-    /// for. Least recently used first, bounded by bytes; only small images,
-    /// so what stays beyond the views that show it is a few megabytes.
+    /// for. Least recently used first, bounded by the bytes each holds (its
+    /// pixels or glyph values, and its key's text); only small entries, so
+    /// what stays beyond the views that show it is a few megabytes.
     /// Kept by `TextRasterKey.anyRoom`, with the key it was painted for: a
     /// view of another size, or the same view after its padding changed,
     /// takes pixels that serve it (`TextRasterKey.serves`).
@@ -96,7 +97,14 @@ final class TextRasterizer {
     private func keep(_ image: TextRasterImage?, for key: TextRasterKey, namespace: Int) {
         let any = key.anyRoom
         guard let image, namespace == keptNamespace else { return }
-        let bytes = image.image.bytesPerRow * image.image.height + (image.cast.map { $0.bytesPerRow * $0.height } ?? 0)
+        let ink: Int
+        switch image.content {
+        case .pixels(let pixels): ink = pixels.bytesPerRow * pixels.height
+        case .drawn(let drawing): ink = drawing.bytes
+        }
+        // The key holds the paragraph's text, however little of it shows
+        let text = key.spec.runs.reduce(0) { $0 + $1.text.utf8.count }
+        let bytes = ink + (image.cast.map { $0.bytesPerRow * $0.height } ?? 0) + text
         guard bytes <= Self.keptEntryLimit else { return }
         // A newer image replaces one that cannot serve its room (a narrower view's, its ink cut)
         if let old = kept[any] {
@@ -228,8 +236,6 @@ final class TextRasterizer {
             flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0, whiteSpace: key.spec.whiteSpace, justifies: key.spec.align == 3, insets: paragraph?.insets ?? LineInsets(key.spec, source: source),
             box: key.box, size: key.size, scale: key.scale, clip: key.clip, room: key.room,
             ellipsis: key.spec.ellipsis, crop: true, clamped: geometry.clamped, shadow: key.spec.hdrShadow.map(TextRunShadow.init),
-            // A layer shadow and a vibrancy view each take the ink as it is.
-            tints: key.spec.shadow == nil && (node.vibrantColor == nil || node.enclosingBlur == nil),
             antialiased: key.spec.antialiased,
             measuredGlyphs: key.spec.color.count == 4 ? engine.measuredGlyphs(key.spec, width: key.box.width) : nil,
             measuredColor: TextEngine.color(key.spec.color).cgColor)
@@ -442,23 +448,24 @@ extension NodeView {
             return
         }
         let shown = textRasterSpec
-        textRaster = result.image; textRasterScale = key.scale; textRasterSpec = key.spec
+        textRaster = result.content; textRasterScale = key.scale; textRasterSpec = key.spec
         textMore.rasterCovered = result.covered; textMore.rasterBand = key.clip != nil; textMore.rasterInk = (result.ink, result.shadows)
         textMore.rasterRoom = key.room ?? key.box
         textRasterReady = true; textRasterFailed = false
-        // One colour's coverage masks that colour; other ink carries its
-        // own colours. Each has its own layer.
-        let tint = result.tint
-        if (tint != nil) != (textRasterLayer is TintInk), let old = textRasterLayer {
+        // One-colour text is drawn by its own layer; other ink is pixels.
+        // Each has its own kind of layer.
+        let drawing: TextDrawing?
+        if case .drawn(let lines) = result.content { drawing = lines } else { drawing = nil }
+        if (drawing != nil) != (textRasterLayer is DrawnInk), let old = textRasterLayer {
             old.dropTextCast(); old.removeFromSuperlayer(); textRasterLayer = nil
         }
         // The ink layer never animates (`InkLayer`), so no
         // transaction of its own: a worker's result published between frames
         // commits with the next frame's changes, rather than alone.
         let ink: CALayer
-        if let tint {
-            let layer = textRasterLayer as? TintInk ?? TintInk()
-            layer.show(result.image, tint: tint, frame: result.frame, scale: key.scale)
+        if let drawing {
+            let layer = textRasterLayer as? DrawnInk ?? DrawnInk()
+            layer.drawing = drawing
             ink = layer
         } else {
             ink = textRasterLayer ?? InkLayer()
@@ -469,7 +476,10 @@ extension NodeView {
         // The lines' clock settled first: a numeral roll runs in it
         textBoxLayer?.show(from: shown, to: key.spec)
         let roll = NumeralRoll.roll(ink, node: self)
-        if tint == nil { ink.contents = result.image }
+        switch result.content {
+        case .pixels(let pixels): ink.contents = pixels
+        case .drawn: ink.setNeedsDisplay()
+        }
         TextShadowLayer.apply(key.spec.hdrShadow == nil ? key.spec.shadow : nil, to: ink)
         ink.applyTextRange(headroom: result.headroom, limit: style["dynamic_range_limit"]?.string)
         ink.applyTextCast(result.cast, headroom: result.castHeadroom, limit: style["dynamic_range_limit"]?.string, rolling: roll)
@@ -511,8 +521,7 @@ extension NodeView {
     /// a fade (`TextBoxLayer`): a transition was seen to render the old state of
     /// the layer it is on with that layer's geometry before the change, so a
     /// fade on the box itself, moved in the same transaction, left the old
-    /// lines where it was; and a fade on the ink alone left out a one-colour
-    /// ink's coverage mask (both states showed the new one).
+    /// lines where it was.
     private func makeTextBox() -> TextBoxLayer {
         let box = TextBoxLayer(), lines = InkLayer()
         box.anchorPoint = .zero
@@ -568,21 +577,24 @@ class InkLayer: CALayer {
     override func action(forKey event: String) -> (any CAAction)? { nil }
 }
 
-/// A one-colour paragraph's ink (`TextRasterImage.tint`): a layer of that
-/// colour masked by its coverage. A layer, not a view: Core Animation's
-/// sublayer methods are for layers you create, never a view's own layer
-/// ("Building a Layer Hierarchy"). A paragraph with a `text-shadow` is
-/// never tinted (`TextRasterizer`'s `tints`), so the mask clips no shadow.
-final class TintInk: InkLayer {
-    func show(_ image: CGImage, tint: CGColor, frame: CGRect, scale: CGFloat) {
-        self.frame = frame
-        backgroundColor = tint
-        let coverage = mask ?? InkLayer()
-        coverage.frame = bounds
-        coverage.contentsScale = scale
-        coverage.contents = image
-        if mask !== coverage { mask = coverage }
+/// A one-colour paragraph's ink (`TextInk.drawn`): a layer that draws its
+/// glyphs itself, with no mask and so none of a mask's off-screen pass. In
+/// the format Core Animation picks for what it draws (`automatic`), it keeps
+/// one colour at one byte a pixel and colours it as it composites, as it
+/// keeps a `UILabel`'s layer; the default format keeps four bytes. Drawn as
+/// the layer commits, as a label's is: drawn asynchronously, a commit that
+/// drew one waited for Core Animation's threads to finish it. A layer, not a
+/// view: Core Animation's sublayer methods are for layers you create, never
+/// a view's own layer ("Building a Layer Hierarchy").
+final class DrawnInk: InkLayer {
+    var drawing: TextDrawing?
+    override init() {
+        super.init()
+        contentsFormat = .automatic
     }
+    override init(layer: Any) { super.init(layer: layer) }
+    required init?(coder: NSCoder) { nil }
+    override func draw(in ctx: CGContext) { drawing?.paint(ctx) }
 }
 
 /// One refresh's clip geometry: each ancestor's accumulated clips (at no

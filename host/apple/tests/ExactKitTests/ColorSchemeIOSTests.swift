@@ -177,8 +177,8 @@ final class ColorSchemeIOSTests: XCTestCase {
         var white: CGFloat = 0
         XCTAssertTrue(baked.getWhite(&white, alpha: nil))
         XCTAssertGreaterThan(white, 0.9, "the button's ink is its dark one")
-        // The paragraph's raster, painted as the batch ended: its ink is white,
-        // as its layer shows it (one colour's coverage is tinted there).
+        // The paragraph's ink, made as the batch ended: white, as its layer
+        // shows it (one colour is drawn by the layer itself).
         let raster = try XCTUnwrap(text.textRaster, "painted by the batch")
         let shown = try XCTUnwrap(text.textRasterLayer)
         let w = raster.width, h = raster.height
@@ -186,7 +186,7 @@ final class ColorSchemeIOSTests: XCTestCase {
                                           space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         ctx.translateBy(x: 0, y: CGFloat(h))
         ctx.scaleBy(x: CGFloat(w) / shown.bounds.width, y: -CGFloat(h) / shown.bounds.height)
-        shown.render(in: ctx)
+        if let drawn = shown as? DrawnInk { drawn.draw(in: ctx) } else { shown.render(in: ctx) }
         let bytes = try XCTUnwrap(ctx.data).bindMemory(to: UInt8.self, capacity: w * h * 4)
         var inked = 0, bright = 0
         for i in 0..<(w * h) where bytes[i * 4 + 3] == 255 {

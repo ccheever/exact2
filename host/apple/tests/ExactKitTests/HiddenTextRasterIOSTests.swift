@@ -105,7 +105,7 @@ final class HiddenTextRasterIOSTests: XCTestCase {
         ctx.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
         let image = try XCTUnwrap(ctx.makeImage())
-        node.textRaster = image
+        node.textRaster = .pixels(image)
         node.textRasterReady = true
         node.textRasterFrame = node.bounds
         let ink = CALayer()
@@ -124,7 +124,7 @@ final class HiddenTextRasterIOSTests: XCTestCase {
         if (node.textRaster as AnyObject?) === planted { return true }
         return (node.textRasterOverflowLayer?.contents as AnyObject?) === planted
         #else
-        if node.textRaster === (planted as! CGImage) { return true }
+        if node.textRaster?.object === planted { return true }
         return (node.textRasterLayer?.contents as AnyObject?) === planted
         #endif
     }

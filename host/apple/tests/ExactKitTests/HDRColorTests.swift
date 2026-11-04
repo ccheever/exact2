@@ -73,9 +73,9 @@ final class HDRColorTests: XCTestCase {
         XCTAssertEqual(TextRasterJob.headroom(of: hdr.surface), 4, accuracy: 0.001, "kIOSurfaceContentHeadroom")
         XCTAssertEqual(TextRasterJob.headroom(of: sdr.surface), 0)
         #else
-        XCTAssertEqual(hdr.image.bitsPerComponent, 16)
-        if #available(iOS 18, tvOS 18, *) { XCTAssertEqual(hdr.image.contentHeadroom, 4, accuracy: 0.001) }
-        XCTAssertEqual(sdr.image.bitsPerComponent, 8)
+        XCTAssertEqual(try XCTUnwrap(hdr.pixels).bitsPerComponent, 16)
+        if #available(iOS 18, tvOS 18, *) { XCTAssertEqual(try XCTUnwrap(hdr.pixels).contentHeadroom, 4, accuracy: 0.001) }
+        XCTAssertEqual(try XCTUnwrap(sdr.pixels).bitsPerComponent, 8)
         #endif
     }
 
@@ -227,7 +227,7 @@ final class HDRColorTests: XCTestCase {
         #if os(macOS)
         let ink = channel(3, of: image.surface)
         #else
-        let ink = channel(3, of: image.image)
+        let ink = channel(3, of: try XCTUnwrap(image.pixels))
         #endif
         let cast = channel(3, of: try XCTUnwrap(image.cast))
         XCTAssertEqual(ink.w, cast.w); XCTAssertEqual(ink.h, cast.h)

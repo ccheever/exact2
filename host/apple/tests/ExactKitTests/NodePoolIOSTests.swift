@@ -226,9 +226,9 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertNotNil(p.inlineText(22))
     }
 
-    /// A row whose text shows one-colour ink (`TintInk`) parks, and the ink
-    /// does not come back with it: a chat's bubbles, every one tinted ink.
-    func testARowWhoseTextShowsTintedInkParks() throws {
+    /// A row whose text shows one-colour ink (`DrawnInk`) parks, and the ink
+    /// does not come back with it: a chat's bubbles, every one one-colour ink.
+    func testARowWhoseTextShowsDrawnInkParks() throws {
         let p = Presenter()
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
         p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
@@ -246,19 +246,16 @@ final class NodePoolIOSTests: XCTestCase {
                ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 300.0],
                ["op": "content", "id": 1, "w": 300.0, "h": 2000.0]]))
         let text = try XCTUnwrap(p.views[11])
-        let context = try XCTUnwrap(CGContext(data: nil, width: 300, height: 20, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         let key = TextRasterKey(spec: text.paragraphSpec(), size: text.bounds.size, box: text.paragraphBox(), scale: 1)
-        var ink = TextRasterImage(try XCTUnwrap(context.makeImage()), frame: text.bounds, covered: text.bounds, headroom: 0)
-        ink.tint = UIColor.red.cgColor
+        let ink = TextRasterImage(TextDrawing("Ink", color: UIColor.red.cgColor, baseline: 14, frame: text.bounds), covered: text.bounds)
         text.textRasterKey = key; text.textRasterReady = false
         text.showTextRaster(ink, for: key)
-        XCTAssertTrue(text.textRasterLayer is TintInk)
+        XCTAssertTrue(text.textRasterLayer is DrawnInk)
         p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11]) + row(20, "Bye")
             + [["op": "children", "id": 1, "ids": [20]]]))
         XCTAssertTrue(p.views[21] === text, "the text's view came back")
-        XCTAssertFalse(text.textRasterLayer is TintInk, "without the last row's ink")
-        XCTAssertFalse(text.layer.sublayers?.contains { $0 is TintInk } ?? false)
+        XCTAssertFalse(text.textRasterLayer is DrawnInk, "without the last row's ink")
+        XCTAssertFalse(text.layer.sublayers?.contains { $0 is DrawnInk } ?? false)
     }
 
     func testARowWhoseNodeMovesAwayIsDestroyedAsBefore() throws {
