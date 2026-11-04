@@ -133,8 +133,13 @@ final class SnapshotDriverTests: XCTestCase {
         return (w, h, data)
     }
 
-    /// How many pixels in `rect` (points, y down) of a 1x image differ from
-    /// `background` by more than 32 in some channel: the ink a leaf drew.
+    private func requirePaint(_ image: CGImage) throws {
+        let p = try pixels(image)
+        guard stride(from: 0, to: p.data.count, by: 4).contains(where: { CapturePixels.painted(p.data, at: $0) }) else { throw CaptureFailure.emptyImage }
+    }
+
+    /// Count nontransparent pixels differing from `background` by more than
+    /// 32 in an RGB channel, within `rect` of a 1x image
     private func ink(_ image: CGImage, in rect: CGRect, background: [UInt8] = [255, 255, 255]) throws -> Int {
         let p = try pixels(image)
         var count = 0
@@ -144,16 +149,38 @@ final class SnapshotDriverTests: XCTestCase {
         for y in y0..<y1 {
             for x in x0..<x1 {
                 let at = (y * p.width + x) * 4
-                if (0..<3).contains(where: { abs(Int(p.data[at + $0]) - Int(background[$0])) > 32 }) { count += 1 }
+                if CapturePixels.painted(p.data, at: at), (0..<3).contains(where: { abs(Int(p.data[at + $0]) - Int(background[$0])) > 32 }) { count += 1 }
             }
         }
         return count
     }
 
+    func testInkCountsPaintedPixelsAndSkipsTransparentPixels() throws {
+        let size = CGSize(width: 2, height: 2)
+        let clear = try XCTUnwrap(CapturePixelsTests.clearedContext(width: 2, height: 2).makeImage())
+        let black = try XCTUnwrap(render(Color.black, size: size, scale: 1))
+        let rect = CGRect(origin: .zero, size: size)
+        XCTAssertEqual(try ink(clear, in: rect), 0, "transparent pixels are not ink")
+        XCTAssertEqual(try ink(black, in: rect), 4, "opaque black pixels are ink")
+        XCTAssertThrowsError(try requirePaint(clear))
+        XCTAssertNoThrow(try requirePaint(black))
+    }
+
     private func color(_ image: CGImage, x: Int, y: Int) throws -> [Int] {
         let p = try pixels(image)
         let at = (y * p.width + x) * 4
+        guard CapturePixels.painted(p.data, at: at) else { throw CaptureFailure.transparentPixel }
         return [Int(p.data[at]), Int(p.data[at + 1]), Int(p.data[at + 2])]
+    }
+
+    private enum CaptureFailure: Error { case transparentPixel, emptyImage, noInk }
+
+    func testColorRejectsTransparentPixels() throws {
+        let size = CGSize(width: 2, height: 2)
+        let clear = try XCTUnwrap(CapturePixelsTests.clearedContext(width: 2, height: 2).makeImage())
+        let black = try XCTUnwrap(render(Color.black, size: size, scale: 1))
+        XCTAssertThrowsError(try color(clear, x: 0, y: 0))
+        XCTAssertEqual(try color(black, x: 0, y: 0), [0, 0, 0])
     }
 
     /// A 1x render of an entry alone on white in the light scheme, and its tree.
@@ -184,6 +211,7 @@ final class SnapshotDriverTests: XCTestCase {
                         let view = SnapshotDriver.view(session: session, displaySize: family.size, environment: environment(family, content: content, type: type.size, link: link))
                         let name = "\(prefix)-\(family.name)-\(content.rawValue)-\(mode.rawValue)-\(scheme == .light ? "light" : "dark")-\(type.name)"
                         let image = render(StandIn(family: family, mode: mode, scheme: scheme, type: type.size, content: content, inner: view), size: family.size)
+                        try requirePaint(XCTUnwrap(image, name))
                         try write(image, name)
                         XCTAssertEqual(image?.width, Int(family.size.width * 3), name)
                         names.append(name)
@@ -298,7 +326,7 @@ final class SnapshotDriverTests: XCTestCase {
             let live = try HeadlessSession(plan: plan, entry: "question-medium", size: family.content.size)
             session = live; runtime = live.core.runtime
             let view = SnapshotDriver.view(session: live, displaySize: family.size, environment: environment(family, type: .xxxLarge))
-            XCTAssertNotNil(render(StandIn(family: family, mode: .accented, scheme: .dark, type: .large, content: .answered, inner: view), size: family.size))
+            try requirePaint(XCTUnwrap(render(StandIn(family: family, mode: .accented, scheme: .dark, type: .large, content: .answered, inner: view), size: family.size)))
             XCTAssertNotNil(session)
         }
         XCTAssertNil(session, "the session is retained after its view and owner are gone")
@@ -411,6 +439,7 @@ final class SnapshotDriverTests: XCTestCase {
         for py in stride(from: y0, to: y1, by: 1) {
             for px in stride(from: x0, to: x1, by: 1) {
                 let p = (py * w + px) * 4
+                guard CapturePixels.opaque(x.data, at: p), CapturePixels.opaque(y.data, at: p) else { return (255, 1, true) }
                 var any = false
                 for c in 0..<3 {
                     let d = abs(Int(x.data[p + c]) - Int(y.data[p + c]))
@@ -427,7 +456,23 @@ final class SnapshotDriverTests: XCTestCase {
            let image = context.makeImage() {
             try write(image, diff.deletingPathExtension().lastPathComponent)
         }
-        return (Double(sum) / Double(max(1, counted) * 3), Double(differing) / Double(max(1, counted)), true)
+        guard counted > 0 else { return (255, 1, true) }
+        return (Double(sum) / Double(counted * 3), Double(differing) / Double(counted), true)
+    }
+
+    func testComparisonRejectsTransparentCapturesAndEmptyRegions() throws {
+        let size = CGSize(width: 6, height: 6), region = CGRect(x: 0, y: 0, width: 2, height: 2)
+        let clear = try write(CapturePixelsTests.clearedContext(width: 6, height: 6).makeImage(), "compare-clear")
+        let black = try write(render(Color.black, size: size, scale: 1), "compare-black")
+        defer { for url in [clear, black] { try? FileManager.default.removeItem(at: url) } }
+        let diff = Self.out.appending(path: "compare-regression-diff.png")
+        defer { try? FileManager.default.removeItem(at: diff) }
+        for (a, b) in [(black, black), (clear, black), (black, clear), (clear, clear)] {
+            let difference = try compare(a, b, region: region, diff: diff)
+            XCTAssertTrue(difference.sameSize)
+            XCTAssertEqual(difference.mean, a == black && b == black ? 0 : 255)
+        }
+        XCTAssertEqual(try compare(black, black, region: .zero, diff: diff).mean, 255)
     }
 
     // MARK: Paint: gradients in the batch's forms, dashed borders
@@ -609,8 +654,11 @@ final class SnapshotDriverTests: XCTestCase {
         func inkWidth(_ snapshot: HeadlessSession.Snapshot) throws -> Int {
             let view = SnapshotDriver.view(snapshot, environment: SnapshotEnvironment(family: .systemSmall, contentMargins: EdgeInsets())).environment(\.colorScheme, .light).background(.white)
             let image = try XCTUnwrap(render(view, size: CGSize(width: 48, height: 48), scale: 1))
-            return (0..<48).filter { try! ink(image, in: CGRect(x: CGFloat($0), y: 0, width: 1, height: 48)) > 0 }.count
+            let width = try (0..<48).filter { try ink(image, in: CGRect(x: CGFloat($0), y: 0, width: 1, height: 48)) > 0 }.count
+            guard width > 0 else { throw CaptureFailure.noInk }
+            return width
         }
+        XCTAssertThrowsError(try inkWidth(HeadlessSession.Snapshot(size: CGSize(width: 48, height: 48), roots: [], nodes: [:])))
         XCTAssertGreaterThan(try inkWidth(node("contain")), 36)
         XCTAssertGreaterThan(try inkWidth(node(nil)), 36, "unsaid is fill, which keeps a symbol's aspect")
         XCTAssertLessThan(try inkWidth(node("scale-down")), 24, "at its natural size")
