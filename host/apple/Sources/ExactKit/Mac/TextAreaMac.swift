@@ -560,7 +560,8 @@ extension NodeView {
         layoutResizeGrip()
     }
     package func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
-        TextInputLimit.allows(textView.string, range: affectedCharRange, replacement: replacementString ?? "", props: props)
+        presenter?.fieldSelections.replacing.contains(id) == true
+            || TextInputLimit.allows(textView.string, range: affectedCharRange, replacement: replacementString ?? "", props: props)
     }
     package func textDidChange(_ notification: Notification) {
         guard let f = textArea else { return }

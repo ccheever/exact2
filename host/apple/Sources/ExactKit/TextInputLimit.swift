@@ -45,7 +45,8 @@ final class TextInputFormatter: Formatter {
         obj?.pointee = string as NSString; return true
     }
     override func isPartialStringValid(_ partialString: String, newEditingString newString: AutoreleasingUnsafeMutablePointer<NSString?>?, errorDescription error: AutoreleasingUnsafeMutablePointer<NSString?>?) -> Bool {
-        guard let owner, let maximum = TextInputLimit.maximum(owner.props) else { return true }
+        guard let owner, owner.presenter?.fieldSelections.replacing.contains(owner.id) != true,
+              let maximum = TextInputLimit.maximum(owner.props) else { return true }
         return partialString.utf16.count <= maximum || partialString.utf16.count <= (owner.props["value"]?.utf16.count ?? 0)
     }
 }
