@@ -12,6 +12,12 @@
   "host": {
     "web": {}
   },
+  "open_url": {
+    "schemes": [
+      "claude-cli",
+      "codex"
+    ]
+  },
   "deploy": {
     "store": {
       "web": "0"

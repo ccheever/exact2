@@ -76,7 +76,9 @@ shape Page
   feedbackUrl: string
   markdownPath: string
   claudeUrl: string
+  claudeCodeUrl: string
   chatgptUrl: string
+  codexUrl: string
   cursorUrl: string
   blocks: Block[]
   toc: TocItem[]
