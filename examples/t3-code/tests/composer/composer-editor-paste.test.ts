@@ -223,7 +223,7 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     expect(ops(native, 'editorInsert')).toEqual([]);
   });
 
-  test('a dropped or pasted folder has no path to mention: the reference\'s refusal for it, or for a remote environment', async () => {
+  test('a dropped or pasted folder whose path the host cannot give: the reference\'s refusal for it, or for a remote environment', async () => {
     const { client, native } = await opened();
     memoryFiles({ 'doc:/1/src': 'folder', 'doc:/2/notes.txt': text('notes') });
     client.origin = 'https://devbox.example.com';

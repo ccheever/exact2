@@ -829,11 +829,10 @@ above.
 - A character typed right after a mention or a skill makes its source longer, and deleting the
   space after one makes it text again; the reference keeps the chip until its document is
   rebuilt (LLP 1045.000 §6).
-- A folder dropped on the chat column or pasted into the composer is not mentioned in the prompt. The
-  reference inserts its absolute path as an `@` mention (ChatComposer.tsx `addComposerFolders`); such a
-  folder reaches the clone as a `doc:` handle with no path (LLP 1069.010 D1), so the clone shows the
-  reference's own refusal for a folder whose path it cannot get: 'Couldn't get the path of "src"',
-  "Type the folder path with @ instead." Files dropped or pasted with it attach.
+- A folder dropped or pasted on the local server or a saved loopback one is referenced by the path
+  `storage.fs.realpath` gives its `doc:` handle (LLP 1069.010 D1, 2026-11-04), which Exact
+  canonicalizes when the folder is dropped: one under `/tmp` is `/private/tmp/…`, where the reference
+  keeps the spelling of the drag. Folders under the home directory are the same.
 - A whole-word `_text_` in the composer is drawn in italic, where the reference's composer keeps typed
   underscores literal: Exact's Markdown field paints CommonMark emphasis and has no option to leave `_`
   out (clone `issues/composer-editing-underscore-emphasis.md`). `node_modules` and an underscore in a

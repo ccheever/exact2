@@ -38,7 +38,8 @@ export const text = (value: string) => new TextEncoder().encode(value);
 
 const failure = (code: string) => Object.assign(new Error(code), { code });
 
-export function memoryFiles(entries: Record<string, Uint8Array | 'folder'> = {}) {
+/** `natives`: what `realpath` answers for a `doc:` path, as a desktop host does; any other path is refused. */
+export function memoryFiles(entries: Record<string, Uint8Array | 'folder'> = {}, natives: Record<string, string> = {}) {
   const store = new Map<string, Uint8Array>(), folders = new Set<string>(), compressed: Obj[] = [], removed: string[] = [];
   for (const [path, value] of Object.entries(entries)) if (value === 'folder') folders.add(path); else store.set(path, value);
   const read = (path: string) => { const bytes = store.get(path); if (!bytes) throw failure('ENOENT'); return bytes; };
@@ -53,6 +54,7 @@ export function memoryFiles(entries: Record<string, Uint8Array | 'folder'> = {})
       if (folders.has(path)) return { size: 0, isFile: false, isDirectory: true, modifiedMs: 0 };
       return { size: read(path).byteLength, isFile: true, isDirectory: false, modifiedMs: 0 };
     },
+    async realpath(path: string) { const native = natives[path]; if (!native) throw failure('failed'); return native; },
     async copyFile(from: string, to: string) { if (from.startsWith('doc:') && !to.startsWith('app:/')) throw failure('failed'); store.set(to, read(from)); },
     async compressImage(from: string, to: string, options: Obj) {
       compressed.push({ from, to, ...options });
