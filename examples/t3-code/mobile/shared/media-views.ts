@@ -1,5 +1,5 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/media-views.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Adapted body from examples/t3-code/media-views.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
 // media-actions: what each media surface hands the Contract `MediaActions` wrapper and its
 // failure states (T3 Code 1e2ecbd975, MIT; see LICENSE-T3):
 // - Files: FilePreviewPanel.tsx WorkspaceImagePreview (a `workspace-file` asset, "Unable to load
@@ -38,6 +38,20 @@ function stateOf(client: T3Client): MediaState {
 /** A video whose player reported `error` for this URL (MediaVideoPlayer failedSrc). */
 /** Whether a player or a picture reported an error for this URL (a `video` or `image` `error`, exact2 #121). */
 export const mediaFailed = (client: T3Client, url: string): boolean => !!url && stateOf(client).failed.has(url);
+
+// The workspace mutation each preview's image was last signed for. A disconnected client
+// records a null token so the next connected render signs again.
+const handledMutations = new WeakMap<T3Client, Map<string, string | null>>();
+function refreshDue(client: T3Client, id: string, mutationId: string | null): boolean {
+  let handled = handledMutations.get(client);
+  if (!handled) { handled = new Map(); handledMutations.set(client, handled); }
+  if (client.connection !== 'connected') { handled.set(id, null); return false; }
+  const token = JSON.stringify(mutationId), last = handled.get(id);
+  if (last === token) return false;
+  handled.set(id, token);
+  if (handled.size > 256) handled.delete(handled.keys().next().value!);
+  return last !== undefined || mintedOf(client).has(id);
+}
 
 // Signed URLs a surface minted (useAssetUrlState), re-minted after five minutes as the HTML page is.
 type Minted = { url: string; at: number; error: boolean; resource: Obj };
@@ -138,7 +152,8 @@ export function markdownMediaChips(text: string, root: string): { href: string; 
 }
 
 /** Signed URLs for the visible messages' host-path media (`media:<path>`; `media-failed:<path>` when refused). */
-export async function markdownMediaUrls(client: T3Client, native: Native, root: string, now: number): Promise<{ id: string; url: string }[]> {
+export async function markdownMediaUrls(client: T3Client, native: Native, root: string, now: number,
+  mutationId?: string | null): Promise<{ id: string; url: string }[]> {
   const out: { id: string; url: string }[] = [];
   if (!client.threadId) return out;
   const wanted = new Map<string, MarkdownMedia>();
@@ -151,7 +166,11 @@ export async function markdownMediaUrls(client: T3Client, native: Native, root: 
   }
   for (const [key, media] of [...wanted].slice(-32)) {
     const resource = { ...media.source!.asset!.resource, threadId: client.threadId };
-    const entry = await mint(client, native, `md:${client.environmentId}|${client.threadId}|${key}`, resource, now);
+    // A settled command or file change can rewrite the same path. Keep the key stable,
+    // and force a fresh signature only when the mutation token changes.
+    const id = `md:${client.environmentId}|${client.threadId}|${key}`;
+    const revisioned = mutationId !== undefined;
+    const entry = await mint(client, native, id, resource, now, revisioned && refreshDue(client, id, mutationId!));
     if (!entry) continue;
     out.push(entry.error ? { id: `media-failed:${key.slice('media:'.length)}`, url: '' } : { id: key, url: entry.url });
   }
