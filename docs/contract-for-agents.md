@@ -3282,15 +3282,19 @@ The card's charts take each frame and show the last 30 seconds: the frame rate's
 average over the last half second against the request, and each frame's frame time and
 work, the longest in each tenth of a second, against that frame's deadline. Within a run
 of frames the lines reach across tenths of a second without frames; an idle app, a pause
-and a reset leave gaps. The charts take the frames the app's clock already runs, start
-no timer or display link and store no file. The figures update every half second, and at
-once when the source stops, on the existing bounded publication pass in common run-loop
-modes, so touch tracking does not suspend them. The reader creates no display link and,
-except on an iOS card measuring the screen, no polling timer, reads nothing while the
-card is hidden, paused or detached, and keeps at most 60 half-second samples; the first
-read after a pause covers the paused span. During native scrolling the card stays on the
-app callback source; in development builds on iOS 18 and later the separate experimental
-scroll source reaches `perf frames` and the report.
+and a reset leave gaps. The charts start no display link and store no file. Measuring
+Exact's frames, they take the frames the app's clock already runs and move with the time
+on a tenth-of-a-second timer of their own, which stops once their newest mark has left
+them, and the figures update every half second, and at once when the source stops, on
+the existing bounded publication pass in common run-loop modes, so touch tracking does
+not suspend them. Measuring the screen, the charts take every UI update and glide on
+Core Animation, and the card reads on a half-second timer of its own in place of
+publications, which stops as it hides. The reader creates no display link, reads nothing
+while the card is hidden, paused or detached, and keeps at most 60 half-second samples;
+the first read after a pause covers the paused span. During native scrolling, a card
+measuring Exact's frames stays on the app callback source; in development builds on iOS
+18 and later the separate experimental scroll source reaches `perf frames` and the
+report.
 
 `perf frames health` exposes the metrics. `state.frameHealthUI` contains only the
 card's visibility and window-local bounds, marked as host controls outside app nodes.
@@ -3544,27 +3548,28 @@ offsets (35 minutes either way) and durations (71 minutes).
 | `main_landed_offset_us`, `apply_began_offset_us`, `apply_finished_offset_us` | Main arrival and outermost presenter-apply boundaries. Apply excludes legacy sampler bookkeeping |
 | `work_target_offset_us`, `operations` | Captured frame update's target and batch operation count; an apply without a frame target has no work target |
 
-A report whose `source` is `ui-update`, the card's measure of the screen's UI updates
-on iOS 18 and later, has no frame times and none of Exact's owner or apply boundaries,
-so its rows have only `sequence`, `capture`, `generation`, `age_us`, `flags`,
+A report whose `source` is `ui-update`, the card's measure of the screen's UI updates on
+iOS 18 and later, has no frame times and none of Exact's owner or apply boundaries, so
+its rows have only `sequence`, `capture`, `generation`, `age_us`, `flags`,
 `target_offset_us`, `callback_us`, `before_callback_us`, `after_offset_us`,
 `after_callback_us`, `waited_us`, `exact_us`, `card_us` and `layouts`. There
 `callback_us` is the update's work: the main thread's time from its scheduling until its
 last Core Animation commit, less `waited_us`, the time it waited between them, as UIKit
-lets it for input. The commit is as the card sees it, just after Core Animation's. The
-work is placed to end at the commit, so its effective start, the commit less the work,
-is when it began only where its waits all came first. `target_offset_us` is UIKit's
-completion deadline from that effective start, negative when the deadline came before
-it; work longer than it is late. `before_callback_us` is the previous update's work, and
-`after_offset_us` and `after_callback_us` the next update's effective start and its
-work. `exact_us` is the
-part of the work in Exact's host phases (applying batches, rows, text, scroll
-callbacks, pictures and waits on the runtime), `card_us` the card's own, its drawing
-included, and `layouts` how many nodes' views UIKit laid out; the rest is UIKit's, the
-system's and Core Animation's commit, and Exact's work outside its phases, such as
-laying out those views. Null is unmeasured.
-Updates that follow each other as one finishes are the main thread working without a
-pause; a single long one between short ones is one stall, such as a new screen.
+lets it for input. The commit is as the card sees it, in an action just after Core
+Animation's, behind any action ahead of its own in that phase, so a commit that ends
+just before the deadline can count as late; an update with no commit seen ends at its
+completion. The work is placed to end at the commit, so its effective start, the commit
+less the work, is when it began only where its waits all came first. `target_offset_us`
+is UIKit's completion deadline from that effective start, negative when the deadline
+came before it; work longer than it is late. `before_callback_us` is the previous
+update's work, and `after_offset_us` and `after_callback_us` the next update's effective
+start and its work. `exact_us` is the part of the work in Exact's host phases (applying
+batches, rows, text, scroll callbacks, pictures and waits on the runtime), `card_us` the
+card's own, its drawing included, and `layouts` how many nodes' views UIKit laid out;
+the rest is UIKit's, the system's and Core Animation's commit, and Exact's work outside
+its phases, such as laying out those views. Null is unmeasured. Updates that follow each
+other as one finishes are the main thread working without a pause; a single long one
+between short ones is one stall, such as a new screen.
 
 Offsets are relative to the event's origin; negative means before it. Null boundaries
 are unavailable, never zero-cost work. Callback events attach the largest apply since

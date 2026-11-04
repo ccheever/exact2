@@ -179,6 +179,8 @@ enum FrameHealthReaders {
         return true
     }
     static func release() { open -= 1 }
+    /// Whether a reader can take a place now
+    static var hasRoom: Bool { open < 4 }
 }
 
 extension FrameHealth {

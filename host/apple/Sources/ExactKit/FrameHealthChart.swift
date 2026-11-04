@@ -11,7 +11,8 @@ import QuartzCore
 /// seconds they are drawn at the present again. While the card
 /// follows the time, the layers move with it between frames too, until 30 seconds pass without one;
 /// measuring the screen, they glide, Core Animation moving them at the rate iOS chooses.
-/// Held, as the card pauses, the layers keep the picture they showed while frames still arrive.
+/// Held, as the card pauses, the layers keep the picture they showed, and the charts take no frames, so the paused span
+/// is a gap.
 /// Shared by iOS and macOS.
 final class FrameHealthChart {
     /// A tenth of a second of frames.
@@ -52,8 +53,8 @@ final class FrameHealthChart {
     private(set) var gliding = false
     /// Runs after each move between frames that changed the layers, a change of the card's own
     var moved: (() -> Void)?
-    /// While held, the picture the layers keep: its columns, the time its marks reach, and the time at its right edges
-    private var held: (columns: [Column], latest: Double, head: Double)?
+    /// Whether the layers keep the picture they showed as the card paused
+    private(set) var held = false
     /// This run's frame timestamps over the last half second, a ring of `count` from `first`, oldest
     /// first: the moving average's intervals lie between them
     private(set) var times: [Double] = []
@@ -114,7 +115,7 @@ final class FrameHealthChart {
         follow(false)
         for layer in lines { layer.removeAnimation(forKey: Self.glide) }
         gliding = false
-        (columns, times, first, count, newest, latest, head, shown, pending, plots, held) = ([], [], 0, 0, 0, 0, 0, 0, false, [:], nil)
+        (columns, times, first, count, newest, latest, head, shown, pending, plots, held) = ([], [], 0, 0, 0, 0, 0, 0, false, [:], false)
         (counting, drawnThrough) = (false, -1)
         for (window, layer) in zip(windows, lines) {
             window.isHidden = true
@@ -125,7 +126,7 @@ final class FrameHealthChart {
     /// A frame started at `start`; a frame whose work finished in its callback gives `finished`, and a frame of the
     /// screen's the `budget` long spells have. The frame hooks call it, so it only stores the frame.
     func frame(at start: Double, finished: Double? = nil, deadline: Double = 0, budget: Double = 0) {
-        guard !columns.isEmpty else { return }
+        guard !columns.isEmpty, !held else { return }
         guard start > newest else { endRun(); return }
         let index = Self.index(start), at = slot(index)
         let before = newest > 0 ? Self.index(newest) : index
@@ -159,7 +160,7 @@ final class FrameHealthChart {
 
     /// A frame's work finished, after its callback or within it.
     func work(start: Double, deadline: Double, finished: Double) {
-        guard !columns.isEmpty else { return }
+        guard !columns.isEmpty, !held else { return }
         let index = Self.index(start), at = slot(index)
         guard columns[at].index == index, Float((finished - start) * 1000) > columns[at].work else { return }
         columns[at].work = Float((finished - start) * 1000)
@@ -171,7 +172,7 @@ final class FrameHealthChart {
     /// (LLP 1079.000 §7.4). Its frame rate is the frames of the last half second, since frames of the screen bound no
     /// frame time; its line reaches back to a column whose frames lie within that half second.
     func screenFrame(at time: Double, work: Double, budget: Double) {
-        guard !columns.isEmpty, time > newest else { return }
+        guard !columns.isEmpty, !held, time > newest else { return }
         counting = true
         let index = Self.index(time), at = slot(index)
         let before = newest > 0 ? Self.index(newest) : index
@@ -192,7 +193,7 @@ final class FrameHealthChart {
     /// A spell of the main thread's work longer than one refresh at the display's highest rate, `budget`, which delays
     /// a frame at that rate: the work of the column it ended in.
     func busy(start: Double, end: Double, budget: Double) {
-        guard !columns.isEmpty, end > start else { return }
+        guard !columns.isEmpty, !held, end > start else { return }
         let index = Self.index(end), at = slot(index), length = Float((end - start) * 1000)
         // A column with no frame yet joins none, so no frame's line reaches into it
         if columns[at].index != index { columns[at] = Column(index: index) }
@@ -212,7 +213,6 @@ final class FrameHealthChart {
         endRun()
         for i in columns.indices { columns[i] = Column() }
         (newest, latest, head, pending) = (0, 0, 0, true)
-        if held != nil { held = (columns, 0, 0) }
         redraw()
     }
 
@@ -269,7 +269,7 @@ final class FrameHealthChart {
     /// layers at the present before their reach runs out, and stops them once the newest mark has left the plots, flat.
     /// Returns whether it changed the layers.
     private func glide(at now: Double) -> Bool {
-        guard latest > 0, !plots.isEmpty, held == nil else { return false }
+        guard latest > 0, !plots.isEmpty, !held else { return false }
         guard now - latest < Self.span else { return freeze() }
         if counting, now - latest >= Self.columnSeconds { recount(at: now) }
         return present(flush: true)
@@ -278,7 +278,7 @@ final class FrameHealthChart {
     /// Glide from the present to the end of the layers' reach, linearly in time.
     private func startGliding() {
         let now = CACurrentMediaTime(), end = base + Self.reach
-        guard glides, held == nil, latest > 0, end > now else { return }
+        guard glides, !held, latest > 0, end > now else { return }
         for (chart, plot) in plots {
             let layer = lines[chart], width = (plot.right - plot.left) * scale
             let x = { (t: Double) in -CGFloat((t - self.base) / Self.span) * width }
@@ -306,24 +306,23 @@ final class FrameHealthChart {
 
     private static let glide = "glide"
 
-    /// Hold the picture, as the card pauses, or show the present again from `now`, as it resumes. Frames and spells
-    /// still arrive while it is held.
+    /// Hold the picture, as the card pauses, or show the present again from `now`, as it resumes. Held, the charts take
+    /// no frames or spells, and the next frame after begins a new run.
     func hold(_ on: Bool, at now: Double) {
-        guard on != (held != nil) else { return }
+        guard on != held else { return }
         if on {
             freeze()
-            held = (columns, latest, head)
+            held = true
+            endRun()
             follow(false)
         } else {
-            held = nil
+            held = false
             head = max(head, now)
             pending = false
             redraw()
         }
     }
 
-    /// What the layers show: the held picture while held, and otherwise the present.
-    var picture: (columns: [Column], latest: Double) { held.map { ($0.columns, $0.latest) } ?? (columns, latest) }
 
     private static func index(_ time: Double) -> Int64 { Int64((time / columnSeconds).rounded(.down)) }
 
@@ -341,7 +340,7 @@ final class FrameHealthChart {
     /// frame hooks, and as the plots follow the time. Returns whether it changed the layers.
     @discardableResult
     func present(flush: Bool = false) -> Bool {
-        guard held == nil, !plots.isEmpty else { return false }
+        guard !held, !plots.isEmpty else { return false }
         if glides { return presentGliding(flush: flush) }
         let draw = pending && (flush || Self.index(latest) > drawnThrough)
         guard draw || head != shown else { return false }
@@ -401,8 +400,8 @@ final class FrameHealthChart {
     /// Draw the layers whole, the plots' right edges at `head`.
     private func redraw() {
         // Gliding, the layers are drawn at the present, from which they glide on
-        if glides, held == nil { head = max(head, CACurrentMediaTime()) }
-        (base, shown, pending, drawnThrough) = (held?.head ?? head, head, false, Self.index(latest))
+        if glides, !held { head = max(head, CACurrentMediaTime()) }
+        (base, shown, pending, drawnThrough) = (head, head, false, Self.index(latest))
         for (chart, _) in plots {
             lines[chart].removeAnimation(forKey: Self.glide)
             lines[chart].position.x = 0
@@ -433,8 +432,7 @@ final class FrameHealthChart {
         if ctx.ctm.d > 0 { ctx.translateBy(x: 0, y: lines[chart].bounds.height); ctx.scaleBy(x: 1, y: -1) }
         ctx.scaleBy(x: scale, y: scale)
         ctx.translateBy(x: -plot.left, y: -(plot.top - 8))
-        let picture = picture
-        FrameHealthCardDrawing.plotLines(ctx, chart: chart, plot: plot, columns: picture.columns, latest: picture.latest,
+        FrameHealthCardDrawing.plotLines(ctx, chart: chart, plot: plot, columns: columns, latest: latest,
             palette: palette, margin: margin(plot))
     }
 }

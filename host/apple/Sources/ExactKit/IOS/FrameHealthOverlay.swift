@@ -18,6 +18,8 @@ final class FrameHealthOverlay: UIView {
     private let measuresScreen: Bool
     /// The session whose app the card measures, whose workload the screen's frames record
     private weak var session: ExactSession?
+    /// Whether the card shows Exact's frames for want of a second reader's place, until one is free
+    private var waitingForPlace = false
     /// The corner the card rests in, and its spring there after a drag
     private var corner = FrameHealthCardFace.Corner()
     private var snap: UIViewPropertyAnimator?
@@ -150,6 +152,8 @@ final class FrameHealthOverlay: UIView {
             if reader.reading { stopReading() }
             return
         }
+        // A second reader's place came free: the card measures the screen, from a fresh baseline
+        if waitingForPlace, !paused, FrameHealthReaders.hasRoom { stopReading() }
         if !reader.reading {
             guard reader.start() else { render(); return }
             startReading(now)
@@ -175,10 +179,9 @@ final class FrameHealthOverlay: UIView {
             let drawing = { [weak screen] (draw: () -> Void) in if let screen { screen.card(draw) } else { draw() } }
             (card.drawing, card.chart.drawing) = (drawing, drawing)
             screen.start(scene)
-            if screen.running, screenReader.start() {
-                // Its recent late frames are what Share's report gives
-                screen.health.setHUDVisible(true)
-            } else { screen.stop() }
+            waitingForPlace = screen.running && !screenReader.start()
+            // Its recent late frames are what Share's report gives
+            if screen.running, !waitingForPlace { screen.health.setHUDVisible(true) } else { screen.stop() }
         }
         // Beside the screen's, Exact's frames give only Details, over 5 seconds
         reader.keep(observing ? 5 : 30)
@@ -231,11 +234,10 @@ final class FrameHealthOverlay: UIView {
         health?.chart = nil
         card.clear()
         card.chart.stop()
-        (paused, frozen, needsShow) = (false, nil, false)
+        (paused, frozen, needsShow, waitingForPlace) = (false, nil, false, false)
     }
 
-    /// Whether the face shows the screen's frames
-    /// Whether the card measures the screen now
+    /// Whether the card measures the screen now, its face showing the screen's frames
     var observing: Bool { screen?.running == true }
 
     /// The screen's frames since the card started reading
@@ -388,7 +390,7 @@ final class FrameHealthOverlay: UIView {
         switch kind {
         case .report:
             // The report is of what the face shows: the screen's frames, with their recent late frames, where it measures them
-            FrameHealthReport.prepare(health: observing ? screen?.health ?? health.reportSource : health.reportSource, session: DevMenu.session) {
+            FrameHealthReport.prepare(health: observing ? screen?.health ?? health.reportSource : health.reportSource, session: session) {
                 present(String(decoding: $0, as: UTF8.self))
             }
         case .summary:

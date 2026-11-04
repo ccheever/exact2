@@ -5,6 +5,14 @@ import XCTest
 import ExactCore
 @testable import ExactKit
 
+/// Runs `change` at each display link callback, counting them.
+private final class Ticker: NSObject {
+    private let change: () -> Void
+    private(set) var ticks = 0
+    init(_ change: @escaping () -> Void) { self.change = change }
+    @objc func tick() { ticks += 1; change() }
+}
+
 final class FrameHealthIOSTests: XCTestCase {
     /// A window for an overlay: the card reads only while it can be seen.
     private func hosted(_ overlay: FrameHealthOverlay, in scene: UIWindowScene, size: CGSize) -> UIWindow {
@@ -308,11 +316,11 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertEqual(overlay.card.state.status, .live)
         XCTAssertEqual(overlay.card.state.rows[0].1, "120")
         XCTAssertEqual(overlay.card.state.pacing.0, "Uneven", "the hitch is in the last 5 seconds")
-        // A pause keeps the figures, and the card reads nothing until it resumes, while the collector and charts take
-        // each frame
+        // A pause keeps the figures and the charts' picture, and the card reads nothing until it resumes, while the
+        // collector takes each frame
         overlay.card.activate?(.status)
         XCTAssertEqual(overlay.card.state.status, .paused)
-        XCTAssertTrue(health.chart === overlay.card.chart, "the charts still take each frame")
+        XCTAssertTrue(overlay.card.chart.held)
         health.record(arrival: time, target: time + 0.1, period: 0.1, finished: time + 0.001)
         overlay.refresh(now: start + 6)
         XCTAssertEqual(overlay.card.state.rows[0].1, "120")
@@ -389,6 +397,30 @@ final class FrameHealthIOSTests: XCTestCase {
             RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         }
         XCTAssertEqual(overlay.screenFrames, 6)
+        // Under the app's sustained updates, the card's reads and Details' changing rows go out with them, adding none
+        func sustained() -> (ticks: Int, frames: Int) {
+            let ticker = Ticker {
+                dot.position.x += 1
+                let t = CACurrentMediaTime()
+                health.record(arrival: t, target: t + 1 / 60, period: 1 / 60, finished: t + 0.001)
+            }
+            let link = CADisplayLink(target: ticker, selector: #selector(Ticker.tick)), before = overlay.screenFrames
+            link.add(to: .main, forMode: .common)
+            RunLoop.main.run(until: Date().addingTimeInterval(1.5))
+            link.invalidate()
+            // The frames while the link ran: after it stops, UIKit can run a few updates of its own
+            let frames = Int(overlay.screenFrames - before)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            return (ticker.ticks, frames)
+        }
+        let closed = sustained()
+        XCTAssertGreaterThan(closed.ticks, 10)
+        XCTAssertEqual(closed.frames, closed.ticks, "one frame for each display link callback's change")
+        overlay.card.activate?(.details)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let open = sustained()
+        XCTAssertEqual(open.frames, open.ticks, "Details open, its rows changing with each read")
+        overlay.card.activate?(.details)
         // The charts glide with the time, Core Animation moving them; a pause stops them, and resuming starts them again
         XCTAssertTrue(overlay.card.chart.gliding)
         overlay.card.activate?(.status)
@@ -405,8 +437,8 @@ final class FrameHealthIOSTests: XCTestCase {
         overlay.setVisible(false)
     }
 
-    /// A card measuring the screen holds two readers' places; with one free, it shows Exact's frames
-    func testACardWithOnePlaceFreeShowsExactsFrames() throws {
+    /// A card measuring the screen holds two readers' places; with one free, it shows Exact's frames until a second is
+    func testACardWithOnePlaceFreeShowsExactsFramesUntilASecondIs() throws {
         guard #available(iOS 18.0, *) else { throw XCTSkip("UIUpdateLink is available from iOS 18") }
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
             throw missing("scene", "a real host window for the frame-health card")
@@ -421,10 +453,9 @@ final class FrameHealthIOSTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         overlay.setVisible(true)
         XCTAssertFalse(overlay.observing, "one place is free")
-        overlay.setVisible(false)
         others[0].stop()
-        overlay.setVisible(true)
-        XCTAssertTrue(overlay.observing, "with two places free")
+        overlay.refresh()
+        XCTAssertTrue(overlay.observing, "with two places free, at its next read")
         XCTAssertFalse(FrameHealthCardReader().start(), "which it holds, with the two others")
         overlay.setVisible(false)
     }
@@ -542,6 +573,34 @@ final class FrameHealthIOSTests: XCTestCase {
         let card = samples(face) + samples(clock) + 2 * previous + charts + splits + objects
         XCTAssertLessThan(card, 60 * 1024, "face \(samples(face)), clock \(samples(clock)), charts \(charts), splits \(splits)")
         XCTAssertLessThan(card, 2 * 51 * 1024, "within the two places it holds, each a card's of Exact's frames")
+    }
+
+    /// A frame's work, and its split, end at its last commit: Exact's host phases after it are none of its work
+    func testAFramesSplitEndsAtItsCommit() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("UIUpdateLink is available from iOS 18") }
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window for the screen's frames")
+        }
+        let screen = startedScreen(in: scene)
+        defer { screen.stop() }
+        screen.health.setHUDVisible(true)
+        defer { screen.health.setHUDVisible(false) }
+        // Times are given, the host phases' clock too
+        let t = CACurrentMediaTime(), phases = HostPhases.shared, clock = phases.clock
+        var now = t
+        phases.clock = { now }
+        defer { phases.clock = clock }
+        screen.scheduled(presented: t + 0.05, deadline: t + 0.001, now: t)
+        phases.measure(.apply) { now = t + 0.002 }
+        screen.committed(at: t + 0.002)
+        phases.measure(.apply) { now = t + 0.012 }
+        screen.completed(presented: t + 0.05, now: t + 0.012)
+        let report = FrameHealthReport.snapshot(health: screen.health, session: nil, now: t + 0.013)
+        let columns = try XCTUnwrap(report["columns"] as? [String])
+        let row = try XCTUnwrap((report["hitches"] as? [[Any]])?.last)
+        let value = { (name: String) in row[columns.firstIndex(of: name)!] }
+        XCTAssertEqual(Int(value("callback_us") as? UInt32 ?? 0), 2_000, "the work ends at the commit")
+        XCTAssertEqual(value("exact_us") as? Int, 2_000, "and the 10 ms after it are none of its host phases")
     }
 
     /// A screen observer started on `scene`, after a window's first frames there.

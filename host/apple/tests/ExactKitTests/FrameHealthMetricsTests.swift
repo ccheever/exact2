@@ -270,20 +270,23 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertEqual(chart.latest, 140.27)
         chart.tick(at: 140.3)
         XCTAssertEqual(chart.head, 140.27, "not within a column of the spell, which moved them")
-        // Held, the layers keep their picture while frames arrive; let go, they show the present
+        // Held, the layers keep their picture and the charts take no frames, so the paused span is a gap; let go, they
+        // show the present
         chart.present()
         let shown = lines[0].position.x
         chart.hold(true, at: 140.4)
         XCTAssertNil(chart.clock, "a held picture does not follow the time")
         chart.frame(at: 141)
+        chart.busy(start: 141.1, end: 141.2, budget: 1 / 120)
         chart.present()
         XCTAssertEqual(lines[0].position.x, shown)
-        XCTAssertEqual(chart.picture.latest, 140.27, "the picture is the moment it was held")
-        XCTAssertEqual(chart.latest, 141, "frames still arrive")
+        XCTAssertEqual(chart.latest, 140.27, "the picture is the moment it was held")
+        XCTAssertFalse(chart.columns.contains { $0.index >= 1410 })
         chart.hold(false, at: 150)
-        XCTAssertEqual(chart.head, 150, "the present, past what arrived while it was held")
-        XCTAssertEqual(chart.picture.latest, 141)
+        XCTAssertEqual(chart.head, 150, "the present, past the pause")
         XCTAssertEqual(lines[0].position.x, 0, "drawn whole at the present")
+        chart.frame(at: 150.15)
+        XCTAssertEqual(chart.columns.first { $0.index == 1501 }?.joined, false, "the next frame begins a new run")
         chart.follow(false)
         XCTAssertNil(chart.clock)
         // A dotted line's dashes keep their place in time as the plot moves on

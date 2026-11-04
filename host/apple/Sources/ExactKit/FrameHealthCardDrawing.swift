@@ -388,7 +388,7 @@ enum FrameHealthCardDrawing {
         y += 12
         let chartWidth = size.width - 2 * margin
         charts(ctx, CGRect(x: margin, y: y, width: chartWidth, height: 200), input, expanded: nil, palette: palette,
-            lines: chart.picture)
+            lines: (chart.columns, chart.latest))
         y += 80 + 16 + 104 + 16
         for (index, row) in table.enumerated() {
             y += lineHeight

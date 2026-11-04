@@ -47,9 +47,11 @@ final class FrameHealthScreen {
         let flags: UInt64
         /// As it began, the nodes' layouts and the seconds of Exact's host phases (`HostPhases.total`)
         let layouts: Int, phases: Double
-        /// Seconds: when its last transaction was committed, and how long the main thread waited and the card worked
-        /// within it
-        var committed = 0.0, waited = 0.0, card = 0.0
+        /// Seconds: how long the main thread waited and the card worked within it
+        var waited = 0.0, card = 0.0
+        /// At its last Core Animation commit, as seen just after it, where its work ends: the time, and the host phases'
+        /// seconds, the nodes' layouts and the card's seconds then
+        var committed: (at: Double, phases: Double, layouts: Int, card: Double)?
     }
     private var update: Update?
     /// When the main thread began waiting, zero while it works
@@ -84,7 +86,7 @@ final class FrameHealthScreen {
         }
         link.addAction(to: .afterCADisplayLinkDispatch) { [weak self] _, _ in self?.willDraw?() }
         for phase in [UIUpdateActionPhase.afterCATransactionCommit, .afterLowLatencyCATransactionCommit] {
-            link.addAction(to: phase) { [weak self] _, _ in self?.update?.committed = CACurrentMediaTime() }
+            link.addAction(to: phase) { [weak self] _, _ in self?.committed(at: CACurrentMediaTime()) }
         }
         link.addAction(to: .afterUpdateComplete) { [weak self] _, info in self?.completed(presented: info.estimatedPresentationTime) }
         link.isEnabled = true
@@ -147,19 +149,28 @@ final class FrameHealthScreen {
             layouts: phases.counted(.nodeLayouts), phases: phases.total)
     }
 
+    /// The update's Core Animation transaction was committed, as seen at `now`, just after.
+    func committed(at now: Double = CACurrentMediaTime()) {
+        guard let card = update?.card else { return }
+        let phases = HostPhases.shared
+        update?.committed = (now, phases.total, phases.counted(.nodeLayouts), card)
+    }
+
     /// The update completed at `now`, and UIKit expects it on screen at `presented`.
     func completed(presented: Double, now: Double = CACurrentMediaTime()) {
         guard let update else { return }
         self.update = nil
-        let finished = update.committed > 0 ? update.committed : now
+        let phases = HostPhases.shared
+        // Its work ends at its last commit, or with none seen, at its completion
+        let end = update.committed ?? (now, phases.total, phases.counted(.nodeLayouts), update.card)
+        let finished = end.at
         // Its work is the main thread's time in it, less its waits, taken to begin that much after the update was
         // scheduled and to end at the commit
         let start = min(finished, update.start + update.waited)
         // Its work split, for a late frame the capture keeps
         if health.captureID != 0, finished > update.deadline {
-            let phases = HostPhases.shared
-            health.split(at: start, waited: update.waited, exact: phases.on ? phases.total - update.phases : nil,
-                card: update.card, layouts: phases.on ? phases.counted(.nodeLayouts) - update.layouts : nil)
+            health.split(at: start, waited: update.waited, exact: phases.on ? end.phases - update.phases : nil,
+                card: end.card, layouts: phases.on ? end.layouts - update.layouts : nil)
         }
         health.record(arrival: start, target: update.deadline, period: 0, finished: finished,
             flags: health.captureID == 0 ? 0 : health.environmentFlags | update.flags)
