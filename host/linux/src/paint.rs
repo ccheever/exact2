@@ -1283,7 +1283,7 @@ impl Painter {
                 || self.alert.is_some() && node.props.str(PropId::AlertPart) == Some("message"))
             && node.props.str(PropId::Href).is_none()
             && walk.scene.focus == Some(node.id)
-            && self.ringless != Some(node.id)
+            && !self.unringed(node)
             && node.props.bool(PropId::Disabled) != Some(true)
         {
             let accent = control::ring(node, self.dark);

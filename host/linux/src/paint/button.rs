@@ -919,7 +919,7 @@ impl Painter {
             );
         }
         self.backend.pop_clip();
-        if focused && !disabled {
+        if focused && !disabled && !super::control::ringless(node) {
             self.field_ring(&shape, accent, ts);
         }
     }
