@@ -90,7 +90,12 @@ function threadRows(client: T3Client, now: number, dark = false, routeKey = '', 
       || legacyAutomationPrefix.test(str(item.text)) && (legacyAutomationMessageId.test(str(item.messageId)) || item.createdBy === 'agent'));
     const agent = user && item?.type === 'user_message' && !automation && item.createdBy === 'agent';
     // Shared desktop renders '(empty response)'; mobile deliberately skips blank assistant rows.
-    const body = fork ? '' : message.kind === 'assistant' && item ? str(item.text) : message.body;
+    // The shared timeline keeps lifecycle events on its immutable desktop shape.
+    // Mobile gives handoffs their divider row and keeps the endpoint summary in
+    // the row body so Contract can expose the same compact context transition.
+    const handoff = message.kind === 'event' && message.title === 'Context handoff';
+    const rowKind = handoff ? 'handoff' : message.kind;
+    const body = fork ? '' : handoff ? str(message.detail) : message.kind === 'assistant' && item ? str(item.text) : message.body;
     const media = arr(item?.attachments).filter(attachment => str(attachment.id)).map(attachment => ({ id: str(attachment.id), name: str(attachment.name),
       kind: attachment.type === 'image' ? 'image' : /^video\//.test(str(attachment.mimeType)) ? 'video' : 'file',
       url: cachedAttachmentUrl(client, str(attachment.id)) ?? '' }));
@@ -99,7 +104,7 @@ function threadRows(client: T3Client, now: number, dark = false, routeKey = '', 
       : ['group', 'live', 'thinking'].includes(message.kind) && message.groupId ? 'chatlocal:group' : '';
     const showMeta = user || ['assistant', 'plan'].includes(message.kind) && message.meta !== false && message.completed === true && message.streaming !== true;
     const title = fork ? '' : message.kind === 'working' && message.startedMs ? `${message.title} ${elapsed(now - message.startedMs)}` : message.title;
-    rows.push({ id: message.id, kind: message.kind, title, body, blocks: markdown?.blocks(`message:${message.id}`, body) ?? [], user,
+    rows.push({ id: message.id, kind: rowKind, title, body, blocks: markdown?.blocks(`message:${message.id}`, body) ?? [], user,
       timestamp: mobileMessageTime(user ? item?.startedAt ?? message.createdAt : item?.updatedAt ?? message.createdAt), showMeta,
       streaming: message.streaming === true, attribution: automation ? 'Sent by automation' : agent ? 'Sent by another agent' : '', senderThreadId: agent ? message.targetId ?? '' : '',
       intent: intent?.label ?? '', intentDescription: intent?.description ?? '', intentTone: intent?.tone ?? '', copyConfiguration: item && ['user', 'assistant', 'plan'].includes(message.kind) ? JSON.stringify({ id: message.id,
@@ -107,7 +112,7 @@ function threadRows(client: T3Client, now: number, dark = false, routeKey = '', 
           thread: client.threadId, epoch: client.threadEpoch, route: routeKey,
           sourceThread: str(projectedItem?.row.sourceThreadId), sourceItem: str(projectedItem?.row.sourceItemId) },
         text: item.type === 'proposed_plan' ? str(item.markdown) : ['user_message', 'assistant_message'].includes(str(item.type)) ? str(item.text) : '' }) : '',
-      expanded: message.expanded === true, toggleOp, toggleId: message.groupId ?? message.runId ?? '', failed: message.failed === true,
+      expanded: message.expanded === true, toggleOp, toggleId: message.groupId ?? message.runId ?? '', failed: message.failed === true || handoff && message.tone === 'danger',
       live: message.live === true, htmlRender: message.kind === 'html-render' && html
         ? mobileHtmlRenderSnapshot(client, html.context, message.htmlRenderKey ?? '', true, html.width, html.theme, html.iconColor) : emptyHtmlRender, media, first: false, last: false, ...mobileThreadForkPresentation(client, message.id),
       activities: fork ? [mobileForkLifecycleActivity(fork, client, now, dark, routeKey)] : (['group', 'live'].includes(message.kind) ? [] : message.activities ?? []).map(activity => {
