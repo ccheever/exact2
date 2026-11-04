@@ -843,11 +843,6 @@ above.
 - A dropped or pasted file's MIME type comes from its extension, by the names macOS gives
   (`composer-attach-stage.ts`), where Chromium's `File.type` reads its own table first; a
   picked file's is the picker's.
-- A reply link that takes the focus by Tab is one stop and shows its URL above it, as the reference's does, but
-  AppKit's ring surrounds only the link's first node: its icon and first word ("the" of "the plan"). The reference
-  rings the icon and every word with Chromium's ring. A paragraph that holds an icon or a code chip is laid out word by
-  word (`FlowRuns`), and Exact admits `outline="none"` on text fields only (LLP 1104 D6), so the clone can neither take
-  AppKit's ring off nor draw one across the words. Admitting it on any focusable element waits on a ruling.
 - With the focus in a server tab's page on this Mac (a press on its stream), ⌘=, ⌘- and ⌘0 zoom the window; the
   reference draws those tabs natively and zooms nothing. After the press the focus is on the right panel's region, not
   on the stream's key field (`server-browser.contract`), so the chord reaches View ▸ Zoom In. A desktop tab's page,

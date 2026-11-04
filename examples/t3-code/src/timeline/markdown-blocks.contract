@@ -73,3 +73,17 @@ shape ChatBlock
   findParts: FindPart[]
   // A code block's find part each line starts in, then its last part (markdown_find.rs find_lines); none for one part.
   findLines: number[]
+
+// The reference's focus ring on a link (Chromium's `outline: auto 1px` in `--ring` at 50%, `outline-offset: -2px`): 2px
+// wide with a 4px outer radius, 1px inside the `<a>`'s inline box, which is 16.5px tall and 3px below the top of its
+// 22.75px line. A link laid out word by word (FlowRuns) draws it in parts, one per run: each run its top and bottom
+// edges, the first its start, the last its end.
+component LinkRing
+  props
+    first: bool
+    last: bool
+  view
+    box position="absolute" top="0.25rem" left=(first ? "1px" : "0px") right=(last ? "1px" : "0px") height="0.90625rem" box-sizing="border-box" border-style="solid" border-color="light-dark(#1b4ed880, #346bf180)" border-top-width=2 border-bottom-width=2 border-left-width=(first ? 2 : 0) border-right-width=(last ? 2 : 0) border-top-left-radius=(first ? "4px" : "0px") border-bottom-left-radius=(first ? "4px" : "0px") border-top-right-radius=(last ? "4px" : "0px") border-bottom-right-radius=(last ? "4px" : "0px") pointer-events="none"
+
+// Whether the run at `index` is its link's last word or code span (LinkRing): the next run is not the link's.
+fn ringEnd(runs: ChatRun[], index: number, href: string): bool = runs.slice(index + 1, index + 2).filter((next) => next.kind == "link" and next.href == href).length == 0

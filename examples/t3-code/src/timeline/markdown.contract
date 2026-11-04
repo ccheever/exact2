@@ -23,7 +23,7 @@ use EditorMenuIcon from "../composer/composer-editor.contract" // a pull request
 use SkillChip from "./skill-chip.contract"
 use TaskCheckbox, DiagramToggle, lineJustify from "./markdown-controls.contract"
 use ChipInk, noChipInks, inkOf, inkIn, contextRun, runAccent, chipAccent, chipIcon, chipFamily, docKind from "./markdown-chip-inks.contract"
-use ChatRun, ChatCell, ChatTableRow, ChatColumn, ChatBlock from "./markdown-blocks.contract"
+use ChatRun, ChatCell, ChatTableRow, ChatColumn, ChatBlock, LinkRing, ringEnd from "./markdown-blocks.contract"
 shape ChatDocument
   id: string
   blocks: ChatBlock[]
@@ -597,6 +597,8 @@ component FlowRuns
     me: number
     // The block's `text-align` (ChatBlock `align`), "" for the start.
     align: string
+  // The run that starts the link a keyboard focused, whose runs draw its ring (LinkRing), else -1.
+  state ring = -1
   // A fragment's press is its heading's (fragmentJump), except an ⌥-click alone, which saves the page as Chromium's
   // download does (browser-links.ts openFragmentLink); any other link's follows linkOpen.
   action open(href: string, e: MouseEvent)
@@ -608,6 +610,7 @@ component FlowRuns
   // the union of its first and last runs' boxes, as the `<a>`'s getBoundingClientRect is: an inline box of 14px text,
   // 16.5px tall and 3px below the top of its 22.75px line.
   action linkTip(index: number, href: string, on: bool)
+    ringAt(index, on)
     if keyboardLast or not on
       // A link that ends in an image ends in the image's own node, which has no link id: its first run places it then.
       let first = frame(linkNode(scope, blockId, runs, index))
@@ -616,6 +619,9 @@ component FlowRuns
       let right = last.width > 0 ? max(first.x + first.width, last.x + last.width) : first.x + first.width
       let bottom = last.width > 0 ? max(first.y + first.height, last.y + last.height) : first.y + first.height
       hoverTipAt(HoverTip(key=linkNode(scope, blockId, runs, index), kind="tip", text=href, lines=[], side="top", align="center", x=first.x, y=top + 3, width=right - first.x, height=bottom - top - 6.25, estimate=1.65625 * rem, wide=0, testId="markdown-link-tooltip"), "trigger", on)
+  // A link's ring shows for a keyboard's focus, as Chromium's `:focus-visible` does, and goes with the focus.
+  action ringAt(index: number, on: bool)
+    ring = on and keyboardLast ? index : -1
   // ChatMarkdown's selectInlineCode: word selection stops at hyphens and dots, so a double-click takes the whole code
   // span. The double-click is the span's alone, so in an answer it also starts Cite's wait, as AnswerMarkdown's would.
   action selectCode(id: string, length: number)
@@ -635,21 +641,29 @@ component FlowRuns
         // (`.chat-markdown code` inside the `<a>`, after the favicon).
         // Each link is one Tab stop, its first run, as Chromium tabs to every `<a>` whatever the Keyboard Navigation setting.
         if run.kind == "link-start" and linkRun(run, chips) and webLink(run.href)
-          link id=linkNode(scope, blockId, runs, index) href=run.href press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" focus=linkTip(index, run.href, true) blur=linkTip(index, run.href, false) tabindex=0 aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start" title=""
+          link id=linkNode(scope, blockId, runs, index) href=run.href press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" focus=linkTip(index, run.href, true) blur=linkTip(index, run.href, false) tabindex=0 aria-label=run.label cursor="pointer" text-decoration-line="none" outline="none" position="relative" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start" title=""
             box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
               LinkFavicon(icon=run.icon, color="light-dark(#1447e6, #50a2ff)")
             LinkRunWords(run=run, size=size, weight=weight, top="0.153125rem")
+            if ring == index
+              LinkRing(first=true, last=ringEnd(runs, index, run.href))
         if run.kind == "link-start" and linkRun(run, chips) and not webLink(run.href)
-          link href=run.href press=open(run.href) tabindex=0 aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start" title=""
+          link href=run.href press=open(run.href) focus=ringAt(index, true) blur=ringAt(index, false) tabindex=0 aria-label=run.label cursor="pointer" text-decoration-line="none" outline="none" position="relative" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start" title=""
             LinkRunWords(run=run, size=size, weight=weight, top="0.153125rem")
+            if ring == index
+              LinkRing(first=true, last=ringEnd(runs, index, run.href))
         // A web or fragment link's later word or code span: its press and menu are the link's, and it is no Tab stop (the
         // `<a>` is one stop, its link node above).
         if run.kind == "link" and linkRun(run, chips) and webLink(run.href)
-          box id=linkNode(scope, blockId, runs, index) press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" tabindex=-1 aria-hidden=(run.label != "") cursor="pointer" height="1.421875rem" padding-top=(run.mono ? "0.153125rem" : "0px") box-sizing="border-box" flex-shrink=0
+          box id=linkNode(scope, blockId, runs, index) press=open(run.href) contextmenu=linkMenu(run.href) contextPopover="chat-link-menu" tabindex=-1 aria-hidden=(run.label != "") cursor="pointer" position="relative" height="1.421875rem" padding-top=(run.mono ? "0.153125rem" : "0px") box-sizing="border-box" flex-shrink=0
             LinkRunWords(run=run, size=size, weight=weight, top="0px")
+            if ring >= 0 and index > ring and index <= linkLast(runs, ring, run.href)
+              LinkRing(first=false, last=ringEnd(runs, index, run.href))
         if run.kind == "link" and linkRun(run, chips) and pressLink(run.href) and not webLink(run.href)
-          box press=open(run.href) tabindex=-1 aria-hidden=(run.label != "") cursor="pointer" height="1.421875rem" padding-top=(run.mono ? "0.153125rem" : "0px") box-sizing="border-box" flex-shrink=0
+          box press=open(run.href) tabindex=-1 aria-hidden=(run.label != "") cursor="pointer" position="relative" height="1.421875rem" padding-top=(run.mono ? "0.153125rem" : "0px") box-sizing="border-box" flex-shrink=0
             LinkRunWords(run=run, size=size, weight=weight, top="0px")
+            if ring >= 0 and index > ring and index <= linkLast(runs, ring, run.href)
+              LinkRing(first=false, last=ringEnd(runs, index, run.href))
         // Any other code span (one in a pull request link too); a mailto, irc or xmpp link's later one is hidden as its
         // words are, and shows the link's pointer (the `<a>`'s `cursor: pointer` covers all of it).
         if run.mono and not inlineFile(run, chips) and not (linkRun(run, chips) and (run.kind == "link-start" or pressLink(run.href)))

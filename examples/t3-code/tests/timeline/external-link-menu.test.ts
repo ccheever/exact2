@@ -148,7 +148,7 @@ describe('the Markdown link nodes', () => {
   const flow = contractComponent('src/timeline/markdown.contract', 'FlowRuns'), fns = contractFns('src/timeline/markdown.contract');
   const run = (kind: string, href: string) => ({ id: 'r1', kind, href, mono: false, label: 'docs', text: 'docs', link: '', findParts: [] });
   const drawn = (marker: string, kind: string, href: string) => flow.drawn(marker, {}, { ...fns, run: run(kind, href), chips: [] });
-  const webStart = 'contextPopover="chat-link-menu" focus=linkTip(index, run.href, true) blur=linkTip(index, run.href, false) tabindex=0 aria-label=run.label', plainStart = 'link href=run.href press=open(run.href) tabindex=0 aria-label=run.label';
+  const webStart = 'contextPopover="chat-link-menu" focus=linkTip(index, run.href, true) blur=linkTip(index, run.href, false) tabindex=0 aria-label=run.label', plainStart = 'link href=run.href press=open(run.href) focus=ringAt(index, true) blur=ringAt(index, false) tabindex=0 aria-label=run.label';
   const webWord = 'contextPopover="chat-link-menu" tabindex=-1', fragmentWord = 'box press=open(run.href) tabindex=-1';
   test('a web link has the menu on its first and later words; a mailto link and a fragment leave it to the shell', () => {
     expect([drawn(webStart, 'link-start', 'https://example.com'), drawn(plainStart, 'link-start', 'https://example.com')]).toEqual([true, false]);
@@ -156,6 +156,39 @@ describe('the Markdown link nodes', () => {
     expect([drawn(webWord, 'link', 'https://example.com'), drawn(fragmentWord, 'link', 'https://example.com')]).toEqual([true, false]);
     expect([drawn(webWord, 'link', '#notes'), drawn(fragmentWord, 'link', '#notes')]).toEqual([false, true]);
     expect([drawn(webWord, 'link', 'mailto:a@b.c'), drawn(fragmentWord, 'link', 'mailto:a@b.c')]).toEqual([false, false]); // its words are text
+  });
+});
+
+// A link's focus ring (FlowRuns `ring`, LinkRing): AppKit's is off every link node (`outline="none"`), and a keyboard's
+// focus rings all of the link's runs, the first drawing its start and the last its end, as Chromium rings the whole `<a>`.
+// A press's focus rings nothing, and the ring goes with the focus.
+describe("a Markdown link's focus ring", () => {
+  const flow = contractComponent('src/timeline/markdown.contract', 'FlowRuns');
+  const fns = { ...contractFns('src/timeline/markdown.contract'), ...contractFns('src/timeline/markdown-blocks.contract') };
+  const word = (id: string, kind: string, text: string, href = 'https://example.com/plan') => ({ id, kind, href, mono: false, label: href ? 'the plan' : '', text, link: '', findParts: [] });
+  const runs = [word('r0', 'link-start', 'the '), word('r1', 'link', 'plan'), word('r2', 'text', ' and', '')];
+  test('a keyboard focus rings the link; a press, or the focus leaving, rings nothing', () => {
+    for (const keyboardLast of [true, false]) {
+      const state = { ring: -1 };
+      flow.call('ringAt', state, { ...fns, keyboardLast }, [0, true]);
+      expect(state.ring).toBe(keyboardLast ? 0 : -1);
+    }
+    const state = { ring: 0 };
+    flow.call('ringAt', state, { ...fns, keyboardLast: true }, [0, false]);
+    expect(state.ring).toBe(-1);
+  });
+  test('every run of the focused link draws its part; the first its start, the last its end', () => {
+    const at = (index: number) => ({ ...fns, runs, run: runs[index], index, chips: [] });
+    expect(flow.drawn('LinkRing(first=true', { ring: 0 }, at(0))).toBe(true);
+    expect(flow.drawn('LinkRing(first=true', { ring: -1 }, at(0))).toBe(false);
+    expect(flow.drawn('LinkRing(first=false', { ring: 0 }, at(1))).toBe(true);
+    expect(flow.drawn('LinkRing(first=false', { ring: -1 }, at(1))).toBe(false);
+    expect([0, 1].map(index => (fns.ringEnd as (r: unknown, i: number, h: string) => boolean)(runs, index, 'https://example.com/plan'))).toEqual([false, true]);
+  });
+  test('the link nodes take AppKit\'s ring off', () => {
+    const source = readFileSync(appPath('src/timeline/markdown.contract'), 'utf8');
+    expect(source.match(/link id=linkNode\(scope, blockId, runs, index\)[^\n]* outline="none"/)).not.toBeNull();
+    expect(source.match(/link href=run\.href press=open\(run\.href\) focus=ringAt[^\n]* outline="none"/)).not.toBeNull();
   });
 });
 
