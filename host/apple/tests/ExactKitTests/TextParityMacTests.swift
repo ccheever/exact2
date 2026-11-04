@@ -93,6 +93,31 @@ final class TextParityMacTests: XCTestCase {
         XCTAssertEqual(TextEngine.paintedBaseline(13.5, scale: 1, lineScale: 2), 14)
     }
 
+    /// A layer-backed view paints a 2x paragraph's baseline on its half
+    /// point: AppKit keeps the backing scale out of the context's CTM.
+    func testALayerBackedViewPaintsAHalfPointBaselineAt2x() throws {
+        final class Paper: NSView {
+            var seen: [CGFloat] = []
+            override var isFlipped: Bool { true }
+            override func draw(_ dirtyRect: NSRect) {
+                let ctx = NSGraphicsContext.current!.cgContext
+                seen.append(TextEngine.paintedBaseline(12.5, scale: TextEngine.deviceScale(ctx), lineScale: 2))
+            }
+        }
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        guard window.backingScaleFactor == 2 else { throw XCTSkip("needs a 2x display") }
+        let view = Paper(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        view.wantsLayer = true
+        window.contentView = view
+        view.layer?.setNeedsDisplay()
+        view.layer?.displayIfNeeded()
+        XCTAssertFalse(view.seen.isEmpty)
+        XCTAssertEqual(view.seen, view.seen.map { _ in 12.5 })
+    }
+
     func testIntrinsicWidthsAreChromes() { assertChromeWidths() }
 
     /// LLP 1093 D6: a paragraph in a multi-column flow breaks once, at the
