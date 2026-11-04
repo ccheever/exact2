@@ -734,11 +734,12 @@ Differences that belong to the app:
   colours it in the render that shows it. The lexers share the data crate's thread with the chat
   Markdown, so each round lexes about 17 ms of code: a file of 1M characters takes about 30 rounds,
   where the reference's worker pool lexes it whole beside the page.
-- An ⌥-click on a reply's `#fragment` link opens nothing. Chromium downloads the page instead.
 - Split view's empty side stripes every 10 pt, where the reference stripes every 8 px: each row
   of the virtualized list paints its own gradient, and main keeps `background-attachment: local`
   deferred, so a shorter period would break at every row edge.
-- An image inside a link's text has no tooltip and no keyboard menu key.
+- A reply's web link shows no tooltip with its URL when the pointer rests on it, where the reference's anchor has one
+  (its Tooltip, side top): each word of a link is a node of its own (`FlowRuns`), so no one box holds the link to
+  place it by. An image inside a link shows its URL on a keyboard focus, as the reference's does.
 - Appearance has no Environment identification row. The clone is the stable app only, and it does
   not draw the Nightly or Dev artwork. At v0.1.5 the stable app's default also shows no art, but the
   row lets a user opt into Nightly or Dev artwork ("Show Dev or Nightly artwork in the sidebar

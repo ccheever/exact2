@@ -1237,7 +1237,7 @@ component T3Window
               WorkflowMemberCard(tip=hoverTip)
             else if hoverTip.kind == "scopes"
               HoverScopes(tip=hoverTip)
-            else if hoverTip.kind == "code"
+            else if hoverTip.kind == "code" or hoverTip.kind == "code-focus"
               HoverCode(tip=hoverTip)
             else if hoverTip.kind == "model-name"
               HoverModelName(tip=hoverTip)

@@ -8,8 +8,9 @@
 // openUrlInPreview's `profileId` and `background`), the tab menu's Mute row, and the "Open links in" setting.
 import { describe, expect, it } from 'bun:test';
 import {
-  TerminalLinkPreviewOpenError, canOpenLinksInApp, linkTargetPreference, openFrameWindow, openLink, openLinkFromUi, openTerminalLinkInPreview, resolveLinkTarget, resolveLinkTargetPreference, type BrowserLinkTarget,
+  PAGE_DOCUMENT, TerminalLinkPreviewOpenError, canOpenLinksInApp, linkTargetPreference, openFrameWindow, openLink, openLinkFromUi, openTerminalLinkInPreview, resolveLinkTarget, resolveLinkTargetPreference, type BrowserLinkTarget,
 } from '../../src/browser/browser-links';
+import { adoptAppFiles, saveSnapshot } from '../../src/media/save-file';
 import { tabAudioState, tabContextMenuItems, tabMuteMenuItem } from '../../src/panel/right-panel-tabs';
 import { browserTabMute } from '../../src/browser/browser-automation-tabs';
 import { browserHost, browserSurfaceId, syncNativeSessions } from '../../src/browser/browser-surface';
@@ -281,14 +282,25 @@ describe('links from the UI (chatlocal:link-open)', () => {
         expect(toasts(client)).toEqual([]);
       }
     }
-    // ⌘, ⌥, ⇧ or ⌃ held: the handler returns before preventDefault and the shell denies the new window it asks for.
-    for (const modifiers of ['meta', 'alt', 'shift', 'control', 'meta+shift']) {
+    // ⌘, ⇧ or ⌃ held: the handler returns before preventDefault and the shell denies the new window it asks for.
+    for (const modifiers of ['meta', 'shift', 'control', 'meta+shift', 'alt+shift']) {
       const { client, rpcs, ops, native } = linkClient();
       client.shell = { projects, threads, sequence: 1 };
       expect(await openLinkFromUi(client, native, `link|${modifiers}`, '#notes')).toBe('');
       expect([client.threadId, client.projectId]).toEqual(['thread-1', 'p']);
       expect(external(ops)).toEqual([]);
       expect(rpcs).toEqual([]);
+    }
+    // ⌥ alone is Chromium's download of the page the link names: the Save panel offers it as download.html.
+    const writes: { path: string; text: string }[] = [];
+    adoptAppFiles({ fs: { mkdir: async () => {}, readFile: async () => new ArrayBuffer(0), writeFile: async (path: string, bytes: Uint8Array) => { writes.push({ path, text: new TextDecoder().decode(bytes) }); } } });
+    {
+      const { client, rpcs, ops, native } = linkClient();
+      client.shell = { projects, threads, sequence: 1 };
+      expect(await openLinkFromUi(client, native, 'link|alt', '#notes')).toBe('');
+      expect([client.threadId, external(ops), rpcs, toasts(client)]).toEqual(['thread-1', [], [], []]);
+      expect(writes).toEqual([{ path: expect.stringMatching(/^app:\/tmp\/saves\/\d+\/download\.html$/), text: PAGE_DOCUMENT }]);
+      expect(saveSnapshot(client).saveRequest).toMatchObject({ from: writes[0]!.path, name: 'download.html' });
     }
     // Only a Markdown link's fragment: a button's or a work-log result's URL is never one, and stays where it was.
     const { client, native } = linkClient();

@@ -29,7 +29,8 @@ shape HoverTip
   // "breakdown" (a +/- split, PullRequestChangeBreakdownStat: a 600 ms tooltip; `text` is the split's key, drawn by T3Window
   // from the view that holds it), "pr-card" (the details card's pull request row tooltip, ThreadDetailsPrRow's glass
   // TooltipPopup: 600 ms; `text` is the row's key), "pr-details" (a sent pull request chip's PullRequestContextDetails tooltip:
-  // 600 ms; `lines` are pr-chip-preview.ts's).
+  // 600 ms; `lines` are pr-chip-preview.ts's), "code" (MediaActions' code TooltipPopup: 600 ms on hover) and "code-focus" (the
+  // same at once, for a visible focus).
   kind: string
   text: string
   lines: string[]
@@ -85,7 +86,7 @@ component HoverLayer
   derive rightRoom = viewportWidth - tip.x - tip.width - 9
   derive place = tip.side == "left" ? hoverFlip("left", "right", leftRoom, rightRoom, tip.estimate) : (tip.side == "right" ? hoverFlip("right", "left", rightRoom, leftRoom, tip.estimate) : (tip.side == "bottom" ? hoverFlip("bottom", "top", bottomRoom, topRoom, tip.estimate) : hoverFlip("top", "bottom", topRoom, bottomRoom, tip.estimate)))
   // A "code" tip (TooltipPopup variant code, a media's path) is up to 30rem wide.
-  derive span = tip.kind == "code" ? 32.5 : 22.5
+  derive span = tip.kind == "code" or tip.kind == "code-focus" ? 32.5 : 22.5
   // A popup of known width above or below its trigger starts where it stays 5pt inside the window (Base UI's collision
   // shift), and the row holds it at its start.
   derive shifted = tip.wide > 0 and (tip.side == "top" or tip.side == "bottom")
@@ -93,7 +94,7 @@ component HoverLayer
   derive left = shifted ? max(5, min(viewportWidth - 5 - tip.wide, aligned)) : (tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - span * rem : tip.x + tip.width / 2 - span / 2 * rem))
   derive top = max(titlebar + 5, tip.align == "start" ? tip.y : (tip.align == "end" ? tip.y + tip.height - 22.5 * rem : tip.y + tip.height / 2 - 11.25 * rem))
   derive justify = shifted or tip.align == "start" ? "flex-start" : (tip.align == "end" ? "flex-end" : "center")
-  derive card = tip.kind != "tip" and tip.kind != "policy" and tip.kind != "tooltip" and tip.kind != "model-name" and tip.kind != "code" and tip.kind != "breakdown" and tip.kind != "pr-card" and tip.kind != "pr-details"
+  derive card = tip.kind != "tip" and tip.kind != "policy" and tip.kind != "tooltip" and tip.kind != "model-name" and tip.kind != "code" and tip.kind != "code-focus" and tip.kind != "breakdown" and tip.kind != "pr-card" and tip.kind != "pr-details"
   view
     if place == "bottom"
       row position="absolute" left=left top=(tip.y + tip.height) width=(span * rem) justify-content=justify align-items="flex-start" pointer-events="none" z-index=140 testId="hover-layer"

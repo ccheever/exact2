@@ -293,7 +293,7 @@ export const SEEDS = {
       // Stop cancels it).
       moreTurns: [{ title: "Second edit awaiting approval", prompt: "Ask before editing the notes", approval: true },
         { title: "Italic answer", prompt: "Show the italic sample" }, { title: "HTML images", prompt: "Show the HTML image sample" },
-        { title: "HTML image layout", prompt: "Show the HTML layout sample" },
+        { title: "HTML image layout", prompt: "Show the HTML layout sample" }, { title: "Prose answer", prompt: "Show the prose sample" },
         { title: "Answer before a check", prompt: "Answer, then check" },
         { title: "Skill in a message", prompt: "Use $frontend-design for the page" },
         { title: "Turn held open", prompt: "Hold the turn", hold: true }] },

@@ -42,7 +42,7 @@
 //   "Show the HTML layout sample"   the same PNGs and more, laid out as READMEs write raw HTML (HTML_LAYOUT_SAMPLE):
 //                                   top-level images side by side, a centred paragraph of images, a linked image, and
 //                                   a sized image and a <picture> inside a line
-//   "Show the prose sample"         replies with headings, lists, inline and fenced code, a quote, a link and a rule
+//   "Show the prose sample"         replies with headings, lists, inline and fenced code, a quote, links and a rule
 //                                   (PROSE_SAMPLE), the blocks a transcript draws besides diagrams, tables and math
 //   "Hold the turn"                 streams "Holding the turn." and keeps the turn running until `install.mjs
 //                                   release` writes `release` beside this file, or the server cancels the turn
@@ -93,7 +93,7 @@ export const PLAN_SAMPLE = {
 /** "Show the italic sample": emphasis with both markers, in prose and in a list. */
 export const ITALIC_SAMPLE = "Italic in an answer: *the notes stay in one place*, and _each plan has an owner_.\n\n- A list item with *emphasis*\n- **Bold and *italic* together**\n";
 /** "Show the prose sample": every common Markdown block once. */
-export const PROSE_SAMPLE = "# Release notes\n\nThe notes now live in **one place**, with `notes/plan.md` as the index. See [the plan](https://example.com/plan).\n\n"
+export const PROSE_SAMPLE = "# Release notes\n\nThe notes now live in **one place**, with `notes/plan.md` as the index. See [the plan](https://example.com/plan) and [what changed](#what-changed).\n\n"
   + "## What changed\n\n1. The plan moved to `notes/`.\n2. Each outline has an owner:\n   - drafts stay in `notes/drafts/`\n   - reviews go to the thread\n3. Old links redirect.\n\n"
   + "### Example\n\n```ts\nexport function outline(title: string): string[] {\n  return [`# ${title}`, \"\", \"- First point\"];\n}\n```\n\n"
   + "> A quote from the review: keep the outline short, and link the plan rather than copying it.\n\n---\n\nThat is all for this release.\n";

@@ -566,9 +566,10 @@ component ChatRuns
     // The cited text in these runs' offsets (-1: none).
     ms: number
     me: number
-  // A fragment's press is its heading's (fragmentJump); any other link's follows linkOpen.
+  // A fragment's press is its heading's (fragmentJump), except an ⌥-click alone, which saves the page as Chromium's
+  // download does (browser-links.ts openFragmentLink); any other link's follows linkOpen.
   action open(href: string, e: MouseEvent)
-    if href.startsWith("#")
+    if href.startsWith("#") and not (e.altKey and not (e.metaKey or e.ctrlKey or e.shiftKey))
       fragmentJump(href, e)
     else
       linkOpen("link", href, e)
@@ -659,9 +660,10 @@ component FlowRuns
     me: number
     // The block's `text-align` (ChatBlock `align`), "" for the start.
     align: string
-  // A fragment's press is its heading's (fragmentJump); any other link's follows linkOpen.
+  // A fragment's press is its heading's (fragmentJump), except an ⌥-click alone, which saves the page as Chromium's
+  // download does (browser-links.ts openFragmentLink); any other link's follows linkOpen.
   action open(href: string, e: MouseEvent)
-    if href.startsWith("#")
+    if href.startsWith("#") and not (e.altKey and not (e.metaKey or e.ctrlKey or e.shiftKey))
       fragmentJump(href, e)
     else
       linkOpen("link", href, e)

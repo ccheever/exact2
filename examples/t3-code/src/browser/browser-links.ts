@@ -30,6 +30,7 @@ import { openExternal } from '../client/external-open';
 import { fleet } from '../connections/settings-b-fleet';
 import { sessionScopes } from '../connections/local-primary';
 import { openCommitLink } from '../diff/diff-commit-links'; // a commit link of the thread's repository (useOpenChangeRequestLink)
+import { saveBytes } from '../media/save-file';
 
 export type BrowserLinkTarget = 'system' | 'app';
 export type LinkEvent = { readonly metaKey: boolean; readonly ctrlKey: boolean; readonly button?: number };
@@ -157,7 +158,7 @@ export async function openLinkFromUi(client: T3Client, native: Native, pressed: 
     await openThreadLinkTarget(client, native, resolveThreadLink(client, written)?.id ?? written);
     return 'focus:composer';
   }
-  if (kind === 'link' && url.startsWith('#')) return openFragmentLink();
+  if (kind === 'link' && url.startsWith('#')) return openFragmentLink(client, held);
   // ChatMarkdown leaves a mailto, irc or xmpp link's click to the desktop shell, whose window-open
   // handler opens only http(s) and remote-editor links (DesktopWindow.ts, parseSafeExternalUrl): nothing opens.
   if (kind === 'link' && !isWebUrl(url)) return '';
@@ -180,10 +181,22 @@ export async function openLinkFromUi(client: T3Client, native: Native, pressed: 
 /** A Markdown `#fragment` link's click (ChatMarkdown `handleMarkdownFragmentClick` at 9c161462c9): it never
  *  follows the fragment or writes it to the hash, which the desktop's hash router would read as another route. The
  *  transcript scrolls to the heading it names (markdown.contract `fragmentJump`); one that reaches here (an image
- *  inside a fragment link) or names nothing does nothing. */
-export async function openFragmentLink(): Promise<string> {
+ *  inside a fragment link) or names nothing does nothing. An ⌥-click alone is Chromium's download of the link's
+ *  target, the page itself (its navigation policy for ⌥ with no other modifier): the Save panel offers it as
+ *  "download.html", the name Chromium gives a page whose URL names no file. */
+export async function openFragmentLink(client: T3Client, held: readonly string[]): Promise<string> {
+  if (held.length !== 1 || held[0] !== 'alt') return '';
+  try { await saveBytes(client, new TextEncoder().encode(PAGE_DOCUMENT), 'download.html'); }
+  catch (error) {
+    if (letGo(error)) throw error;
+    pushToast(client, { kind: 'error', title: 'Unable to save the page', description: error instanceof Error ? error.message : 'An error occurred.' });
+  }
   return '';
 }
+
+/** The window's page as a file: the document the reference's window loads holds only its boot splash until its
+ *  scripts run, and the clone's window has no HTML of its own, so the file is that empty page. */
+export const PAGE_DOCUMENT = '<!doctype html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <title>T3 Code (Exact)</title>\n  </head>\n  <body>\n    <div id="root"></div>\n  </body>\n</html>\n';
 
 /** openTerminalLinkInPreview: a terminal hyperlink where the setting says, unless ⌘ or Ctrl asked for the system
  *  browser. A preview that fails to open is reported and falls back; one let go (interrupted) does neither. */
