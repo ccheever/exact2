@@ -1179,6 +1179,12 @@
         "items": { "type": "string", "minLength": 1 }
       }
     },
+    "before_build": {
+      "description": "A command, as argv, that prepares files the app's builds read and its repository does not hold, such as a script that fetches photos into a folder Git ignores (`[\"bun\", \"scripts/fetch.mjs\"]`; `bun` is the Bun that runs exact.mjs, so it runs on every host). The exact.mjs `exact new` generates runs it in the app's directory, with EXACT_APP_DIR and EXACT2 set, no input and its output on stderr, before each of its verbs that builds, runs, compiles or checks the app (app-cli.mjs lists them), and before test and agent where they build first; a failure stops the verb. It runs that often, so make it finish at once when its files are there.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
     "server": {
       "type": "object",
       "description": "The app's own server, started for tests, verification and agent drives.",

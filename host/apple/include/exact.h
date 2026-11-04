@@ -401,6 +401,8 @@ typedef struct { float width, height; uint8_t provisional; } ExactButtonMeasure;
 typedef ExactButtonMeasure (*ExactButtonMeasureFn)(void *ctx, const ExactButtonMeasureRequest *request);
 void exact_set_button_measure(ExactRuntime rt, ExactButtonMeasureFn measure);
 uint32_t exact_control_text_changed(ExactRuntime rt);
+/* LLP 1008 §3: the text engine rounds line boxes to another scale; every paragraph is measured again. */
+uint32_t exact_text_scale_changed(ExactRuntime rt);
 
 typedef struct {
     double datetime, now, relative_value;

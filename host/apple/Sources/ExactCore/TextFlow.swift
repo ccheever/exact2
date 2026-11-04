@@ -176,7 +176,7 @@ extension TextEngine {
     /// Explicit CSS line boxes permit fallback ink to overflow without growing.
     package func lineBox(_ spec: Spec, line: CTLine) -> TextLineBox {
         let strut = spec.strut ?? spec.runs.first
-        func extents(_ run: Run) -> TextLineBox { TextLineBox(font(run) as CTFont, height: run.lineHeight) }
+        func extents(_ run: Run) -> TextLineBox { TextLineBox(font(run) as CTFont, height: run.lineHeight, scale: lineScale) }
         var box = strut.map(extents) ?? TextLineBox()
         for glyphRun in CTLineGetGlyphRuns(line) as! [CTRun] {
             let range = CTRunGetStringRange(glyphRun)
@@ -197,7 +197,7 @@ extension TextEngine {
             if matched && !includesNormal { continue }
             let attrs = CTRunGetAttributes(glyphRun) as NSDictionary
             let font = attrs[kCTFontAttributeName] as! CTFont
-            box.include(TextLineBox(font, height: nil))
+            box.include(TextLineBox(font, height: nil, scale: lineScale))
         }
         return box
     }
@@ -256,8 +256,10 @@ extension TextEngine {
                               firstTop: fragments.first.map { CGFloat($0.y) } ?? 0)
         // The fragments move with the lines they hold
         let moved = cut == 0 ? fragments : fragments.map { var f = $0; f.y -= Float(cut); return f }
-        return Paragraph(lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth), height: trimmedHeight,
-                         lineBottoms: bottoms, shape: shape, glyphCount: glyphs, origins: origins,
-                         fragments: moved, flowLineHeight: lineHeight)
+        let paragraph = Paragraph(lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth), height: trimmedHeight,
+                                  lineBottoms: bottoms, shape: shape, glyphCount: glyphs, origins: origins,
+                                  fragments: moved, flowLineHeight: lineHeight)
+        paragraph.lineScale = lineScale
+        return paragraph
     }
 }

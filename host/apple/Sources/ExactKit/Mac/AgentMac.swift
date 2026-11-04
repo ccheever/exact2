@@ -544,12 +544,15 @@ extension Agent {
             if presenter.toolbar.suppresses(v) { return ["error": "native toolbar geometry is system-owned; use tap host activation"] }
             let b = box(v)
             let p = CGPoint(x: req["x"] as? Double ?? b.midX, y: req["y"] as? Double ?? b.midY)
+            let hit = win.contentView?.hitTest(toWindow(p))
+            let button = sequence(first: hit, next: { $0?.superview }).compactMap { $0 as? NativeButtonMac }.first
+            // AppKit's own tracking of a native button reads queued events, which are made in the window (`windowEvent`).
+            guard button == nil || Agent.privateEvents else { return Agent.developmentOnly("tap down on a native button") }
             contactClock = ProcessInfo.processInfo.systemUptime
             // The button is down: the pointer no longer rests where it hovered.
             presenter.agentPointer = nil
             contactFlags = named
-            let hit = win.contentView?.hitTest(toWindow(p))
-            contactButton = sequence(first: hit, next: { $0?.superview }).compactMap { $0 as? NativeButtonMac }.first
+            contactButton = button
             contactButton?.beginHeldContact()
             contactTracksNative = contactButton != nil
             contactWindow = win
@@ -770,6 +773,7 @@ extension Agent {
                 if let owner, let id = owner.pointerOwner?.id { r["scroller"] = Int(id); r["offset"] = [owner.contentView.bounds.origin.x, owner.contentView.bounds.origin.y] }
                 return r
             }
+            guard Agent.privateEvents else { return Agent.developmentOnly("tap wheel") }
             // The modifiers held (studio diary R3: ⌘-scroll; a pinch is Control's).
             guard let flags = Agent.heldModifiers(req) else { return ["malformed": true, "error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
             // A wheel is the mouse's, where it then rests (CDP's `mouseWheel` moves it there too):
@@ -781,7 +785,7 @@ extension Agent {
             let began: Int64 = 1, changed: Int64 = 2, ended: Int64 = 4, none: Int64 = 0
             let steps: [(phase: Int64, dx: Double, dy: Double)] = gesture
                 ? [(began, halfX, halfY), (changed, wheel[0] - halfX, wheel[1] - halfY), (ended, 0, 0)] : [(none, wheel[0], wheel[1])]
-            guard Agent.wheel(steps, gesture: gesture, at: p, in: win, flags: flags) else { return ["error": "no wheel event at a window point (CGEventSetWindowLocation)"] }
+            guard Agent.wheel(steps, gesture: gesture, at: p, in: win, flags: flags) else { return ["error": "no wheel event at a window point"] }
             session.presenter.settlePump()
             return ["tapped": Int(v.id), "wheel": wheel, "gesture": gesture, "at": at, "delivery": "synthetic", "inputPath": "NSApplication.sendEvent"]
         }
@@ -790,20 +794,16 @@ extension Agent {
             // product is `scale`, to the view under the point, as the window
             // routes a trackpad's (LLP 1057.001 §5). AppKit has no public
             // constructor for them; a gesture CGEvent carries the zoom fields.
+            guard Agent.privateEvents else { return Agent.developmentOnly("tap pinch") }
             guard scale.isFinite, scale > 0 else { return ["malformed": true, "error": "pinch: expected a positive finite scale"] }
             let point = (req["at"] as? [Double]).map { v.convert(CGPoint(x: $0[0], y: $0[1]), to: nil) } ?? p
             let screen = win.convertPoint(toScreen: point)
             let target = win.contentView?.hitTest(point) ?? v
+            let place = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - screen.y)
             var previous = 1.0
             for step in 0...9 {
                 let factor = step == 0 || step == 9 ? previous : 1 + (scale - 1) * Double(step) / 8
-                guard let cg = CGEvent(source: nil), let type = CGEventType(rawValue: 29) else { return ["error": "no gesture event"] }
-                cg.type = type
-                cg.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - screen.y)
-                cg.setIntegerValueField(CGEventField(rawValue: 110)!, value: 8)   // gesture HID type: zoom
-                cg.setDoubleValueField(CGEventField(rawValue: 113)!, value: factor / previous - 1)
-                cg.setIntegerValueField(CGEventField(rawValue: 132)!, value: step == 0 ? 1 : step == 9 ? 4 : 2)
-                guard let e = NSEvent(cgEvent: cg), e.type == .magnify else { return ["error": "no magnify event"] }
+                guard let e = Agent.magnifyEvent(at: place, delta: factor / previous - 1, phase: step == 0 ? 1 : step == 9 ? 4 : 2) else { return ["error": "no magnify event"] }
                 target.magnify(with: e)
                 previous = factor
             }
@@ -839,7 +839,8 @@ extension Agent {
         // a `contextmenu` handler.
         if req["contextmenu"] as? Bool == true || req["auxclick"] as? Bool == true {
             let right = req["contextmenu"] as? Bool == true
-            guard Agent.otherClick(right ? .right : .center, at: p, in: win, clicks: 1, flags: held) else { return ["error": "no mouse event at a window point (CGEventSetWindowLocation)"] }
+            guard Agent.privateEvents else { return Agent.developmentOnly(right ? "tap contextmenu" : "tap auxclick") }
+            guard Agent.otherClick(right ? .right : .center, at: p, in: win, clicks: 1, flags: held) else { return ["error": "no mouse event at a window point"] }
             return ["tapped": req["id"] as? Int ?? Int(v.id), "at": at, right ? "contextmenu" : "auxclick": true, "delivery": "platform"]
         }
         // A double click is two real clicks, the second with clickCount 2;

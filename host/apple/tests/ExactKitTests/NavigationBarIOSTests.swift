@@ -850,7 +850,8 @@ final class NavigationBarIOSTests: XCTestCase {
         let before = frames()
         try tap(about)
         until("the popover opens") { session.presenter.menus.isOpen(pop) && pop.window != nil && !pop.isHidden }
-        spin(0.3)
+        // Wait for the region the open tells the kernel on the next turn, whose layout is the last of the open's that could move the page
+        until("its region is told") { session.presenter.regionsUntold.isEmpty }
         let after = frames()
         for (id, frame) in before { XCTAssertEqual(after[id], frame, "\(id) stays put while the popover is open") }
         let bar = nav.navigationBar.convert(nav.navigationBar.bounds, to: nil)

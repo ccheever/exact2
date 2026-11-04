@@ -325,6 +325,9 @@ function drain() {
 }
 const settled = () => { if (echo === null && !queue.length) for (const finish of [...waiters]) finish(); };
 export const navigation = { personScrolls: 0, // the person's scrolls (`byPerson`) from the page's start: one after a navigation asked a fragment's scroll cancels it (fragment.js, LLP 1153 D5)
+  /** A Back or Forward being dispatched (`popped`): its commit must land before `popped` judges it, so a tree update that
+   * would wait for a view transition (shared.js) runs at once instead; its flight is forgone. */
+  get traversing() { return pop !== null; },
   /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`, `goTo(location)` its own `go`. */
   connect(hostRoot, dispatch, journal, back = null, goTo = null, matchesRoute = () => false, waitForActivation = false) {
     root = hostRoot; navigate = dispatch; log = journal; hostBack = back; hostGo = goTo; routeMatches = matchesRoute; for (const type of ["wheel", "touchmove", "keydown", "pointerdown"]) addEventListener(type, e => { if (byPerson(e)) navigation.personScrolls++; }, { capture: true, passive: true });

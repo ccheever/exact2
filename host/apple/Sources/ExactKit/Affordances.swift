@@ -32,19 +32,35 @@ extension NodeView {
     /// Whether a colour row is the platform's accent (`AccentColor`, iOS's
     /// inherited `tintColor`) rather than a colour of its own. An unset
     /// `tint-color` is its initial value, `AccentColor`.
-    package func followsTint(_ key: String) -> Bool {
-        guard let row = style[key] else { return key == "tint_color" }
-        guard case .object(let o) = row else { return false }
-        return o["sys"]?.string?.hasPrefix("@tint") == true
-    }
+    package func followsTint(_ key: String) -> Bool { style[key].map { $0.tintAlpha != nil } ?? (key == "tint_color") }
     /// The platform tint used by a native control’s symbol.
     var inheritedTint: PlatformColor {
         #if os(iOS) || os(tvOS)
-        return inheritedInk
+        return tintColor
         #else
         return viewTint ?? .controlAccentColor
         #endif
     }
+
+    #if os(iOS) || os(tvOS)
+    /// Inks the symbol view. Where its ink is the tint, or its palette names the tint (which UIKit
+    /// resolves by the view's tint), the view has no tint of its own: it inherits the node's, and
+    /// UIKit dims it. Else its tint is its ink, which UIKit leaves as it is (`.normal`); a share of
+    /// the tint is resolved again as the tint changes (`tintColorDidChange`), since UIKit follows no
+    /// view's own tint made from the one above it.
+    func inkSymbolView() {
+        guard let view = symbolView else { return }
+        let follows = inkTintShare == 1 || style["symbol_rendering"]?.string == "palette" && style["symbol_palette"]?.namesTint == true
+        view.tintColor = follows ? nil : drawnSymbolInk
+        view.tintAdjustmentMode = follows ? .automatic : .normal
+    }
+
+    /// The share of the tint the symbol's ink is, nil where it is a colour of its own: a list cell's
+    /// image's `tint-color` (unset, the tint itself), else its `color` (unset, the label colour)
+    var inkTintShare: Double? {
+        drawsListSymbol ? style["tint_color"].map { $0.tintAlpha } ?? 1 : style["text_color"]?.tintAlpha
+    }
+    #endif
 
     /// Whether it is drawn as a list cell's image (iOS's custom grouped row).
     var drawsListSymbol: Bool {
@@ -88,8 +104,9 @@ extension NodeView {
     /// `face`: as a native control's face draws it, without the page's ink.
     func symbolConfiguration(_ base: SymbolConfig, face: Bool = false) -> SymbolConfig {
         #if os(iOS) || os(tvOS)
-        // Take a face's colours undimmed: UIKit keeps the image a control is given as made (TintDimmingIOS.swift)
-        let tint = face ? undimmedInheritedTint : drawnSymbolInk ?? inheritedTint
+        // A face is baked into a bitmap, in the tint as a value (`carriedTint`); else the tint as UIKit
+        // draws it (`SystemColor.tint`), which follows the view the symbol is drawn in
+        let tint = face ? carriedTint : inkTintShare.map(SystemColor.tint) ?? drawnSymbolInk ?? SystemColor.tint(1)
         #else
         let tint = (face ? nil : drawnSymbolInk) ?? inheritedTint
         #endif
@@ -100,9 +117,9 @@ extension NodeView {
         case "palette":
             let colors = (style["symbol_palette"]?.array ?? []).compactMap { c -> PlatformColor? in
                 #if os(iOS) || os(tvOS)
-                if face { return c.channels(dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: undimmedTint(for: c)).map(TextEngine.color) }
-                return c.channels(dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: c, key: "symbol_palette"))
-                    .map { TextEngine.color(dimmedWithTint($0, key: "symbol_palette")) }
+                if face { return c.channels(dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: c.namesTint ? carriedTint : nil).map(TextEngine.color) }
+                if let alpha = c.tintAlpha { return SystemColor.tint(alpha) }
+                return c.channels(dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated).map(TextEngine.color)
                 #else
                 return c.channels(dark: drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: c)).map(TextEngine.color)
                 #endif

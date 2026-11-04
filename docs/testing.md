@@ -31,6 +31,26 @@ its time counts too.
 
 ## Whose failure it is, and what has run
 
+- **`bun scripts/affected.mjs`** lists the suites a branch's changes can affect
+  (the working tree included) and how to run each. `--run` runs the selected
+  Cargo and Bun suites, and `--why <suite>` shows the changed file that
+  selected a suite and how the suite reaches it. A suite's inputs come from
+  its sources: Cargo's dependencies, imports, and the paths, packages, apps
+  and platforms its tests name. The async lane makes the same selection on
+  each commit, keeps a failure until a run covers it again, and runs every
+  step in full at least daily.
+  For a test to be selected when what it reads changes, name what it reads: a
+  path (from the root or from the test's own directory), `--app <name>` or
+  `resolveApp('<name>')`, `-p <package>`, or the platform in the call that
+  drives it (`spawnSync('bun', [agent, 'ios', …])`, `open({ host: 'web' })`).
+  Shared code (`scripts/`, a library) that names an app by name, or another
+  platform's host, is taken to build or drive what its caller asks for, so a
+  test that relies on it reading a particular app must name that app itself.
+  `--audit <suite>` runs a suite with every unit outside its inputs unreadable
+  (`sandbox-exec`), to find a read the selection misses. It sees what the suite
+  reads as it runs, not what an earlier build read: a file a Rust crate
+  includes (`include_str!`, `#[path]`) or a build script's input shows only
+  when the audit builds that crate again.
 - **`bun scripts/known.mjs -- <command>`** runs `cargo test …`, `bun test …` or
   `bun host/apple/build.mjs --test …` and, when it fails, sorts each failing
   test against the async lane's record of origin/main (LLP 1146 D1): **known**
@@ -63,7 +83,10 @@ its time counts too.
   - Swift: an expectation fulfilled by the callback, or a run-loop pass that
     returns once work has run: `RunLoop.main.run(mode: .default, before:)`.
     `RunLoop.main.run(until:)` waits out its whole slice; on a loaded Mac a
-    10 ms slice takes about 80 ms.
+    10 ms slice takes about 80 ms. The XCTests share three waits, in
+    `host/apple/tests/ExactKitTests/EventWaits.swift`: `waitFor` waits for a
+    condition, `waitForMainQueue` for the blocks already queued on the main
+    queue, and `waitForActivation` for what follows a session's first pixel.
   - Browsers: an event or a promise, or the agent's `clock settle` and virtual
     time.
   - A drive or an authored test: `clock settle` or `clock data` for what the
@@ -100,6 +123,18 @@ its time counts too.
   cannot rely on an earlier class. Install what it uses in `class func setUp`
   (`ExactSurfaces.install()` for a canvas) and create what it reads
   (`NSApplication.shared` before `NSApp`).
+- **Run the classes a change touches.** `bun host/apple/build.mjs --test --only
+  FrameHealthMetricsTests,FrameHealthMacTests` builds as a full run does and runs
+  only the classes named, on macOS; `--test --ios --only
+  FrameHealthMetricsTests,FrameHealthIOSTests` runs iOS classes on a simulator
+  (`--sim` picks one). When a branch changes no input of the XCTests but Swift
+  files in `tests/ExactKitTests`, `bun scripts/affected.mjs` names, for each
+  platform, the classes those files declare or extend and the classes of any
+  file that names one of them (a subclass, a caller of a helper), and after the
+  push the async lane runs those iOS classes alone. A change to a file of shared
+  helpers (one that declares a function, a type or an extension other files can
+  use) or to anything else the XCTests read (the host, a fixture, a resource)
+  runs every class. The lane runs no macOS class.
 - **A Bun file that mocks a module runs in a global of its own.** Bun's
   `mock.module` replaces a module for the whole process and does not relink a
   module already loaded, so files that mock or import the same module
@@ -114,7 +149,10 @@ its time counts too.
 - **Mac-wide state is serial.** A class whose file uses the general pasteboard,
   app activation, the mouse location or a screen capture shares one process with
   the other such classes. A window's key status and first responder belong to
-  its own process and need nothing.
+  its own process and need nothing. A class that opens a menu that tracks (its
+  file observes `NSMenu.didBeginTrackingNotification` with `addObserver(forName:)`)
+  runs alone after every other class: beside another test process, its menu
+  can close before the test reads it.
 - **Helpers are simple and correct under sharing.** A helper shared by tests or
   threads holds no mutable state, or holds it behind one obvious rule (a queue
   index read and advanced with no `await` between, a value drawn before the

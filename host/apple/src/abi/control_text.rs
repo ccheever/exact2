@@ -39,6 +39,18 @@ impl<D: DataSource> Bridge<D> {
         };
         self.emit(out)
     }
+    /// The text engine rounds line boxes to another scale now (LLP 1008 §3):
+    /// every paragraph is measured again and the tree laid out.
+    pub fn text_scale_changed(&mut self) -> u32 {
+        if let Some(revision) = &self.measure_revision {
+            revision.set(revision.get().wrapping_add(1));
+        }
+        let out = match self.host.as_mut() {
+            Some(host) => host.text_scale_changed(),
+            None => not_booted(),
+        };
+        self.emit(out)
+    }
     /// The window's size, which every viewport unit resolves against
     /// everywhere; a nonpositive size clears it (LLP 1075.003 §9.11).
     pub fn screen(&mut self, width: f32, height: f32) -> u32 {

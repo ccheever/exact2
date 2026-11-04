@@ -1,0 +1,11 @@
+// GlassTitleIOSTests: a glass button with a symbol in the tint and a title in a role, beside the
+// hand-built button the test places to its right.
+component GlassTitle
+  state taps = 0
+  action go
+    taps = taps + 1
+  view
+    main accent-color="-exact-system-red" testId="app" width="100%" height="100%"
+      button appearance="auto" buttonStyle="glass" press=go testId="glass" position="absolute" left=20 top=40 width=148 height=48 display="flex" flex-direction="row" align-items="center" justify-content="center"
+        image "symbol:sf/map.fill" font-size=15 -exact-tint-color="AccentColor"
+        text "Parked" font-size=15 font-weight=600 color="-exact-label"

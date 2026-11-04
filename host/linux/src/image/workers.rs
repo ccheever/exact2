@@ -59,17 +59,28 @@ impl SourceOwner {
     /// A URL's body this host cannot decode: let go of its spool file (the
     /// cache's hold too, so the URL is fetched again when next asked for),
     /// and say so once.
+    /// One that came with a status that is not 2xx fails as that status,
+    /// asked again as a bodiless one is.
     fn release(&self, refusal: Refusal, downloads: &remote::Downloads) {
-        let message = format!("not an image this host decodes ({refusal:?})");
-        let failure = remote::Failure {
+        let status = (self.remote.as_ref().and_then(|load| load.outcome()))
+            .and_then(|outcome| outcome.ok()?.status.clone());
+        let failure = status.unwrap_or_else(|| remote::Failure {
             refusal,
-            message: message.clone(),
+            message: format!("not an image this host decodes ({refusal:?})"),
             transient: false,
             after: None,
-        };
+        });
+        let message = failure.message.clone();
+        let transient = failure
+            .transient
+            .then(|| failure.after.unwrap_or_else(std::time::Instant::now));
+        if let Some(at) = failure.after {
+            downloads.cool(&self.name, at, &message);
+        }
         let Some(body) = self.remote.as_ref().and_then(|load| load.release(failure)) else {
             return;
         };
+        *self.transient.lock().unwrap() = transient;
         downloads.forget(&self.name, &body);
         eprintln!(
             "exact: image {}: {message}",

@@ -223,7 +223,7 @@ extension Paragraph {
             guard hi > lo else { continue }
             var above: CGFloat = 0, below: CGFloat = 0
             _ = CTLineGetTypographicBounds(line, &above, &below, nil)
-            let y = bounds.minY + baselines[i].rounded()
+            let y = bounds.minY + (baselines[i] * lineScale).rounded() / lineScale
             guard y + below >= dirty.minY, y - above <= dirty.maxY else { continue }
             let x = bounds.minX + origin(i, align: align, width: bounds.width)
             let x0 = CTLineGetOffsetForStringIndex(line, lo, nil), x1 = CTLineGetOffsetForStringIndex(line, hi, nil)

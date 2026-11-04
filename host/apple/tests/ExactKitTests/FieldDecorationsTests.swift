@@ -58,7 +58,7 @@ final class FieldDecorationsTests: XCTestCase {
         let (p, _, field) = try fixture(value, record: record(value, []))
         let storage = try XCTUnwrap(field.textStorage)
         let face = try XCTUnwrap(storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont ?? field.font)
-        let (ascent, descent) = CSSLineBox.content(face as CTFont)
+        let (ascent, descent) = CSSLineBox.content(face as CTFont, scale: field.window?.backingScaleFactor ?? 1)
         let manager = try XCTUnwrap(field.textLayoutManager), content = try XCTUnwrap(manager.textContentManager)
         // The viewport top of the text box on the line holding `offset`.
         func expected(_ offset: Int) throws -> CGFloat {

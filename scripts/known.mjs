@@ -37,19 +37,26 @@ export const identity = (failure) => failure.slice(failure.indexOf(': ') + 2);
 /** The kind of test a check's command runs, which a local command of the same kind is compared with. */
 export function kindOf(command) {
   if (/\bbuild\.mjs\b.*--test\b/.test(command)) return 'xctest';
-  if (/\bcargo\b.*\btest\b/.test(command)) return 'cargo';
+  // (The async lane runs a selection's Rust tests through `affected.mjs --cargo-tests`.)
+  if (/\bcargo\b.*\btest\b|\baffected\.mjs --cargo-tests\b/.test(command)) return 'cargo';
   if (/\bbun\b.*\btest\b/.test(command)) return 'bun';
   return null;
 }
 
-/** A lane's note for one commit: what each check ran and whether it ran to the end, and every failure. A check that
- *  stopped early (did not compile, hung, or failed with nothing a pattern names) says nothing of the tests it held. */
+/** Whether check `name` stopped early in a run with these failures: a crate it built did not compile, a build script
+ *  it ran failed, a test binary or file did not run to its end, it hung, or it failed with nothing a pattern names, so
+ *  it says nothing of the tests it held. */
+export const stoppedEarly = (name, failures) => failures.some((f) => f.startsWith(`${name}: `)
+  && /: exit \d+ \(see log\)$| does not compile$| build script failed$| did not finish$|: an error between tests$| hung( past .*)?$/.test(f));
+
+/** A lane's note for one commit: what each check ran, the part of it that ran when only a part did (`covers`) and
+ *  whether it ran to the end (`complete`), and every failure. */
 export function noteOf(result, tier) {
   const checks = {};
   for (const [name, c] of Object.entries(result.checks)) {
-    const own = result.failures.filter((f) => f.startsWith(`${name}: `));
-    const stopped = own.some((f) => /: exit \d+ \(see log\)$| does not compile$| hung( past .*)?$/.test(f));
-    checks[name] = c.skipped ? { command: c.command, skipped: c.skipped } : { command: c.command, status: c.status, complete: !stopped };
+    // Use the lane's record, made as the check ended and before it kept earlier runs' failures, where there is one
+    const complete = c.complete ?? !stoppedEarly(name, result.failures);
+    checks[name] = c.skipped ? { command: c.command, skipped: c.skipped } : { command: c.command, status: c.status, complete, ...(c.covers ? { covers: c.covers } : {}) };
   }
   return { sha: result.sha, tier, at: new Date().toISOString(), checks, failures: result.failures };
 }

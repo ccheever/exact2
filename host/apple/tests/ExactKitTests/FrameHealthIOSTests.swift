@@ -57,9 +57,7 @@ final class FrameHealthIOSTests: XCTestCase {
             XCTAssertGreaterThan(navigation.view.frame.height, window.bounds.height * 0.8, "the sheet opens at full height, not half")
             sheet.selectedDetentIdentifier = .medium
             // UIKit moves the sheet at a later layout pass
-            let deadline = Date().addingTimeInterval(5)
-            while navigation.view.frame.height >= window.bounds.height * 0.7, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
-            XCTAssertLessThan(navigation.view.frame.height, window.bounds.height * 0.7, "and rests at half height too")
+            waitFor("the sheet rests at half height") { navigation.view.frame.height < window.bounds.height * 0.7 }
             sheet.selectedDetentIdentifier = .large
         }
         let menu = try XCTUnwrap(navigation.viewControllers.first as? DevMenuController)

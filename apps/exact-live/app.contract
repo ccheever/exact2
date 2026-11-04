@@ -96,6 +96,10 @@ shape Block
   header: bool
   runs: Run[]
   cells: Cell[]
+  dark: string
+  width: number
+  height: number
+  align: string
 shape Runbook
   title: string
   sourceBytes: number

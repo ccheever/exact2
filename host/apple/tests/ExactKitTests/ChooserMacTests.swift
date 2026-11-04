@@ -391,12 +391,12 @@ final class ChooserMacTests: XCTestCase {
             guard let menu = note.object as? NSMenu, menu.items.contains(where: { $0.title == "Waze" }) else { return }
             seen = true
             RunLoop.current.perform(inModes: [.eventTracking, .default]) {
-                frame = NSApp.windows.filter { $0.isVisible && $0.level.rawValue >= NSWindow.Level.popUpMenu.rawValue }
-                    .map(\.frame).max { $0.height < $1.height }
+                frame = ContextMenuMacTests.shownMenuFrame()
                 menu.cancelTracking()
             }
         }
         defer { NotificationCenter.default.removeObserver(token) }
+        waitFor("an earlier test's menu leaves the screen") { ContextMenuMacTests.shownMenuFrame() == nil }
         p.press(1)
         let done = Date(timeIntervalSinceNow: 5)
         while (!seen || p.menus.isOpen(p.views[2]!)) && Date() < done { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }

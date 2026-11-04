@@ -121,6 +121,7 @@ component ColorGallery
   state moved = false
   state videoSource = "assets/sdr.mp4"
   state videoPlaying = false
+  state liftPicked = ""
   action chooseVideo(value: string)
     videoSource = value
     videoPlaying = true
@@ -130,6 +131,8 @@ component ColorGallery
     limit = value
   action toggleMoved()
     moved = not moved
+  action pickLift(choice: string)
+    liftPicked = choice
   action scrolled(left: number, top: number)
     if host != "web" and docked != (top >= 128)
       docked = top >= 128
@@ -302,6 +305,55 @@ component ColorGallery
                 button "Inherited" buttonStyle="filled" press=choose(limit)
               column border-width=1 border-style="solid" border-color="-exact-separator" corner-shape="-exact-continuous" padding=12 row-gap=10 border-radius=8 accent-color="auto"
                 button "auto: the app's" buttonStyle="filled" press=choose(limit) testId="accent-auto" align-self="flex-start"
+
+          text "Text lifted into a menu" class=Section
+          text "Press and hold a #tag, or Control-click it. On iPhone and iPad, UIKit lifts the tag with the padding it chooses, filled from what lies under it: one flat color as that color, gradients and pictures drawn from their layers, a blur from the screen. The words beside the tag stay behind, except over the blur." class=Legend
+          column row-gap=14 padding-top=6 testId="lift"
+            text font-size=17 max-width="15rem"
+              text "#tag with words enough to wrap onto a second line" contextPopover="lift-menu"
+              text " and then plain text"
+            text font-size=17 max-width="15rem"
+              text "#tag with so many words in it that it wraps onto a third line and keeps on going" contextPopover="lift-menu"
+              text " and plain text"
+            column background-color="#0a64ff" padding=12 border-radius=18 max-width="15rem" align-self="flex-start"
+              text font-size=17 color="#ffffff"
+                text "#tag on a balloon, long enough to wrap" contextPopover="lift-menu"
+                text " and more"
+            column background-color="#ffd60a" padding=12 border-radius=14 press=pickLift("card") testId="lift-card"
+              text font-size=17 color="#000000"
+                text "#tag" contextPopover="lift-menu"
+                text " in a card you can tap"
+            column background-color="#ffd60a" padding=12 border-radius=14 max-width="15rem" align-self="flex-start" press=pickLift("long card")
+              text font-size=17 color="#000000"
+                text "#tag in a card you can tap, long enough to wrap" contextPopover="lift-menu"
+                text " and more"
+            column padding=12 border-radius=14 background-image="linear-gradient(to right, #ff3b30, #ffffff)"
+              text font-size=17 color="#000000"
+                text "#tag" contextPopover="lift-menu"
+                text " on a red gradient"
+            column position="relative" height=140 border-radius=16 overflow="hidden"
+              image "assets/lift-picture.jpg" position="absolute" inset=0 width="100%" height="100%" object-fit="cover" aria-label="A fractal"
+              column position="absolute" left=12 bottom=12 background-color="#00000080" padding=10 border-radius=10
+                text font-size=17 color="#ffffff"
+                  text "#tag" contextPopover="lift-menu"
+                  text " caption over a picture"
+            column position="relative" height=110 border-radius=16 overflow="hidden" press=pickLift("picture card")
+              image "assets/lift-picture.jpg" position="absolute" inset=0 width="100%" height="100%" object-fit="cover" aria-label="A fractal"
+              text position="absolute" left=14 top=14 right=14 font-size=17 color="#ffffff"
+                text "#tag" contextPopover="lift-menu"
+                text " on a picture card you can tap"
+            column position="relative" height=140 border-radius=16 overflow="hidden"
+              image "assets/lift-picture.jpg" position="absolute" inset=0 width="100%" height="100%" object-fit="cover" aria-label="A fractal"
+              column position="absolute" left=12 right=12 bottom=12 backdrop-filter="blur(12px)" background-color="#ffffff40" padding=10 border-radius=12
+                text font-size=17 color="#000000"
+                  text "#tag" contextPopover="lift-menu"
+                  text " on frosted glass"
+            text (liftPicked == "" ? "Nothing picked yet." : `Picked: ${liftPicked}.`) class=Note testId="lift-picked"
+          column id="lift-menu" popover="auto" role="menu"
+            button press=pickLift("share") popovertarget="lift-menu" popovertargetaction="hide"
+              text "Share"
+            button press=pickLift("favorite") popovertarget="lift-menu" popovertargetaction="hide"
+              text "Favorite"
 
 component LimitControl
   props

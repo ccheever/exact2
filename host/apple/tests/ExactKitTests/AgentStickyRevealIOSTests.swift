@@ -26,22 +26,21 @@ final class AgentStickyRevealIOSTests: XCTestCase {
         XCTAssertNil(session.boot(plan: plan, size: window.bounds.size).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         let agent = Agent(session: session)
         let node = { (id: String) in session.presenter.views.values.first { $0.props["testId"] == id } }
         let pressed = { () -> String? in
             let state = try? JSONSerialization.jsonObject(with: Data(session.agent(#"{"op":"state"}"#).utf8)) as? [String: Any]
             return (state?["slots"] as? [String: Any])?["pressed"] as? String
         }
-        let port = try XCTUnwrap(node("port"))
-        let row = { (band: ClosedRange<CGFloat>) in
-            (1...20).compactMap { node("row-\($0)") }.first { r in band.contains(r.convert(CGPoint(x: r.bounds.midX, y: r.bounds.midY), to: port).y - port.bounds.minY) }
+        let row = { (band: ClosedRange<CGFloat>) -> NodeView? in
+            guard let port = node("port") else { return nil }
+            return (1...20).compactMap { node("row-\($0)") }.first { r in band.contains(r.convert(CGPoint(x: r.bounds.midX, y: r.bounds.midY), to: port).y - port.bounds.minY) }
         }
+        waitFor("a row under the dock is laid out") { row(300...399) != nil }
         let docked = try XCTUnwrap(row(300...399))
         XCTAssertEqual(agent.reveal(["id": Int(docked.id)])["scrolled"] as? Bool, true)
         XCTAssertNil(agent.tap(["id": Int(docked.id)])["error"])
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-        XCTAssertEqual(pressed(), docked.props["testId"] as? String)
+        waitFor("the row under the dock is pressed", facts: { "pressed: \(pressed() ?? "nothing")" }) { pressed() == docked.props["testId"] }
         let clear = try XCTUnwrap(row(80...280))
         XCTAssertEqual(agent.reveal(["id": Int(clear.id)])["scrolled"] as? Bool, false)
     }

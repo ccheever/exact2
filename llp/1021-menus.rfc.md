@@ -913,12 +913,44 @@ menu's glass and the dismissal. In the delegate:
   its animator's completion. A hidden row, or no row,
   means no preview, and UIKit's own lifted node is the preview. Two rows
   are refused, logged as `context menu <id> refused a preview: …`.
-- The **targeted preview** (highlight and dismissal) is the node itself
-  (`UITargetedPreview(view:)`), with a `visiblePath` for its
-  `border-radius`, so the lift and the morph are Apple's. After a commit
-  that navigated, the dismissal has no target: the node is under the new
-  screen, as Signal's is under the conversation. After a press that
-  stayed, the dismissal returns to the node.
+- The **targeted preview** (highlight and dismissal) is the node itself,
+  live (`UITargetedPreview(view:)`), clipped to its `border-radius`
+  outline, so the lift, the morph and the return are Apple's: UIKit hides
+  the node while it is lifted. It rises over the view of the controller
+  that holds the node, not the node's superview, so an ancestor that clips
+  (a strip that scrolls sideways) cuts neither it nor its shadow. A text
+  run that names a `contextPopover` cannot lift its paragraph, which UIKit
+  would hide whole: it lifts a picture of its lines with the padding UIKit
+  gives text lines (`UIPreviewParameters(textLineRects:)`), taken as the
+  finger lands, before a press the touch starts has drawn. Wherever it
+  can, the picture shares pixels already drawn rather than copying them.
+  Its words are a layer showing the paragraph's text raster cut to the
+  run, at the paragraph's opacity; words shown any other way (vibrancy, an
+  HDR shadow's cast, rolling numerals) come from a snapshot. Under them is
+  what lies under the paragraph without its other text, which the padding
+  would take in: one color where only fills that cover the area paint
+  there, else copies of the layers there sharing their bitmaps, with a
+  material (a blur or glass) shown live between the copies composited
+  under it and over it. Where only a snapshot shows what lies there
+  (video, Metal, a web view, a filter or blend mode, vibrancy, a second
+  material, a paragraph whose fill its layer does not hold, or a view's
+  backing store, which a copy shown on screen must not share), the picture
+  is one snapshot of the screen, neighboring text included. Where the
+  padding reaches past the box the run sits in (the paragraph where it
+  paints a fill or a background image, else the nearest ancestor that does
+  or that clips), it extends the box, so the lift keeps UIKit's footprint
+  and holds none of what lies outside the box, such as the page around a
+  card. A box of one color fills it, the box's material spreads over it,
+  the copies under the material reflect past the box's edges the way
+  reflect padding extends an image, what lies over the material stays
+  within the box, and a snapshot's edge pixels stretch, since a reflection
+  would mirror the run's words, which the snapshot holds. The padding
+  fades as UIKit returns the picture, so it lands as the screen shows it
+  then; UIKit leaves the picture in the window once it has returned it,
+  and the host takes it off the screen when the dismissal completes.
+  After a commit that navigated, the dismissal has no target: the node is
+  under the new screen, as Signal's is under the conversation.
+  After a press that stayed, the dismissal returns to the node.
 - **The commit** (`willPerformPreviewActionForMenuWith`): if the preview row
   is still the popover's, enabled and has a `press`, it is pressed by view
   id, synchronously, with the navigation stack's own push animation off for
@@ -1262,7 +1294,9 @@ the existing chord filing and Settings label remain unchanged. A declared
 Items retain the existing destination ordering: Edit keeps its standard
 replacement and paste-variant positions, Go its history before destinations;
 other commands follow declaration order. App items follow About;
-View, Window and Help items precede the host commands. Go appears while it
+View and Window items precede the host commands; Help items follow the
+menu's own (2026-11-04): AppKit leads Help with Send *App* Feedback to Apple
+and a separator, as in any Mac app, then Help ▸ *App* Help. Go appears while it
 has an item. Help remains `NSApp.helpMenu`, with AppKit's search field above
 the authored items (the field is outside `NSMenu.items`).
 
@@ -1352,7 +1386,10 @@ otherwise list; author over platform (LLP 1115).
 `develop` (the Develop menu of a development build), `paste-and-match-style`,
 `find`, `spelling-and-grammar`, `substitutions`, `transformations` (Edit's
 template items, LLP 1115 D8; a removed submenu's items are removed with it,
-and an app command that would stand in inside Find follows Select All), `app-help` (Help ▸ *App* Help; AppKit's search
+and an app command that would stand in inside Find follows Select All; with all
+four removed, Speech moves ahead of them, since AppKit places Writing Tools after
+Find, hidden or not, and Edit then reads Speech, Writing Tools, AutoFill as a
+menu built without them does, 2026-11-04), `app-help` (Help ▸ *App* Help; AppKit's search
 field stays), and `actual-size`, `zoom-in`, `zoom-out` below. The host finds
 its own submenus and Develop by item identifiers it sets, the rest by action,
 never by title. `develop` takes the menu off the bar and leaves its chords:

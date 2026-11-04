@@ -47,7 +47,7 @@ test('not applicable here is a skip even when coverage is required', () => {
 });
 
 test('the lane requires coverage and gives its web tests this commit\'s builds', () => {
-  const steps = Object.fromEntries(checks('new', 'old', { lane: [], apple: false, glue: ['./x.test.mjs'], contract: false }).map(s => [s[0], s]));
+  const steps = Object.fromEntries(checks('new', 'old', { lane: [], glue: ['./x.test.mjs'] }).map(s => [s[0], s]));
   const names = Object.keys(steps);
   expect(names.indexOf('prepare')).toBeLessThan(names.indexOf('test'));
   expect(names.indexOf('prepare')).toBeLessThan(names.indexOf('glue'));

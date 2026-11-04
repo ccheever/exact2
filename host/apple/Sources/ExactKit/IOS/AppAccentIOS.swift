@@ -12,8 +12,8 @@ final class AppAccent {
     init(_ presenter: Presenter) { self.presenter = presenter }
     /// The roots' accent row (its `key` names it) and the tint made of it;
     /// nil when no root says one, and the window has its own back.
-    private var said: String?
-    private var tint: UIColor?
+    private(set) var said: String?
+    private(set) var tint: UIColor?
     /// The window the accent tints, held weakly: the window holds the view
     /// that holds this session.
     private weak var window: UIWindow?

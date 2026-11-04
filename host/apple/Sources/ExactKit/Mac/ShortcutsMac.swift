@@ -222,7 +222,25 @@ final class ShortcutMenu: NSMenu {
             if item.allowsKeyEquivalentWhenHidden { item.allowsKeyEquivalentWhenHidden = false }
             if !item.isHidden { item.isHidden = true }
         }
+        placeSpeech()
     }
+    /// AppKit puts Writing Tools and its separator after Edit's Find and
+    /// before Spelling and Grammar, hidden or not, and once only; in an Edit
+    /// menu without them, after Speech (measured, macOS 26.6). So while all
+    /// of Find to Transformations are removed, Speech leads them, and the
+    /// menu reads Speech, Writing Tools, AutoFill as one without them does,
+    /// with no separator twice.
+    private func placeSpeech() {
+        let group = items.filter { item in Self.standardID(item).map(Self.speechGroup.contains) == true }
+        guard let speech = items.first(where: { $0.identifier == DevMenu.speechIdentifier }),
+              let first = group.first, let last = group.last else { return }
+        let leads = group.allSatisfy { item in removed.contains { $0.0 === item } }
+        let at = index(of: speech)
+        if leads ? at + 1 == index(of: first) : at == index(of: last) + 1 { return }
+        removeItem(speech)
+        insertItem(speech, at: leads ? index(of: first) : index(of: last) + 1)
+    }
+    private static let speechGroup: Set<String> = ["find", "spelling-and-grammar", "substitutions", "transformations"]
     static func standardID(_ item: NSMenuItem) -> String? {
         // AutoFill has no command of its own: AppKit identifies the submenu,
         // and the host its own submenus (`DevMenu.removable`).
@@ -463,7 +481,9 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             item.keyEquivalentModifierMask = shortcut?.modifiers ?? []
         }
         if let windowMenu { place(windowItems, in: windowMenu, at: 0) }
-        if let helpMenu { place(helpItems, in: helpMenu, at: 0) }
+        // After the menu's own items: AppKit's Send Feedback to Apple and
+        // its separator lead Help, as in any Mac app (measured, macOS 26.6).
+        if let helpMenu { place(helpItems, in: helpMenu, at: helpMenu.items.filter { item in !helpItems.contains { $0 === item } }.count) }
         if let editMenu { placeEdit(editItems, pastes: pastes, in: editMenu, removals: removals) }
         if let viewMenu {
             // A command standing in for Actual Size, Zoom In or Zoom Out takes

@@ -42,7 +42,7 @@ final class GroupedActionsIOSTests: GroupedListFixture {
         let interaction = try XCTUnwrap(native.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
         let menu = p.menus.context
         let configuration = try XCTUnwrap(menu.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: 20, y: 20)))
-        XCTAssertTrue(menu.contextMenuInteraction(interaction, previewForHighlightingMenuWithConfiguration: configuration)?.view === native)
+        XCTAssertTrue(menu.contextMenuInteraction(interaction, configuration: configuration, highlightPreviewForItemWithIdentifier: configuration.identifier)?.view === native)
         let owner = try XCTUnwrap(menu.open)
         XCTAssertTrue(owner.source === row)
         XCTAssertEqual(menu.menu(owner)?.children.count, 1)

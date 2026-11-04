@@ -25,6 +25,12 @@ shape Block
   header: bool
   runs: Run[]
   cells: Cell[]
+  // An image's dark-appearance source, or empty; its authored size, or 0.
+  dark: string
+  width: number
+  height: number
+  // CSS `text-align` from the `align` of a `<p>` or `<div>` around the block, or empty.
+  align: string
 
 // The styled spans of one paragraph, as the inline `text` children the
 // kernel measures as one paragraph and CoreText paints as one typeset run.

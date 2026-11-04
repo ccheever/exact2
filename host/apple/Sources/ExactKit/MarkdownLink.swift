@@ -12,11 +12,10 @@ import AppKit
 
 /// What the core asks of the Markdown capability.
 package protocol MarkdownCapability: AnyObject {
-    /// `source` as display runs over `base` (the node's run); `color` its ink,
-    /// `linkColor` a link's and `atomColor` an atom's where it is not `color`.
+    /// `source` as display runs over `base` (the node's run); `color` its ink.
     /// `boldText`: Bold Text weights `base` (LLP 1115.000 D12.3), so a
     /// piece's own weight (bold) takes the same step.
-    func expand(_ source: String, base: Run, color: [Double]?, linkColor: [Double]?, atomColor: [Double]?, boldText: Bool, atoms: MarkdownAtoms) -> [Run]
+    func expand(_ source: String, base: Run, color: [Double]?, boldText: Bool, atoms: MarkdownAtoms) -> [Run]
     /// A text area's `source` as its editor lays it out, over `base`, for
     /// measuring: each atom's pill a box no wider than `width`, its runs'
     /// fonts by `font`.
@@ -143,6 +142,10 @@ package final class MarkupAtom: NSObject {
     /// radius, nil for the platform's; its ring's width, colour (nil the
     /// ink) and offset; and whether its label is underlined.
     package var padding: CGFloat?, paddingEm = false
+    /// Its icon's side and the space between it and its label, in px
+    /// (`em` of the label's size when `iconSizeEm`, `gapEm`); nil for the
+    /// platform's, the text's cap height and a quarter of its size.
+    package var iconSize: CGFloat?, iconSizeEm = false, gap: CGFloat?, gapEm = false
     package var borderWidth: CGFloat = 0, border: [Double]?
     package var radius: CGFloat?
     package var ring: CGFloat = 0, ringInk: [Double]?, ringOffset: CGFloat = 0

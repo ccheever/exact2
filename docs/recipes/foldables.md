@@ -4,7 +4,9 @@ A foldable (the iPhone Duo) splits its inner display at the hinge when partially
 `exactViewport()` says how, in the web's names: `devicePosture` is `"folded"`, and
 `horizontalViewportSegments` (side by side, a book) or `verticalViewportSegments` (one
 above the other, a laptop) is 2. `env(viewport-segment-<left|top|width|height> <x> <y>)`
-places a box on segment `x, y` (LLP 1078).
+places a box on segment `x, y` (LLP 1078). Every iPhone Duo runs iOS 27.1 or later, so
+native code that runs only on the Duo needs no path for earlier systems: behind
+`#available(iOS 27.1, *)` it uses iOS 27.1's APIs, such as `UIHinge`.
 
 ```contract
 shape Viewport

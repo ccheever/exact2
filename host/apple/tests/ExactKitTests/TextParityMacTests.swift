@@ -14,7 +14,8 @@ final class TextParityMacTests: XCTestCase {
         ExactMarkdown.install() // LLP 1047.001 D4: the capability this tests
     }
 
-    func testNormalLineHeightIsChromes() {
+    // A 1x display's: line boxes in whole points.
+    func testNormalLineHeightIsChromesAt1x() {
         assertChromeNormal([
             (400, 11, 13, 11), (400, 12, 15, 12), (400, 13, 16, 13), (400, 14, 17, 14), (400, 15, 18, 15),
             (400, 16, 18, 15), (400, 17, 20, 16), (400, 20, 23, 19), (400, 24, 28, 23), (400, 28, 33, 27),
@@ -22,7 +23,7 @@ final class TextParityMacTests: XCTestCase {
         ])
     }
 
-    func testAFallbackFacesLineBoxIsChromes() {
+    func testAFallbackFacesLineBoxIsChromesAt1x() {
         assertChromeFallback([
             ("สวัสดี", 13, 18, 14), ("明天", 13, 16, 13), ("नमस्ते", 13, 20, 14), ("สวัสดี", 15, 20, 16),
             ("明天", 15, 18, 15), ("नमस्ते", 15, 23, 16), ("สวัสดี", 16, 22, 17), ("明天", 16, 18, 15),
@@ -30,13 +31,91 @@ final class TextParityMacTests: XCTestCase {
         ])
     }
 
-    func testASetLineHeightCentresChromesContentArea() {
+    func testASetLineHeightCentresChromesContentAreaAt1x() {
         assertChromeExplicit([
             ("20px", 13, 20, 15), ("20px", 16, 20, 16), ("20px", 20, 20, 17), ("24px", 13, 24, 17),
             ("24px", 20, 24, 19), ("17px", 13, 17, 13), ("17px", 16, 17, 14), ("17px", 20, 17, 16),
             ("1.2", 13, 15.5938, 12), ("1.2", 16, 19.1875, 15), ("1.2", 17, 20.3906, 16), ("1.5", 13, 19.5, 14),
             ("1.5", 17, 25.5, 18), ("25.3px", 13, 25.2969, 17), ("25.3px", 17, 25.2969, 18), ("25.3px", 20, 25.2969, 20),
         ])
+    }
+
+    // A Retina display's (LLP 1008 §3): the same texts in Chrome 156 at
+    // device scale 2, each face's ascent and descent and each half-leading
+    // rounded in half points.
+    func testNormalLineHeightIsChromesAt2x() {
+        assertChromeNormal([
+            (400, 11, 13, 10.5), (400, 12, 14, 11.5), (400, 13, 15, 12.5), (400, 14, 16.5, 13.5), (400, 15, 17.5, 14.5),
+            (400, 16, 19, 15.5), (400, 17, 20, 16.5), (400, 20, 23.5, 19.5), (400, 24, 28, 23), (400, 28, 33, 27),
+            (400, 34, 40, 33), (600, 13, 15, 12.5), (600, 15, 17.5, 14.5), (600, 16, 19, 15.5), (600, 17, 20, 16.5),
+        ], scale: 2)
+    }
+
+    func testAFallbackFacesLineBoxIsChromesAt2x() {
+        assertChromeFallback([
+            ("สวัสดี", 13, 18, 14.5), ("明天", 13, 15, 12.5), ("नमस्ते", 13, 20, 14), ("สวัสดี", 15, 20.5, 16.5),
+            ("明天", 15, 17.5, 14.5), ("नमस्ते", 15, 23, 16), ("สวัสดี", 16, 22, 18), ("明天", 16, 19, 15.5),
+            ("नमस्ते", 16, 24.5, 17.5), ("สวัสดี", 21, 29, 23), ("明天", 21, 25, 20.5), ("नमस्ते", 21, 32, 22.5),
+        ], scale: 2)
+    }
+
+    func testASetLineHeightCentresChromesContentAreaAt2x() {
+        assertChromeExplicit([
+            ("20px", 13, 20, 15), ("20px", 16, 20, 16), ("20px", 20, 20, 17.5), ("24px", 13, 24, 17),
+            ("24px", 20, 24, 19.5), ("17px", 13, 17, 13.5), ("17px", 16, 17, 14.5), ("17px", 20, 17, 16),
+            ("1.2", 13, 15.5938, 12.5), ("1.2", 16, 19.1953, 15.5), ("1.2", 17, 20.3984, 16.5), ("1.5", 13, 19.5, 14.5),
+            ("1.5", 17, 25.5, 19), ("25.3px", 13, 25.2969, 17.5), ("25.3px", 17, 25.2969, 19), ("25.3px", 20, 25.2969, 20),
+            ("16px", 12, 16, 12.5), ("1.5", 14, 21, 15.5), ("28px", 18, 28, 20.5), ("28px", 20, 28, 21.5),
+            ("20px", 14, 20, 15), ("24px", 16, 24, 18),
+        ], scale: 2)
+    }
+
+    /// A paragraph measured at one scale is not the answer at another: the
+    /// engine drops what it measured when its scale changes.
+    func testALineScaleChangeMeasuresAgain() {
+        let engine = chromeEngine(scale: 1)
+        XCTAssertEqual(paragraph(engine, "Hxg", size: 14).height, 17)
+        XCTAssertTrue(engine.setLineScale(2))
+        XCTAssertFalse(engine.setLineScale(2))
+        let p = paragraph(engine, "Hxg", size: 14)
+        XCTAssertEqual(p.height, 16.5)
+        XCTAssertEqual(p.lineScale, 2)
+        XCTAssertTrue(engine.setLineScale(1))
+        XCTAssertEqual(paragraph(engine, "Hxg", size: 14).height, 17)
+    }
+
+    /// The Mac paints a baseline on the device pixels its line box was
+    /// rounded to: half points at 2x, whole points where text is laid out at 1.
+    func testABaselinePaintsOnItsLineBoxsPixels() {
+        XCTAssertEqual(TextEngine.paintedBaseline(13.5, scale: 2, lineScale: 2), 13.5)
+        XCTAssertEqual(TextEngine.paintedBaseline(33.75, scale: 2, lineScale: 2), 34)
+        XCTAssertEqual(TextEngine.paintedBaseline(33.5, scale: 2, lineScale: 1), 34)
+        XCTAssertEqual(TextEngine.paintedBaseline(13.5, scale: 1, lineScale: 2), 14)
+    }
+
+    /// A layer-backed view paints a 2x paragraph's baseline on its half
+    /// point: AppKit keeps the backing scale out of the context's CTM.
+    func testALayerBackedViewPaintsAHalfPointBaselineAt2x() throws {
+        final class Paper: NSView {
+            var seen: [CGFloat] = []
+            override var isFlipped: Bool { true }
+            override func draw(_ dirtyRect: NSRect) {
+                let ctx = NSGraphicsContext.current!.cgContext
+                seen.append(TextEngine.paintedBaseline(12.5, scale: TextEngine.deviceScale(ctx), lineScale: 2))
+            }
+        }
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        guard window.backingScaleFactor == 2 else { throw XCTSkip("needs a 2x display") }
+        let view = Paper(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        view.wantsLayer = true
+        window.contentView = view
+        view.layer?.setNeedsDisplay()
+        view.layer?.displayIfNeeded()
+        XCTAssertFalse(view.seen.isEmpty)
+        XCTAssertEqual(view.seen, view.seen.map { _ in 12.5 })
     }
 
     func testIntrinsicWidthsAreChromes() { assertChromeWidths() }

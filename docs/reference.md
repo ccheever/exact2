@@ -1037,11 +1037,14 @@ answer has given its value) throws, and an answer that gives its value, fails
 or is let go clears the rest, whose callbacks never run. At build each timer
 fires at once, so a source that waits still bakes.
 
-Natively, and in the web's wasm target, an answer waits on one thing at a
-time, and a fetch it awaits goes first: a timer raced against that fetch
-(`Promise.race`, or a `setTimeout` that calls `abort()`) runs only after the
-fetch lands, so it cannot cut the fetch short, and the journal says so once
-per answer. On the web JS target, whose answers run in the page, both work.
+A timer raced against a fetch its answer awaits (`Promise.race`, or a
+`setTimeout` that calls `abort()`) runs on time, a module's call included:
+natively the fetch then runs on as module work, its late reply delivered
+with no answer awaiting it, and an aborted one is cancelled. In a
+worker-placed source, an ordered set's member and the web's wasm target, an
+answer waits on one thing at a time: the fetch goes first and the timer runs
+only after it lands (LLP 1027.000 D1, amended 2026-11-04); the journal says
+so once per answer, except for a set's member on the main thread.
 For a deadline on every host, give the fetch `exactTimeout`: the host keeps
 it on real time, not the app's clock. `AbortSignal.timeout(ms)` is one too:
 on every host a fetch carrying it takes its time left as a real-time
@@ -2125,7 +2128,8 @@ for (const name of await storage.fs.readdir(folder)) {
 | `mkdir` | `fs.write doc:/` | Makes the folders above it too |
 | `rm` | `fs.write doc:/` | One file or one empty folder beneath the chosen document; never the document itself, never a tree |
 | `copyFile(from, to)`, `from` a `doc:` file, `to` an `app:/` path | `fs.read` covering `from`, `fs.write` covering `to` | The host copies the bytes; they never enter JavaScript, so a file past `readFile`'s 16 MiB result copies too. A regular file only, with `readFile`'s refusals |
-| `rename`, `realpath`, and `copyFile` to a `doc:` path | — | Refused (`'failed'`): read the bytes and write them |
+| `realpath` | `fs.read doc:/` | The chosen item's native absolute path on macOS, Linux and Windows, for a program the app hands it to; `NotSupportedError` (`'failed'`) on the web, iOS and Android. A removed item is refused `'ENOENT'` |
+| `rename`, and `copyFile` to a `doc:` path | — | Refused (`'failed'`): read the bytes and write them |
 
 A path never minted, `.`/`..`, and a closed window's or page's handle are
 refused. Native folder handles retain the selected directory even if its

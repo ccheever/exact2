@@ -65,6 +65,16 @@ extension NodeView {
         #endif
     }
 
+    /// Clips `ctx` to the content edge's curve, where CSS trims a replaced
+    /// element's content (CSS Backgrounds 3 §5.3, "Corner Clipping"): each
+    /// radius less the border and padding beside it, so a bordered rounded
+    /// image sits inside its border's inner curve.
+    func clipToContentEdge(_ ctx: CGContext, _ content: CGRect) {
+        let radii = BorderPaint.contentRadii(cornerSizes(in: layoutBounds), outer: layoutBounds, inner: content)
+        ctx.addPath(BorderPaint.roundedRect(content, radii, shape: CornerShape(style["corner_shape"])))
+        ctx.clip()
+    }
+
     /// Places what draws in the content box at it, as a video is
     /// (`VideoModule.layout`): an `svg`'s scene, or a 2D canvas's bitmap,
     /// clipped to the content edge's curve as the web clips replaced content

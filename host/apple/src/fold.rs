@@ -222,6 +222,16 @@ impl<D: exact_runner::DataSource> crate::Host<D> {
         let fonts = self.runner.kernel().env().button_fonts;
         self.measuring_traits_changed(Some((styles, fonts)))
     }
+    /// The text engine's line boxes round to another scale (LLP 1008 §3):
+    /// every paragraph is measured again, and the auto heights running
+    /// transitions target with them.
+    pub(crate) fn text_scale_changed(&mut self) -> String {
+        self.height_targets_dirty = true;
+        self.runner.kernel_mut().remeasure_text();
+        let mut batch = Batch::new();
+        let error = self.layout(&mut batch).err();
+        self.finish(batch, error)
+    }
     /// The traits text and symbols are measured under changed (a scale, a
     /// content size, legibility, an appearance), with the control fonts they
     /// give when the host has them: everything is laid out again whether or

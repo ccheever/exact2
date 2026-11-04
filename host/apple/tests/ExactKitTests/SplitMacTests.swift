@@ -129,7 +129,14 @@ final class SplitMacTests: XCTestCase {
     private func node(_ testId: String) throws -> NodeView {
         try XCTUnwrap(session?.presenter.views.values.first { $0.props["testId"] == testId }, testId)
     }
-    private func has(_ testId: String) -> Bool { session?.presenter.views.values.contains { $0.props["testId"] == testId } == true }
+    /// The node `testId` names, nil while there is none (`node`'s XCTUnwrap would record a failure)
+    private func view(_ testId: String) -> NodeView? { session?.presenter.views.values.first { $0.props["testId"] == testId } }
+    private func has(_ testId: String) -> Bool { view(testId) != nil }
+    /// Pumps the presenter's settle and the session's fill, a turn at a time, until `done`
+    private func settle(_ what: String, until done: () -> Bool) {
+        guard let session else { return XCTFail("\(what): no session") }
+        waitFor(what) { session.presenter.settlePump(); session.drainFill(); return done() }
+    }
     private func press(_ testId: String) throws {
         let session = try XCTUnwrap(self.session)
         session.presenter.press(try node(testId).id)
@@ -156,6 +163,21 @@ final class SplitMacTests: XCTestCase {
         window.layoutIfNeeded()
     }
     private func items(_ window: NSWindow) -> [String] { window.toolbar?.items.map(\.itemIdentifier.rawValue) ?? [] }
+
+    /// The empty detail's words are AppKit's in each of its localizations
+    /// (read here from its table, which shipped code does not read), in the
+    /// app's language rather than the person's.
+    func testNoSelectionIsAppKitsWordsInTheAppsLanguage() throws {
+        XCTAssertEqual(SplitDetail.noSelection(in: ["en"]), "No Selection")
+        XCTAssertEqual(SplitDetail.noSelection(in: ["ko"]), "선택된 항목 없음")
+        XCTAssertEqual(SplitDetail.noSelection(in: ["zh-Hant-HK"]), "沒有選取項目")
+        XCTAssertEqual(SplitDetail.noSelection(in: ["xx"]), "No Selection")
+        let table = try XCTUnwrap(Bundle(for: NSApplication.self).url(forResource: "Placeholders", withExtension: "loctable"))
+        let appKit = try XCTUnwrap(PropertyListSerialization.propertyList(from: Data(contentsOf: table), format: nil) as? [String: Any])
+        for (language, words) in SplitDetail.noSelectionWords {
+            XCTAssertEqual((appKit[language] as? [String: String])?["No Selection"], words, language)
+        }
+    }
 
     func testTheRunnerReadsFramesAndHitsInTheDetailPanesSpace() throws {
         let source = app(tabs: false)
@@ -876,17 +898,13 @@ final class SplitMacTests: XCTestCase {
             window.orderFrontRegardless()
             let p = session.presenter
             p.menus.painted = painted
-            func settle() { for _ in 0..<20 { p.settlePump(); session.drainFill(); RunLoop.main.run(until: Date().addingTimeInterval(0.02)) } }
             try press("row-a")
-            settle()
+            settle("the book is in the detail pane") { view("route-book-a").map { p.navigation.split.holds($0) } == true }
             window.layoutIfNeeded()
             let pop = try node("bookpop"), opener = try node("pop-open")
-            XCTAssertTrue(p.navigation.split.holds(try node("route-book-a")), "the book is in the detail pane")
             XCTAssertFalse(opener.isDescendant(of: p.root), "its invoker is under no page root")
             try press("pop-open")
-            let end = Date().addingTimeInterval(3)
-            while !p.menus.isOpen(pop), Date() < end { settle() }
-            XCTAssertTrue(p.menus.isOpen(pop), painted ? "painted" : "AppKit's popover")
+            settle(painted ? "the painted popover opens" : "AppKit's popover opens") { p.menus.isOpen(pop) }
             if !painted { XCTAssertEqual(p.menus.windowed.count, 1) }
             if painted {
                 // In the pane's own layer, beside its invoker: not clamped into the list.
@@ -908,14 +926,12 @@ final class SplitMacTests: XCTestCase {
                 // Open again, then the split ends (the driver's own chrome): the
                 // route goes back into the page, and the open popover's layer with it.
                 try press("pop-open")
-                let again = Date().addingTimeInterval(3)
-                while !p.menus.isOpen(pop), Date() < again { settle() }
+                settle("it opens again") { p.menus.isOpen(pop) }
                 XCTAssertTrue(pop.isDescendant(of: pane))
                 // And one opened after it with no invoker (`showPopover`), in the page's layer.
                 let later = try node("listpop")
                 p.menus.action("showPopover", ["listpop"])
-                let opened = Date().addingTimeInterval(3)
-                while !p.menus.isOpen(later), Date() < opened { settle() }
+                settle("the one with no invoker opens") { p.menus.isOpen(later) }
                 // A depth from the pane's own ranking must not travel with the
                 // layer: a box ranked there that stays when the split ends (as a
                 // retained route of another stack would) gives the pane's layers
@@ -926,10 +942,10 @@ final class SplitMacTests: XCTestCase {
                 retained.setRank(2)
                 XCTAssertGreaterThan(paneLayer.layer?.zPosition ?? 0, 0.0015, "deeper by the pane's own ranking")
                 p.navigation.split.painted = true
-                settle()
-                XCTAssertFalse(p.navigation.split.active, "no split")
+                settle("the split ends, the popover's layer follows the route into the page, and the regions are told") {
+                    !p.navigation.split.active && pop.isDescendant(of: p.viewport) && p.regionsUntold.isEmpty
+                }
                 XCTAssertTrue(p.menus.isOpen(pop) && p.menus.isOpen(later))
-                XCTAssertTrue(pop.isDescendant(of: p.viewport), "its layer follows the route into the page")
                 let layers = p.viewport.subviews
                 let (first, second) = (layers.firstIndex { pop.isDescendant(of: $0) }, layers.firstIndex { later.isDescendant(of: $0) })
                 XCTAssertLessThan(try XCTUnwrap(first), try XCTUnwrap(second), "under the one opened after it")
@@ -958,21 +974,17 @@ final class SplitMacTests: XCTestCase {
         window.orderFrontRegardless()
         let p = session.presenter
         p.menus.painted = true
-        func settle() { for _ in 0..<20 { p.settlePump(); session.drainFill(); RunLoop.main.run(until: Date().addingTimeInterval(0.02)) } }
         try press("row-a")
-        settle()
+        settle("the book is in the detail pane") { view("pane-pop-open").map { p.navigation.split.pane(holding: $0) != nil } == true }
         let pop = try node("panepop")
         try press("pane-pop-open")
-        let end = Date().addingTimeInterval(3)
-        while !p.menus.isOpen(pop), Date() < end { settle() }
+        settle("the popover opens") { p.menus.isOpen(pop) }
         let pane = try XCTUnwrap(p.navigation.split.pane(holding: try node("pane-pop-open")))
         let layer = try XCTUnwrap(pop.superview)
         XCTAssertTrue(layer.superview === pane)
         try press("notes-a")
-        settle()
-        XCTAssertTrue(has("route-notes"), "notes pushed into the pane")
+        settle("notes pushed into the pane, under the popover's layer, and the regions are told") { has("route-notes") && pane.subviews.last === layer && p.regionsUntold.isEmpty }
         XCTAssertTrue(p.menus.isOpen(pop), "a manual popover stays open")
-        XCTAssertTrue(pane.subviews.last === layer, "the layer is back on top of the pane")
         let inside = try node("in-pop")
         let point = inside.convert(NSPoint(x: inside.bounds.midX, y: inside.bounds.midY), to: nil)
         let hit = try XCTUnwrap(window.contentView?.hitTest(window.contentView!.convert(point, from: nil)))

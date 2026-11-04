@@ -127,14 +127,14 @@ test "the viewer draws the transcript's own picture under the full one, so it is
   request POST "/control/hold-media" {"on": true}
   tap "open-1562867046130132736-1562867046130322582"
   clock settle
-  clock +1000 real
+  // Wait until the fixture holds the viewer's full-size request, so the picture cannot have loaded
+  request POST "/control/held-media" {"path": "/media/harbor.png"}
   expect tree has "viewer-thumb"
   expect tree has "viewer-image"
   expect state viewingLoaded == false
   // Once the full picture loads the thumbnail goes, so a translucent picture never shows its thumbnail through.
   request POST "/control/hold-media" {"on": false}
-  clock +3000 real
-  expect state viewingLoaded == true
+  clock until state viewingLoaded == true within 10000
   expect tree missing "viewer-thumb"
   expect tree has "viewer-image"
   tap "viewer-close"

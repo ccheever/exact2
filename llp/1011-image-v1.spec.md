@@ -5,7 +5,7 @@
 **Systems:** Kernel (measured leaves, intrinsic size, aspect ratio; Taffy patch 5), Contract (`image` tag), Web host, Apple host (C ABI: `exact_intrinsic`), Build (assets)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Revised:** 2026-10-25 (remote sources on Linux, Windows and Android, §2); 2026-10-21 (on the web, a symbol over or under its button's title overhangs only toward it, the image padding from it, and a written height there keeps no padding, §3); 2026-10-20 (on the web, a symbol for an SF Symbol is SF's size, §3); 2026-10-06 (`load`/`error` on the web, macOS and iOS; the remote fetch policy, as built — #121); 2026-09-26 (raster-image `tint-color` on Apple and web); 2026-09-11 (scaled-image scrollable extent and replaced grid sizing; LLP 1035.004 symbol sources, native leaves, tint, units and verification; earlier r2 image decisions retained)
+**Revised:** 2026-11-04 (a body that comes with a status that is not 2xx is drawn when it is an image, as HTML's "update the image data" ignores the status, so Google's favicon service's default icon, a 404, shows; one that is not an image fails as its status, §2); 2026-10-25 (remote sources on Linux, Windows and Android, §2); 2026-10-21 (on the web, a symbol over or under its button's title overhangs only toward it, the image padding from it, and a written height there keeps no padding, §3); 2026-10-20 (on the web, a symbol for an SF Symbol is SF's size, §3); 2026-10-06 (`load`/`error` on the web, macOS and iOS; the remote fetch policy, as built — #121); 2026-09-26 (raster-image `tint-color` on Apple and web); 2026-09-11 (scaled-image scrollable extent and replaced grid sizing; LLP 1035.004 symbol sources, native leaves, tint, units and verification; earlier r2 image decisions retained)
 **Implementer:** Claude (Fable 5), image landing 2026-08-29; Codex, symbol integration 2026-09-10 and replaced-content extent 2026-09-11; Claude (Opus 5.5), the web's symbol size 2026-10-20 and the Linux host's remote fetch 2026-10-25
 **Related:** LLP 1001 §1 (the `Image` replaced-element rule and its declared block-flow deviation), §6 (measured leaves), LLP 1007 (the web host: `<img>`), LLP 1008 §5 (the Apple presenter: loading, `object-fit`), LLP 1010 (the sibling spec whose shape this follows), `vendor/taffy/EXACT-PATCHES.md` patch 5, `rules/RULES.md` §The web is the standard
 
@@ -311,9 +311,14 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   `appTransportSecurity` sets `allowsArbitraryLoads` (LLP 1030), which turns
   ATS off, a cleartext `http:` source or redirect to a non-local host is
   ATS's to refuse, and that refusal is the `error` (neither driven here; the
-  repro used `127.0.0.1`). Any 2xx response
-  is taken whatever its `Content-Type` (ImageIO reads the bytes); any other status is
-  the `error` `HTTP <status>`. The body is capped at
+  repro used `127.0.0.1`). A response's body
+  is taken whatever its `Content-Type` (ImageIO reads the bytes) and whatever its
+  status: HTML's "update the image data" ignores whether the status was ok, so that
+  a server can answer with an image and an error status and have it shown (Google's
+  favicon service answers a site with no icon with its default icon and a 404). A
+  body with a status that is not 2xx whose header does not read as an image, or an
+  empty one, is the `error` `HTTP <status>`, asked again as that status says
+  ("Retries"), and only a 2xx is stored in the HTTP cache. The body is capped at
   `RasterMetadata.encodedLimit` (64 MiB) from `Content-Length` and again as
   it streams; the request times out at 15 s and the whole load at 30 s. The
   body spools to a temporary file read once for its header (256 KiB) and
@@ -344,9 +349,10 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   prefers PNG and SVG, which Linux and Windows decode, though a server may
   still send another format. Redirects are followed here, up to twenty, to
   `http:` or `https:` only; cleartext `http:` loads, as no ATS stands in
-  front of it. Any 2xx is taken whatever its `Content-Type`; any other
-  status fails as `HTTP <status>`, whatever length it declares. A 2xx body
-  is capped at 64 MiB by its `Content-Length` and as it streams. A load
+  front of it. A body is taken whatever its `Content-Type` and its status, as
+  Apple's is; one with a status that is not 2xx that is not an image this
+  host decodes, or is empty or over the cap, fails as `HTTP <status>` and is
+  not kept. A body is capped at 64 MiB by its `Content-Length` and as it streams. A load
   fails after 15 s without a response or a read, or 30 s from when it was
   asked for (the wait for a thread and redirects included); the timeout
   settles it whatever its thread is blocked in, though a DNS lookup holds
@@ -481,8 +487,9 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   content box, `contain` and `cover` scale by the smaller/larger ratio,
   `none` is the natural size, `scale-down` the smaller of `none` and
   `contain`, and any other value is the initial `fill`; centered, clipped
-  to the content box and to the border box's rounded path (`border_radius`
-  clips the picture as on the web).
+  to the content edge's curve, each `border_radius` less the border and
+  padding beside it, as the web trims replaced content (CSS Backgrounds 3
+  §5.3): a bordered rounded picture ends at the border's inner curve.
 - **Accessibility:** the label becomes the view's accessibility label;
   `hint`/`role`/`headingLevel` are not applied to images (nor to any node
   yet) — declared in §6.

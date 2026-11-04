@@ -62,6 +62,8 @@ test('a chosen file is handed to the app store as its File, under both grants', 
     expect(await Promise.all([code(fs.copyFile(`${doc}/a.png`, `${doc}/copy.png`)), code(fs.copyFile('app:/data/a.png', `${doc}/copy.png`)), code(fs.rename(`${doc}/a.png`, 'app:/data/a.png'))]))
       .toEqual(['Unavailable failed', 'Unavailable failed', 'Unavailable failed']);
     expect(await code(fs.readFile(`${doc}/copy.png`))).toBe('Unavailable ENOENT');
+    // A page has no native path: `realpath` is refused, naming why.
+    await expect(fs.realpath(`${doc}/a.png`)).rejects.toThrow(/^NotSupportedError: realpath: /);
   } finally { delete globalThis.exact; }
 });
 
@@ -105,8 +107,12 @@ chromeTest('a chosen file copied into app:/data reads back from the page store',
     const { cdp } = suite, { sessionId } = await suite.page();
     const call = (method, params = {}) => cdp.send(method, params, sessionId);
     await call('Page.enable');
+    // Wait for the page's load, since Page.navigate answers before its navigation commits and the expression must run in the page
+    let listener;
+    const loaded = new Promise((r) => cdp.listeners.push(listener = (msg) => { if (msg.sessionId === sessionId && msg.method === 'Page.loadEventFired') r(); }));
     await call('Page.navigate', { url: page.url.href });
-    await new Promise((r) => setTimeout(r, 200));
+    await loaded;
+    cdp.listeners.splice(cdp.listeners.indexOf(listener), 1);
     const expression = `(async () => {
       globalThis.exact = {};
       await import('/documents-glue.js');

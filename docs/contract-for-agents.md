@@ -92,7 +92,13 @@ In an app made by `exact new`, run its own `exact.mjs` from the app's directory.
 `bun exact.mjs update` regenerates that file, so the app's own verbs go in
 `app.json`'s `commands` (`"seed": ["bun", "seed.mjs"]` is `bun exact.mjs seed
 web`, run in the app's directory), which it reads and update leaves alone.
-Its `contract` verb is exact2's compiler, with paths relative to where you run it:
+A command that prepares files a build reads but the app's repository does not
+hold, such as a script that fetches photos into a folder Git ignores, goes in
+`app.json`'s `before_build` (`["bun", "scripts/fetch.mjs"]`, where `bun` is
+the Bun that runs `exact.mjs`, so it runs on every host): each verb that
+builds, runs, compiles or checks the app runs it first in the app's
+directory, and stops if it fails. Make it finish at once when the files are there.
+`exact.mjs`'s `contract` verb is exact2's compiler, with paths relative to where you run it:
 
 ```sh
 bun exact.mjs contract types app.contract -o app.contract.d.ts   # what app.ts imports
@@ -1885,8 +1891,9 @@ a 5xx, 408 or 429, an empty body) is asked again while the picture is on screen,
 and never sooner than `Retry-After`, so its `error` comes once those are spent (about a minute of
 waits, plus the downloads and any `Retry-After`), and one that fails off screen errs only after it has shown ([LLP 1011](../llp/1011-image-v1.spec.md) §4). A symbol fires neither. What each host's fetch of an `http(s)` source
 sends, follows and accepts is LLP 1011's: macOS and iOS send no cookie and no
-`Referer`, follow redirects to any host (within App Transport Security), take any
-2xx body up to 64 MiB whatever its `Content-Type`, and keep an HTTP cache on disk;
+`Referer`, follow redirects to any host (within App Transport Security), take a
+body up to 64 MiB whatever its `Content-Type` and its status, as a browser's `<img>` does
+(a 404 that is an image draws; one that is not is `HTTP 404`), and keep an HTTP cache on disk;
 the web is the browser's `<img>` (its cookies and `Referer` rules, no size cap). SVG
 draws on the web only; on Apple it is an `error`. A tinted remote image on the web
 needs CORS headers, or it is an `error` too. A drive sees both after `clock +<ms>
@@ -2233,8 +2240,9 @@ accessible name when the drawn label is not what a screen reader should say,
 ([inline atoms](contract-grammar.md#inline-atoms-atom-atoms-atomfaces-atompress)).
 Unsaid, a pill is the platform's token; when the design draws its chips another
 way, write that on the `atom` as CSS (`padding-inline`, `border`,
-`border-radius`, a ring in a `:checked` block, an underline in a `:hover`
-block) and leave the rest to the platform.
+`border-radius`, an icon's size and the gap after it with `-exact-icon-size` and
+`gap`, a ring in a `:checked` block, an underline in a `:hover` block) and leave
+the rest to the platform.
 Keep them out of your own rules over `setSelectionRange` and `beforeinput`: the
 editor keeps a caret out of an atom and deletes it whole. An editor where
 Arabic or Hebrew lines sit beside English ones gives each line its base
@@ -2249,12 +2257,19 @@ button's fill, a toggle's on state, the icon of a tappable row. Write it as
 grey behind an alert or a sheet to say the screen under it is inert. **A
 colour of its own is for what means something by itself**: status
 (`-exact-system-green`, `-exact-system-red`), text hierarchy (`-exact-label`,
-`-exact-secondary-label`), data, and marks. A colour of its own never dims; on
-iOS the tint does where UIKit draws it, whoever set it (the root's
-`accent-color` or a node's own), as UIKit greys a view's `tintColor`:
-controls, bars, symbols drawn in the tint, and a box shadow in `AccentColor`.
-A gradient or SVG paint in `AccentColor` is resolved by Exact to the app's
-accent and does not dim. Set the app's accent once, on the root:
+`-exact-secondary-label`), data, and marks. A colour of its own never dims,
+except on a native button, which greys whole as UIKit greys a button, its
+symbol's `-exact-tint-color` too. On iOS the tint dims, whoever set it (the
+root's `accent-color` or a node's own), as UIKit greys a view's `tintColor`:
+controls, bars, text, symbols, fills, shadows and SVG paints in `AccentColor`.
+To keep the tint from dimming on a mark that must follow an accent the app
+cannot write as a value (a theme's, or one the person picks), write
+`-exact-tint-adjustment="normal"` on it or an ancestor (UIKit's
+`tintAdjustmentMode`). On a standard list row write it on the `row`, whose cell
+UIKit draws the image in; on the image it does nothing. A bar, its items and a
+tab bar keep the mode of the views UIKit holds them in, so they grey with the
+screen whatever their nodes say.
+Set the app's accent once, on the root:
 `accent-color` on the root element is the app's accent, and on iOS it is the
 window's tint, as an AccentColor asset is, so every `AccentColor`, bar, sheet
 and alert follows it. On Apple hosts only, an app may instead ship its accent

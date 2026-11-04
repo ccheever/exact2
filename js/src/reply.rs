@@ -88,7 +88,7 @@ impl Module {
                 (Some(call), Some(ticket)) => Step::Pending {
                     call,
                     ticket,
-                    due: None,
+                    due: num("timer"),
                 },
                 _ => Step::Done(Err(DataError::Unavailable(format!(
                     "`{source}` is pending on no ticket"

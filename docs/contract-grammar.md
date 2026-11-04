@@ -1468,8 +1468,11 @@ component Composer
   negative inside the pill) and `text-decoration-line` (`underline`, the
   label's), each also in a `:hover` block (the pointer over the pill) and a
   `:checked` block (the selection exactly the atom, as a press leaves it); and
-  on its own, `padding-inline` (px or em, both sides) and `border` (`1px solid
-  <colour>`, or `border-width` with `border-style="solid"`). Unsaid, each is the
+  on its own, `padding-inline` (px or em, both sides), `-exact-icon-size` (px or
+  em, the icon's side; unsaid, the cap height), `gap` (px or em, between the icon
+  and the label; unsaid, a quarter em) and `border` (`1px solid <colour>`, or
+  `border-width` with `border-style="solid"`). The icon is centred on half the cap
+  height above the baseline. Unsaid, each is the
   platform's token's. A pill keeps its line's height: its border's top and
   bottom are drawn inside it, and a ring takes no room (on Apple one that would
   reach past the pill is cut at its edge). Anything else is `lower-atom-style`.
@@ -2194,9 +2197,14 @@ replaces it. The offsets are clamped as the DOM's are (`-1` is past the end).
 On **web (JS and wasm), macOS, iOS and Linux**, `setRangeText(id, text)` replaces the
 current selection; `setRangeText(id, text, start, end[, selectionMode])`
 replaces the given UTF-16 range. `selectionMode` is `preserve` by default,
-or `select`, `start`, `end`, following HTML. It does not focus the field,
-apply `maxlength`, or create an undo step. Apple clears the edited field's
-existing undo history when its value changes. Invalid ranges, modes, unsupported
+or `select`, `start`, `end`, following HTML. It does not focus the field or
+apply `maxlength`. On macOS it is one undo step that restores the text before
+it, as on the Markdown editor, wherever the field has an editor (a textarea, or
+an input being edited); without one, or while an input method composes, the
+value is written as the app's own is. On iOS it is no undo step. Both Apple
+hosts clear the edited field's undo history when a value is written. On the web
+it is HTML's, which Chrome makes no undo step, and Linux keeps no field undo
+history. Invalid ranges, modes, unsupported
 input types and missing ids log a refusal without editing. On the Markdown
 editor (web, macOS and iOS) the offsets are the source's and each call is one
 undo step ([Markdown](#markdown-markup-format-select)); Linux refuses it there.
@@ -2615,7 +2623,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |
 | `selectText(...)` | No app fixture; the hosts' field selection, such as [`FieldSelections.swift`](../host/apple/Sources/ExactKit/FieldSelections.swift) |
 | `setSelectionRange(id, start, end[, direction])`: a text field's or text's selection, by its `id` ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [radios conformance](../host/web-js/conformance/radios.contract), [control tests](../contract/cli/tests/it/controls.rs) |
-| `setRangeText(id, text[, start, end[, selectionMode]])`: a field's range replacement, one `input`, preserve selection by default; no undo step on a plain field, one on the Markdown editor ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [Chrome comparison](../host/web/tests/field-range.test.mjs) |
+| `setRangeText(id, text[, start, end[, selectionMode]])`: a field's range replacement, one `input`, preserve selection by default; one undo step on macOS and on the Markdown editor, none on a plain field elsewhere ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [Chrome comparison](../host/web/tests/field-range.test.mjs) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `startTrace_EXPERIMENTAL()`, `stopTrace_EXPERIMENTAL()`: experimental, so named while the trace's fields may still change; a recording of each display-link callback, from which it estimates the frames the display showed again, from an app's own control and in any build, a production one included; `stopTrace_EXPERIMENTAL()` puts the trace on the clipboard as compact JSON and in a `trace-recording-*.json` file in the app's temporary directory; `stopTrace_EXPERIMENTAL(maxBytes)` copies it cut to that many bytes (its totals and scroll segments as rows, then the frames late the longest first, as many as fit), for a conversation that limits a message (a budget too small for its totals gets a note naming the size that fits them), and still saves the whole trace. On iOS it splits each scroll a person makes of an element's scroller, a route's page or the document into its drag and its glide, with an estimate, from the display link's callbacks, of the hitch time ratio Apple's scroll metrics report; a Mac recording follows no scroller. It lists each late frame with the main thread's busy time, overrun, batches and host phases. Apple hosts (tvOS, with no clipboard, only saves the file); the web and Linux refuse it in the journal | [`TraceRecording.swift`](../host/apple/Sources/ExactKit/TraceRecording.swift) |
 | `openURL(url)`: an absolute `http`, `https`, `mailto` or `tel` URL, or one of a scheme app.json's `open_url.schemes` declares (`"open_url": {"schemes": ["vscode", "zed"]}`, an editor's deep link), opened by whatever the system registered for it; the web's JS target, macOS and iOS open declared schemes (a browser asks first) and journal one nothing could open, and under the agent journal them instead (`openURL vscode: …`). `openURL(url, id)` also says whether it opened, as Electron's `shell.openExternal` does: `change` at the element `id` names hears `opened` when the system took the URL, or `failed` when it was refused or nothing could open it (no app registered for its scheme, a host with no browser). The web hears `opened` for any URL it hands the browser, which does not say what opened it. Where the agent's drive journals an open instead, macOS answers whether an app is registered for the URL and the other hosts answer `opened` A link's `href` of a declared scheme opens on macOS and iOS, which hand followed links to `openURL`; the web writes no such `href` (its link policy keeps the four schemes). `file`, `javascript`, `data` and the other schemes that run or read content cannot be declared. Any other scheme is refused in the journal ([LLP 1133.000](../llp/1133.000-the-roster.rfc.md) §2) | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js), [`OpenURL.swift`](../host/apple/Sources/ExactKit/OpenURL.swift) |

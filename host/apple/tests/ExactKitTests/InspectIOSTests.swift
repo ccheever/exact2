@@ -244,7 +244,7 @@ final class InspectIOSTests: XCTestCase {
         // A `select` that is no object (the web pages take any but null or false) is no move, and leaves inspect on.
         let was = Inspect.selected?.id
         ExactApp.shared.inspectCommand(["kind": "inspect", "select": "up"])
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        waitForMainQueue("the turn that runs the select (`ExactApp.inspectCommand`)")
         XCTAssertTrue(Inspect.on, "a select that is no object never turns inspect mode off")
         XCTAssertEqual(Inspect.selected?.id, was)
     }

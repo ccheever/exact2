@@ -223,7 +223,7 @@ extension NodeView {
         #endif
         if isNativeTextControl {
             field.defaultTextAttributes[.kern] = number("letter_spacing")
-            field.tintColor = caretColor ?? channels("accent_color").map { TextEngine.color($0) }
+            field.tintColor = caretColor ?? ownTintColor("accent_color")
             showFocusRing(false)
         }
         layoutField()

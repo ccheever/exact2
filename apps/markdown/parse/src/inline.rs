@@ -71,6 +71,7 @@ struct Frame {
 struct Parser<'a> {
     text: &'a str,
     scan: &'a Scan<'a>,
+    html: crate::Html<'a>,
     src: &'a [u8],
     at: usize,
     runs: Vec<Run>,
@@ -97,10 +98,16 @@ struct Angle {
 /// Parse one paragraph's text into runs. `link` resolves targets beside the
 /// document. Indexes are built only when their delimiter is actually parsed;
 /// ordinary prose allocates no delimiter index.
-pub(crate) fn runs(text: &str, link: &dyn Fn(&str) -> String, scan: &Scan<'_>) -> Vec<Run> {
+pub(crate) fn runs(
+    text: &str,
+    link: &dyn Fn(&str) -> String,
+    scan: &Scan<'_>,
+    html: crate::Html<'_>,
+) -> Vec<Run> {
     let mut p = Parser {
         text,
         scan,
+        html,
         src: text.as_bytes(),
         at: 0,
         runs: Vec::new(),
@@ -250,6 +257,7 @@ impl Parser<'_> {
                         self.at += 1;
                     }
                 }
+                b'<' if self.html_image() => {}
                 b'<' if self.autolink(link) => {}
                 b'*' | b'_' if self.emphasis(c) => {}
                 b'h' if self.bare_url(link) => {}
@@ -357,6 +365,34 @@ impl Parser<'_> {
             ..Run::default()
         });
         self.at = close + 1;
+        true
+    }
+
+    /// An `<img>` or `<picture>` (LLP 1033 D9): the caller's run for each
+    /// of its images, or each one's alt text.
+    fn html_image(&mut self) -> bool {
+        let rest = &self.text[self.at..self.frame.end];
+        let links = self.html.links();
+        if !self.html.images || !crate::html::starts_image(rest, links.is_some()) {
+            return false;
+        }
+        let mut limit = rest.len().min(crate::html::MARKUP_LIMIT);
+        while !rest.is_char_boundary(limit) {
+            limit -= 1;
+        }
+        // The paragraph's end closes a picture left open.
+        let ends = limit == rest.len() && self.frame.end == self.text.len();
+        let Some(markup) = crate::html::element(&rest[..limit], self.html.schemes, links, ends)
+        else {
+            return false;
+        };
+        for image in markup.images {
+            match self.html.inline {
+                Some(run) => self.push(run(image)),
+                None => self.pending.push_str(&image.alt),
+            }
+        }
+        self.at += markup.len;
         true
     }
 

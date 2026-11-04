@@ -100,5 +100,27 @@ final class AgentAppearanceMacTests: XCTestCase {
         _ = Agent.launchAppearance()
         XCTAssertEqual(NSApp.appearance?.name, .darkAqua, "an app's own appearance stays")
     }
+
+    /// Off the agent, the system appearance is the application's effective
+    /// one while the app sets none, and the last one read beneath an
+    /// appearance it sets (`setScheme`); a session hears each change of
+    /// the effective appearance.
+    func testTheSystemAppearanceIsTheApplicationsBeneathItsOwn() {
+        Agent.systemAppearance = nil
+        NSApp.appearance = nil
+        let system = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        XCTAssertEqual(DisplayPreferences.systemDark, system)
+        var heard = 0
+        let tokens = DisplayPreferences.observe { heard += 1 }
+        NSApp.appearance = NSAppearance(named: system ? .aqua : .darkAqua)
+        XCTAssertGreaterThan(heard, 0, "a change of the effective appearance is heard")
+        XCTAssertEqual(DisplayPreferences.systemDark, system, "the app's own appearance is not the system's")
+        NSApp.appearance = nil
+        XCTAssertEqual(DisplayPreferences.systemDark, system)
+        DisplayPreferences.forget(tokens)
+        let after = heard
+        NSApp.appearance = NSAppearance(named: system ? .aqua : .darkAqua)
+        XCTAssertEqual(heard, after, "a forgotten observer hears nothing")
+    }
 }
 #endif

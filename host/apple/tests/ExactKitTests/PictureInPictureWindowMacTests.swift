@@ -46,7 +46,7 @@ final class PictureInPictureWindowMacTests: XCTestCase {
 
     private func spin(_ done: () -> Bool) {
         let deadline = Date(timeIntervalSinceNow: 5)
-        while !done() && Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        while !done() && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
     }
 
     func testTheBrowsersWindowFloatsAtTheBottomRightOfTheScreen() throws {

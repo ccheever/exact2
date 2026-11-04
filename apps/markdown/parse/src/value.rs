@@ -89,6 +89,10 @@ impl Values {
             Value::Bool(b.header),
             self.runs(&b.runs),
             self.cells(b.cells.iter().map(Vec::as_slice)),
+            self.string(&b.dark),
+            Value::Number(b.width as f64),
+            Value::Number(b.height as f64),
+            self.string(&b.align),
         ])
     }
 
@@ -109,6 +113,10 @@ impl Values {
             Value::Bool(false),
             self.empty_list.clone(),
             self.cells(cells.into_iter()),
+            self.string(""),
+            Value::Number(0.0),
+            Value::Number(0.0),
+            self.string(""),
         ])
     }
 }

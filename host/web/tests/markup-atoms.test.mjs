@@ -193,6 +193,26 @@ for (const engine of engines) {
     }, { kinds, styles, faceList: [[CITE, 'A quote']] });
   }, 60000);
 
+  engineTest[engine](`${engine}: a kind's icon size and gap are its pill's icon's, centred on half the cap height`, async () => {
+    const kinds = JSON.stringify([{ name: 'citation', link: 'cite:', iconSize: '14px', gap: '0px' }]);
+    await editor(engine, `see ${CITE} now`, async (page, field) => {
+      await page.waitForFunction(() => document.querySelector('.exact-atom img')?.complete);
+      const [icon, label, cap] = await island(field).evaluate(b => {
+        // A cap-tall probe on the baseline: its top and bottom are the capitals'.
+        const probe = b.appendChild(document.createElement('span'));
+        probe.style.cssText = 'display:inline-block;width:0;height:1cap;vertical-align:baseline';
+        const range = document.createRange();
+        range.selectNodeContents(b.childNodes[1]);
+        const out = [b.querySelector('img').getBoundingClientRect(), range.getBoundingClientRect(), probe.getBoundingClientRect()].map(r => [r.left, r.right, r.top, r.bottom]);
+        probe.remove();
+        return out;
+      });
+      expect([icon[1] - icon[0], icon[3] - icon[2]]).toEqual([14, 14]);
+      expect(Math.abs(label[0] - icon[1])).toBeLessThan(0.5);
+      expect(Math.abs((icon[2] + icon[3]) / 2 - (cap[2] + cap[3]) / 2)).toBeLessThan(0.5);
+    }, { kinds, faceList: [[CITE, 'A quote', '', '', '', '', ICON]] });
+  }, 60000);
+
   engineTest[engine](`${engine}: a gated token becomes an atom when its face arrives, and a face update redraws it`, async () => {
     const source = 'hi @src/main.rs now';
     await editor(engine, source, async (page, field) => {

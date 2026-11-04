@@ -169,7 +169,8 @@ pub(crate) struct LoadEvent {
 
 /// When a picture on screen whose download failed (the network, a timeout, a
 /// 5xx) is asked for again, after each failure: six times a showing, about a
-/// minute in all, then not until it shows again (a dead URL never polls).
+/// minute in all; once a showing has spent them, its `error` is sent and it
+/// is not asked for again (a dead URL never polls).
 #[cfg(not(test))]
 pub(crate) const RETRY_AFTER: [Duration; 6] = [
     Duration::from_secs(1),

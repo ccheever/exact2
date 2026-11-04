@@ -290,7 +290,7 @@ printf '%s\\n' '{"value":"aGk="}'
       ChildProcess.prototype.on=function(event,listener){return on.call(this,event,event==='close' ? (...a)=>{listener(...a);closeFilesystemReader();} : listener);};
       await assert.rejects(get(),{code:'EXACT_FS_READER_EXITED'});
       ChildProcess.prototype.on=on;
-      await new Promise(resolve=>setTimeout(resolve,300));
+      // Check at once: a read asked again is the failed read's own, so its helper has run by now
       assert.equal(readFileSync('spawns','utf8'),'x','a closed reader is not asked again');
     `;
     const child=spawnSync(process.execPath,['--input-type=module','-e',program],{cwd:dir,encoding:'utf8',env:{...process.env,PATH:join(dir,'bin')+':'+process.env.PATH}});

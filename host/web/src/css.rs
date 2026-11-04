@@ -602,6 +602,7 @@ fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
         _ if matches!(
             id,
             StyleId::SymbolRendering
+                | StyleId::TintAdjustment
                 | StyleId::SymbolValue
                 | StyleId::SymbolEffect
                 | StyleId::ContentTransition
