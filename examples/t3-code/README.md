@@ -842,14 +842,11 @@ above.
 - A dropped or pasted file's MIME type comes from its extension, by the names macOS gives
   (`composer-attach-stage.ts`), where Chromium's `File.type` reads its own table first; a
   picked file's is the picker's.
-- A reply link that takes the focus by Tab shows no tooltip, and its ring surrounds only its last word ("plan" of "the
-  plan"); the reference rings the icon and the text and shows the URL. A picture inside a link is one Tab stop, the
-  link, and the ContextMenu key there opens the picture's menu; the reference has two stops, the link with its link
-  menu (Open in integrated browser, Open in system browser, Copy Link) and the picture with its path and media menu
-  (2026-11-04 real-input session).
-- Some raw HTML image lines and the command menu sit off by device pixels at 2×, light: in "HTML images" the line with
-  "Image unavailable · colon entity" and its image 7 lower; in "HTML image layout" the rows under the first image row 1
-  to 2 higher; the command menu's rows 4 lower and about 2 right (2026-11-04 real-input session).
+- A reply link that takes the focus by Tab is one stop and shows its URL above it, as the reference's does, but
+  AppKit's ring surrounds only the link's first node: its icon and first word ("the" of "the plan"). The reference
+  rings the icon and every word with Chromium's ring. A paragraph that holds an icon or a code chip is laid out word by
+  word (`FlowRuns`), and Exact admits `outline="none"` on text fields only (LLP 1104 D6), so the clone can neither take
+  AppKit's ring off nor draw one across the words. Admitting it on any focusable element waits on a ruling.
 - Return in the Browser's address bar lets go of the field but loads nothing: no request reached the server (0 of 2,
   with and without `http://`). The reference loads the page (2026-11-04 real-input session).
 

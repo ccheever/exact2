@@ -605,7 +605,8 @@ component FlowRuns
     else
       linkOpen("link", href, e)
   // A web link that takes a visible focus shows its URL above the whole link (the anchor's Tooltip, side top), placed by
-  // the union of its first and last runs' boxes, as the `<a>`'s getBoundingClientRect is.
+  // the union of its first and last runs' boxes, as the `<a>`'s getBoundingClientRect is: an inline box of 14px text,
+  // 16.5px tall and 3px below the top of its 22.75px line.
   action linkTip(index: number, href: string, on: bool)
     if keyboardLast or not on
       // A link that ends in an image ends in the image's own node, which has no link id: its first run places it then.
@@ -614,7 +615,7 @@ component FlowRuns
       let top = last.width > 0 ? min(first.y, last.y) : first.y
       let right = last.width > 0 ? max(first.x + first.width, last.x + last.width) : first.x + first.width
       let bottom = last.width > 0 ? max(first.y + first.height, last.y + last.height) : first.y + first.height
-      hoverTipAt(HoverTip(key=linkNode(scope, blockId, runs, index), kind="tip", text=href, lines=[], side="top", align="center", x=first.x, y=top, width=right - first.x, height=bottom - top, estimate=1.65625 * rem, wide=0, testId="markdown-link-tooltip"), "trigger", on)
+      hoverTipAt(HoverTip(key=linkNode(scope, blockId, runs, index), kind="tip", text=href, lines=[], side="top", align="center", x=first.x, y=top + 3, width=right - first.x, height=bottom - top - 6.25, estimate=1.65625 * rem, wide=0, testId="markdown-link-tooltip"), "trigger", on)
   // ChatMarkdown's selectInlineCode: word selection stops at hyphens and dots, so a double-click takes the whole code
   // span. The double-click is the span's alone, so in an answer it also starts Cite's wait, as AnswerMarkdown's would.
   action selectCode(id: string, length: number)
