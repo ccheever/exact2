@@ -48,6 +48,19 @@ describe('bounded transcript Markdown reuse', () => {
     expect(row?.activities[0]).toMatchObject({ targetId: 'child', targetLabel: 'Open subagent' });
   });
 
+  test('lifecycle rows keep the mobile divider chrome and handoff detail', () => {
+    const handoff = item('handoff', 'handoff', {
+      fromProviderInstanceIds: ['provider-a'], toProviderInstanceId: 'provider-b', status: 'completed',
+    });
+    const row = mobileThreadRows(fixture([handoff]), now)[0];
+    expect(row).toMatchObject({ kind: 'handoff', title: 'Context handoff', body: 'provider-a → provider-b' });
+    const source = appText('mobile/thread.contract');
+    expect(source).toContain('role="separator" aria-label=(row.body.length > 0 ? `${row.title}: ${row.body}` : row.title)');
+    expect(source).toContain('arrow.down.right.and.arrow.up.left');
+    expect(source).toContain('arrow.left.arrow.right');
+    expect(source).toContain('background-color=colors.borderSubtle');
+  });
+
   test('thread Markdown keeps prose and code selectable like the reference reader', () => {
     const source = appText('mobile/thread-markdown.contract');
     expect(source).toContain('text token.text user-select="text"');

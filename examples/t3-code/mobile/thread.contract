@@ -173,6 +173,15 @@ component ThreadMessage
                 text "Retry" font-size=13 line-height="17px" color=colors.primary
           if row.kind == "pending" and row.title != ""
             text row.title margin-top=3.5 font-size=13 line-height="17px" color=(row.failed ? colors.dangerForeground : colors.secondary)
+      else if row.kind == "compaction" or row.kind == "handoff"
+        row align-items="center" gap=12 padding-left=4 padding-right=4 padding-top=4 padding-bottom=4 role="separator" aria-label=(row.body.length > 0 ? `${row.title}: ${row.body}` : row.title)
+          view flex=1 min-width=8 height=1 background-color=colors.borderSubtle
+          row min-width=0 flex-shrink=1 flex-wrap="wrap" align-items="center" justify-content="center" gap=6
+            t3-symbol symbol-name=(row.kind == "handoff" ? "arrow.left.arrow.right" : "arrow.down.right.and.arrow.up.left") symbol-weight="regular" symbol-tint=(row.failed ? colors.dangerForeground : colors.iconSubtle) width=12 height=12
+            text row.title flex-shrink=0 font-size=12 line-height="16px" font-weight=500 color=(row.failed ? colors.dangerForeground : colors.muted)
+            if row.body.length > 0
+              text `· ${row.body}` min-width=0 max-width=320 line-clamp=1 text-overflow="ellipsis" opacity=0.7 font-size=12 line-height="16px" color=(row.failed ? colors.dangerForeground : colors.muted)
+          view flex=1 min-width=8 height=1 background-color=colors.borderSubtle
       else if row.kind == "assistant" or row.kind == "plan" or row.kind == "meta"
         column padding-left=3.5 padding-right=3.5
           if row.kind == "plan"
