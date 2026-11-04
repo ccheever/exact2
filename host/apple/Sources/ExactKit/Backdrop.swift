@@ -283,6 +283,7 @@ extension NodeView {
     /// The layer's backdrop blur, or none; a material (`backgroundMaterial`)
     /// takes the node's backdrop instead.
     func applyBackdrop() {
+        backdropCoverChanged() // a ring it covers goes (`Mac/BackdropCoverMac.swift`)
         guard let l = layer else { return }
         let operations = !cssVisibilityHidden && materialView == nil && props["backgroundMaterial"] == nil ? backdropOperations : []
         guard !operations.isEmpty else {

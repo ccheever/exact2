@@ -55,6 +55,7 @@ final class NativeButtonCellMac: NSButtonCell {
 final class NativeButtonMac: NSButton {
     override class var cellClass: AnyClass? { get { NativeButtonCellMac.self } set {} }
     weak var owner: NodeView?
+    override var focusRingMaskBounds: NSRect { uncovered(super.focusRingMaskBounds) }
     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
         if attribute.rawValue == "AXEnabled", owner?.ariaUnavailable == true { return false }
         return super.accessibilityAttributeValue(attribute)
