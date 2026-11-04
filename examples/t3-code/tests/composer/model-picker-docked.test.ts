@@ -45,7 +45,7 @@ describe('the docked picker', () => {
   const scope = (extra: object = {}) => ({ data: { running: false, composer: { toolbarTop: 600, effortFocusAny: 1, effortGroups: [], effortOrder: [] } },
     catalog: { providers: [], models: [], count: 1, legacyCount: 0, searching: false, firstEnabled: 0, tallest: 0, setup: [], updateRequired: [], chatgptSharing: false,
       restCount: 1, restLegacyCount: 0, twoLineCount: 0, legacyTwoLineCount: 0, restTwoLineCount: 0, restLegacyTwoLineCount: 0, legacyDefault: false, selectedIndex: 0, selectedLegacy: false },
-    viewport: { width: 1280, height: 840 }, query: '', left: 300, bottom: 260, session: 1, anchor: { id: '', top: 0, bottom: 0, left: 0 },
+    viewport: { width: 1280, height: 840 }, mediaWidth: 1280, query: '', left: 300, bottom: 260, session: 1, anchor: { id: '', top: 0, bottom: 0, left: 0 },
     modelAnchorX: 763, modelAnchorWidth: 143, modelOpenTarget: '', rem: 16, max: Math.max, min: Math.min, ...extra });
   test('one fixed height above the trigger, its footer under the row, end-aligned to the trigger and kept in the window', () => {
     const derived = picker.derives(picker.state(), scope());
@@ -123,12 +123,12 @@ describe('the composer around it', () => {
   test("stacked notices' actions line up: at least 3rem, 3.5rem under 640pt", () => {
     const row = contractComponent('src/composer/composer-controls.contract', 'NoticeRow');
     const notice = { id: 'n', action: 'su:reconnect', action2: '', dismiss: '', lines: [], usage: [], machines: [], segments: [], code: '', tip: '', redact: '', description: '', details: false };
-    const width = (viewport: number) => row.attribute('testId=`notice-actions-', 'min-width', row.state(), { notice, attached: true, stacked: false, inlineDocumentViewportWidth: viewport });
+    const width = (viewport: number) => row.attribute('testId=`notice-actions-', 'min-width', row.state(), { notice, attached: true, stacked: false, mediaWidth: viewport });
     expect([width(1280), width(600)]).toEqual(['3rem', '3.5rem']);
   });
   test("the strip's labels are 14pt under 640pt, and its glyphs keep no inline margins", () => {
     const control = contractComponent('src/composer/composer-controls.contract', 'StripControl');
-    const size = (viewport: number) => control.attribute('data-anchor=`sl:', 'font-size', control.state(), { inlineDocumentViewportWidth: viewport, over: false, open: false });
+    const size = (viewport: number) => control.attribute('data-anchor=`sl:', 'font-size', control.state(), { mediaWidth: viewport, over: false, open: false });
     expect([size(1280), size(600)]).toEqual(['0.75rem', '0.875rem']);
     const strip = contractComponent('src/composer/composer-controls.contract', 'StripControl');
     expect(() => strip.attribute('CnMachineIcon(kind=machine', 'margin-left', strip.state(), {})).toThrow();

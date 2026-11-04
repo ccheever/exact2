@@ -130,6 +130,10 @@ component T3Code
   state zoomStep = 0
   action zoomTo(step: number)
     zoomStep = step
+  // The window's width in the reference's CSS px, which its media queries compare (Tailwind's sm: md: lg:, the right
+  // panel's 980 and 760, the sidebar's 767): Electron's View zoom scales CSS px, where this one scales only the root
+  // font size. Every breakpoint reads this value, and only breakpoints do: lengths stay in points.
+  derive mediaWidth = viewport.width / zoomFactor(zoomStep)
   state codeCopyDone = 0 // #123: the copy whose check has run its time (MarkdownCodeBlock and MarkdownTable 1.2 s, CommandBlock 1.5 s); its button morphs back (MorphCopyCheck)
   state welcomeCopyDone = 0
   task codeCopyHold when data.codeCopyNonce > 0 key=data.codeCopyNonce
@@ -158,6 +162,7 @@ component T3Code
     renameHoldsKeys
     renameFocused
     inlineDocumentViewportWidth
+    mediaWidth // the window's width as the reference's media queries see it, at View's zoom
     sidebarSheetMode // the sidebar as a sheet under 768 CSS px, its open state and its setter (beside narrowDiff)
     sidebarSheetShown
     sidebarInline
@@ -405,7 +410,7 @@ component T3Code
   state usageDays = 0
   state usageBreakdown = "model"
   state usageRefresh = 0
-  resource usage = usagePage(utilityPage == "usage", usageMetric, usageDays, usageBreakdown, usageRefresh, viewport.width, sidebarInline ? sidebarWidth : 0, wallTime.epochAtZero + elapsed, data.revision) as shape UsageView
+  resource usage = usagePage(utilityPage == "usage", usageMetric, usageDays, usageBreakdown, usageRefresh, viewport.width, sidebarInline ? sidebarWidth : 0, wallTime.epochAtZero + elapsed, data.revision, mediaWidth) as shape UsageView
   resource usageShortcuts = usageKeys(data.revision) as shape UsageKey[]
   action usageMetricSet(value: string)
     usageMetric = value
@@ -957,12 +962,11 @@ component T3Code
   derive modal = connecting or projectsOpen or paletteOpen or settingsOpen or providerDialog != "" or restEditor != "" or welcome.show
   resource sidebarLaunch = sidebarLaunchWidth(viewport.width, data.revision) as shape number // threadSidebarWidth.ts (sidebar-width.ts): no stored width sizes the sidebar once at load
   derive sidebarWidth = draggedWidth == 0 and sidebarLaunch > 0 ? sidebarLaunch : min(max(max(208, data.sidebarMinWidth), draggedWidth > 0 ? draggedWidth : data.sidebarWidth), max(max(208, data.sidebarMinWidth), viewport.width - 640)) // a stored width: at least the minimum (13rem, or the brand at the Interface font size: sidebar-min-width.ts), leaving 40rem of main content
-  derive narrowDiff = viewport.width <= 980
+  derive narrowDiff = mediaWidth <= 980 // rightPanelLayout.ts RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY
   // ui/sidebar.tsx SIDEBAR_MOBILE_QUERY (max-width: 767px): under 768 CSS px the sidebar leaves the row and opens as a
   // sheet over the window, whose open state (openMobile) is its own, starts closed and outlives a wider window in
-  // between. The reference's View zoom scales its CSS px, so the window counts at the zoom: one Zoom In at the 840pt
-  // minimum width is under the breakpoint.
-  derive sidebarSheetMode = viewport.width < 768 * zoomFactor(zoomStep)
+  // between. One Zoom In at the 840pt minimum width is under the breakpoint.
+  derive sidebarSheetMode = mediaWidth < 768
   state sidebarSheetOpen = false
   derive sidebarSheetShown = sidebarSheetMode and sidebarSheetOpen
   derive sidebarInline = data.sidebarOpen and not sidebarSheetMode
@@ -970,7 +974,7 @@ component T3Code
   action sidebarSheetSet(open: bool)
     sidebarSheetOpen = open
   state diffUserWidth = 540
-  derive diffWidth = narrowDiff ? (viewport.width <= 760 ? min(viewport.width * 0.88, 384) : min(448, max(320, viewport.width * 0.42))) : max(360, min(diffUserWidth, min(floor(viewport.width * 0.7), viewport.width - (sidebarInline ? sidebarWidth : 0) - 360)))
+  derive diffWidth = narrowDiff ? (mediaWidth <= 760 ? min(viewport.width * 0.88, 384) : min(448, max(320, viewport.width * 0.42))) : max(360, min(diffUserWidth, min(floor(viewport.width * 0.7), viewport.width - (sidebarInline ? sidebarWidth : 0) - 360)))
   action resizeDiff(dx: number, dy: number)
     diffUserWidth = max(360, min(diffWidth - dx, min(floor(viewport.width * 0.7), viewport.width - (sidebarInline ? sidebarWidth : 0) - 360)))
   action finishDiffResize(vx: number, vy: number)

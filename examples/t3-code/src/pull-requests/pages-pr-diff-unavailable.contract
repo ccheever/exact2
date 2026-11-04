@@ -10,6 +10,7 @@ fn pduInk(): string = "light-dark(#18181b, #f5f5f5)"
 
 component PrdDiffUnavailable
   inject
+    mediaWidth: number // the window's width as the reference's media queries see it (app.contract)
     linkOpen: action
   props
     error: string
@@ -31,8 +32,8 @@ component PrdDiffUnavailable
   action hoverDetails(value: bool)
     overDetails = value
   view
-    // Empty size="compact" className="min-h-full": min-h-64, gap-4, md:p-10, centred.
-    column flex=1 width="100%" min-height="16rem" padding="2.5rem" box-sizing="border-box" align-items="center" justify-content="center" gap="1rem" text-align="center" text-wrap="balance" role="status" testId="pull-request-code-unavailable"
+    // Empty size="compact" className="min-h-full": min-h-64, gap-4, p-6 md:p-10, centred.
+    column flex=1 width="100%" min-height="16rem" padding=(mediaWidth >= 768 ? "2.5rem" : "1.5rem") box-sizing="border-box" align-items="center" justify-content="center" gap="1rem" text-align="center" text-wrap="balance" role="status" testId="pull-request-code-unavailable"
       box width="2.75rem" height="2.75rem" flex-shrink=0 border-radius="624.9375rem" background-color="light-dark(#fe9a0014, #fe9a0029)" display="flex" align-items="center" justify-content="center"
         PgIcon(name="triangle-alert", size=20, color="#fe9a00")
       column max-width="24rem" align-items="center"
