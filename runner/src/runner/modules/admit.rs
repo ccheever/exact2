@@ -569,6 +569,16 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
+    /// Request `to` takes request `from`'s place: its origin, invocation and
+    /// causes.
+    pub(in crate::runner) fn pass_on(&mut self, from: u64, to: u64) {
+        self.restamp(from, to);
+        let o = &mut self.extensions.origins;
+        if let Some(causes) = o.ticket_causes.remove(&from) {
+            o.ticket_causes.insert(to, causes);
+        }
+    }
+
     /// Forget the origins of requests no longer in flight.
     pub(in crate::runner) fn prune_origins(&mut self) {
         let pending = &self.pending;

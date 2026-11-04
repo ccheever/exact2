@@ -14,7 +14,16 @@
 //! jump waits for that reply before it goes on, as it does for a task's
 //! request. One whose answer is let go meanwhile is dropped, and its source
 //! told so ([`DataSource::discard`]) when it never went out.
-use super::super::{DataSource, Dispatch, RequestOut, Runner};
+//!
+//! An answer that awaits its own request (a fetch, a module's call) with a
+//! timer of its own armed hands that request out carrying the timer's time
+//! (`wake_ms`, and no continuation). It is I/O, so the clocks wait on it as
+//! on any request; but if an advance reaches that time before its reply,
+//! the request runs on as module work (LLP 1146 D2), its reply delivered in
+//! a module turn, and the answer's continuation goes out in its place,
+//! landing as a released wait does ([`DataSource::timer_before_reply`]). So
+//! `Promise.race([fetch, timeout])` gives up on time, as a browser's does.
+use super::super::{DataSource, Dispatch, InFlight, RequestOut, Runner};
 
 /// What the runner keeps for answers' timers.
 #[derive(Default)]
@@ -28,6 +37,9 @@ pub(in crate::runner) struct DataTimers {
     woken: Vec<u64>,
     /// The tickets released and not yet replied to.
     landing: Vec<u64>,
+    /// Requests whose answer's own timer is due at a time: each ticket and
+    /// that time.
+    races: Vec<(u64, f64)>,
 }
 
 /// A due time as the runner's clock reads it.
@@ -49,8 +61,12 @@ impl<D: DataSource> Runner<D> {
                 self.clock.data.held.push(r);
                 continue;
             }
-            if let (Some(wake), Some(token)) = (r.request.wake_ms, r.request.continuation) {
-                self.clock.data.wakes.push((r.ticket, token, wake as f64));
+            match (r.request.wake_ms, r.request.continuation) {
+                (Some(wake), Some(token)) => {
+                    self.clock.data.wakes.push((r.ticket, token, wake as f64))
+                }
+                (Some(wake), None) => self.clock.data.races.push((r.ticket, wake as f64)),
+                _ => {}
             }
             out.push(r);
         }
@@ -66,7 +82,15 @@ impl<D: DataSource> Runner<D> {
         let mut landing = std::mem::take(&mut self.clock.data.landing);
         landing.retain(|ticket| self.holds(*ticket));
         self.clock.data.landing = landing;
+        let mut races = std::mem::take(&mut self.clock.data.races);
+        races.retain(|(ticket, _)| self.racing(*ticket));
+        self.clock.data.races = races;
         out
+    }
+
+    /// Whether request `ticket` is still its target's, awaited by its answer.
+    fn racing(&self, ticket: u64) -> bool {
+        self.pending.iter().any(|p| p.ticket == ticket)
     }
 
     /// Whether request `ticket` waits for an answer's timer not yet due: no
@@ -99,7 +123,10 @@ impl<D: DataSource> Runner<D> {
         let wakes = (data.wakes.iter())
             .filter(|(ticket, _, _)| self.holds(*ticket))
             .map(|(_, _, at)| *at);
-        held.chain(wakes).reduce(f64::min)
+        let races = (data.races.iter())
+            .filter(|(ticket, _)| self.racing(*ticket))
+            .map(|(_, at)| *at);
+        held.chain(wakes).chain(races).reduce(f64::min)
     }
 
     /// Whether a timer's continuation an advance released is still out:
@@ -146,7 +173,74 @@ impl<D: DataSource> Runner<D> {
                 out = true;
             }
         }
+        let races = std::mem::take(&mut self.clock.data.races);
+        for (ticket, when) in races {
+            if when > at {
+                self.clock.data.races.push((ticket, when));
+            } else {
+                out |= self.timer_first(ticket);
+            }
+        }
         out
+    }
+
+    /// Request `ticket`'s answer's timer came due before its reply: when its
+    /// source can resume the answer, the request runs on as module work and
+    /// the answer's continuation takes its place. Whether that went out.
+    fn timer_first(&mut self, ticket: u64) -> bool {
+        // A plain request out with the host: not a refused one, a held one,
+        // an upload or a re-ask's wait, which end as their own.
+        let plain = |p: &&super::super::PendingReq| {
+            p.continuation.is_none()
+                && p.stream.is_none()
+                && !p.upload
+                && !p.held
+                && !p.long_poll
+                && p.refusal.is_none()
+                && !p.refused
+                && p.reask_at.is_none()
+        };
+        let Some(pos) = (self.pending.iter()).position(|p| p.ticket == ticket && plain(&p)) else {
+            return false;
+        };
+        let p = &self.pending[pos];
+        let in_flight = InFlight {
+            target: p.target,
+            source: &p.source,
+            args: &p.args,
+            continuation: None,
+        };
+        let Some((token, mut request)) = self.data.timer_before_reply(&self.store, in_flight)
+        else {
+            return false;
+        };
+        self.keep_running(ticket, token, self.pending[pos].fetch);
+        let next = self.next_ticket;
+        self.next_ticket += 1;
+        request.reach = self.reach_of(self.ticket_origin(ticket));
+        let p = &mut self.pending[pos];
+        p.ticket = next;
+        p.continuation = request.continuation;
+        p.fetch = None;
+        p.keepable = None;
+        p.effects = false;
+        p.grant = None;
+        let target = p.target;
+        self.pass_on(ticket, next);
+        let name = self.target_name(target);
+        self.log(format!(
+            "request {ticket} ({name}): its answer's timer came due first; it runs on as {}, and request {next} resumes the answer",
+            super::super::module_work::NAME
+        ));
+        self.clock.data.landing.push(next);
+        self.requests.push(RequestOut {
+            ticket: next,
+            target: name,
+            request,
+            forced: false,
+        });
+        self.sync_pending_flags();
+        true
     }
 
     /// The wakes due since the last take, each asked again.

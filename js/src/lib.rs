@@ -212,6 +212,16 @@ fn timer_due(request: Request, ticket: u64, due: Option<u64>) -> Request {
     }
 }
 
+/// The fetch an answer awaits, with the time its own timer comes due, if
+/// it armed one: the runner resumes the answer then if no reply came first
+/// (`Module::timer_first`).
+fn fetch_timer(request: Request, due: Option<u64>) -> Request {
+    match due {
+        Some(ms) => request.wake(ms),
+        None => request,
+    }
+}
+
 /// A turn of an answer over its budget: the message names the repair.
 fn over_budget(source: &str, why: &str) -> DataError {
     DataError::Overrun(format!(
@@ -986,7 +996,7 @@ impl Module {
                     };
                     // What an app's abort names it by (`take_aborted`).
                     request.fetch = Some(ticket);
-                    request
+                    fetch_timer(request, due)
                 };
                 let key = Module::key(target, source, args);
                 // A new call replaces one parked on its key. Not a targeted
@@ -1271,7 +1281,7 @@ impl Module {
                         )));
                     };
                     request.fetch = Some(ticket);
-                    request
+                    fetch_timer(request, due)
                 };
                 self.park(key, call, ticket, &request)?;
                 Ok(Answer::Later(request))

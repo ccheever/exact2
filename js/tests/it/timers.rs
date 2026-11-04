@@ -49,6 +49,10 @@ component App
     send result = racer()
   action raceFetch
     send result = raceFetch()
+  action abortAt
+    send result = abortAt()
+  action tickThenFetch
+    send result = tickThenFetch()
   action chain
     send result = chain()
   action respin(v: number)
@@ -82,7 +86,7 @@ fn runner() -> Runner<Module> {
 /// A host's work after a commit or an advance: each continuation dispatched
 /// and settled now, or parked until released; the fetches handed out are
 /// returned, unanswered.
-fn pump(r: &mut Runner<Module>) -> Vec<RequestOut> {
+fn pump<D: DataSource>(r: &mut Runner<D>) -> Vec<RequestOut> {
     PARKED.with(|parked| {
         let mut parked = parked.borrow_mut();
         let mut fetches = Vec::new();
@@ -134,7 +138,7 @@ fn ok() -> Outcome {
 /// The agent's clock jump: advance, stopping where a timer's continuation
 /// goes out, and land it before going on (`Runner::advance_until_request`).
 /// The clock never goes back.
-fn seek(r: &mut Runner<Module>, to: f64) {
+fn seek<D: DataSource>(r: &mut Runner<D>, to: f64) {
     loop {
         let before = r.now_ms();
         let advanced = r.advance_until_request(to);
@@ -152,7 +156,7 @@ fn seek(r: &mut Runner<Module>, to: f64) {
     }
 }
 
-fn result(r: &Runner<Module>, slot: &str) -> Value {
+fn result<D: DataSource>(r: &Runner<D>, slot: &str) -> Value {
     r.slot(slot).cloned().unwrap_or(Value::NONE)
 }
 
@@ -391,22 +395,139 @@ fn an_answer_racing_another_answers_fetch_wakes_on_the_fetch() {
     assert_eq!(r.data_timer_due_ms(), None);
 }
 
-/// Natively an answer waits on one thing at a time: a timer raced against
-/// its own fetch runs only after the fetch lands, and the journal says so.
-/// (The web JS target races them: host/web-js/answer-timers.test.mjs.)
+/// A timer raced against its answer's own fetch wins when it comes due
+/// first, as on the web (host/web-js/answer-timers.test.mjs): the fetch runs
+/// on as module work, and its late reply runs what chained on it.
 #[test]
-fn natively_a_timer_raced_against_its_own_fetch_waits_for_the_fetch() {
+fn a_timer_raced_against_its_own_fetch_wins_when_due_first() {
     let mut r = runner();
     r.act("raceFetch", vec![]).unwrap();
     let fetches = pump(&mut r);
-    assert!(r
+    assert_eq!(
+        fetches[0].request.wake_ms,
+        Some(100),
+        "it carries its timer's time"
+    );
+    assert_eq!(r.data_timer_due_ms(), Some(100.));
+    seek(&mut r, 99.);
+    assert_eq!(result(&r, "result"), Value::NONE);
+    seek(&mut r, 100.);
+    assert_eq!(result(&r, "result"), said("slept"));
+    assert!(!r
         .journal()
         .any(|l| l.contains("an answer awaits a fetch while a timer of its own is armed")));
+    assert!(r.holds(fetches[0].ticket), "the fetch runs on");
+    r.fulfill(fetches[0].ticket, ok()).unwrap();
+    pump(&mut r);
+    assert!(!r.holds(fetches[0].ticket));
+    assert_eq!(result(&r, "result"), said("slept"));
+    r.act("readLog", vec![]).unwrap();
+    pump(&mut r);
+    assert_eq!(result(&r, "result"), said("fetch landed"));
+}
+
+/// A Rust child for the mixed composer that answers nothing.
+struct Quiet;
+impl DataSource for Quiet {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, exact_runner::DataError> {
+        Err(exact_runner::DataError::UnknownSource(source.into()))
+    }
+    fn app_id(&self) -> &str {
+        APP
+    }
+    fn grants(&self) -> &str {
+        ""
+    }
+}
+
+/// The same race behind what a native host stacks over the module: app
+/// storage, the mixed composer and the module on the main thread.
+#[test]
+fn a_timer_wins_its_race_behind_the_composers() {
+    let sources = ["raceFetch", "log", "spin"];
+    let mixed = exact_data::Mixed::new(
+        module().placed(exact_runner::Placement::Main),
+        exact_data::Placed::new(Quiet, exact_runner::Placement::Main),
+        &sources,
+        &[],
+    )
+    .unwrap();
+    let mut source = exact_data_host::Storage::new(mixed);
+    source.bind(&plan());
+    source.activate().unwrap();
+    let mut r = Runner::boot(
+        plan(),
+        source,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.act("raceFetch", vec![]).unwrap();
+    let fetches = pump(&mut r);
     seek(&mut r, 100.);
-    assert_eq!(result(&r, "result"), Value::NONE, "the timer has not run");
+    assert_eq!(result(&r, "result"), said("slept"));
+    r.fulfill(fetches[0].ticket, ok()).unwrap();
+    pump(&mut r);
+    r.act("readLog", vec![]).unwrap();
+    pump(&mut r);
+    assert_eq!(result(&r, "result"), said("fetch landed"));
+}
+
+/// A fetch whose reply comes before its answer's timer wins, and the timer
+/// is due no more.
+#[test]
+fn a_fetch_that_lands_before_its_answer_s_timer_wins() {
+    let mut r = runner();
+    r.act("raceFetch", vec![]).unwrap();
+    let fetches = pump(&mut r);
+    seek(&mut r, 50.);
     r.fulfill(fetches[0].ticket, ok()).unwrap();
     pump(&mut r);
     assert_eq!(result(&r, "result"), said("fetched"));
+    assert_eq!(r.data_timer_due_ms(), None);
+    seek(&mut r, 200.);
+    assert_eq!(result(&r, "result"), said("fetched"));
+}
+
+/// A timer that aborts the fetch its answer awaits ends it on time: the
+/// host cancels the request, and the rejection reaches the answer.
+#[test]
+fn a_timer_aborts_the_fetch_its_answer_awaits_on_time() {
+    let mut r = runner();
+    r.act("abortAt", vec![]).unwrap();
+    let fetches = pump(&mut r);
+    seek(&mut r, 100.);
+    assert_eq!(
+        result(&r, "result"),
+        Value::NONE,
+        "aborted at the host's pump"
+    );
+    let (ticket, outcome) = r.take_request_refusal(false).expect("answered aborted");
+    assert_eq!(ticket, fetches[0].ticket);
+    r.fulfill(ticket, outcome).unwrap();
+    pump(&mut r);
+    assert_eq!(result(&r, "result"), said("AbortError"));
+    assert_eq!(
+        r.take_explicit_aborts(),
+        [fetches[0].ticket],
+        "the host cancels it"
+    );
+}
+
+/// A timer that settles nothing runs on time, and its answer goes on
+/// waiting for the fetch, now module work.
+#[test]
+fn a_timer_that_settles_nothing_leaves_its_answer_waiting_for_the_fetch() {
+    let mut r = runner();
+    r.act("tickThenFetch", vec![]).unwrap();
+    let fetches = pump(&mut r);
+    seek(&mut r, 50.);
+    assert_eq!(result(&r, "result"), Value::NONE);
+    assert!(r.has_pending(), "the fetch is still out");
+    r.fulfill(fetches[0].ticket, ok()).unwrap();
+    pump(&mut r);
+    assert_eq!(result(&r, "result"), said("fetched after ticked"));
 }
 
 /// Chained sleeps under one jump: each continuation lands before the jump

@@ -103,6 +103,10 @@ pub struct Block {
     /// block gives it (`left`, `right`, `center` or `justify`), or empty
     /// for the reader's own ([`html::Line`]).
     pub align: String,
+    /// Whether the block is a line of raw HTML images that no `<p>` holds:
+    /// at the document's top level or in a `<div>`. HTML gives such a line
+    /// no margins, where a paragraph has its own.
+    pub bare: bool,
 }
 
 /// A parsed document.
@@ -334,11 +338,13 @@ pub fn parse_with(
                     align,
                     continues,
                     open: left,
+                    paragraph,
                 },
             ) in boxes.into_iter().enumerate()
             {
                 let mut images = images[start..end].to_vec();
                 let mut align = align;
+                let mut bare = !paragraph;
                 // A line left open goes on, a blank line or not, until a block comes.
                 if let Some(before) = going
                     .take()
@@ -350,15 +356,17 @@ pub fn parse_with(
                     if align.is_empty() {
                         align = before.align;
                     }
+                    bare = before.bare;
                 }
                 let start = doc.blocks.len();
                 doc.blocks
-                    .extend(line_blocks(images.clone(), &align, &context));
+                    .extend(line_blocks(images.clone(), &align, bare, &context));
                 going = left.then_some(Pending {
                     start,
                     end: doc.blocks.len(),
                     images,
                     align,
+                    bare,
                 });
             }
             open.extend(left_open);
@@ -392,6 +400,7 @@ struct Pending {
     end: usize,
     images: Vec<html::Image>,
     align: String,
+    bare: bool,
 }
 
 /// `align` for each block that has none of its own: a `<div align>` left
@@ -409,7 +418,12 @@ fn inherit(blocks: &mut [Block], align: &str) {
 /// line gets one paragraph of its runs, a space between two images that
 /// white space parts, for two images or more, or one inside a link; any
 /// other draws each image as a block, one under the other.
-fn line_blocks(images: Vec<html::Image>, align: &str, context: &Context<'_>) -> Vec<Block> {
+fn line_blocks(
+    images: Vec<html::Image>,
+    align: &str,
+    bare: bool,
+    context: &Context<'_>,
+) -> Vec<Block> {
     match context.html.inline {
         Some(run) if images.len() > 1 || images.iter().any(|i| !i.link.is_empty()) => {
             let mut runs = Vec::with_capacity(images.len() * 2);
@@ -423,6 +437,7 @@ fn line_blocks(images: Vec<html::Image>, align: &str, context: &Context<'_>) -> 
                 kind: Kind::Paragraph,
                 runs,
                 align: align.to_string(),
+                bare,
                 ..Block::default()
             }]
         }
@@ -430,6 +445,7 @@ fn line_blocks(images: Vec<html::Image>, align: &str, context: &Context<'_>) -> 
             .into_iter()
             .map(|image| Block {
                 align: align.to_string(),
+                bare,
                 ..image_block(image, context.link)
             })
             .collect(),
@@ -846,6 +862,9 @@ fn html_images(
         }
         if let Some(last) = boxes.last_mut() {
             last.open = false;
+        }
+        for line in &mut boxes {
+            line.paragraph = true;
         }
     }
     Some((images, boxes, next, open))

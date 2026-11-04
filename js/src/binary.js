@@ -408,6 +408,13 @@
       // The earliest of `call`'s timers: when it is due, or undefined.
       wait: function (call) { var t = first(call, Infinity); return t ? (call.timerDue = t[1].due) : undefined; },
       armed: function (call) { return first(call, Infinity) !== undefined; },
+      // When `call`'s earliest timer comes due before the fetch carrying
+      // `signal` ends on its own deadline (`left`, which the host keeps): its
+      // time, or undefined. The runner resumes the answer then if no reply came.
+      race: function (call, signal) {
+        var t = first(call, Infinity), s = deadline(signal);
+        return t && !(s && !signal.aborted && s.due <= t[1].due) ? (call.timerDue = t[1].due) : undefined;
+      },
       now: time,
       // `call`'s earliest timer due by the clock `at` runs: the runner's, or,
       // where none is (at bake), the last time a timer ran at. `due`: the
