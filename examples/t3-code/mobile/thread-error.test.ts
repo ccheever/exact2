@@ -58,6 +58,15 @@ test('usage-limit banner uses the Codex provider mark while ordinary errors keep
   expect(source).toContain('if data.errorLimit != ""');
 });
 
+test('error details use the reference full-error disclosure labels and muted inline treatment', () => {
+  const source = appText('mobile/thread.contract');
+  expect(source).toContain('column flex=1 min-width=0 padding-top=2 align-items="flex-start" testId="error-banner-text"');
+  expect(source).toContain('button appearance="none" press=toggle margin-top=4 padding=0');
+  expect(source).toContain('text (expanded ? "Show less" : "Show full error") font-size=14 line-height="20px" font-weight=500 color=colors.iconSubtle');
+  expect(source).not.toContain('Hide details');
+  expect(source).not.toContain('Show details');
+});
+
 test('workspace recovery copies the fixed admin request and reports clipboard failure', async () => {
   const client = new T3Client();
   const calls: Obj[] = [];
