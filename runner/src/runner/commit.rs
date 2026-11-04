@@ -47,6 +47,7 @@ pub(super) struct Checkpoint {
     origins: super::modules::OriginsSaved,
     /// The arguments refused a child's resource (LLP 1133.007 D13).
     refused_args: super::modules::Refused,
+    gone: Vec<bool>, // which elements of resources over lists had left (`each.rs`)
 }
 
 /// What a settlement publishes that a refusal after it — the gate step
@@ -125,6 +126,7 @@ impl<D: DataSource> Runner<D> {
             origins: self.origins_saved(),
             refused_args: self.refused_saved(),
             letting: self.letting_len(),
+            gone: self.gone_members(),
         }
     }
 
@@ -215,6 +217,7 @@ impl<D: DataSource> Runner<D> {
                         self.discard_request(&r.request);
                     }
                 }
+                self.restore_members(&c.gone);
                 self.sync_pending_flags();
                 self.commands.truncate(c.commands);
                 // A refusal the restore undid is not said.
@@ -968,30 +971,6 @@ impl<D: DataSource> Runner<D> {
         // commit, or a worker's turn that landed late) names it now.
         self.match_aborts();
         self.sync_pending_flags();
-    }
-
-    pub(super) fn sync_pending_flags(&mut self) {
-        self.pending_res = vec![false; self.plan.resources.len()];
-        self.pending_mut = vec![false; self.plan.mutations.len()];
-        // A stream is pending until its first message (LLP 1016.000 D1).
-        for p in self.pending.iter().filter(|p| p.in_flight()) {
-            match p.target {
-                Target::Resource(i) => self.pending_res[i] = true,
-                Target::Mutation(m) => self.pending_mut[m] = true,
-            }
-        }
-        // A queue's waiting send is pending too (LLP 1092 D4).
-        for m in 0..self.pending_mut.len() {
-            self.pending_mut[m] |= self.queues.waits(m);
-        }
-        // A placeholder shown until the source can answer is pending too,
-        // and so is a send waiting for it.
-        for (i, awaiting) in self.awaiting.iter().enumerate() {
-            self.pending_res[i] |= *awaiting;
-        }
-        for (m, ..) in &self.unsent {
-            self.pending_mut[*m] = true;
-        }
     }
 
     /// The requests the host is to run since the last take (LLP 1016 D2).

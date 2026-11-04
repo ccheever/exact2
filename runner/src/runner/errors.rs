@@ -106,6 +106,11 @@ pub enum RunnerError {
     TaskKey {
         task: String,
     },
+    /// A resource over a list keyed an element with no key (a non-finite
+    /// number; LLP 1017.000 P4c).
+    ResourceKey {
+        resource: String,
+    },
     /// A region sits at the plan root; v1 requires one root node.
     RootRegion,
     /// Curried argument evaluation refused before this handler's action ran.

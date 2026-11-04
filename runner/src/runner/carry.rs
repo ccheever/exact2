@@ -61,6 +61,7 @@ impl<D: super::DataSource> super::Runner<D> {
                 .resources
                 .iter()
                 .zip(&self.resources)
+                .take(self.declared_resources().len())
                 .enumerate()
                 // A request in flight or a placeholder shown until the
                 // source is ready is not an answer to carry, nor one a
@@ -82,6 +83,7 @@ impl<D: super::DataSource> super::Runner<D> {
                 .plan
                 .resources
                 .iter()
+                .take(self.declared_resources().len())
                 .enumerate()
                 .filter(|(i, _)| self.store_readers[*i])
                 .map(|(_, resource)| {

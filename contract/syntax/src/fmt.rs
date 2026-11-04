@@ -335,6 +335,19 @@ impl<'a> Layout<'a> {
             }
             for resource in &component.resources {
                 self.ty(&resource.shape);
+                // A list's `key=`, tight as a `for` row's: the first `key`
+                // and `=` after its `for`.
+                let each = resource.each.as_ref().filter(|e| e.key.is_some());
+                if let Some(at) = each.and_then(|e| self.position(e.span)) {
+                    let word = (at..self.tokens.len()).find(|&j| {
+                        self.tokens[j].kind == TokenKind::Ident("key".into())
+                            && self.tokens.get(j + 1).map(|t| &t.kind)
+                                == Some(&TokenKind::Punct("="))
+                    });
+                    if let Some(j) = word {
+                        self.attributes.insert(self.tokens[j].span);
+                    }
+                }
             }
             for mutation in &component.mutations {
                 self.ty(&mutation.shape);

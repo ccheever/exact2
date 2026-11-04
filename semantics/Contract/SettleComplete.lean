@@ -116,6 +116,16 @@ theorem settle_pass_complete {p : Program} {o : Oracle} {slots now prev force} :
       · cases hf; exact hs d hd
       split at hf
       · split at hf
+        · split at hf
+          · first | exact absurd hf K | simp [throw, throwThe, MonadExceptOf.throw] at hf
+          · cases hf; exact hs d hd
+        · cases hf
+          rcases hs d hd with h | h
+          · exact .inl h
+          · exact .inr rfl
+        · first | exact absurd hf K | simp [throw, throwThe, MonadExceptOf.throw] at hf
+      split at hf
+      · split at hf
         · cases hf; exact hs d hd
         · simp only [bind, Except.bind] at hf
           split at hf
@@ -135,6 +145,13 @@ theorem settle_pass_complete {p : Program} {o : Oracle} {slots now prev force} :
       · cases hf
       split at hf
       · split at hf
+        · split at hf
+          · first | exact absurd hf K | simp [throw, throwThe, MonadExceptOf.throw] at hf
+          · cases hf
+        · cases hf
+        · first | exact absurd hf K | simp [throw, throwThe, MonadExceptOf.throw] at hf
+      split at hf
+      · split at hf
         · cases hf
         · simp only [bind, Except.bind] at hf
           split at hf
@@ -152,6 +169,13 @@ theorem settle_pass_complete {p : Program} {o : Oracle} {slots now prev force} :
       split at hf
       · cases hf; exact .inl ‹_›
       next hns =>
+      split at hf
+      · split at hf
+        · split at hf
+          · first | exact absurd hf K | simp [throw, throwThe, MonadExceptOf.throw] at hf
+          · cases hf; exact .inl (lookup_isSome_append_self (by simpa using hns))
+        · cases hf; exact .inr rfl
+        · first | exact absurd hf K | simp [throw, throwThe, MonadExceptOf.throw] at hf
       split at hf
       · split at hf
         · cases hf; exact .inl (lookup_isSome_append_self (by simpa using hns))
@@ -176,6 +200,13 @@ theorem settle_pass_complete {p : Program} {o : Oracle} {slots now prev force} :
       · cases hf; exact hc
       split at hf
       · split at hf
+        · split at hf
+          · first | exact absurd hf K | simp [throw, throwThe, MonadExceptOf.throw] at hf
+          · cases hf; exact keep rfl
+        · cases hf; exact .inr rfl
+        · first | exact absurd hf K | simp [throw, throwThe, MonadExceptOf.throw] at hf
+      split at hf
+      · split at hf
         · cases hf; exact keep rfl
         · simp only [bind, Except.bind] at hf
           split at hf
@@ -190,6 +221,13 @@ theorem settle_pass_complete {p : Program} {o : Oracle} {slots now prev force} :
       try dsimp only at hf
       split at hf
       · cases hf
+      split at hf
+      · split at hf
+        · split at hf
+          · first | exact absurd hf K | simp [throw, throwThe, MonadExceptOf.throw] at hf
+          · cases hf
+        · cases hf
+        · first | exact absurd hf K | simp [throw, throwThe, MonadExceptOf.throw] at hf
       split at hf
       · split at hf
         · cases hf

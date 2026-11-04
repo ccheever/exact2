@@ -67,7 +67,7 @@ structure CComponent where
 /-- The device facts a child may declare (`inline.rs` `reads_device`). -/
 def CComponent.deviceResources (c : CComponent) : List ResourceDecl :=
   c.resources.filter fun r =>
-    (r.source == "exactViewport" || r.source == "exactPage") && r.args.isEmpty
+    (r.source == "exactViewport" || r.source == "exactPage") && r.args.isEmpty && r.each.isNone
 
 /-- One root resource for a child declaration, shared by all its instances. -/
 def hoisted (component name : String) : String := s!"{name}@{component}"

@@ -244,6 +244,10 @@ impl<D: DataSource> Runner<D> {
         // source is told once it is published (LLP 1027 D11).
         let mut adopted = vec![false; states.len()];
         let mut resource_args = vec![Vec::new(); states.len()];
+        // Over a list (`each.rs`): each family's members in its list's
+        // order, and the members whose elements left.
+        let mut lists = std::collections::BTreeMap::<usize, Vec<usize>>::new();
+        let mut leaving = Vec::new();
         let mut passes = 0usize;
         loop {
             passes += 1;
@@ -356,6 +360,116 @@ impl<D: DataSource> Runner<D> {
                     if settled_res[i] {
                         continue;
                     }
+                    // A member settles once its family has read its list, and
+                    // only while its element is listed.
+                    if let Some((family, gone)) = self.member(i).map(|m| (m.family, m.gone)) {
+                        let listed = match lists.get(&family) {
+                            _ if gone => false,
+                            None => {
+                                all = false;
+                                continue;
+                            }
+                            Some(order) => order.contains(&i),
+                        };
+                        if !listed {
+                            // Leaving: let go when this settlement stands.
+                            states[i] = None;
+                            self.store_readers[i] = false;
+                            settled_res[i] = true;
+                            progress = true;
+                            continue;
+                        }
+                    }
+                    if self.is_family(i) {
+                        if let Some(order) = lists.get(&i) {
+                            if order.iter().any(|&m| !settled_res[m]) {
+                                all = false;
+                                continue;
+                            }
+                            let order = order.clone();
+                            let (value, pending) = self.gather(i, &order, &resources, &pending_res);
+                            pending_res[i] = pending;
+                            let fresh = Held::new(value);
+                            let shown = match &self.resource_values[i] {
+                                Some(old) if Held::equivalent(old, &fresh) => old.clone(),
+                                _ => fresh,
+                            };
+                            resource_changed[i] = !matches!(
+                                &self.resource_values[i],
+                                Some(old) if Held::same(old, &shown)
+                            );
+                            resources[i] = Some(shown.clone());
+                            states[i] = Some(ResourceState {
+                                inspection_generation: 0,
+                                args: Vec::new(),
+                                value: shown,
+                                store_revision: self.store.revision(),
+                                placeholder: false,
+                                kept_seed: false,
+                                origin: 0,
+                                answered_for: None,
+                            });
+                            settled_res[i] = true;
+                            progress = true;
+                            continue;
+                        }
+                        let elements = {
+                            let env = Env {
+                                plan: &self.plan,
+                                strings: &self.strings,
+                                router: self.router.as_deref(),
+                                lists: self.links.lists,
+                                format: self.links.format,
+                                geometry: None,
+                                slots: &self.slots,
+                                derives: &derives,
+                                resources: &resources,
+                                params: &[],
+                                frames: &[],
+                                now_ms: self.now_ms,
+                                pending_resources: &pending_res,
+                                failed_resources: &self.failed_args,
+                                failed_why: &self.failed_why,
+                                pending_mutations: &self.pending_mut,
+                                failed_mutations: &self.failed_mut,
+                                store_dependent_derives: &derive_store_dependent,
+                                store_dependent_resources: &self.store_readers,
+                            };
+                            match self.elements(i, &env) {
+                                Ok(elements) => elements?,
+                                Err(Trap::Pending { .. }) => {
+                                    all = false;
+                                    continue;
+                                }
+                                Err(t) => return Err(t.into()),
+                            }
+                        };
+                        let (order, gone, _) = self.join(i, elements);
+                        let n = self.plan.resources.len();
+                        states.resize(n, None);
+                        effects.resize_with(n, || RequestEffect::None);
+                        adopted.resize(n, false);
+                        resource_args.resize(n, Vec::new());
+                        resources.resize(n, None);
+                        pending_res.resize(n, false);
+                        awaiting.resize(n, false);
+                        settled_res.resize(n, false);
+                        resource_changed.resize(n, false);
+                        // A refresh of the list refreshes each element.
+                        if force.contains(&i) {
+                            force.retain(|f| *f != i);
+                            force.extend(order.iter().filter(|m| !refreshing.contains(m)));
+                        }
+                        for m in gone {
+                            if !leaving.contains(&m) {
+                                leaving.push(m);
+                            }
+                        }
+                        lists.insert(i, order);
+                        all = false;
+                        progress = true;
+                        continue;
+                    }
                     let row = self.plan.resources[i].clone();
                     let mut args = Vec::with_capacity(row.args.len as usize);
                     let mut pending = false;
@@ -370,6 +484,7 @@ impl<D: DataSource> Runner<D> {
                     let kept_args = self
                         .settled
                         .as_ref()
+                        .filter(|_| self.member(i).is_none())
                         .filter(|_| self.unchanged(&self.sites.deps().resource_args[i], &now))
                         .map(|s| s.resource_args[i].clone());
                     for a in row.args.iter().filter(|_| kept_args.is_none()) {
@@ -385,7 +500,7 @@ impl<D: DataSource> Runner<D> {
                                 slots: &self.slots,
                                 derives: &derives,
                                 resources: &resources,
-                                params: &[],
+                                params: self.member_params(i),
                                 frames: &[],
                                 now_ms: self.now_ms,
                                 pending_resources: &pending_res,
@@ -997,6 +1112,7 @@ impl<D: DataSource> Runner<D> {
             self.resources = states;
             self.awaiting = awaiting;
             self.adopt(&adopted);
+            self.let_go_members(&leaving);
             for (i, effect) in effects.iter().enumerate() {
                 if matches!(effect, RequestEffect::Answered) {
                     self.forget(Target::Resource(i));

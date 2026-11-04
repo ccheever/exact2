@@ -491,6 +491,22 @@ impl Plan {
                     field: "initial_args",
                 });
             }
+            // @ref LLP 1017.000 P4c — over a list: its list and key, a list
+            // type, and nothing compiled, placed or kept for it.
+            let list = self.types.get(resource.ty.0 as usize);
+            if resource.each.len != 0
+                && (resource.each.len != 2
+                    || !list.is_some_and(|t| t.kind == TypeKind::List && t.elem.is_some())
+                    || resource.initial.len != 0
+                    || resource.placeholder.is_some()
+                    || resource.context != 0)
+            {
+                return Err(PlanError::BadReference {
+                    table: "resources",
+                    row: i as u32,
+                    field: "each",
+                });
+            }
         }
         for (i, surface) in self.surfaces.iter().enumerate() {
             let expected = if surface.args.len != 0
@@ -1024,6 +1040,13 @@ impl Plan {
                 id
             }
         }
+    }
+
+    /// A resource over a list's list and key codes (LLP 1017.000 P4c,
+    /// amended 2026-11-04); `None` for a resource of one request.
+    pub fn resource_each(&self, r: &ResourcesRow) -> Option<(Code, Code)> {
+        let mut each = r.each.iter().map(|a| self.arg(a).expr);
+        Some((each.next()?, each.next()?))
     }
 
     /// The native module row of source `name`, when a module answers it

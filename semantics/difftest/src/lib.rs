@@ -302,7 +302,7 @@ pub fn refusal_class(reason: &str) -> &'static str {
         "Poisoned" => "poisoned",
         "Cycle" => "cycle",
         "NonFiniteValue" | "NonFiniteClock" | "ClockOutOfRange" | "ClockDidNotAdvance"
-        | "TaskKey" | "PathParameter" | "KeyKind" | "Router" => "value",
+        | "TaskKey" | "ResourceKey" | "PathParameter" | "KeyKind" | "Router" => "value",
         "RangeCount" if reason.contains("non_finite: true") => "value",
         "RangeCount" if reason.contains("non_finite: false") => "app",
         "UnwrapNone" | "DuplicateKey" | "List" | "Collection" => "app",

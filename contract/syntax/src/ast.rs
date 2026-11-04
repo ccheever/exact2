@@ -486,14 +486,16 @@ pub struct Binding {
     /// Where.
     pub span: Span,
 }
-/// `resource name = source(args) [with context, …] as shape T [else source(args)]`.
+/// `resource name = source(args) [with context, …] as shape T [else source(args)]`,
+/// or `resource name = source(args) for x in list [key=k] as shape T`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResourceDecl {
     /// Name.
     pub name: String,
     /// The data source's name.
     pub source: String,
-    /// Call arguments followed by request context expressions.
+    /// Call arguments followed by request context expressions. Over a list,
+    /// they read the element by [`ResourceEach::item`].
     pub args: Vec<Expr>,
     /// Number of call arguments when `with` is present; otherwise all
     /// arguments identify the answer. @ref LLP 1027.005 D6.
@@ -503,7 +505,24 @@ pub struct ResourceDecl {
     /// `else source(args)` (LLP 1048.003 D6): what shows while the source
     /// hasn't answered.
     pub placeholder: Option<Placeholder>,
+    /// `for x in list [key=k]`: one request for each element (LLP 1017.000
+    /// P4c, amended 2026-11-04).
+    pub each: Option<ResourceEach>,
     /// Where.
+    pub span: Span,
+}
+/// A resource's `for x in list [key=k]`: the element's name, the list, and
+/// the key that identifies an element's request, the element itself when
+/// none is written.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResourceEach {
+    /// The element's name, which the arguments and the key read.
+    pub item: String,
+    /// The list, read in the root's scope.
+    pub list: Expr,
+    /// `key=`.
+    pub key: Option<Expr>,
+    /// Where `for` is written.
     pub span: Span,
 }
 /// A resource's placeholder: a source call, as a resource's value is (a

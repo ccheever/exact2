@@ -432,6 +432,7 @@ pub(super) fn compile_file(
             identity: None,
             shape,
             placeholder: None,
+            each: None,
             span: at,
         });
         wrapper.provides.push(Binding {
