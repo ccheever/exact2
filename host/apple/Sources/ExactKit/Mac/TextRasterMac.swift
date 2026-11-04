@@ -241,7 +241,7 @@ extension NodeView {
             needsDisplay = true
             return
         }
-        if let key = textRasterKey, key.size == bounds.size && key.box == contentBox() { return }
+        if let key = textRasterKey, key.size == bounds.size && key.box == paragraphBox() { return }
         textRasterKey = nil
         textRasterPending = false
         // Position the accepted surface at its original dimensions immediately;

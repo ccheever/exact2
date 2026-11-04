@@ -201,7 +201,7 @@ extension NodeView {
             } else if hi <= lo { return nil }
             let x = box.minX + paragraph.origin(index, align: spec.align, width: box.width)
             let x0 = CTLineGetOffsetForStringIndex(line, lo, nil), x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
-            var rect = CGRect(x: x + min(x0, x1), y: box.minY + TextEngine.paintedBaseline(paragraph.baselines[index], scale: scale, lineScale: paragraph.lineScale) - above,
+            var rect = CGRect(x: x + min(x0, x1), y: TextEngine.paintedLine(paragraph.baselines[index], top: box.minY, scale: scale, lineScale: paragraph.lineScale) - above,
                               width: abs(x1 - x0), height: above + below)
             // An empty inline box keeps its insertion point and font height.
             // A nonempty run covering only hanging wrap space has no fragment.

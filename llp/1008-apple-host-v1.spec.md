@@ -162,6 +162,22 @@ CSS baseline less that ascent, on a half point where the baseline is.
 Not changed: iOS, which keeps scale-1 line boxes and device-pixel baselines;
 the Linux and Windows hosts. Those are decided separately.
 `TextParityMacTests` holds Chrome 156's numbers at both scales.
+**Every box is drawn on the device's pixel grid on the Mac** (2026-11-04,
+Daehyeon's ruling "build it"), as on iOS since `e79cd153f2`. Layout's frames
+are fractional (LLP 1001 §6); a view drawn where its frame fell left its layer
+a fraction of a device pixel off the grid, and Core Animation blended its
+edges and its text across two device rows. Chromium rounds each painted box's
+edges half up at their absolute positions (`PhysicalRect::PixelSnappedIntRect`),
+and so does the presenter: each node view keeps its absolute layout origin and
+its drawn origin in whole device pixels, a device pixel being the backing scale
+times the page zoom (`PixelGridMac.swift`). A box a host places (a dialog in
+the top layer, a popover, a table row in its cell) is an origin of its own.
+Text, fields and collections measure at layout's size (`layoutBounds`); a
+scroller's extent ends on its last edge's pixel. A paragraph is placed from
+where layout put its box, and each baseline rounds at its place on the page,
+as Chromium rounds a glyph run's (`TextEngine.paintedLine`), not in a content
+box that padding leaves off the grid: a 17.875 px line in a `pre` with 12.8 px
+of padding sat a device pixel low. `PixelGridMacTests`.
 The macOS paragraph raster includes glyph ink outside that layout box. Overflow
 uses a positioned child layer, preserving descenders and italic overhang without
 changing layout; authored clipping still applies. Fitting ink stays on the

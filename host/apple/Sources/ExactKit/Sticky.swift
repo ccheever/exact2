@@ -96,11 +96,9 @@ final class StickyHost {
         place(view, c.offset(offset(of: c.scroller)))
     }
     private func place(_ view: NodeView, _ offset: CGPoint) {
-        #if os(iOS) || os(tvOS)
         // On the pixel grid: the moved box's own edges rounded, not the
-        // displacement apart from them (`PixelGridIOS.swift`).
+        // displacement apart from them (`PixelGridIOS.swift`, `PixelGridMac.swift`).
         let offset = view.grid.map { PixelGrid.shift($0, by: offset, scale: presenter.gridScale) } ?? offset
-        #endif
         guard view.stickyOffset != offset else { return }
         view.stickyOffset = offset
         view.applyTransform()
