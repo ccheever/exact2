@@ -1,5 +1,5 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/timeline-attachments.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Adapted body from examples/t3-code/timeline-attachments.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
 // Sent attachments in user messages, adapted from T3 Code (MIT, see
 // LICENSE-T3): MessagesTimeline.tsx UserTimelineRow (a two-column image grid
 // at most 210pt wide, a SnapShot spanning both columns in a 208×112 frame with
@@ -16,6 +16,7 @@ import { videoMimeType } from './r4-composer-video'; // lane r6-media: sent vide
 import { markdownMedia, markdownMediaUrls } from './media-views'; // media-actions: the transcript's host-path media
 import { letGo } from './let-go';
 import { encodeMediaSource } from './media-actions';
+import { workspaceMutationId } from '../workspace-mutation';
 
 export interface MessageImage { id: string; name: string; snapshot: boolean; appName: string; appInitial: string; windowTitle: string; accessible: boolean; video: boolean }
 export interface MessageFile { id: string; name: string; icon: string }
@@ -74,7 +75,7 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
   // media-actions: the visible messages' Markdown media on host paths (`media:<path>`, `media-failed:<path>`).
   const thread = obj(client.projection.thread), project = (client.shell?.projects ?? []).find(entry => entry.id === (thread.projectId ?? client.projectId));
   const root = str(thread.worktreePath) || str(project?.workspaceRoot);
-  const media = (await markdownMediaUrls(client, native, root, now)).map(item => ({ ...item, ...NO_INKS }));
+  const media = (await markdownMediaUrls(client, native, root, now, workspaceMutationId(client))).map(item => ({ ...item, ...NO_INKS }));
   // context-menu-gaps: the linked media's signed URL (signed again after Retry video; a refusal is `failed:<key>`).
   const preview = activeMediaPreview(client);
   if (preview && !preview.url) {
