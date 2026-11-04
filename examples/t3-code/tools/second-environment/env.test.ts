@@ -127,13 +127,13 @@ describe("threads with a turn (seed --turns)", () => {
     expect([turnSeeded({ hold: true }, { latestRunId: "r1", latestRunCompletedAt: null, activeRunId: "r1" }), turnSeeded({ hold: true }, { latestRunId: null, activeRunId: null })]).toEqual([true, false]);
   });
 
-  test("seed --more-turns adds a second approval, an italic answer, two HTML image answers, a prose answer, an answer a check follows, a skill chip and a held turn to agent-edits", () => {
+  test("seed --more-turns adds a second approval, an italic answer, a prose answer, two HTML image answers, an answer a check follows, a skill chip and a held turn to agent-edits", () => {
     expect(SEEDS.second.flatMap((entry) => (entry.moreTurns ?? []).map((turn) => [entry.repo, turn.title, turn.prompt, !!turn.approval, !!turn.hold]))).toEqual([
       ["agent-edits", "Second edit awaiting approval", "Ask before editing the notes", true, false],
       ["agent-edits", "Italic answer", "Show the italic sample", false, false],
+      ["agent-edits", "Prose answer", "Show the prose sample", false, false],
       ["agent-edits", "HTML images", "Show the HTML image sample", false, false],
       ["agent-edits", "HTML image layout", "Show the HTML layout sample", false, false],
-      ["agent-edits", "Prose answer", "Show the prose sample", false, false],
       ["agent-edits", "Answer before a check", "Answer, then check", false, false],
       ["agent-edits", "Skill in a message", "Use $frontend-design for the page", false, false],
       ["agent-edits", "Turn held open", "Hold the turn", false, true]]);

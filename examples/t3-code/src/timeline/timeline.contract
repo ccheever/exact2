@@ -75,44 +75,54 @@ component TimelineRow
     hoverPart: action
     // A user turn's box entering or leaving the transcript (ChatColumn turnSeen).
     seen: action
+  // The row's content height (`resize` reports the content box, without `top`), 0 until it is measured.
+  state rowHeight = 0
+  action rowSized(width: number, height: number)
+    let ignored = width
+    rowHeight = height
   // MessagesTimeline's parent link ("Subagent of", a side chat's "Context from") is the list's header: 0.5rem above it
   // (pt-2) and nothing below.
   derive parentLink = message.kind == "fork" and (message.icon == "bot" or message.icon == "messages-square")
+  derive top = message.first ? (parentLink ? 0.5 * rem : lead) : 0
   view
-    column id=`row-${message.id}` hover=hoverPart(message.hoverKey, "") width="100%" padding-top=(message.first ? (parentLink ? 0.5 * rem : lead) : 0) padding-left="3rem" padding-right="3rem" box-sizing="border-box" align-items="center"
-      if message.first and (hasMore or historyError != "")
-        HistoryControl(lane=lane, hasMore=hasMore, loading=historyLoading, error=historyError, busy=busy, load=earlier)
-      column width="100%" max-width=lane min-width=0 box-sizing="border-box" padding-bottom=(message.last ? 0.75 * rem + tail : 0) margin-bottom=`${(message.kind == "user" and message.groupedNext ? 4 : (parentLink ? 0 : rowGap(message.kind, message.continues, message.expanded, message.actionsId != "", message.kind == "checkpoint" and message.attached, message.meta))) / 16}rem`
-        if message.kind == "user"
-          UserRow(message=message, documents=documents, command=command, local=local, hovering=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart, bubble=bubble, ink=ink, attachments=attachments, scheme=scheme, seen=seen)
-        else if message.kind == "workflow"
-          WorkflowOpening(message=message, documents=documents, command=command, local=local, now=now, ink=ink)
-        else
-          if message.kind == "checkpoint"
-            if message.fileCount > 0
-              // Attached, the card sits 1rem under the answer's text (mt-4), whose row already ends in 0.125rem of padding.
-              column width="100%" padding-left="0.25rem" padding-right="0.25rem" padding-top=(message.attached ? "0.875rem" : "0px") box-sizing="border-box"
-                ChangedFiles(message=message, command=command, local=local, diffScheme=diffScheme)
-                RowActions(answer=false, message=message, command=command, local=local, visible=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
+    // LegendList, which lays the reference's timeline out, places each item at the sum of the items above it
+    // measured in whole CSS px (on the web Math.round of each size), and the list ends at that sum. Each row
+    // takes its rounded height so a bottom-anchored transcript puts every row where the reference's is.
+    box width="100%" height=(rowHeight > 0 ? round(top + rowHeight) : "auto")
+      column id=`row-${message.id}` resize=rowSized hover=hoverPart(message.hoverKey, "") width="100%" padding-top=top padding-left="3rem" padding-right="3rem" box-sizing="border-box" align-items="center"
+        if message.first and (hasMore or historyError != "")
+          HistoryControl(lane=lane, hasMore=hasMore, loading=historyLoading, error=historyError, busy=busy, load=earlier)
+        column width="100%" max-width=lane min-width=0 box-sizing="border-box" padding-bottom=(message.last ? 0.75 * rem + tail : 0) margin-bottom=`${(message.kind == "user" and message.groupedNext ? 4 : (parentLink ? 0 : rowGap(message.kind, message.continues, message.expanded, message.actionsId != "", message.kind == "checkpoint" and message.attached, message.meta))) / 16}rem`
+          if message.kind == "user"
+            UserRow(message=message, documents=documents, command=command, local=local, hovering=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart, bubble=bubble, ink=ink, attachments=attachments, scheme=scheme, seen=seen)
+          else if message.kind == "workflow"
+            WorkflowOpening(message=message, documents=documents, command=command, local=local, now=now, ink=ink)
           else
-            if message.kind == "fork"
-              row width="100%" align-items="center" gap="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box"
-                box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0e)"
-                // TimelineSystemDivider: a fork, or a subagent's "Subagent of · parent" with the bot glyph; the pill's action is its
-                // tooltip. With no action (a side chat's "Context from" in its pane) it is plain text, unbordered.
-                TimelineTip(label=message.actionLabel, side="top", align="center", offset=30)
-                  DividerPill(message=message, command=command)
-                box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0e)"
+            if message.kind == "checkpoint"
+              if message.fileCount > 0
+                // Attached, the card sits 1rem under the answer's text (mt-4), whose row already ends in 0.125rem of padding.
+                column width="100%" padding-left="0.25rem" padding-right="0.25rem" padding-top=(message.attached ? "0.875rem" : "0px") box-sizing="border-box"
+                  ChangedFiles(message=message, command=command, local=local, diffScheme=diffScheme)
+                  RowActions(answer=false, message=message, command=command, local=local, visible=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
             else
-              // AssistantMetaTimelineRow: an answer's actions moved below its trailing tool groups stay shown at rest.
-              if message.kind == "meta"
-                column width="100%" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box"
-                  RowActions(answer=true, message=message, command=command, local=local, visible=true, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
+              if message.kind == "fork"
+                row width="100%" align-items="center" gap="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box"
+                  box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0e)"
+                  // TimelineSystemDivider: a fork, or a subagent's "Subagent of · parent" with the bot glyph; the pill's action is its
+                  // tooltip. With no action (a side chat's "Context from" in its pane) it is plain text, unbordered.
+                  TimelineTip(label=message.actionLabel, side="top", align="center", offset=30)
+                    DividerPill(message=message, command=command)
+                  box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0e)"
               else
-                TimelineContent(message=message, documents=documents, hovering=hovered, part=part, hoverPart=hoverPart, local=local, command=command, busy=busy, now=now, scheme=scheme, diffScheme=diffScheme, attachments=attachments)
-                if message.actionsId != "" and message.kind != "checkpoint"
+                // AssistantMetaTimelineRow: an answer's actions moved below its trailing tool groups stay shown at rest.
+                if message.kind == "meta"
                   column width="100%" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box"
-                    RowActions(answer=true, message=message, command=command, local=local, visible=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
+                    RowActions(answer=true, message=message, command=command, local=local, visible=true, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
+                else
+                  TimelineContent(message=message, documents=documents, hovering=hovered, part=part, hoverPart=hoverPart, local=local, command=command, busy=busy, now=now, scheme=scheme, diffScheme=diffScheme, attachments=attachments)
+                  if message.actionsId != "" and message.kind != "checkpoint"
+                    column width="100%" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box"
+                      RowActions(answer=true, message=message, command=command, local=local, visible=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
 
 // A sent message: attribution and intent above an 18pt bubble, then the
 // hover-revealed time, Edit from here and Copy message. An automation's or another

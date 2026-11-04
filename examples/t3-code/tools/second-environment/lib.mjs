@@ -287,13 +287,15 @@ export const SEEDS = {
     // The stand-in edits files in a turn (its checkpoint has a diff) and asks before an edit (an approval).
     { repo: "agent-edits", origin: "https://github.com/t3-fixture/agent-edits.git", threads: [],
       turns: [{ title: "Turn with file edits", prompt: "Edit the notes" }, { title: "Edit awaiting approval", prompt: "Ask before editing the notes", approval: true }],
-      // `seed --more-turns`: a second approval (one to approve, one to decline), an answer in italics, two answers of raw
+      // `seed --more-turns`: a second approval (one to approve, one to decline), an answer in italics, an answer with
+      // every common Markdown block (headings, lists, a code block, a quote), two answers of raw
       // HTML images (the sanitizer's cases and their layout), an answer a tool call follows, a message naming the
       // stand-in's skill (its chip), and a turn the stand-in holds running until `install.mjs release` (or a steer or
       // Stop cancels it).
       moreTurns: [{ title: "Second edit awaiting approval", prompt: "Ask before editing the notes", approval: true },
-        { title: "Italic answer", prompt: "Show the italic sample" }, { title: "HTML images", prompt: "Show the HTML image sample" },
-        { title: "HTML image layout", prompt: "Show the HTML layout sample" }, { title: "Prose answer", prompt: "Show the prose sample" },
+        { title: "Italic answer", prompt: "Show the italic sample" }, { title: "Prose answer", prompt: "Show the prose sample" },
+        { title: "HTML images", prompt: "Show the HTML image sample" },
+        { title: "HTML image layout", prompt: "Show the HTML layout sample" },
         { title: "Answer before a check", prompt: "Answer, then check" },
         { title: "Skill in a message", prompt: "Use $frontend-design for the page" },
         { title: "Turn held open", prompt: "Hold the turn", hold: true }] },
