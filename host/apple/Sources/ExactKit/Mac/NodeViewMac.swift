@@ -1421,7 +1421,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if paintsBox, materialContent == nil { drawBoxBorder() }
         if !cssVisibilityHidden, kind == "image", !hasSymbolLeaf, flightLook == nil || imageLayer == nil, !(layerBoxEligible && !Capture.capturing && imageLayer != nil), let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
-            // and padding), clipped by the border box's radius: `fill`
+            // and padding), clipped to the content edge's curve: `fill`
             // stretches, `contain`/`cover` keep the ratio, `none` is the
             // natural size, `scale-down` the smaller of none and contain;
             // an unknown value is the initial `fill`.
@@ -1431,7 +1431,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
             ctx.saveGState()
             path.addClip()
-            NSBezierPath(rect: content).addClip()
+            clipToContentEdge(ctx, content)
             ctx.translateBy(x: rect.minX, y: rect.maxY)
             ctx.scaleBy(x: 1, y: -1)
             RasterGeometry.draw(ctx, AnimatedRasters.shared.frame(for: self) ?? bitmap.image, in: CGRect(origin: .zero, size: rect.size), tint: channels("tint_color").map { TextEngine.color($0).cgColor })
