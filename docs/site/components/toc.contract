@@ -12,7 +12,7 @@ component RailLink
     icon: string
     label: string
   view
-    link href=href
+    link href=href target="_blank"
       row align-items="center" gap=8
         image icon aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
         text label class=Action

@@ -28,7 +28,7 @@ component Footer
           row align-items="center" gap=6
             image "symbol:icon.github" aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
             text "GitHub" class=FooterLink
-        link href="/llms.txt" testId="footer-llms"
+        link href="/llms.txt" target="_blank" testId="footer-llms"
           row align-items="center" gap=6
             image "symbol:document" aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
             text "View llms.txt" class=FooterLink
