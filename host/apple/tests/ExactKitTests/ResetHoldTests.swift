@@ -27,11 +27,6 @@ final class ResetHoldTests: XCTestCase {
         return { ran }
     }
 
-    private func spin(_ seconds: Double, until done: () -> Bool) {
-        let end = Date().addingTimeInterval(seconds)
-        while !done(), Date() < end { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
-    }
-
     func testASheetOpenAtARestartTurnsNoRunLoopWhileHeld() throws {
         let plan = try fixturePlan("RESET_HOLD")
         let session = ExactApp.shared.makeSession(label: "reset-hold")
@@ -57,15 +52,15 @@ final class ResetHoldTests: XCTestCase {
         defer { window.close() }
         #endif
         XCTAssertNil(session.boot(plan: plan, size: size).error)
+        // Finish activating first: on the Mac the press blocks through `beginSheet` on this stack, so the run loop
+        // does not turn before the restart
+        waitForActivation(session)
         let open = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] as? String == "open" }?.id)
         session.presenter.onPress?(open)
         #if os(iOS)
         let shown = { host.presentedViewController.map { $0.view.window != nil && !$0.isBeingPresented && $0.transitionCoordinator == nil } ?? false }
-        spin(5, until: shown)
-        XCTAssertTrue(shown(), "the sheet's presentation completed before the restart")
+        waitFor("the sheet's presentation completed before the restart", shown)
         #else
-        spin(5) { window.attachedSheet != nil }
-        spin(1) { false } // its presentation settles
         XCTAssertTrue(window.attachedSheet != nil, "the sheet was open at the restart")
         #endif
         let ran = probe { [session.runtime.held] }
@@ -80,10 +75,9 @@ final class ResetHoldTests: XCTestCase {
         XCTAssertEqual(window.ends.count, 1, "the restart ended the sheet once")
         XCTAssertGreaterThan(window.ends.first ?? 0, 0.15, "endSheet took the sheet's animation's time")
         #endif
-        spin(2) { ran().count == Self.probes.count }
+        waitFor("each probe ran") { ran().count == Self.probes.count }
         #if os(iOS)
-        spin(3) { host.presentedViewController == nil }
-        XCTAssertNil(host.presentedViewController, "the restart dismissed the sheet")
+        waitFor("the restart dismissed the sheet") { host.presentedViewController == nil }
         #endif
         XCTAssertEqual(inside, [], "ran inside the restart's hold (the restart took \(String(format: "%.3f", took)) s)")
         XCTAssertEqual(ran().map(\.0).sorted(), Self.probes, "each probe ran after the restart")
@@ -105,12 +99,11 @@ final class ResetHoldTests: XCTestCase {
             window.contentView = ExactView(session: session)
             window.makeKeyAndOrderFront(nil)
             XCTAssertNil(session.boot(plan: plan, size: size).error)
+            waitForActivation(session)
             let open = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] as? String == "open" }?.id)
             session.presenter.onPress?(open)
-            spin(5) { window.attachedSheet != nil }
             sessions.append(session); windows.append(window)
         }
-        spin(1) { false }
         XCTAssertEqual(windows.map { $0.attachedSheet != nil }, [true, true], "both sheets open at the restart")
         let ran = probe { sessions.map { $0.runtime.held } }
         XCTAssertTrue(ExactApp.shared.apply(plan, label: "generation"))
@@ -119,7 +112,7 @@ final class ResetHoldTests: XCTestCase {
         XCTAssertEqual(windows.map { $0.attachedSheet == nil }, [true, true], "the restart ended both sheets")
         XCTAssertEqual(windows.map(\.ends.count), [1, 1], "the restart ended each sheet once")
         XCTAssertEqual(windows.map { ($0.ends.first ?? 0) > 0.15 }, [true, true], "each endSheet took the sheet's animation's time: \(windows.map(\.ends))")
-        spin(2) { ran().count == Self.probes.count }
+        waitFor("each probe ran") { ran().count == Self.probes.count }
         XCTAssertEqual(inside, [], "ran inside the restart's hold")
         XCTAssertEqual(ran().map(\.0).sorted(), Self.probes, "each probe ran after the restart")
         XCTAssertEqual(ran().filter { $0.1.contains(true) }.map(\.0), [], "a probe saw a held runtime")
