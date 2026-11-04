@@ -31,15 +31,15 @@ component ThreadMarkdown
                   text token.text user-select="text" color=token.color font-weight=token.weight font-style=token.slant
         else if block.kind == "table"
           view display="flex" align-items="flex-start" min-width=0 max-width="100%" overflow-x="auto" overflow-y="hidden" overscroll-behavior="contain" scrollbar-width="none" box-sizing="border-box" margin-top=4 margin-bottom=12
-            view display="grid" role="table" flex="none" min-width=(block.columns * 60) grid-template-columns=`repeat(${block.columns}, fit-content(320px))`
+            view display="grid" role="table" flex="none" width=(block.columns * 160 + 2) min-width=(block.columns * 160 + 2) grid-template-columns=`repeat(${block.columns}, 160px)`
               border-radius=8 border-width="-exact-hairline" border-style="solid" border-color=colors.markdownBorder
               for item in block.rows key=item.id
                 for cell, index in item.cells key=cell.id
-                  view role=(item.header ? "columnheader" : "cell") min-width=60 max-width=320 box-sizing="border-box" padding-left=10 padding-right=10 padding-top=7 padding-bottom=7
+                  view role=(item.header ? "columnheader" : "cell") width=160 min-width=160 max-width=160 flex-shrink=0 box-sizing="border-box" padding-left=10 padding-right=10 padding-top=8 padding-bottom=8
                     border-top-width=(item.header ? 0 : "-exact-hairline") border-top-style="solid" border-top-color=colors.markdownBorder
                     border-left-width=(index == 0 ? 0 : "-exact-hairline") border-left-style="solid" border-left-color=colors.markdownBorder
                     background-color=(item.header ? user ? colors.userCodeBackground : colors.codeBackground : "transparent")
-                    text user-select="text" font-family="DM Sans" font-size=16 line-height="23px" font-weight=(item.header ? 700 : 400)
+                    text user-select="text" overflow-wrap="break-word" font-family="DM Sans" font-size=16 line-height="23px" font-weight=(item.header ? 700 : 400)
                       text-align=(match block.alignments.at(index) { case some(alignment) => alignment, case none => "left" }) font-variant-numeric=(cell.numeric ? "tabular-nums" : "normal")
                       color=(user ? colors.userForeground : colors.foreground)
                       for run in cell.runs key=run.id

@@ -32,6 +32,17 @@ so do not claim a quantitative frame-rate win or “buttery” performance from
 this drive. No framework defect reproduced; do not file a framework issue
 without a new isolated reproduction.
 
+The next frontend unit fixes transcript Markdown table geometry. Thread tables
+now use the pinned 160-point fixed column width, derive their total width from
+the column count, and break overlong words inside cells so wide tables scroll
+without resizing adjacent columns. Focused and full mobile tests pass, the
+Contract build passes, and strict TypeScript passes with the current ES2024
+library target. The full suite is 4,291 tests with two intentional native
+skips and 37,928 assertions. The normal iOS Simulator no-install build passes,
+and the signed app installs and opens on the local Duo. A paired server
+transcript is still needed for the table screenshot pair and repeated
+horizontal-pan check; no native frame-rate or selection claim is made.
+
 The prior integrated history, table, first-read, rail and Home units remain in
 the commit ancestry. Open parity gaps are live history errors/Retry, filtered
 continuation, selection and exact anchor preservation, bounded transcript
