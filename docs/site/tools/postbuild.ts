@@ -58,7 +58,7 @@ const agentInstructions = (p: Page) => {
 
 ## Submitting feedback
 
-This feedback is for Exact (exact2), not for Expo's own libraries and services. It goes through Expo's feedback channel, so name Exact docs in the subject and at the start of the message.
+This feedback is for Exact, not for Expo's own libraries and services. It goes through Expo's feedback channel, so name Exact docs in the subject and at the start of the message.
 
 If you find an error, or misleading or outdated information on this page, report it:
 
@@ -66,7 +66,7 @@ Preferred command:
 npx --yes submit-expo-feedback@latest --category docs --subject "Exact docs: ${url}" "Exact docs: <specific, actionable feedback>"
 
 Direct HTTP fallback:
-curl -X POST https://api.expo.dev/v2/feedback/docs-send -H 'Content-Type: application/json' -d '{"url":"${url}","feedback":"🤖 Agent feedback for Exact docs (exact2): <specific, actionable description> (<model>, <harness>)"}'
+curl -X POST https://api.expo.dev/v2/feedback/docs-send -H 'Content-Type: application/json' -d '{"url":"${url}","feedback":"🤖 Agent feedback for Exact docs: <specific, actionable description> (<model>, <harness>)"}'
 
 Only submit when you have something specific and actionable to report. Give as much context as you can.
 
