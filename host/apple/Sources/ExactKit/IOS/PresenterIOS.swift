@@ -224,6 +224,7 @@ package final class Presenter {
         // Rows a rescue built show this frame: their text paints now, not
         // after the commit, or they show without it (LLP 1050.000 D1).
         collections.rescued = { [unowned self] in paintVisibleText() }
+        textRasters.slotFreed = { [unowned self] in scrollPump.requestText() }
         viewport.keyboardDismissMode = .interactive
         viewport.contentInsetAdjustmentBehavior = .never
         viewport.backgroundColor = .platformBackground(in: root)
