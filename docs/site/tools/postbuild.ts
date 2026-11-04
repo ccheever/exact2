@@ -58,7 +58,7 @@ const agentInstructions = (p: Page) => {
 
 ## Submitting feedback
 
-This feedback is for Exact, not for Expo's own libraries and services. It goes through Expo's feedback channel, so name Exact docs in the subject and at the start of the message.
+This feedback is for Exact. Start the subject and the message with "Exact docs".
 
 If you find an error, or misleading or outdated information on this page, report it:
 
