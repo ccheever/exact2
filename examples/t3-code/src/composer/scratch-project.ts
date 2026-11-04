@@ -58,12 +58,17 @@ export function scratchEnvironments(client: T3Client, source: EnvironmentFleet =
   return [{ environmentId: client.environmentId, connection: client.connection, config: client.config }, ...others];
 }
 
+/** CommandPalette's scratchTargetEnvironmentId and chat.newWithoutProject's: the machine scratchEnvironmentId picks, the machine on screen as the fallback. */
+export function scratchTarget(client: T3Client, source: EnvironmentFleet = fleet): string | null {
+  return scratchEnvironmentId(scratchEnvironments(client, source), primaryEnvironmentId(), client.environmentId || null);
+}
+
 /**
  * The Scratch project for a new thread without a project, on the machine scratchEnvironmentId picks (the machine on
  * screen as the fallback): `environmentId` and `projectId`, or null when no machine offers one.
  */
 export async function openPrimaryScratch(client: T3Client, native: Native, source: EnvironmentFleet = fleet): Promise<{ environmentId: string; projectId: string } | null> {
-  const environmentId = scratchEnvironmentId(scratchEnvironments(client, source), primaryEnvironmentId(), client.environmentId || null);
+  const environmentId = scratchTarget(client, source);
   if (environmentId === null) return null;
   if (environmentId === client.environmentId) return { environmentId, projectId: await openScratchProject(client, native) };
   const entry = [...source.entries.values()].find(candidate => candidate.environmentId === environmentId);

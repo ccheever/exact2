@@ -852,6 +852,11 @@ above.
   to 2 higher; the command menu's rows 4 lower and about 2 right (2026-11-04 real-input session).
 - Return in the Browser's address bar lets go of the field but loads nothing: no request reached the server (0 of 2,
   with and without `http://`). The reference loads the page (2026-11-04 real-input session).
+- In the narrow window with Settings open, ⌘B opens the sidebar sheet under Settings and focuses its toggle, as the
+  reference does. The Mac draws AppKit's focus ring there, which Settings' backdrop dims but does not blur, so a sharp
+  ring shows at the window's top left; the reference's ring is blurred to a faint glow. Exact uses the system ring (LLP
+  1115), and the backdrop's `NSVisualEffectView` does not sample it. A fix changes how the host draws that ring and
+  waits on the user's ruling (2026-11-05).
 
 **Not failures:**
 

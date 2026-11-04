@@ -344,6 +344,7 @@ shape PanelView
   annotationSend: number // an annotation's ⌘Return asks the window's Send, whatever the panel shows
   automationRecording: AutomationRecording // a recording request the agent's previewAutomation host handed over
   sideChat: SideChatPane // the active side chat tab's pane (side-chat.ts)
+  focusRequest: number // bumps when a person's panel action asks for the panel's default stop (panel-surfaces.ts)
 
 // A side chat tab's pane (side-chat.ts sideChatView): its header's state; its chat view is the root's `sideChat`
 // (side-chat-members.contract).

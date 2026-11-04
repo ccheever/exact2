@@ -22,6 +22,7 @@ import { threadCommandRows } from './thread-keys'; // queue and host keys
 import { terminalRows, terminalOpen } from '../terminal/terminal-drawer-view';
 import { terminalFocused } from '../terminal/terminal-focus'; // ⌘J
 import { previewToggleRow } from '../browser/browser-navigation'; // ⇧⌘J
+import { scratchTarget } from '../composer/scratch-project'; // ⌥⌘N
 
 export type DispatchContext = { composerFocus: boolean; editableFocus: boolean; turnRunning: boolean; modelPickerOpen: boolean; draftThreadRoute: boolean; modalOpen: boolean; settingsOpen: boolean; diffOpen: boolean;
   terminalFocus?: boolean; terminalOpen?: boolean; paletteOpen?: boolean; paletteMode?: string; prNumber?: string; undoShown?: boolean; settingsRoute?: string; page?: string;
@@ -295,9 +296,9 @@ function navigationRows(add: DispatchAdd, client: T3Client, threads: Obj[], brow
   if (back) add('navigation.back', back.kind, back.target, 'Back', back.extra);
   if (forward) add('navigation.forward', forward.kind, forward.target, 'Forward', forward.extra);
 }
-/** chat.newWithoutProject, when the server has a scratch workspace. */
+/** chat.newWithoutProject, when some machine offers a folder for threads without a project (the primary first), not only the one on screen. */
 function scratchRow(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
-  if (str(obj(client.config).scratchWorkspaceRoot)) add('chat.newWithoutProject', 'flow', 'scratch', 'New Thread Without a Project');
+  if (scratchTarget(client) !== null) add('chat.newWithoutProject', 'flow', 'scratch', 'New Thread Without a Project');
 }
 /** The open thread: settle, pin, the PR number, Undo and Open in Editor. */
 function threadRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {

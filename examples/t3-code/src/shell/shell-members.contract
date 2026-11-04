@@ -405,6 +405,14 @@ members T3Code
       case some(area)
         workspaceFocusArea(area)
       case none
+  // A person's panel action that opened the panel or changed what it shows (panel-surfaces.ts panelFocusRequest) focuses
+  // the panel as F6 would, once the surface is laid out (requestWorkspaceFocus({ area: "panel" })).
+  state panelFocusSeen = 0
+  task panelFocusDue when shell.panel.focusRequest > panelFocusSeen key=shell.panel.focusRequest
+    after(1, panelFocusRun)
+  action panelFocusRun
+    panelFocusSeen = shell.panel.focusRequest
+    workspaceFocusArea("panel")
   action workspaceFocusArea(area: string)
     let remembered = workspaceTargets.filter((entry) => entry.area == area).map((entry) => entry.target).join("")
     let held = frame(remembered)

@@ -54,7 +54,7 @@ const GUARDED: Record<string, string> = {
   'pr-checkout.contract "pr-checkout-dialog"': 'pr-checkout',
   'add-project-machine.contract "add-machine-dialog"': 'add-machine',
   'native-child-work.contract "native-work-dialog"': 'native-work',
-  'app-route-modal.contract modalId': 'route-modal',
+  'app-route-modal.contract modalId': '${modalId}', // each modal's own guards, which the window's return enters
   'settings-a-collections.contract "theme-remove-collection"': 'theme-remove-collection',
   'settings-a-dialogs.contract dialogId': 'sa-dialog',
   'settings-a-hosts.contract "device-host-dialog"': 'device-host',
@@ -279,8 +279,9 @@ describe('the FocusGuard pair (Base UI FloatingFocusManager\'s inside guards)', 
       // RouteFocusGuard, which wraps back to the page's last control (dialog-trap.contract).
       const kind = direct[0]!.trim().startsWith('ControlGuard(') ? 'ControlGuard' : 'FocusGuard';
       const start = direct[0]!.trim().startsWith('RouteFocusGuard(') ? 'RouteFocusGuard' : kind;
-      expect(direct[0]!.trim()).toStartWith(`${start}(guardId="${base}-guard-start", targets=`);
-      expect(direct.at(-1)!.trim()).toStartWith(`${kind}(guardId="${base}-guard-end", targets=`);
+      const guardId = (end: string) => base.startsWith('${') ? `\`${base}-guard-${end}\`` : `"${base}-guard-${end}"`;
+      expect(direct[0]!.trim()).toStartWith(`${start}(guardId=${guardId('start')}, targets=`);
+      expect(direct.at(-1)!.trim()).toStartWith(`${kind}(guardId=${guardId('end')}, targets=`);
       expect(children.filter(line => line.includes('FocusGuard(') || line.includes('ControlGuard(')).length).toBe(2);
       // Every name a target can take is an element of the app (or a prop the shell's callers fill: `first`).
       for (const guard of [direct[0]!, direct.at(-1)!]) {

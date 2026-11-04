@@ -88,14 +88,28 @@ export type PanelView = {
   automationRecording: AutomationRecordingView;
   /** The active side chat tab's pane (side-chat.ts). */
   sideChat: SideChatView;
+  /** Bumps when the window should focus the panel's default stop (shell-members.contract panelFocusDue). */
+  focusRequest: number;
 };
 
-type Store = { panels: Map<string, PanelState>; deviceSetup: string; terminalClose: { serial: number; title: string; body: string; target: string; op: string } };
+type Store = { panels: Map<string, PanelState>; deviceSetup: string; terminalClose: { serial: number; title: string; body: string; target: string; op: string }; focusRequests: number };
 const stores = new WeakMap<T3Client, Store>();
 export function surfaceStore(client: T3Client): Store {
   let store = stores.get(client);
-  if (!store) { store = { panels: new Map(), deviceSetup: '', terminalClose: { serial: 0, title: '', body: '', target: '', op: '' } }; stores.set(client, store); }
+  if (!store) { store = { panels: new Map(), deviceSetup: '', terminalClose: { serial: 0, title: '', body: '', target: '', op: '' }, focusRequests: 0 }; stores.set(client, store); }
   return store;
+}
+/**
+ * startWorkspaceFocus's panel rule: a person's action (a new userRevision) that opened the panel or changed the surface
+ * it shows asks the window to focus the panel (requestWorkspaceFocus({ area: "panel" })). An agent's or a turn's opening
+ * asks nothing. One count for every thread's panel, so moving to another thread asks nothing either.
+ */
+const focusSeen = new WeakMap<PanelState, { revision: number; shown: string | null }>();
+function panelFocusRequest(store: Store, state: PanelState): number {
+  const shown = state.visible ? state.active : null, seen = focusSeen.get(state);
+  if (seen && seen.revision !== state.userRevision && shown !== null && shown !== seen.shown) store.focusRequests++;
+  focusSeen.set(state, { revision: state.userRevision, shown });
+  return store.focusRequests;
 }
 /** The thread (or draft) the panel belongs to: rightPanelStore keys by thread. */
 export const panelKey = (client: T3Client): string => { const ref = activeRef(client); return ref ? `${ref.environmentId}:${ref.threadId}` : client.draftKey; };
@@ -546,7 +560,7 @@ export async function panelView(client: T3Client, native: Native | null | undefi
       withPdfViewer(client, 'mini', browserMiniView(client, ref => browserMiniSessions(client, ref), shownBrowserTab(client)))), // shouldRenderPreviewMiniPlayer's browser half
     ...annotationDispatchView(client), annotationSend: annotationSendSerial(client), // After browserPrepare applied the picks
     automationRecording: automationRecordingView(client), // the agent's recording tools (browser-automation-recording.ts)
-    sideChat,
+    sideChat, focusRequest: panelFocusRequest(store, state),
   };
 }
 /** A server tab's PDF in the viewer page (server-pdf-viewer.ts), as the tab or the floating player shows it. */
@@ -571,4 +585,4 @@ export function shownDevice(client: T3Client): DeviceTarget | undefined {
   const state = panelState(client), active = state.surfaces.find(entry => entry.id === state.active);
   return state.visible && active?.kind === 'device' ? deviceTargetOf(client, panelKey(client)) : undefined;
 }
-export const closedPanel = (): PanelView => ({ key: '', launcher: false, maximized: false, terminalClose: { serial: 0, title: '', body: '', target: '', op: '' }, terminal: emptyTerminalDrawerView(), open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP, browser: emptyBrowserView(), browserMini: emptyBrowserMini(), frames: emptyFramesView(), annotationSend: 0, annotationOwner: '', annotationValue: '', annotationSnapshot: '', annotationGeneration: -1, automationRecording: { serial: 0, slot: 0 }, sideChat: emptySideChat() });
+export const closedPanel = (): PanelView => ({ key: '', launcher: false, maximized: false, terminalClose: { serial: 0, title: '', body: '', target: '', op: '' }, terminal: emptyTerminalDrawerView(), open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP, browser: emptyBrowserView(), browserMini: emptyBrowserMini(), frames: emptyFramesView(), annotationSend: 0, annotationOwner: '', annotationValue: '', annotationSnapshot: '', annotationGeneration: -1, automationRecording: { serial: 0, slot: 0 }, sideChat: emptySideChat(), focusRequest: 0 });

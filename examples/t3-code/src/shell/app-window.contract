@@ -623,7 +623,8 @@ component T3Window
       let popup = returns.map(item => item.popup).join("")
       let invoker = returns.map(item => item.invoker).join("")
       let shown = querySelectorAll("[data-dialog-return~=\"menu\"]")
-      focus(popup != "" and not shown.includes(popup) ? invoker : back)
+      let firstStop = querySelectorAll("[data-dialog-return~=\"first\"]").includes(back) // a popup that is no Tab stop (app-route-modal.contract)
+      focus(popup != "" and not shown.includes(popup) ? invoker : (firstStop ? `${back}-guard-end` : back))
   // Forget the owners' frames without moving the focus: a popup that closed while something else took the focus.
   action dialogForget(owners: string[])
     dialogFrames = dialogFrames.filter(item => not owners.includes(item.owner))

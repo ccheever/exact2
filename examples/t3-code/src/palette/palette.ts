@@ -19,8 +19,7 @@ import { decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
 import { chordWinners, type DispatchContext } from '../shell/keyboard-dispatch';
 import { linkMode } from './palette-linkpr';
 import { scratchRoot, isScratchProject } from '../pages/pages-home';
-import { scratchEnvironmentId, scratchEnvironments } from '../composer/scratch-project';
-import { primaryEnvironmentId } from '../connections/local-primary';
+import { scratchTarget } from '../composer/scratch-project';
 import { triageEnvironment } from './palette-triage';
 import { pickerProjects } from './palette-projects'; // Project order
 import { openPanelPullRequestUrl, threadReferenceTarget } from '../sidebar/thread-reference';
@@ -347,8 +346,6 @@ export function projectItems(client: T3Client, projects: Obj[], prefix: string, 
 }
 
 // ── Root ───────────────────────────────────────────────────────────────────
-/** CommandPalette's scratchTargetEnvironmentId: where a thread without a project starts, the primary first (useScratchProject). */
-const scratchTarget = (client: T3Client) => scratchEnvironmentId(scratchEnvironments(client), primaryEnvironmentId(), client.environmentId || null);
 function capabilities(client: T3Client): Obj { return obj(obj(client.config.environment).capabilities); }
 export function rootActions(client: T3Client): Item[] {
   const items: Item[] = [];

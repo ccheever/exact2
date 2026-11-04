@@ -25,12 +25,12 @@ describe('dialog focus lifecycle uses the actual previous focus', () => {
   function fixture() {
     const state: Env = { focusEditable: false, dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogPressId: '', dialogFrames: [], dialogSeated: [], documentPermissionReturnKey: '', documentPermissionReturnSource: '' };
     // `live`: the open dialogs; `controls`: other laid-out elements a frame() finds.
-    const live = new Set<string>(), controls = new Set<string>(), menus = new Set<string>(), inert = new Set<string>(), focused: string[] = [], observedFocus: string[] = [];
+    const live = new Set<string>(), controls = new Set<string>(), menus = new Set<string>(), firsts = new Set<string>(), inert = new Set<string>(), focused: string[] = [], observedFocus: string[] = [];
     const scope = {
       none: null,
       querySelectorAll: (selector: string) => {
-        expect(['[data-dialog-focus~="open"]', '[data-dialog-return~="menu"]', '[data-editable~="yes"]', '[data-confirmation~="open"]']).toContain(selector);
-        return selector.includes('editable') || selector.includes('confirmation') ? [] : [...(selector.includes('dialog-return') ? menus : live)].filter(id => !inert.has(id));
+        expect(['[data-dialog-focus~="open"]', '[data-dialog-return~="menu"]', '[data-dialog-return~="first"]', '[data-editable~="yes"]', '[data-confirmation~="open"]']).toContain(selector);
+        return selector.includes('editable') || selector.includes('confirmation') ? [] : [...(selector.includes('"first"') ? firsts : selector.includes('dialog-return') ? menus : live)].filter(id => !inert.has(id));
       },
       frame: (id: string) => { const laid = live.has(id) || controls.has(id); return { unavailable: !laid, width: laid ? 400 : 0, height: laid ? 300 : 0 }; },
       dialogFrame: (owner: string, returns: { owner: string; target: string }[]) => ({ owner, returns }),
@@ -44,7 +44,7 @@ describe('dialog focus lifecycle uses the actual previous focus', () => {
     const call = (action: string, ...args: unknown[]) => window.call(action, state, scope, args);
     const outside = (id: string) => call('windowFocused', { target: id });
     const inside = (owner: string, id: string) => call('dialogEntered', owner, { target: id });
-    return { state, live, controls, menus, inert, focused, observedFocus, call, outside, inside };
+    return { state, live, controls, menus, firsts, inert, focused, observedFocus, call, outside, inside };
   }
   test('ordinary, menu and dialog focus facts reach root chip completion without changing dialog return ownership', () => {
     const rig = fixture();
@@ -96,6 +96,19 @@ describe('dialog focus lifecycle uses the actual previous focus', () => {
       }
     });
   }
+  // Base UI returns to the element focused as a dialog opened if it is tabbable, else to its first tabbable
+  // (FloatingFocusManager getFirstTabbableElement). Settings' popup takes the focus itself as it opens and is no stop, so
+  // the narrow window's sheet closing over it gives the focus to Settings' first stop, through its end guard.
+  test('a popup that is no Tab stop gives the focus to its first stop when a dialog over it closes', async () => {
+    const f = fixture(); f.live.add('settings-dialog'); f.firsts.add('settings-dialog');
+    f.inside('settings-dialog', 'settings-dialog');
+    f.live.add('sidebar-sheet'); f.call('dialogOpened', 'sidebar-sheet'); f.inside('sidebar-sheet', 'sidebar-sheet-trigger');
+    f.live.delete('sidebar-sheet'); f.call('dialogClosed', 'sidebar-sheet');
+    expect(f.focused).toEqual(['settings-dialog-guard-end']);
+    const modal = (await component('src/shell/app-route-modal.contract', 'AppRouteModal')).join('\n');
+    expect(modal).toContain('data-dialog-return="first"');
+    expect(modal).toContain('FocusGuard(guardId=`${modalId}-guard-end`, targets=dialogTargets, popup=modalId)');
+  });
   // Chromium focuses a pressed button and Base UI returns there; a Mac click or an accessibility press focuses nothing,
   // so the opener names itself at its press.
   test('a pressed opener is the return of the dialog it opens, inside a parent dialog too', () => {
