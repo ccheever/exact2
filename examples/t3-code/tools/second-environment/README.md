@@ -62,7 +62,7 @@ composer's `$` menu offers the stand-in's skill, Frontend Design:
 
 `seed second --more-turns` adds to `agent-edits`, besides the `--turns` threads: "Second edit awaiting approval" (a
 second approval, so one can be approved and one declined), "Italic answer" (emphasis in prose and a list, for a font's
-italic face), "HTML images" (raw HTML `<img>` and `<picture>` in every form the Markdown parser draws, over PNGs the
+italic face), "Prose answer" (headings, lists, a code block, a quote and a rule), "HTML images" (raw HTML `<img>` and `<picture>` in every form the Markdown parser draws, over PNGs the
 stand-in writes under `shots/`), "Answer before a check" (a read after the answer, so the answer's copy, fork and time sit under it, shown at rest), "Skill in a message" (the
 first message names `$frontend-design`, so its skill chip opens its details just under the header) and "Turn held open", whose turn the stand-in holds running until `bun ../acp-standin/install.mjs release
 --home <its t3home>` or a steer or Stop cancels it (for a send while a turn runs). The stand-in's sessions offer a

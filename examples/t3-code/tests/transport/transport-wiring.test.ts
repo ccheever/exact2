@@ -38,6 +38,8 @@ describe('app.contract', () => {
     exempt.add('desktopPipShot');
     // The window's Back and Forward read the client's own history (sidebar-history.ts).
     exempt.add('navigationHistory');
+    // View's zoom, told to the Browser tabs' layout (browser-viewport.ts setWindowZoom).
+    exempt.add('windowZoomTold');
     // A side chat's Markdown and its rich field are its own renderer's and the module's, as the window's are.
     for (const name of ['sideMarkdown', 'sideQuestionMarkdown', 'sideTraceMarkdown', 'sideRich', 'sideFieldChanged']) exempt.add(name);
     // A draft image's upload is a stream over HTTP that no socket reply ends (composer-uploads.ts).

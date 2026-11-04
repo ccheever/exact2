@@ -184,8 +184,10 @@ component UsagePage
     back: action
     // The reset credit confirm's commands report the focus back (app.contract commandCompleted).
     command: action
-    // The confirm shows (PagesCover closes it for the page as it is answered).
+    // The confirm shows (UsageRoute closes it for the page as it is answered).
     confirmOpen: bool
+    // The narrow window's sidebar sheet holds the keyboard and Escape over the page (AppRouteModal `under`).
+    under: bool
     reduced: bool
     // The window's count of presses outside this page (app-window.contract T3Window).
     outside: number
@@ -293,7 +295,7 @@ component UsagePage
     command("pageslocal:usage-pool-reset-ask", id, "", 0)
   view
     column position="absolute" left=0 top=0 right=0 bottom=0 background-color="light-dark(#fcfcfc, #000000)" inert=(page.detail.open or page.prices.open or confirmOpen) pointerdown=pressDown pointerup=pressUp testId="usage-page"
-      UsageKeys(keys=keys, limits=(page.metric == "limits"), dialog=(page.detail.open or page.prices.open or confirmOpen), setMetric=setMetric, setWindow=setWindow, back=escape)
+      UsageKeys(keys=keys, limits=(page.metric == "limits"), dialog=(page.detail.open or page.prices.open or confirmOpen or under), setMetric=setMetric, setWindow=setWindow, back=escape)
       if wide
         row width="100%" height="3rem" flex-shrink=0 padding-left="1.25rem" padding-right="0.5rem" box-sizing="border-box" align-items="center" gap="0.75rem" position="relative" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)"
           UsageBreadcrumb(page=page, scheme=scheme, op=op)

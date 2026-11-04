@@ -133,6 +133,7 @@ component WelcomeLayer
 // Window overlays above everything: model picker, palette, thread details, title menu, dialogs, toasts.
 component WindowOverlays
   inject
+    mediaWidth: number // the window's width as the reference's media queries see it (app.contract)
     composerTargetData: Snapshot // the composer the model picker serves (side-chat-members.contract)
     rem: number
   props
@@ -266,7 +267,7 @@ component WindowOverlays
     DialogFinalFocus(open=(confirmOp != ""), owner="app-confirm")
     if confirmOp != ""
       AppConfirm(title=confirmTitle, body=confirmBody, destructive=confirmDestructive, busy=commandPending, confirmId="app-confirm", confirmLabel=(confirmOp == "cc:branch-restore-confirmed" ? "Switch branch" : "Confirm"), cancel=confirmUi(false), confirm=confirmUi(true))
-    ToastStack(toasts=shell.toasts, width=min(22.5 * rem, viewport.width - (viewport.width >= 640 ? 4 : 2) * rem), top=(52 + (viewport.width >= 640 ? 2 : 1) * rem), right=((viewport.width >= 640 ? 2 : 1) * rem), expanded=toastHover, still=viewport.prefersReducedMotion, hover=toastHovering, act=toastAct)
+    ToastStack(toasts=shell.toasts, width=min(22.5 * rem, viewport.width - (mediaWidth >= 640 ? 4 : 2) * rem), top=(52 + (mediaWidth >= 640 ? 2 : 1) * rem), right=((mediaWidth >= 640 ? 2 : 1) * rem), expanded=toastHover, still=viewport.prefersReducedMotion, hover=toastHovering, act=toastAct)
     // A Markdown table's Copy menu over every layer (table-menu.contract).
     for menu in data.tableMenu key=menu.id
       TableCopyMenu(menu=menu, dark=(scheme == "dark"), local=chatLocal)

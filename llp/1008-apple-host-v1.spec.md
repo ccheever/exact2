@@ -145,18 +145,23 @@ half-leading and ceils a `normal` paragraph's height in device pixels, so at
 device scale 2 a 14 px `normal` line is 16.5 tall with its baseline at 13.5,
 where at scale 1 it is 17 and 14 (`CSSLineBox`). The engine rounds at its
 `lineScale`: the Mac presenter sets it to the window's `backingScaleFactor`
-before the first layout, and when the window moves to a display of another
-scale it sets it again, which drops what the engine measured and has the
+times the page zoom (LLP 1021 §5.3.1, as Chromium's device scale is under a
+page zoom) before the first layout, and when the window moves to a display
+of another scale or the zoom changes it sets it again, which drops what the engine measured and has the
 kernel measure every paragraph again (`exact_text_scale_changed`,
 `Kernel::remeasure_text`). A paragraph paints each baseline on the device
 pixels its line box was rounded to (`Paragraph.lineScale`), so on a 2x Mac a
 baseline can sit on a half point; a textarea's lines and the agent's range
 frames follow the same box. A headless session and a 1x display keep scale 1:
 whole points, as before, so a headless test lays text out the same on any
-machine; the agent driving a Mac app sees its window's scale. Not changed: a single-line input's text, which
-`NSTextFieldCell` draws on whole points; iOS, which keeps scale-1 line boxes
-and device-pixel baselines; the Linux and Windows hosts. Those are decided
-separately. `TextParityMacTests` holds Chrome 156's numbers at both scales.
+machine; the agent driving a Mac app sees its window's scale. A single-line
+input's line box rounds the same way (2026-11-04, Daehyeon's ruling "fix it;
+it is plain CSS"): `NSTextFieldCell` sets its baseline the font's ascent,
+rounded to a point, below its title rect's top, so the rect's top is the
+CSS baseline less that ascent, on a half point where the baseline is.
+Not changed: iOS, which keeps scale-1 line boxes and device-pixel baselines;
+the Linux and Windows hosts. Those are decided separately.
+`TextParityMacTests` holds Chrome 156's numbers at both scales.
 The macOS paragraph raster includes glyph ink outside that layout box. Overflow
 uses a positioned child layer, preserving descenders and italic overhang without
 changing layout; authored clipping still applies. Fitting ink stays on the

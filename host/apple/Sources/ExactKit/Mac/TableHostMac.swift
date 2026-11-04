@@ -184,7 +184,7 @@ final class TableHost {
                 lines[row.id] = line
                 needed.insert(row.id)
                 if line.superlayer !== layer { layer.addSublayer(line) }
-                let scale = row.window?.backingScaleFactor ?? 1
+                let scale = row.pixelScale ?? 1
                 let bottom = (row.bounds.maxY * scale).rounded() / scale
                 // The measured AppKit line is one point, ending at the row's
                 // bottom; the trailing cell inset is sixteen points.

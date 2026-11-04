@@ -1146,6 +1146,24 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         }
     }
 
+    // An answer's timer outran its own request (LLP 1027.000 D1): the
+    // JavaScript child's, outside an ordered set, whose turns are the set's.
+    // Its continuation goes out under a token of this composer's.
+    fn timer_before_reply(
+        &mut self,
+        store: &Store,
+        in_flight: InFlight<'_>,
+    ) -> Option<(u64, Request)> {
+        if self.set_of[0].is_some() || self.owner(in_flight.source).ok() != Some(false) {
+            return None;
+        }
+        let (token, request) = self.javascript.timer_before_reply(store, in_flight)?;
+        match self.route_answer(false, Answer::Later(request)) {
+            Ok(Answer::Later(request)) => Some((token, request)),
+            _ => None,
+        }
+    }
+
     // A kept request is the JavaScript child's (LLP 1146 D2): its module
     // turn sees the store through the child's grants, as an answer does.
     fn module_landed(

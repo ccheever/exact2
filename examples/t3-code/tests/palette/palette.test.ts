@@ -234,7 +234,7 @@ describe('add project', () => {
     const enter = async (highlight: number) => {
       const view = await addProjectView(c, native, { page: 'new-project', query: 'App', highlighted: highlight >= 0 });
       const row = view.rows.find(entry => entry.index === highlight);
-      const scope = { view, highlight, scroll: 0, scheme: 'dark', rem: 16, viewport: { width: 1280, height: 840 }, min: Math.min, max: Math.max, floor: Math.floor };
+      const scope = { view, highlight, scroll: 0, scheme: 'dark', rem: 16, viewport: { width: 1280, height: 840 }, mediaWidth: 1280, min: Math.min, max: Math.max, floor: Math.floor };
       return [row?.title ?? '', body.derives({}, scope).enterText];
     };
     expect(await enter(0)).toEqual(['Create private repository on GitHub', 'Toggle']);

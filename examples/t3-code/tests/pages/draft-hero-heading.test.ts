@@ -16,7 +16,7 @@ describe('the project heading', () => {
   const call = source.split('\n').find(line => line.trim().startsWith('EmptyThread('))!;
   const arg = (name: string) => /inline=\((.+?)\), cap=(.+?), command=/.exec(call)![name === 'inline' ? 1 : 2]!.replaceAll(' and ', ' && ');
   const derived = (width: number, chatMax: number, measured: number) => {
-    const scope = { rem: 16, viewport: { width }, conversationWidth: width - 256, laneInset: 0, min: Math.min, data: { look: { chatMax }, heroInlineWidth: measured } };
+    const scope = { rem: 16, viewport: { width }, mediaWidth: width, conversationWidth: width - 256, laneInset: 0, min: Math.min, data: { look: { chatMax }, heroInlineWidth: measured } };
     const run = (name: string) => new Function(...Object.keys(scope), `return (${arg(name)})`)(...Object.values(scope));
     return { heroCap: run('cap') as number, heroInline: run('inline') as boolean };
   };

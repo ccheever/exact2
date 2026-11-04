@@ -525,9 +525,9 @@ extension NodeView {
         f.backgroundColor = ThemeRoles.color("Field", in: self, or: .textBackgroundColor)
         f.focusRingType = outlineNone ? .none : native ? .default : .exterior
         restyleFieldFocus()
-        f.textContainerInset = native ? FieldChromeCache.textareaInset(for: effectiveAppearance, scale: window?.backingScaleFactor ?? 1) : .zero
+        f.textContainerInset = native ? FieldChromeCache.textareaInset(for: effectiveAppearance, scale: pixelScale ?? 1) : .zero
         let paragraph = NSMutableParagraphStyle()
-        if let font = f.font { paragraph.setLineHeight(usedLineHeight, font: font, scale: window?.backingScaleFactor ?? 1) }
+        if let font = f.font { paragraph.setLineHeight(usedLineHeight, font: font, scale: pixelScale ?? 1) }
         if (f as? TextArea)?.markup == nil { paragraph.baseWritingDirection = fieldBaseDirection }
         // A native one's unsaid alignment is `start`; one of `appearance: none` aligns each paragraph to the
         // base's start (natural) unless the author says otherwise.
@@ -560,7 +560,8 @@ extension NodeView {
         layoutResizeGrip()
     }
     package func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
-        TextInputLimit.allows(textView.string, range: affectedCharRange, replacement: replacementString ?? "", props: props)
+        presenter?.fieldSelections.replacing.contains(id) == true
+            || TextInputLimit.allows(textView.string, range: affectedCharRange, replacement: replacementString ?? "", props: props)
     }
     package func textDidChange(_ notification: Notification) {
         guard let f = textArea else { return }

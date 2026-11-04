@@ -389,6 +389,13 @@ impl<D: DataSource> DataSource for Swappable<D> {
             None => vec![None; let_go.len()],
         }
     }
+    fn timer_before_reply(
+        &mut self,
+        store: &Store,
+        in_flight: exact_runner::InFlight<'_>,
+    ) -> Option<(u64, exact_runner::Request)> {
+        self.embedded.as_mut()?.timer_before_reply(store, in_flight)
+    }
     fn module_landed(
         &mut self,
         store: &mut Store,

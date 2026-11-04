@@ -25,10 +25,11 @@ import { selectedConnected, type EnvironmentUsageStatus, type UsageState } from 
 const driverLabel = (driver: string) => driverMeta(driver)?.label ?? driver;
 const accent = (value: string | undefined) => (value && /^#[0-9a-fA-F]{6}$/u.test(value.trim()) ? value.trim() : '');
 
-/** The pool bar's width: the page column (max 64rem, 1.5rem gutters), the card's 1rem padding and border, and at md the 11rem figure column and its 1.5rem gap. */
-export function poolBarWidth(viewport: number, sidebar: number): number {
+/** The pool bar's width: the page column (max 64rem, 1.5rem gutters), the card's 1rem padding and border, and at md
+ * (`media`, the window's width as the reference's media queries see it) the 11rem figure column and its 1.5rem gap. */
+export function poolBarWidth(viewport: number, sidebar: number, media = viewport): number {
   const content = Math.min(1024, Math.max(0, viewport - sidebar)) - 48, inner = content - 34;
-  return viewport >= 768 ? inner - 176 - 24 : inner;
+  return media >= 768 ? inner - 176 - 24 : inner;
 }
 /** `@2xl/pool`: 42rem. */
 export const POOL_WIDE = 672;

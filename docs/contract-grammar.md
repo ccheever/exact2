@@ -2197,9 +2197,14 @@ replaces it. The offsets are clamped as the DOM's are (`-1` is past the end).
 On **web (JS and wasm), macOS, iOS and Linux**, `setRangeText(id, text)` replaces the
 current selection; `setRangeText(id, text, start, end[, selectionMode])`
 replaces the given UTF-16 range. `selectionMode` is `preserve` by default,
-or `select`, `start`, `end`, following HTML. It does not focus the field,
-apply `maxlength`, or create an undo step. Apple clears the edited field's
-existing undo history when its value changes. Invalid ranges, modes, unsupported
+or `select`, `start`, `end`, following HTML. It does not focus the field or
+apply `maxlength`. On macOS it is one undo step that restores the text before
+it, as on the Markdown editor, wherever the field has an editor (a textarea, or
+an input being edited); without one, or while an input method composes, the
+value is written as the app's own is. On iOS it is no undo step. Both Apple
+hosts clear the edited field's undo history when a value is written. On the web
+it is HTML's, which Chrome makes no undo step, and Linux keeps no field undo
+history. Invalid ranges, modes, unsupported
 input types and missing ids log a refusal without editing. On the Markdown
 editor (web, macOS and iOS) the offsets are the source's and each call is one
 undo step ([Markdown](#markdown-markup-format-select)); Linux refuses it there.
@@ -2519,15 +2524,13 @@ the virtual clock).
 
   View holds Actual Size ⌘0, Zoom In ⌘+ (⌘= too) and Zoom Out ⌘-, as Safari's
   and Preview's View does, stepping through Safari's zoom levels (50% to 300%)
-  for the main window (the key one, or the one under a key panel). The zoom
-  multiplies the root font size last, over the
-  app's own `setRootFontSize` as a browser's page zoom is over
-  `html { font-size }`, so every `rem` and inherited text size grows; it is
-  per window and not kept across a launch. Declared deviation: a browser's
-  zoom scales `px` lengths too, and this one leaves them, as it leaves the
-  platform's own controls at their size; an app that sizes in `px` alone
-  removes the three items (`actual-size zoom-in zoom-out`). An app's own ⌘0,
-  ⌘= or ⌘- command takes the host item's place.
+  for the main window (the key one, or the one under a key panel). It is a
+  page zoom, as a browser's: a CSS px is the factor's points, so the viewport
+  the page lays out in shrinks (media queries and `resize` see it) and `px`,
+  `rem` and the controls in the page all scale, drawn at the display's scale
+  times the factor. It is per window and not kept across a launch. An app's
+  own ⌘0, ⌘= or ⌘- command takes the host item's place and sets its own steps
+  with `setPageZoom(factor)` (LLP 1021 §5.3.1).
 
   A held ⌘Q, as Chrome's Warn Before Quitting asks for: a root `key` handler
   that calls `preventDefault()` on ⌘Q (match `code == "KeyQ"`: under a
@@ -2598,7 +2601,7 @@ rows and content lifted into a popover; an explicit
 The current command name inventory is:
 
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `fastSeek`, `focus`, `format`,
-`load`, `openURL`, `requestFullscreen`, `requestPictureInPicture`, `exitPictureInPicture`, `removeAllRanges`, `selectText`, `setSelectionRange`, `setRangeText`, `setScheme`, `setRootFontSize`, `showPicker`, `share`, `saveFile`,
+`load`, `openURL`, `requestFullscreen`, `requestPictureInPicture`, `exitPictureInPicture`, `removeAllRanges`, `selectText`, `setSelectionRange`, `setRangeText`, `setScheme`, `setRootFontSize`, `setPageZoom`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `requestPermission`, `scrollIntoView`, `scrollBy`, `showModal`,
 `haptic`, `postMessage`, `reload`, `relaunch`, `close`,
 `playSound`, `playSounds`, `stopSounds`, `requestMIDIAccess`, `sendMIDI`, `startTrace_EXPERIMENTAL`, `stopTrace_EXPERIMENTAL`
@@ -2618,12 +2621,13 @@ argument validation. Use the working implementation when selecting arguments:
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |
 | `selectText(...)` | No app fixture; the hosts' field selection, such as [`FieldSelections.swift`](../host/apple/Sources/ExactKit/FieldSelections.swift) |
 | `setSelectionRange(id, start, end[, direction])`: a text field's or text's selection, by its `id` ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [radios conformance](../host/web-js/conformance/radios.contract), [control tests](../contract/cli/tests/it/controls.rs) |
-| `setRangeText(id, text[, start, end[, selectionMode]])`: a field's range replacement, one `input`, preserve selection by default; no undo step on a plain field, one on the Markdown editor ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [Chrome comparison](../host/web/tests/field-range.test.mjs) |
+| `setRangeText(id, text[, start, end[, selectionMode]])`: a field's range replacement, one `input`, preserve selection by default; one undo step on macOS and on the Markdown editor, none on a plain field elsewhere ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [Chrome comparison](../host/web/tests/field-range.test.mjs) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `startTrace_EXPERIMENTAL()`, `stopTrace_EXPERIMENTAL()`: experimental, so named while the trace's fields may still change; a recording of each display-link callback, from which it estimates the frames the display showed again, from an app's own control and in any build, a production one included; `stopTrace_EXPERIMENTAL()` puts the trace on the clipboard as compact JSON and in a `trace-recording-*.json` file in the app's temporary directory; `stopTrace_EXPERIMENTAL(maxBytes)` copies it cut to that many bytes (its totals and scroll segments as rows, then the frames late the longest first, as many as fit), for a conversation that limits a message (a budget too small for its totals gets a note naming the size that fits them), and still saves the whole trace. On iOS it splits each scroll a person makes of an element's scroller, a route's page or the document into its drag and its glide, with an estimate, from the display link's callbacks, of the hitch time ratio Apple's scroll metrics report; a Mac recording follows no scroller. It lists each late frame with the main thread's busy time, overrun, batches and host phases. Apple hosts (tvOS, with no clipboard, only saves the file); the web and Linux refuse it in the journal | [`TraceRecording.swift`](../host/apple/Sources/ExactKit/TraceRecording.swift) |
 | `openURL(url)`: an absolute `http`, `https`, `mailto` or `tel` URL, or one of a scheme app.json's `open_url.schemes` declares (`"open_url": {"schemes": ["vscode", "zed"]}`, an editor's deep link), opened by whatever the system registered for it; the web's JS target, macOS and iOS open declared schemes (a browser asks first) and journal one nothing could open, and under the agent journal them instead (`openURL vscode: …`). `openURL(url, id)` also says whether it opened, as Electron's `shell.openExternal` does: `change` at the element `id` names hears `opened` when the system took the URL, or `failed` when it was refused or nothing could open it (no app registered for its scheme, a host with no browser). The web hears `opened` for any URL it hands the browser, which does not say what opened it. Where the agent's drive journals an open instead, macOS answers whether an app is registered for the URL and the other hosts answer `opened` A link's `href` of a declared scheme opens on macOS and iOS, which hand followed links to `openURL`; the web writes no such `href` (its link policy keeps the four schemes). `file`, `javascript`, `data` and the other schemes that run or read content cannot be declared. Any other scheme is refused in the journal ([LLP 1133.000](../llp/1133.000-the-roster.rfc.md) §2) | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js), [`OpenURL.swift`](../host/apple/Sources/ExactKit/OpenURL.swift) |
 | `setScheme(scheme)`: the app's scheme, `"light"`, `"dark"` or `"system"` (follow the system's appearance) | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
-| `setRootFontSize(px)`, `setRootFontSize("125%")`, `setRootFontSize("medium")`: CSS's `:root { font-size }`, the root font size every `rem` follows, in px above 0, laid out in the action's own commit; `px` lengths stay. It stands over the host's own size (the browser's setting, iOS Dynamic Type, 16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a browser's font-size setting, and `"medium"` hands the size back to the host. The Mac's View ▸ Zoom In multiplies whichever size stands ([The Mac's menu bar](#keys)). A percentage (CSS's number syntax, above 0) is that share of the host's size and follows it as the host's changes (LLP 1121 D6). A literal of 0 or less is refused here, a computed one in the log when it runs. Not kept across a launch: set it again from a mount task (LLP 1069.000 D3) | [rem tests](../contract/cli/tests/it/rem.rs) |
+| `setRootFontSize(px)`, `setRootFontSize("125%")`, `setRootFontSize("medium")`: CSS's `:root { font-size }`, the root font size every `rem` follows, in px above 0, laid out in the action's own commit; `px` lengths stay. It stands over the host's own size (the browser's setting, iOS Dynamic Type, 16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a browser's font-size setting, and `"medium"` hands the size back to the host. A percentage (CSS's number syntax, above 0) is that share of the host's size and follows it as the host's changes (LLP 1121 D6). A literal of 0 or less is refused here, a computed one in the log when it runs. Not kept across a launch: set it again from a mount task (LLP 1069.000 D3) | [rem tests](../contract/cli/tests/it/rem.rs) |
+| `setPageZoom(factor)`: the window's page zoom, as View ▸ Zoom In sets it and Electron's `webContents.setZoomFactor`: a CSS px is `factor` points, so the viewport, media queries, `px` and `rem` all follow; `setPageZoom(1)` is Actual Size, and a factor is clamped to 0.25–5. For an app whose own ⌘0, ⌘= and ⌘- commands keep their own steps ([The Mac's menu bar](#keys)). The Mac's; iOS, Linux, Windows and the web refuse it in the journal (LLP 1021 §5.3.1) | [`PageZoomMacTests`](../host/apple/tests/ExactKitTests/PageZoomMacTests.swift) |
 | `share(title=, text=, url=, files=)`: the system share sheet by the Web Share API's names, at least one of `text`, `url` and `files`, each its own item of the sheet (pass a picture alone to share only it, as a Share Card button does; `contract vocab share`); `url` absolute `http(s)`. `files=` lists `app:/` files, each behind the app's `fs.read` grant (on Apple a regular file of at most 64 MB, reached through no symbolic link), and `"#id"` entries: a PNG of that element as it is drawn now, at the display's scale, named by the share's `title` (else by the id) (iOS and macOS; the web refuses it, `share: refused: a picture of an element is not available on the web`; Android and Linux refuse files). A literal `#id` no element carries is refused here (`lower-share-picture`), a missing one at run time in the journal. Offer it where `exactPage()`'s `canShareFiles` and `canSharePictures` hold (LLP 1125 D12). The outcome is a journal line | [share corpus](../contract/corpus/share.contract), [Metronome](../apps/metronome/app.contract) |
 | `showPicker(id)`, export `saveFile(id, from, suggestedName)`: the host copies the `app:/` file `from` to where the person chooses; `change` at `id` carries the chosen name, `cancel` a dismissal. `saveFile(id, text=…, suggestedName=…)` saves the text itself (UTF-8), no file written first and no grant, so "export what's on screen" is one press | [picker tests](../contract/cli/tests/it/picker.rs), [Fieldnotes](../apps/fieldnotes/app.contract), [Linux's save tests](../host/linux/src/presenter/save_tests.rs) |
 | `showOpenFilePicker(id[, multiple])` | [file-picker corpus](../contract/corpus/file-pickers.contract) |

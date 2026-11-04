@@ -499,7 +499,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         // Provenance may change without a new row count, frame or collection
         // revision. Refresh the row and its predecessor even on that path.
         defer { syncSeparators() }
-        let pixel = 1 / (table.window?.backingScaleFactor ?? 1)
+        let pixel = 1 / (table.pixelScale ?? 1)
         let port = self.port
         // A batch that changed no row, no frame of one and nothing of the port's width leaves the table as it is.
         var (items, next, now) = read(presenter)

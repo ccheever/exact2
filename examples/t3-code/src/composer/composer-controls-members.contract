@@ -239,6 +239,8 @@ members T3Code
         if result.message.startsWith("pr-select:") // a pull request link opens on the page
           prSelect(result.message.slice(10))
         if result.message.startsWith("sidebar:project-settings:")
+          if sidebarSheetMode // a row's, a draft's or the filter's Project settings closes the sheet (openProjectSettings)
+            sidebarSheetOpen = false
           openSettings() // a project link replaces the whole scope (retainSettingsScope)
           settingsProjectId = result.message.slice(25)
           settingsRoute = "projects"
@@ -264,6 +266,8 @@ members T3Code
         if result.message == "focus:composer"
           focus("composer")
         if result.message.startsWith("open:")
+          if sidebarSheetMode // a row's drop opens its thread from the sheet (navigateToThread closes it)
+            sidebarSheetOpen = false
           openThread(result.message.slice(5), "click")
       case none
   action chooseAttachments

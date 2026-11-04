@@ -66,6 +66,8 @@ pub struct Line {
     /// Whether none comes after it either, so the markup that follows may
     /// go on with it.
     pub open: bool,
+    /// Whether a `<p>` holds it, whose margins are then its own.
+    pub paragraph: bool,
 }
 
 /// How far one run of image markup may reach: a `<picture>` with a few
@@ -167,14 +169,15 @@ pub fn element(text: &str, schemes: &[&str], links: Option<&[&str]>, ends: bool)
                     .rev()
                     .find_map(|o| o.link.clone())
                     .unwrap_or_default();
-                image.spaced = spaced && lines.last().is_some_and(|(l, _)| *l == line);
+                image.spaced = spaced && lines.last().is_some_and(|(l, _, _)| *l == line);
                 spaced = false;
                 let align = open
                     .iter()
                     .rev()
                     .map(|o| o.align.as_str())
                     .find(|a| !a.is_empty());
-                lines.push((line, align.unwrap_or_default().to_string()));
+                let paragraph = open.iter().any(|o| o.name == "p");
+                lines.push((line, align.unwrap_or_default().to_string(), paragraph));
                 markup.images.push(image);
             }
             ("source", false, Some(picture)) => picture.source(&tag),
@@ -229,7 +232,7 @@ pub fn element(text: &str, schemes: &[&str], links: Option<&[&str]>, ends: bool)
     if inline && markup.images.is_empty() {
         return None;
     }
-    for (index, (id, align)) in lines.iter().enumerate() {
+    for (index, (id, align, paragraph)) in lines.iter().enumerate() {
         if index > 0 && lines[index - 1].0 == *id {
             if let Some(last) = markup.lines.last_mut() {
                 last.end = index + 1;
@@ -242,9 +245,10 @@ pub fn element(text: &str, schemes: &[&str], links: Option<&[&str]>, ends: bool)
             align: align.clone(),
             continues: *id == 0,
             open: false,
+            paragraph: *paragraph,
         });
     }
-    if let (Some(last), Some((id, _))) = (markup.lines.last_mut(), lines.last()) {
+    if let (Some(last), Some((id, _, _))) = (markup.lines.last_mut(), lines.last()) {
         last.open = *id == line;
     }
     markup.len = at;

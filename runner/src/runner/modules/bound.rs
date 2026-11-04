@@ -247,6 +247,12 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
+    /// Request `ticket` runs on with no answer awaiting it (module work): its
+    /// send is not cancelled, and its anchor goes with its reply.
+    pub(in crate::runner) fn keep_send(&mut self, ticket: u64) {
+        self.extensions.sent.remove(&ticket);
+    }
+
     /// Each send let go before its reply landed (superseded, its commit
     /// refused): its implementation is told `{"extension", "cancel": n}`,
     /// so the work no one reads stops (LLP 1133.016 D15 item 2).

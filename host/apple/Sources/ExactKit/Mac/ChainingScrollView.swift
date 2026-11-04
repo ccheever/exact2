@@ -67,6 +67,7 @@ package final class ChainingScrollView: NSScrollView {
     private var styleObserver: NSObjectProtocol?
     package override init(frame: NSRect) {
         super.init(frame: frame)
+        contentView = RangeClipView()
         followScrollerStyle()
         styleObserver = NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification,
             object: nil, queue: .main) { [weak self] _ in self?.followScrollerStyle() }
@@ -359,4 +360,27 @@ extension NodeView {
     }
 }
 
+/// A box's clip: its origin stays in the box's scroll range, as a CSS box's
+/// scroll position is clamped to its scrolling area (CSSOM View, "scroll an
+/// element"). When its document's size changes, AppKit scrolls the clip to
+/// an origin aligned to the backing store's pixels; a clip off the device
+/// grid at that moment is sent a fraction of a pixel outside the range
+/// (−0.25 pt at 2x) and keeps it once the box moves onto the grid, so its
+/// content draws that much lower though the box has nothing to scroll. Less
+/// than a device pixel outside the range is that alignment, not an
+/// overscroll, and goes to the range's edge; an elastic overscroll is AppKit's.
+final class RangeClipView: NSClipView {
+    override func scroll(to newOrigin: NSPoint) {
+        guard let document = documentView?.frame else { return super.scroll(to: newOrigin) }
+        let pixel = 1 / max(1, pixelScale ?? 1), inset = contentInsets, size = bounds.size
+        func clamp(_ origin: CGFloat, _ low: CGFloat, _ high: CGFloat) -> CGFloat {
+            let high = max(low, high)
+            if origin < low, low - origin < pixel { return low }
+            if origin > high, origin - high < pixel { return high }
+            return origin
+        }
+        super.scroll(to: NSPoint(x: clamp(newOrigin.x, document.minX - inset.left, document.maxX + inset.right - size.width),
+                                 y: clamp(newOrigin.y, document.minY - inset.top, document.maxY + inset.bottom - size.height)))
+    }
+}
 #endif

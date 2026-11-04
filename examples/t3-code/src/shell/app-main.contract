@@ -59,6 +59,7 @@ use DialogFinalFocus from "../shared/dialog-trap.contract"
 // The conversation column: header, transcript (or the empty thread), composer stack and alerts.
 component ChatColumn
   inject
+    mediaWidth: number // the window's width as the reference's media queries see it (app.contract)
     sidebarInline: bool // the sidebar is in the row, not the narrow window's sheet (app.contract)
     frameMoved: action
     workspaceEntered: action // the workspace areas F6 moves between (shell-members.contract)
@@ -309,7 +310,7 @@ component ChatColumn
         // The hero's lane is the chat width setting's (46rem, 72rem or full), at most 64rem, inside EmptyThread's 1.25rem
         // gutters; its project heading sits on one line on an lg window when the probe fits it, and until the probe is laid out.
         column flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box"
-          EmptyThread(data=data, home=home, scheme=scheme, shoulder=(editor.stash.count > 0), busy=commandPending, inline=(viewport.width >= 1024 and data.heroInlineWidth <= min(min(data.look.chatMax, 64 * rem), conversationWidth - laneInset - 2.5 * rem)), cap=min(data.look.chatMax, 64 * rem), command=command, addProject=paletteShow("command", "add-project"))
+          EmptyThread(data=data, home=home, scheme=scheme, shoulder=(editor.stash.count > 0), busy=commandPending, inline=(mediaWidth >= 1024 and data.heroInlineWidth <= min(min(data.look.chatMax, 64 * rem), conversationWidth - laneInset - 2.5 * rem)), cap=min(data.look.chatMax, 64 * rem), command=command, addProject=paletteShow("command", "add-project"))
       if data.messages.length == 0 and data.threadId != ""
         // MessagesTimeline's empty state (no rows, not working): centred in the lane above the composer, which overlays the
         // timeline (emptyPlaceholderInset: the composer's reserved height, held while it rests); while the thread's detail
@@ -475,23 +476,15 @@ component PagesCover
     sidebarSheetShown: bool
   props
     pageCover: bool
-    // The window's count of presses outside the page (T3Window), for the Usage page's light dismiss.
-    outside: number
     data: Snapshot
     sidebarWidth: number
     modal: bool
     utilityPage: string
     viewport: Viewport
     scheme: string
-    usage: UsageView
-    usageShortcuts: UsageKey[]
     settings: Settings
     // The sidebar toggle's shortcut as its tooltip names it (⌘B); settings.keySidebar is its ARIA chord.
     sidebarShortcut: string
-    usageMetricSet: action
-    usageWindowSet: action
-    usageBreakdownSet: action
-    usageRefreshNow: action
     // A page's Back (Escape): the page before it, else the thread (useNavigateBack).
     pageBack: action
     prList: PrListView
@@ -517,28 +510,15 @@ component PagesCover
     commandPending: bool
     command: action
     openConnectionsPage: action
-    pagesOp: action
     // The window's inert for the main sidebar trigger (SidebarToggle), which the page's own dialogs add to.
     toggleInert: bool
     toggleSidebar: action
-  // The pooled reset confirm closes for the page as its Cancel, Escape or Use credit is
-  // pressed, so the page is no longer inert when the command's answer gives the segment the focus back (the
-  // usage answer that drops the confirm comes later; Base UI's AlertDialog returns the focus as it closes).
-  // A new ask from the page opens it again.
   // The pull request page's list and panel widths (moved from app.contract: only this page reads them).
   state prMaximized = false
   action maximizePr(on: bool)
     prMaximized = on
   derive prPanelWidth = prMaximized ? viewport.width - (sidebarInline ? sidebarWidth : 0) : min(floor(viewport.width / 2), viewport.width - (sidebarInline ? sidebarWidth : 0) - 224)
   derive prListWidth = viewport.width - (sidebarInline ? sidebarWidth : 0) - (prSelected != "" and prPanelOpen ? prPanelWidth : 0)
-  state usageClosing = ""
-  derive usageConfirmOpen = usage.pooled.confirm != "" and usageClosing != usage.pooled.confirm
-  action usageCommand(op: string, id: string, value: string, n: number)
-    usageClosing = ""
-    command(op, id, value, n)
-  action usageConfirm(op: string, id: string, value: string, n: number)
-    usageClosing = id
-    command(op, id, value, n)
   view
     if pageCover
       box position="absolute" left=(sidebarInline ? sidebarWidth : 0) top=0 right=0 bottom=0 inert=(modal or utilityPage == "usage" or sidebarSheetShown) testId="pages-cover"
@@ -560,22 +540,6 @@ component PagesCover
     // The main sidebar trigger is drawn here, whatever the page: after the chat and the page in paint and Tab order,
     // under the dialogs below, which cover the whole window as the reference's portaled dialogs cover SidebarControl.
     SidebarToggle(open=sidebarVisible, controlsLeft=data.controlsLeft, keySidebar=settings.keySidebar, shortcut=sidebarShortcut, inert=(toggleInert or sidebarSheetShown or (pageCover and utilityPage == "usage") or prDetail.actions.stack.dialogOpen), toggle=toggleSidebar)
-    // Usage opens as the large modal over the page that opened it (AppRouteModal label "Usage", 3faeb9e6f9 #24847).
-    if pageCover and utilityPage == "usage"
-      AppRouteModal(label="Usage", modalId="usage-modal", viewportWidth=viewport.width, canvas="light-dark(#fcfcfc, #000000)", border="light-dark(#e4e4e7, #ffffff14)", backdrop="light-dark(#fcfcfc99, #000000a3)", inert=modal, first="usage-environment", last="close-usage", close=pageBack)
-        UsagePage(page=usage, keys=usageShortcuts, scheme=scheme, wide=(routeModalWidth(viewport.width) - 30 >= 896), lg=(viewport.width >= 1024), md=(viewport.width >= 768), sm=(viewport.width >= 640), op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=pageBack, command=usageCommand, confirmOpen=usageConfirmOpen, reduced=viewport.prefersReducedMotion, outside=outside)
-    // Usage's model and Model prices dialogs cover the whole window, sidebar included (pages-usage-dialogs).
-    // A pooled segment's reset credit confirm, outside its popover (UsageLimitsPooled RedeemableSegmentPopup).
-    if pageCover and utilityPage == "usage" and usageConfirmOpen
-      ResetCreditDialog(prefix="pageslocal:usage-pool", target=usage.pooled.confirm, busy=commandPending, command=usageConfirm)
-    // Model prices and a model's dialog (which opens Model prices from its Set price) give the focus back to what opened
-    // the first of them as the last closes (dialog-trap.contract DialogFinalFocus).
-    DialogFinalFocus(open=(pageCover and utilityPage == "usage" and usage.prices.open), owner="usage-prices-dialog")
-    DialogFinalFocus(open=(pageCover and utilityPage == "usage" and usage.detail.open), owner="usage-model-dialog")
-    if pageCover and utilityPage == "usage" and usage.prices.open
-      UsagePricesLayer(page=usage, scheme=scheme, viewportHeight=viewport.height, busy=commandPending, op=pagesOp)
-    if pageCover and utilityPage == "usage" and usage.detail.open and not usage.prices.open
-      UsageModelLayer(page=usage, scheme=scheme, viewportHeight=viewport.height, sm=(viewport.width >= 640), op=pagesOp)
 
 // The right panel as a sheet over a narrow window, with its click-away backdrop.
 component RightSheets
@@ -633,3 +597,58 @@ component PrGuideMaximize
       change(true)
   view
     box resize=observe aria-hidden=true position="absolute" left=0 top=0 width=(not opened ? 1 : ready ? 3 : 2) height=1 opacity=0 pointer-events="none"
+
+// Usage (the Usage page as AppRouteModal label "Usage") and its dialogs: drawn after the narrow window's sidebar sheet,
+// as the reference's z-50 dialogs are over its z-sheet one.
+component UsageRoute
+  inject
+    mediaWidth: number // the window's width as the reference's media queries see it (app.contract)
+    sidebarSheetShown: bool
+  props
+    pageCover: bool
+    utilityPage: string
+    // The window's count of presses outside the page (T3Window), for the Usage page's light dismiss.
+    outside: number
+    modal: bool
+    viewport: Viewport
+    scheme: string
+    usage: UsageView
+    usageShortcuts: UsageKey[]
+    usageMetricSet: action
+    usageWindowSet: action
+    usageBreakdownSet: action
+    usageRefreshNow: action
+    // A page's Back (Escape): the page before it, else the thread (useNavigateBack).
+    pageBack: action
+    commandPending: bool
+    command: action
+    pagesOp: action
+  // The pooled reset confirm closes for the page as its Cancel, Escape or Use credit is
+  // pressed, so the page is no longer inert when the command's answer gives the segment the focus back (the
+  // usage answer that drops the confirm comes later; Base UI's AlertDialog returns the focus as it closes).
+  // A new ask from the page opens it again.
+  state usageClosing = ""
+  derive usageConfirmOpen = usage.pooled.confirm != "" and usageClosing != usage.pooled.confirm
+  action usageCommand(op: string, id: string, value: string, n: number)
+    usageClosing = ""
+    command(op, id, value, n)
+  action usageConfirm(op: string, id: string, value: string, n: number)
+    usageClosing = id
+    command(op, id, value, n)
+  view
+    // Usage opens as the large modal over the page that opened it (AppRouteModal label "Usage", 3faeb9e6f9 #24847).
+    if pageCover and utilityPage == "usage"
+      AppRouteModal(label="Usage", modalId="usage-modal", canvas="light-dark(#fcfcfc, #000000)", border="light-dark(#e4e4e7, #ffffff14)", backdrop="light-dark(#fcfcfc99, #000000a3)", inert=modal, under=sidebarSheetShown, first="usage-environment", last="close-usage", close=pageBack)
+        UsagePage(page=usage, keys=usageShortcuts, scheme=scheme, wide=(routeModalWidth(viewport.width, mediaWidth) - 30 >= 896), lg=(mediaWidth >= 1024), md=(mediaWidth >= 768), sm=(mediaWidth >= 640), op=pagesOp, setMetric=usageMetricSet, setWindow=usageWindowSet, setBreakdown=usageBreakdownSet, reload=usageRefreshNow, back=pageBack, command=usageCommand, confirmOpen=usageConfirmOpen, under=sidebarSheetShown, reduced=viewport.prefersReducedMotion, outside=outside)
+    // Usage's model and Model prices dialogs cover the whole window, sidebar included (pages-usage-dialogs).
+    // A pooled segment's reset credit confirm, outside its popover (UsageLimitsPooled RedeemableSegmentPopup).
+    if pageCover and utilityPage == "usage" and usageConfirmOpen
+      ResetCreditDialog(prefix="pageslocal:usage-pool", target=usage.pooled.confirm, busy=commandPending, command=usageConfirm)
+    // Model prices and a model's dialog (which opens Model prices from its Set price) give the focus back to what opened
+    // the first of them as the last closes (dialog-trap.contract DialogFinalFocus).
+    DialogFinalFocus(open=(pageCover and utilityPage == "usage" and usage.prices.open), owner="usage-prices-dialog")
+    DialogFinalFocus(open=(pageCover and utilityPage == "usage" and usage.detail.open), owner="usage-model-dialog")
+    if pageCover and utilityPage == "usage" and usage.prices.open
+      UsagePricesLayer(page=usage, scheme=scheme, viewportHeight=viewport.height, busy=commandPending, op=pagesOp)
+    if pageCover and utilityPage == "usage" and usage.detail.open and not usage.prices.open
+      UsageModelLayer(page=usage, scheme=scheme, viewportHeight=viewport.height, sm=(mediaWidth >= 640), op=pagesOp)

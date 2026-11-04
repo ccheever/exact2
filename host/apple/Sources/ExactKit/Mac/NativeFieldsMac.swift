@@ -41,10 +41,12 @@ extension NodeView {
     /// glyphs to stand where CSS puts them. CSS centres the line box in the
     /// content box (Chrome's inner editor) and puts the baseline half the
     /// leading below the line box's top; the cell draws its line at the
-    /// rect's top, the baseline the font's ascent below it (the field is
-    /// flipped).
+    /// rect's top, the baseline the font's ascent, rounded to a point,
+    /// below it (the field is flipped). The line box rounds in the window's
+    /// device pixels, as a textarea's and a paragraph's do (LLP 1008 §3), so
+    /// at 2x the baseline, and the rect's top, can be on a half point.
     func cssLine(in box: NSRect, font: NSFont) -> NSRect {
-        let (above, below) = CSSLineBox.extents(font as CTFont, height: usedLineHeight)
+        let (above, below) = CSSLineBox.extents(font as CTFont, height: usedLineHeight, scale: pixelScale ?? 1)
         let baseline = box.minY + (box.height - above - below) / 2 + above
         let top = max(box.minY, baseline - CSSLineBox.content(font as CTFont).0)
         return NSRect(x: box.minX, y: top, width: box.width, height: max(0, min(box.maxY, baseline + below) - top))

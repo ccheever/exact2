@@ -365,7 +365,7 @@ buttons, `-exact-menu="about"` and `"help"`, enabled under a sheet or with no ke
 `UpdateMenuItems`), File shows only Close Window, View starts with Reload and Force Reload (two
 Contract buttons the host files there, `-exact-menu="view"`, which run `reload()`; `ViewReload`)
 and then Actual Size ⌘0, Zoom In ⌘= and Zoom Out ⌘- (the app's own commands, which take the host items'
-places, stepping by half a Chromium zoom level as the root font size; `ViewZoom`), and the window's root removes the Develop
+places, stepping by half a Chromium zoom level as a page zoom, `setPageZoom`; `ViewZoom`), and the window's root removes the Develop
 and Go menus, the help book and Edit's template items (`-exact-menu-remove`, app-window.contract), so
 ⌘D (diff), ⌘O (open in editor) and ⌘1–9 reach the window. Every button chord is a shortcut with no
 item (`-exact-menu="none"`) but one that stands in for a host item (⌘Z, ⌘,), one dispatch button
@@ -492,19 +492,15 @@ filed were moved there or closed). The gaps someone using this app runs into:
 
 - A data module's timer lives inside the answer that armed it (LLP 1027.000 D1), so the waits in the
   middle of a flow (View source's and Edit from here's polls, the Browser's paint and capture
-  timeouts, the debounces) are the flow's own, on the app's clock. Natively a timer raced against a
-  host call its answer awaits runs only once that call lands (main's `QUEUE.md`), so Annotate's 5 s
-  crop deadline and a recording's capture timeout wait out a capture that hangs, where the
-  reference gives up. A flow whose answer is let go while it waits on a timer stops there, its
-  `finally` unrun, so each flow that holds state across a wait has a send no other flow replaces
-  (`app.contract`): View source, a transcript chip's or the composer's (`citationShown`); the
-  Browser's Capture, whose Record start waits for two frames (`capturePressed`, queued); the
+  timeouts, the debounces) are the flow's own, on the app's clock. A flow whose answer is let go
+  while it waits on a timer stops there, its `finally` unrun, so each flow that holds state across
+  a wait has a send no other flow replaces (`app.contract`): View source, a transcript chip's or the
+  composer's (`citationShown`); the Browser's Capture, whose Record start waits for two frames
+  (`capturePressed`, queued); the
   checkout dialog's edits, whose next edit takes the debounce over (`prCheckoutTyped`); and the
   prompt links, whose switch to another machine's Scratch project polls (`fragmentChanged`, queued).
   Time is still an argument, and work outside an answer (the transport's tick, the sidebar's
   graces) is Contract tasks.
-- View's zoom scales the root font size, so every `rem` and inherited text size, but not `px` lengths or
-  the module's native views, where Electron's page zoom scales the whole page.
 - A completed ⌘Q hold leaves the window as it is until the keys go quiet: the reference leaves full
   screen and turns the window transparent first (concealPendingQuitWindow), and Contract has neither.
 - Edit › Undo chosen from the menu while the undo notice claims ⌘Z is thread.undo, also with a field
@@ -646,10 +642,6 @@ exact2 only when a library many apps can reuse needs it.
 
 Differences that belong to the app:
 
-- With Markdown formatting off the composer is a plain `textarea` (`markup="none"`), where a held paste's
-  `setRangeText` (a folded chip, or text a held paste puts in) is no undo step, and Apple clears the
-  field's undo history when its value changes (`docs/contract-grammar.md`, `setRangeText`): ⌘Z
-  does not take it back, where the reference's undoes it. In the Markdown editor each call is one undo step.
 - The server connections are the data module's (`src/transport/`). Each environment's socket is a
   stream resource, admitted by `net.websocket ws:` and `wss:` since servers are named at run time
   (#703), whose mapper answers Pings and acknowledges chunks in the frame's own commit (#705, LLP
@@ -678,11 +670,13 @@ Differences that belong to the app:
   its own (one per pane, the reference's renderer has one for all).
 - The last interaction (the activity reporter's and the pull request surfaces' idle rule) is the
   window root's `pointermove`, `pointerdown`, `wheel` and `keycapture`, to the second
-  (app.contract `interacted`). Keys and scrolls the terminal's and the Browser's web views take
-  never reach the root: typing in the terminal alone does not keep the reader recent, where the
-  reference's terminal is in its page (an `iframe` guest's events stay in its page). The root
-  hears a hovering pointer only while the window is key (ExactKit's hover tracking), where
-  Chromium's window listeners also hear one over a background window.
+  (app.contract `interacted`). The terminal's page reports what bubbles to its own document, as the
+  reference's listeners hear its terminal in their page: a pointer, a press, the wheel and a key the
+  surface leaves alone, not typed text or an arrow, which the surface stops (measured in v0.1.6).
+  The Browser's web view keeps its events, as the reference's guest page does. The root
+  hears a hovering pointer only while the window is key (ExactKit's hover tracking, LLP 1115.000
+  D7); Chromium's page hears one while its window is key or main, so the two differ only over the
+  main window while a panel of the app is key. Over a background window neither hears one.
 - While the device tab's rename field has the focus, the keybinding chords of the reference's
   bubble-phase window listeners stay in the menu bar disabled, and the composer's send chords and
   the Escape buttons beside the tab strip drop theirs (app.contract `renameHoldsKeys`): an
@@ -746,12 +740,11 @@ Differences that belong to the app:
   not draw the Nightly or Dev artwork. At v0.1.5 the stable app's default also shows no art, but the
   row lets a user opt into Nightly or Dev artwork ("Show Dev or Nightly artwork in the sidebar
   header."); its version pill is offered only on a Dev or Nightly stage.
-- On a 2x display, text rounds its line box in device pixels as the reference's does (main #1429, #1435). Some text
-  still sits one device pixel lower: the user bubble, a reply's paragraphs and the composer's placeholder, because
-  their boxes sit a fraction of a point below the reference's in the bottom-anchored timeline (the bubble's text at
-  59.63 pt, the reference's at 59; the placeholder at 725.75, the reference's at 725.5). A code block's lines also sit
-  one device pixel lower; that cause was not found. The sidebar's search field's text sits one device pixel lower
-  because AppKit's text field draws its text on whole points.
+- On a 2x display, text rounds its line box in device pixels as the reference's does (main #1429, #1435), and the
+  timeline's rows, the composer's text and the sidebar's search field sit where the reference's do. One line can
+  still sit a device pixel lower: the Mac draws a box where layout puts it, a fraction of a device pixel off the grid,
+  where Chromium rounds each box and baseline to device pixels (main's `QUEUE.md`, "The Mac draws boxes off the
+  device's pixel grid"); seen on the third line of the prose sample's code block.
 
 Some checks need a person: physical modifier chords, right-click menus, real pointer drags
 and hovers, macOS notification and screen-capture grants, provider installs and logins, and

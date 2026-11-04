@@ -175,6 +175,10 @@ impl<D: DataSource> Presenter<D> {
                     eprintln!("exact: requestPictureInPicture unsupported on the headless/DRM host");
                     floats.extend(c.args.first().and_then(exact_plan::Value::as_str).map(str::to_owned));
                 }
+                // A page zoom is the Mac's so far (LLP 1021 §5.3.1).
+                "setPageZoom" => self
+                    .host
+                    .log("setPageZoom refused: page zoom is on the Mac host only"),
                 // Recording a trace is the Apple hosts'
                 name @ ("startTrace_EXPERIMENTAL" | "stopTrace_EXPERIMENTAL") => self
                     .host

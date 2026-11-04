@@ -17,11 +17,13 @@ fn with_schemes(source: &str, schemes: &[&str]) -> Vec<Block> {
         .blocks
 }
 
+/// An image block of a line at the top level, which no paragraph holds.
 fn image(href: &str, alt: &str) -> Block {
     Block {
         kind: Kind::Image,
         href: href.into(),
         text: alt.into(),
+        bare: true,
         ..Block::default()
     }
 }
@@ -37,9 +39,16 @@ fn an_img_line_is_an_image_with_its_alt_and_authored_size() {
             ..image("docs/shot.png", "The panel")
         }]
     );
-    // Self-closing, unquoted, upper-case and over several lines, with a reference in the URL.
+    // Self-closing, unquoted, upper-case and over several lines, with a reference in the URL:
+    // a tag its first line does not end is inline HTML, a paragraph.
     let blocks = here("<IMG\n  SRC=https://example.com/a?x=1&amp;y=2\n  width=50% />");
-    assert_eq!(blocks, [image("https://example.com/a?x=1&y=2", "")]);
+    assert_eq!(
+        blocks,
+        [Block {
+            bare: false,
+            ..image("https://example.com/a?x=1&y=2", "")
+        }]
+    );
 }
 
 #[test]
@@ -65,19 +74,28 @@ fn a_picture_moves_its_colour_scheme_sources_onto_its_image() {
                 dark: "docs/dark.webp".into(),
                 ..image("docs/light.webp", "Studio")
             },
-            // The refused light source is gone, and nothing takes its place.
-            image("docs/dark.webp", ""),
+            // The refused light source is gone, and nothing takes its place. Its
+            // markup is not one tag alone on its line: inline HTML, a paragraph.
+            Block {
+                bare: false,
+                ..image("docs/dark.webp", "")
+            },
         ]
     );
-    // A drive path in a source is a `file:` URL to the sanitizer.
+    // A drive path in a source is a `file:` URL to the sanitizer. (Each picture
+    // below is inline HTML, a paragraph.)
+    let paragraph = |block: Block| Block {
+        bare: false,
+        ..block
+    };
     let drive = r#"<picture><source media="(prefers-color-scheme: dark)" srcset="C:\shots\dark.png"><img src="C:\shots\light.png"></picture>"#;
-    assert_eq!(here(drive), [image(r"C:\shots\light.png", "")]);
+    assert_eq!(here(drive), [paragraph(image(r"C:\shots\light.png", ""))]);
     assert_eq!(
         with_schemes(drive, &["http", "https", "file"]),
-        [Block {
+        [paragraph(Block {
             dark: r"C:\shots\dark.png".into(),
             ..image(r"C:\shots\light.png", "")
-        }]
+        })]
     );
     // A light source alone: the image's own source is the dark appearance's.
     let blocks = here(
@@ -85,10 +103,10 @@ fn a_picture_moves_its_colour_scheme_sources_onto_its_image() {
     );
     assert_eq!(
         blocks,
-        [Block {
+        [paragraph(Block {
             dark: "d.png".into(),
             ..image("l.png", "")
-        }]
+        })]
     );
 }
 
@@ -499,8 +517,10 @@ fn images_html_lays_out_side_by_side_are_one_line() {
 
 #[test]
 fn a_p_or_div_align_is_the_text_align_html_gives_it() {
+    // A `<p>` holds the line, so it is no bare line.
     let center = |block: Block| Block {
         align: "center".into(),
+        bare: false,
         ..block
     };
     assert_eq!(
@@ -571,4 +591,23 @@ fn an_image_inside_a_link_carries_the_link() {
         here("<a href=\"https://example.com\"><img src=\"a.png\"></a>")[0].kind,
         Kind::Html
     );
+}
+
+#[test]
+fn a_line_no_paragraph_holds_is_bare() {
+    // A `<div>`'s line and a line at the top level have no margins; a `<p>`'s and inline HTML's
+    // (a paragraph of its own) have a paragraph's, as a Markdown image's has.
+    let bare = |source: &str| here(source).iter().map(|b| b.bare).collect::<Vec<_>>();
+    assert_eq!(bare(r#"<div><img src="a.png"></div>"#), [true]);
+    assert_eq!(bare(r#"<img src="b.png">"#), [true]);
+    assert_eq!(
+        bare("<img src=\"b.png\">\n\n<img src=\"c.png\">"),
+        [true, true]
+    );
+    assert_eq!(bare(r#"<p align="center"><img src="c.png"></p>"#), [false]);
+    assert_eq!(
+        bare(r#"<img src="d.png"> <img src="e.png"> after"#),
+        [false]
+    );
+    assert_eq!(bare("![f](f.png)"), [false]);
 }

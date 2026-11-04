@@ -108,6 +108,7 @@ component ModelRow
 
 component ModelPicker
   inject
+    mediaWidth: number // the window's width as the reference's media queries see it (app.contract)
     rem: number
     hoverTipAt: action
     // The composer's picker (composer-controls-members.contract): its trigger's edges, whether its Permissions menu
@@ -160,7 +161,7 @@ component ModelPicker
   // The composer's picker docks the effort column and footer; a Settings row's does not. Under 640pt the column
   // stacks under a 224pt list (max-sm).
   derive docked = anchor.bottom <= 0
-  derive stacked = docked and viewport.width < 640
+  derive stacked = docked and mediaWidth < 640
   // The model the composer shows, which the open list highlights (the combobox's value).
   derive selectedIndex = (catalog.selectedLegacy and not legacyOpen ? -1 : catalog.selectedIndex)
   // Combobox autoHighlight: a search highlights its first row a person can choose until the arrows move the

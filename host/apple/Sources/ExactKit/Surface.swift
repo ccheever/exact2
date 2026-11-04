@@ -62,7 +62,7 @@ extension NodeView {
         #if os(iOS) || os(tvOS)
         s.contentsScale = traitCollection.displayScale
         #else
-        s.contentsScale = window?.backingScaleFactor ?? 2
+        s.contentsScale = pixelScale ?? 2
         #endif
         paintSurface(s, box)
         let outline = roundedPath(in: box).cgPath

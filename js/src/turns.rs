@@ -1,8 +1,8 @@
 //! Liveness: an answer waiting on another's work, or on the background's,
 //! is asked again after each delivery (LLP 1027.003.000 §13; LLP 1097 D2);
 //! a call let go mid-turn runs its steps to the end (ledger F12).
-use super::{Key, Module, TIMER, WAITING, YIELDED};
-use exact_runner::{Dispatch, InFlight, Outcome};
+use super::{secrets, Key, Module, TIMER, WAITING, YIELDED};
+use exact_runner::{Dispatch, InFlight, Outcome, Request};
 use std::collections::HashMap;
 
 impl Module {
@@ -47,6 +47,35 @@ impl Module {
             return Some(Module::ask_again());
         }
         None
+    }
+
+    /// The answer awaiting request `f`, a fetch of its own, has a timer of
+    /// its own due before the fetch's reply (`fetch_timer`): the fetch runs
+    /// on as module work (`__exact_adopt`), its reply delivered under its
+    /// ticket in a module turn, and the answer parks on its timer, asked
+    /// again at once. On the main thread only: a worker runs one turn to its
+    /// end.
+    pub(crate) fn timer_first(&mut self, f: &InFlight<'_>) -> Option<(u64, Request)> {
+        if !self.main_thread {
+            return None;
+        }
+        let key = Module::key(Some(f.target), f.source, f.args);
+        let at = self.parked.iter().position(|(k, p)| {
+            *k == key && !matches!(p.ticket, 0 | WAITING | YIELDED | TIMER | secrets::TICKET)
+        })?;
+        let (call, ticket) = (self.parked[at].1.call, self.parked[at].1.ticket);
+        let adopted = self.engine.as_mut()?.call(
+            "__exact_adopt",
+            [&call.to_string(), &ticket.to_string(), ""],
+        );
+        if adopted.ok().as_deref() != Some("adopted") {
+            return None;
+        }
+        let parked = &mut self.parked[at].1;
+        parked.ticket = TIMER;
+        parked.effects = false;
+        parked.progress = self.progress;
+        Some((ticket, Request::continuation(call)))
     }
 
     /// Parked calls let go in the prelude too, with the fetches they wait on.

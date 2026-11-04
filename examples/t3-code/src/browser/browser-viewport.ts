@@ -70,9 +70,16 @@ const normalizeLayoutZoom = (zoomFactor: number): number => Number.isFinite(zoom
  *  the page's own zoom. */
 export const resolveBrowserLayoutZoomFactor = (previewZoomFactor: number, windowZoomFactor: number): number =>
   normalizeLayoutZoom(previewZoomFactor) / normalizeLayoutZoom(windowZoomFactor);
-/** The main window's zoom as the module reports it (`presentation.browserWindowZoom`); 1 while it reports none. */
-export const readWindowZoom = (presentation: unknown): number =>
-  normalizeLayoutZoom(Number((presentation as { browserWindowZoom?: unknown } | null | undefined)?.browserWindowZoom));
+/** The main window's zoom (View › Zoom In, app.contract `zoomTo`), which the window tells each change; 1 until then. */
+const windowZooms = new WeakMap<object, number>();
+export const readWindowZoom = (client: object): number => windowZooms.get(client) ?? 1;
+/** `chatlocal:window-zoom`: true when the zoom changed, which lays the tabs out again. */
+export function setWindowZoom(client: object, factor: number): boolean {
+  const next = normalizeLayoutZoom(factor);
+  if (readWindowZoom(client) === next) return false;
+  windowZooms.set(client, next);
+  return true;
+}
 
 export function resolveFittedBrowserViewport(setting: PreviewViewportSetting, sourceContent: { width: number; height: number; scale: number } | null, zoomFactor = 1): FixedViewport {
   if (setting._tag !== 'fill') return setting;
@@ -190,22 +197,25 @@ function queueBrowserViewportMutation<A>(tabId: string, start: () => Promise<A>)
 }
 /** Serializes every server-side viewport change of one runtime tab, so a rollback cannot overtake a newer resize. */
 export function runBrowserViewportMutation<A>(tabId: string, mutation: () => Promise<A>): Promise<A> { return queueBrowserViewportMutation(tabId, mutation).execution; }
-/** The caller-facing deadline of a commit (the reference's `runHandlerWithTimeout`, 15 s). Natively a timer raced against
- *  its answer's own host call runs only once that call lands (LLP 1027.000 D1, Fetches), so a caller with a clock passes
- *  the deadline; without one a commit waits for its handler. */
-export type BrowserViewportCommitDeadline = (tabId: string, operation: Promise<void>) => Promise<void>;
-const noDeadline: BrowserViewportCommitDeadline = (_tabId, operation) => operation;
+/** runHandlerWithTimeout: the caller-facing deadline of a commit. */
+function runHandlerWithTimeout(tabId: string, operation: Promise<void>): Promise<void> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => reject(new BrowserViewportCommitTimeoutError(tabId)), BROWSER_VIEWPORT_COMMIT_TIMEOUT_MS);
+  });
+  return Promise.race([operation, timeout]).finally(() => { if (timeoutId !== undefined) clearTimeout(timeoutId); });
+}
 export function subscribeBrowserViewportChange(tabId: string, handler: BrowserViewportHandler): () => void {
   handlers.set(tabId, handler);
   return () => { if (handlers.get(tabId) === handler) handlers.delete(tabId); };
 }
-export function commitBrowserViewportChange(tabId: string, setting: PreviewViewportSetting, deadline: BrowserViewportCommitDeadline = noDeadline): Promise<void> {
+export function commitBrowserViewportChange(tabId: string, setting: PreviewViewportSetting): Promise<void> {
   const { started } = queueBrowserViewportMutation(tabId, () => {
     const handler = handlers.get(tabId);
     return handler ? handler(setting) : Promise.reject(new Error(`No visible browser viewport handler for tab ${tabId}`));
   });
   // The queue follows the real handler's lifetime; the deadline starts once this commit reaches the front.
-  return started.then(({ operation }) => deadline(tabId, operation));
+  return started.then(({ operation }) => runHandlerWithTimeout(tabId, operation));
 }
 /** The device toolbar's commit: the aspect lock changes only once the viewport did. */
 export async function commitViewportAndAspectRatio(setting: PreviewViewportSetting, aspectRatio: number | null, onChange: (setting: PreviewViewportSetting) => Promise<void>,

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import "./test-assets";
 import { createHarness, disposeHarnessSurfaces } from "../vendor/ghostty/surfaceHarness";
-import { applySmoothing, CompositionTracker, eventKeyNames, fromApp, keepConversionContext, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
+import { applySmoothing, CompositionTracker, eventKeyNames, fromApp, keepConversionContext, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut, reportInteraction,
   terminalInputShortcutData, terminalKeyShortcutData, themeFrom, writeKeepingSelection } from "./entry";
 
 const key = (init: Partial<KeyboardEvent> & { key: string; code: string }) => ({
@@ -343,5 +343,29 @@ describe("output over a selection", () => {
     expect(writeKeepingSelection(surface, "\r\nrow 10\r\nrow 11", false)).toBe(true);
     expect(surface.getSelection()).toBe(text);
     expect(surface.getSelectionPosition()?.start.y).toBe(before!.start.y - 2);
+  });
+});
+
+describe("the reader's activity in the page", () => {
+  test("reports the reference's interaction events, the first of each second", () => {
+    const target = new EventTarget();
+    let now = 10_000, reports = 0;
+    reportInteraction(target as unknown as Document, () => reports++, () => now);
+    for (const type of ["pointerdown", "pointermove", "keydown", "wheel"]) {
+      now += 1000;
+      target.dispatchEvent(new Event(type));
+    }
+    expect(reports).toBe(4);
+    target.dispatchEvent(new Event("pointermove"));
+    now += 999;
+    target.dispatchEvent(new Event("wheel"));
+    expect(reports).toBe(4);
+    now += 1;
+    target.dispatchEvent(new Event("keydown"));
+    expect(reports).toBe(5);
+    // Not the reader's: a key's release, a focus, the pointer leaving.
+    now += 5000;
+    for (const type of ["keyup", "focus", "pointerleave"]) target.dispatchEvent(new Event(type));
+    expect(reports).toBe(5);
   });
 });
