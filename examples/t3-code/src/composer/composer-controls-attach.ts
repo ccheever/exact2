@@ -1,5 +1,5 @@
 // The composer's attachments from a drop, a paste and Attach files, adapted from
-// T3 Code 74541bab17 (MIT); see LICENSE-T3. Sources: chat/ChatComposer.tsx
+// T3 Code 74541bab17 (MIT), its folder references from 5d3d78ab93; see LICENSE-T3. Sources: chat/ChatComposer.tsx
 // (showComposerAttachAction, addComposerAttachments, onComposerPaste, addDroppedFiles,
 // addComposerFolders), chat/workspaceFileDrop.ts (splitTransferredFiles),
 // chat/composerAttachmentFiles.ts (fileAttachmentStagingLimit) and
@@ -17,6 +17,9 @@ import { folderDropTarget, primary } from '../connections/local-primary';
 import { sshTargets } from '../connections/settings-b-ssh';
 import { trimOrigin } from '../connections/settings-b-fleet';
 import { pushToast } from '../shell/toast';
+import { appFiles } from '../media/save-file';
+import { fileLink } from './composer-editor-menu';
+import { requestComposerField } from './composer-field-request';
 import { acceptAttachedFile, appendChipLinks, attachStagingLimit, imageChipLink, imagesGetChips, insertFileChips, releaseStagedFile, reservedAttachments, reservedAttachmentsIn } from './composer-editor-attach';
 import { fileChipLink, holdDraftFiles, pasteAsTextArmed, type DraftFile } from './composer-editor-files';
 import { rememberVideoFrame } from './composer-attachments';
@@ -86,20 +89,27 @@ const pickedSource = (file: Obj): AttachSource => ({ path: str(file.path), name:
 
 /**
  * The files a drop, a paste or Attach files brings (`origin` "drop", "paste" or "pick"). A drop's or a paste's folders
- * are addComposerFolders': such a folder is a handle with no path (LLP 1069.010 D1), so each is the reference's own
- * refusal for a folder whose path it cannot get. Paste as Text (`asText`, or armed from the menu) gives images no inline chip
+ * are addComposerFolders' references to them, by the native path `realpath` gives a desktop's `doc:` handle (LLP
+ * 1069.010 D1, 2026-11-04). Paste as Text (`asText`, or armed from the menu) gives images no inline chip
  * (skipImageInlineChip). The answer's "focus:composer" focuses the prompt, as the reference's drop and Attach do.
  */
 export async function attachIncoming(client: T3Client, native: Native, origin: string, incoming: IncomingFiles): Promise<string> {
-  const sources = [...incoming.files.map(handleSource), ...incoming.picked.map(pickedSource)];
-  if (!sources.length) return '';
-  if (questionRefuses(client)) return '';
-  // Edit › Paste as Text chosen with the pointer arms the paste in the module, as its key arms it in Contract.
-  const asText = origin === 'paste' && (incoming.asText || await pasteAsTextArmed(native));
-  const imageChips = imagesGetChips(client) && !asText;
+  const all = [...incoming.files.map(handleSource), ...incoming.picked.map(pickedSource)];
+  if (!all.length) return '';
   // Files finish staging (an image's compression) after the person may have moved to another draft; they stay
   // with the draft they were given to (insertAttachmentReferencesForDraft).
   const target = draftTarget(client);
+  // Edit › Paste as Text chosen with the pointer arms the paste in the module, as its key arms it in Contract.
+  const asText = origin === 'paste' && (incoming.asText || await pasteAsTextArmed(native));
+  const imageChips = imagesGetChips(client) && !asText;
+  // splitTransferredFiles: a drop's or a paste's folders go to addComposerFolders, which needs no project and takes no
+  // question's check; a picked folder stays the reference's empty File.
+  const stats = origin === 'pick' ? [] : await Promise.all(all.map(statSource));
+  const folders = all.filter((_, at) => stats[at]?.folder === true);
+  const sources = all.filter(source => !folders.includes(source));
+  const focus = folders.length > 0 && await addComposerFolders(client, native, folders);
+  if (!sources.length) return focus ? 'focus:composer' : '';
+  if (questionRefuses(client)) return focus ? 'focus:composer' : '';
   // Held from staging until the files join the draft, so an answer cannot leave between the two.
   const release = holdStaging(client, target.key);
   const imageIds = sources.map(source => classifyAttachment(source.name, source.type) === 'image' ? uuid() : '');
@@ -115,25 +125,44 @@ export async function attachIncoming(client: T3Client, native: Native, origin: s
     }
     return path;
   });
-  let folders: Obj[] = [];
   try {
     const staged = await stageFiles(client, native, sources, target, imageIds);
-    // A dropped or pasted folder is a workspace reference (addComposerFolders); a picked one is the reference's empty File.
-    folders = origin === 'drop' || origin === 'paste' ? staged.filter(file => file.kind === 'folder') : [];
-    const others = staged.filter(file => !folders.includes(file)).map(file => file.kind === 'folder' ? { kind: 'unreadable', name: file.name, sizeBytes: 0 } : file);
+    const others = staged.map(file => file.kind === 'folder' ? { kind: 'unreadable', name: file.name, sizeBytes: 0 } : file);
     if (others.length) await addAttachedFiles(client, native, others, imageChips, '', target);
   } finally {
     setPreparing(client, target.key, preparingIn(client, target.key).filter(image => !imageIds.includes(image.id)));
     release();
     for (const path of await Promise.all(previews)) await releasePreview(path);
   }
-  if (folders.length) {
-    const remote = folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'remote'
-      && !await savedLoopbackConnection(client, native);
-    if (remote) pushToast(client, { kind: 'error', title: 'Folders can only be referenced on a server running on this computer' });
-    else for (const folder of folders) pushToast(client, { kind: 'error', title: `Couldn't get the path of "${str(folder.name)}"`, description: 'Type the folder path with @ instead.' });
+  return focus || origin !== 'paste' ? 'focus:composer' : '';
+}
+
+/**
+ * addComposerFolders: on this computer's server, each folder's path as a mention at the end of the prompt; elsewhere
+ * the reference's refusal. True when it focuses the prompt (not for a remote server).
+ */
+async function addComposerFolders(client: T3Client, native: Native, folders: AttachSource[]): Promise<boolean> {
+  const remote = folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'remote'
+    && !await savedLoopbackConnection(client, native);
+  if (remote) {
+    pushToast(client, { kind: 'error', title: 'Folders can only be referenced on a server running on this computer' });
+    return false;
   }
-  return origin === 'paste' ? '' : 'focus:composer';
+  const fs = appFiles().fs as unknown as { realpath(path: string): Promise<string> };
+  for (const folder of folders) {
+    const path = await fs.realpath(folder.path).catch(() => '');
+    if (!path) {
+      pushToast(client, { kind: 'error', title: `Couldn't get the path of "${folder.name}"`, description: 'Type the folder path with @ instead.' });
+      continue;
+    }
+    // insertComposerTextAtEnd(…, { ensureLeadingBoundary: true }): a space before it where words would join.
+    const reply = await requestComposerField(native, { op: 'editorEdit', text: `${fileLink(path)} `, pad: true }).catch(() => null);
+    if (!reply?.accepted) {
+      pushToast(client, { kind: 'error', title: 'Unable to add folder', description: 'The composer is busy; try again once it is ready.' });
+      break;
+    }
+  }
+  return true;
 }
 
 /**
