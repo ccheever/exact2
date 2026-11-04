@@ -28,8 +28,9 @@ component Card
         text item.title margin-top=10 font-size="var(--text-sm)" font-weight=600 color="var(--color-text-default)"
         text item.description font-size="var(--text-sm)" line-height=1.5 color="var(--color-text-secondary)"
 
-// Nico's Home frame, for Exact: a hero, the one prompt an agent needs, the first commands, and the pages
-// as cards. The commands are pages/home.md's; the cards are the sidebar's own items and descriptions.
+// Nico's Home frame, for Exact: a hero, the one prompt an agent needs, the first commands, and a card for
+// each sidebar section that opens its first page. The commands are pages/home.md's; the cards are
+// constants/navigation.ts's.
 component Home
   props
     page: Page
@@ -56,13 +57,9 @@ component Home
         for b in page.blocks.filter(x => x.kind == "terminal") key=b.id
           view margin-top=16
             Terminal(title=b.title, source=b.text, lines=b.lines)
-      for g in nav.groups key=g.id
-        column margin-top=48
-          h2 class=SectionTitle
-            text g.title
-          view class=Grid
-            for i in g.items key=i.id
-              if i.depth == 0
-                Card(item=i, icon=(g.title == "Learn" ? "symbol:book" : g.title == "Recipes" ? "symbol:layers" : "symbol:home"))
-              else
-                Card(item=i, icon="symbol:document")
+      column margin-top=48
+        h2 class=SectionTitle
+          text "Explore the docs"
+        view class=Grid
+          for g in nav.groups key=g.id
+            Card(item=g.card, icon=(g.title == "Learn" ? "symbol:book" : g.title == "Recipes" ? "symbol:layers" : "symbol:home"))

@@ -422,6 +422,7 @@ const nav = {
   groups: sections.filter(section => section.pages.some(p => !p.hidden && !p.landing)).map((section, g) => ({
     id: `${g}`,
     title: section.title,
+    card: { id: `${g}`, title: section.card?.title ?? section.title, href: section.pages.find(p => !p.hidden && !p.landing)!.path, route: section.pages.find(p => !p.hidden && !p.landing)!.route, depth: 0, description: section.card?.description ?? '', parent: '', children: 0 },
     items: section.pages.filter(p => !p.hidden && !p.landing).flatMap(p => {
       const doc = bySource.get(p.source)!;
       const own = pages.filter(x => x.source === p.source);

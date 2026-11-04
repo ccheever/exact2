@@ -10,6 +10,7 @@ export type NavPage = {
 
 export type NavSection = {
   title: string;
+  card?: { title: string; description: string };
   pages: NavPage[];
 };
 
@@ -28,6 +29,7 @@ export const sections: NavSection[] = [
   },
   {
     title: 'Get started',
+    card: { title: 'Start here', description: 'Build an app with Exact: the idea, the workflow, and the one screen every app starts from.' },
     pages: [
       {
         route: 'startHere',
@@ -39,6 +41,7 @@ export const sections: NavSection[] = [
   },
   {
     title: 'Learn',
+    card: { title: 'Learn', description: 'Contract, the language of an Exact app, from the first component to delivery.' },
     pages: [
       {
         route: 'contractForHumans',
@@ -51,6 +54,7 @@ export const sections: NavSection[] = [
   },
   {
     title: 'Recipes',
+    card: { title: 'Recipes', description: 'Short answers to common questions, one page each: forms, lists, timers, sign-in, storage, and more.' },
     pages: [
       {
         route: 'recipeAfterAWrite',

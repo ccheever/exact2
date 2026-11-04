@@ -96,6 +96,7 @@ shape NavItem
 shape NavGroup
   id: string
   title: string
+  card: NavItem
   items: NavItem[]
 
 shape Nav

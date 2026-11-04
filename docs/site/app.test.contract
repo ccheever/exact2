@@ -1,10 +1,13 @@
-test "the home page has the hero, the agent prompt, the setup commands and the cards"
+test "the home page has the hero, the agent prompt, the setup commands and a card for each section"
   size 1440x900
   expect tree has "home-page"
   expect tree has "agent-pill"
   expect tree has "terminal"
   expect tree has "card-startHere"
-  expect tree has "card-learnContractForHumansRunAnApp"
+  expect tree has "card-contractForHumans"
+  expect tree has "card-recipeAfterAWrite"
+  expect tree missing "card-learnContractForHumansRunAnApp"
+  expect tree missing "card-recipeMoney"
   tap "card-startHere"
   expect tree has "toc"
 
