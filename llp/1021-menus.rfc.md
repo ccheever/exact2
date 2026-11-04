@@ -935,9 +935,10 @@ menu's glass and the dismissal. In the delegate:
   (video, Metal, a web view, a filter or blend mode, vibrancy, a second
   material, a paragraph whose fill its layer does not hold, or a view's
   backing store, which a copy shown on screen must not share), the picture
-  is one snapshot of the screen, neighboring text included. Where the padding reaches past the box the run sits in (the
-  paragraph where it paints a fill or a background image, else the
-  nearest ancestor that does or that clips), it extends the box, so the
+  is one snapshot of the screen, neighboring text included. Where the
+  padding reaches past the box the run sits in (the paragraph where it
+  paints a fill or a background image, else the nearest ancestor that does
+  or that clips), it extends the box, so the
   lift keeps UIKit's footprint and holds none of what lies outside the
   box, such as the page around a card. A box of one color fills it, the
   box's material spreads over it, the copies under the material reflect

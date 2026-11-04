@@ -504,16 +504,39 @@ final class InlineContextIOSTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(preview.view.subviews.first).isScreens, "the screen's picture, no copy of the view's backing store")
     }
 
-    func testAParagraphsOwnContentsLeaveItsPaddingCopied() throws {
+    func testAParagraphsOwnContentsLeaveItsPaddingOneColor() throws {
         let p = try presenter()
         defer { p.menus.reset(); window.isHidden = true }
         let node = try XCTUnwrap(p.views[2])
         until("the paragraph is drawn") { node.snapshotView(afterScreenUpdates: false) != nil }
-        // Contents that are no bitmap, as a paragraph that draws its own text has: never shared, as only its fill is copied
+        // Contents that are no bitmap, as a paragraph that draws its own text has: never shared, since only its fill is copied
         node.layer.contents = IOSurface(properties: [.width: 4, .height: 4, .bytesPerElement: 4, .pixelFormat: kCVPixelFormatType_32BGRA])
         let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
         let padding = try XCTUnwrap(lift(p, node, at: try XCTUnwrap(rects.first)).view.subviews.first)
         XCTAssertTrue(!padding.isScreens && (padding.layer.sublayers?.isEmpty ?? true), "one flat color, as the page is, with none of the text beside the run")
+    }
+
+    func testANodeCardsStyleMakesItTheBoxInsideItsBorder() throws {
+        let p = try presenter()
+        defer { p.menus.reset(); window.isHidden = true }
+        // The paragraph in a node with a yellow fill and a 2 pt red border, square, with 4 pt of room: the box, by its style
+        p.apply(wireBatch([
+            ["op": "create", "id": 5, "kind": "view", "style": ["background_color": [255, 214, 10, 255], "border_width": 2, "border_color_top": [255, 0, 0, 255]]],
+            ["op": "children", "id": 5, "ids": [2]], ["op": "children", "id": 1, "ids": [5, 3]],
+            ["op": "frame", "id": 5, "x": 16, "y": 96, "w": 308, "h": 68],
+            ["op": "frame", "id": 2, "x": 4, "y": 4, "w": 300, "h": 60],
+        ]))
+        p.menus.context.sync()
+        let node = try XCTUnwrap(p.views[2]), card = try XCTUnwrap(p.views[5])
+        until("the paragraph is drawn") { node.snapshotView(afterScreenUpdates: false) != nil }
+        let rects = node.inlineRects(try XCTUnwrap(p.inlineText(10)))
+        let preview = try lift(p, node, at: try XCTUnwrap(rects.first))
+        let area = textLines(rects, in: node).area
+        XCTAssertEqual(preview.view.bounds.size, area.size, "UIKit's footprint")
+        // Just past the card's edge, which a reflection from the border's inner side would make red, and the page white
+        let edge = card.convert(card.bounds, to: card.superview).minX - area.minX
+        let band = pixel(onScreen(preview.view), at: CGPoint(x: edge - 1, y: area.height / 2))
+        XCTAssertTrue(band[0] > 220 && band[1] > 180 && band[2] < 80, "the card's yellow past its edge, not its border's red or the page: \(band)")
     }
 
     func testABorderedCardExtendsItsFillNotItsBorder() throws {

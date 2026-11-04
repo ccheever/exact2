@@ -525,8 +525,10 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
             var box: CALayer?, inner: CGRect?
             if let found = ContextMenuHost.box(of: source, below: container), !ContextMenuHost.covers(found.layer, area, in: container.layer) {
                 let shape = ContextMenuHost.rounded(found) ?? UIBezierPath(rect: found.bounds)
-                let fills = ContextMenuHost.innerRect(of: shape).inset(by: ContextMenuHost.borders(of: found))
-                    .applying(ContextMenuHost.placement(of: found, in: container)).intersection(area)
+                // Inside its border, then placed: a rotated box's placed rectangle is no longer upright, and a rectangle inside it is taken
+                let placed = UIBezierPath(rect: ContextMenuHost.innerRect(of: shape).inset(by: ContextMenuHost.borders(of: found)))
+                placed.apply(ContextMenuHost.placement(of: found, in: container))
+                let fills = ContextMenuHost.innerRect(of: placed).intersection(area)
                 if !fills.isNull, fills.width >= 1, fills.height >= 1 { (box, inner) = (found.layer, fills.offsetBy(dx: -area.minX, dy: -area.minY)) }
             }
             (self.boxes, self.outline, self.area, self.container, self.box, self.inner) = (boxes, outline, area, container, box, inner)
@@ -584,13 +586,13 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         }
     }
 
-    /// The widths of `view`'s border: a node's from its style, as its box
-    /// draws them (`applyBoxLayer`), else its layer's
+    /// The widths of `view`'s border: a node's from its style in whole device
+    /// pixels, as its box draws them (`applyBoxLayer`), else its layer's
     private static func borders(of view: UIView) -> UIEdgeInsets {
         guard let node = view as? NodeView else { let w = view.layer.borderWidth; return UIEdgeInsets(top: w, left: w, bottom: w, right: w) }
         let uniform = node.number("border_width")
-        return UIEdgeInsets(top: node.number("border_width_top", uniform), left: node.number("border_width_left", uniform),
-                            bottom: node.number("border_width_bottom", uniform), right: node.number("border_width_right", uniform))
+        func side(_ name: String) -> CGFloat { node.devicePixels(node.number("border_width_" + name, uniform)) }
+        return UIEdgeInsets(top: side("top"), left: side("left"), bottom: side("bottom"), right: side("right"))
     }
 
     /// The transform from `view`'s coordinates to `container`'s: from its
@@ -706,9 +708,9 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
     /// fill alone, with a material shown live between the copies composited
     /// under it and over it. Past the box the run sits in, the copies under
     /// the material are reflected (`reflected`), while the copies over the
-    /// material, and a material other than the box's own, stay within the
-    /// box. Nil where only a snapshot shows what lies there, or the paragraph
-    /// paints more than its layer's fill.
+    /// material, and a material other than the box's own, stay within
+    /// `inner`. Nil where only a snapshot shows what lies there, or the
+    /// paragraph paints more than its layer's fill.
     private static func padding(_ lines: RunLines, of source: NodeView) -> UIView? {
         let container = lines.container, area = lines.area, reach = lines.reach
         guard !source.boxDrawn, source.boxFill == nil, source.style["background_image"] == nil, source.layer.borderWidth == 0, let parent = source.superview else { return nil }
@@ -820,7 +822,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         let copy = CALayer()
         (copy.bounds, copy.position, copy.anchorPoint, copy.zPosition, copy.transform, copy.sublayerTransform) = (layer.bounds, layer.position, layer.anchorPoint, layer.zPosition, layer.transform, layer.sublayerTransform)
         (copy.masksToBounds, copy.cornerRadius, copy.maskedCorners, copy.cornerCurve, copy.opacity) = (layer.masksToBounds, layer.cornerRadius, layer.maskedCorners, layer.cornerCurve, layer.opacity)
-        copy.mask = layer.mask.map(whole)
+        copy.mask = layer.mask.flatMap { bitmapsOnly($0) ? whole($0) : nil }
         return copy
     }
 
@@ -1000,10 +1002,13 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
     /// must not share one: on macOS, a committed copy sharing one left the
     /// view blank (`PaintCapture.swift`, `PressLookMac.swift`).
     private static func shareable(_ layer: CALayer) -> Bool {
-        func bitmap(_ layer: CALayer) -> Bool { layer.contents.map { CFGetTypeID($0 as CFTypeRef) == CGImage.typeID } ?? true }
-        func wholly(_ layer: CALayer) -> Bool { bitmap(layer) && (layer.sublayers ?? []).allSatisfy(wholly) }
-        return bitmap(layer) && (layer.mask.map(wholly) ?? true)
+        isBitmap(layer.contents) && (layer.mask.map(bitmapsOnly) ?? true)
     }
+
+    /// Whether `layer` and all it holds have no contents but bitmaps
+    private static func bitmapsOnly(_ layer: CALayer) -> Bool { isBitmap(layer.contents) && (layer.sublayers ?? []).allSatisfy(bitmapsOnly) }
+
+    private static func isBitmap(_ contents: Any?) -> Bool { contents.map { CFGetTypeID($0 as CFTypeRef) == CGImage.typeID } ?? true }
 
     /// `sublayers` in the order Core Animation composites them: by `zPosition`
     /// (a `z-index`'s rank, `PaintOrder`), then as listed
