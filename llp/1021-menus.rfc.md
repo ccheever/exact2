@@ -938,17 +938,16 @@ menu's glass and the dismissal. In the delegate:
   is one snapshot of the screen, neighboring text included. Where the
   padding reaches past the box the run sits in (the paragraph where it
   paints a fill or a background image, else the nearest ancestor that does
-  or that clips), it extends the box, so the
-  lift keeps UIKit's footprint and holds none of what lies outside the
-  box, such as the page around a card. A box of one color fills it, the
-  box's material spreads over it, the copies under the material reflect
-  past the box's edges the way reflect padding extends an image, what
-  lies over the material stays within the box, and a snapshot's edge
-  pixels stretch, since a reflection would mirror the run's words, which
-  the snapshot holds. The padding fades as UIKit returns the picture, so it
-  lands as the screen shows it then; UIKit leaves the picture in the
-  window once it has returned it, and the host takes it off the screen
-  when the dismissal completes.
+  or that clips), it extends the box, so the lift keeps UIKit's footprint
+  and holds none of what lies outside the box, such as the page around a
+  card. A box of one color fills it, the box's material spreads over it,
+  the copies under the material reflect past the box's edges the way
+  reflect padding extends an image, what lies over the material stays
+  within the box, and a snapshot's edge pixels stretch, since a reflection
+  would mirror the run's words, which the snapshot holds. The padding
+  fades as UIKit returns the picture, so it lands as the screen shows it
+  then; UIKit leaves the picture in the window once it has returned it,
+  and the host takes it off the screen when the dismissal completes.
   After a commit that navigated, the dismissal has no target: the node is
   under the new screen, as Signal's is under the conversation.
   After a press that stayed, the dismissal returns to the node.

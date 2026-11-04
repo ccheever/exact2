@@ -1005,8 +1005,10 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         isBitmap(layer.contents) && (layer.mask.map(bitmapsOnly) ?? true)
     }
 
-    /// Whether `layer` and all it holds have no contents but bitmaps
-    private static func bitmapsOnly(_ layer: CALayer) -> Bool { isBitmap(layer.contents) && (layer.sublayers ?? []).allSatisfy(bitmapsOnly) }
+    /// Whether `layer`, its mask and all they hold have no contents but bitmaps
+    private static func bitmapsOnly(_ layer: CALayer) -> Bool {
+        isBitmap(layer.contents) && (layer.mask.map(bitmapsOnly) ?? true) && (layer.sublayers ?? []).allSatisfy(bitmapsOnly)
+    }
 
     private static func isBitmap(_ contents: Any?) -> Bool { contents.map { CFGetTypeID($0 as CFTypeRef) == CGImage.typeID } ?? true }
 
