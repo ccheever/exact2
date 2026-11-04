@@ -86,7 +86,7 @@ function structuredData(p: Page): object {
   return { '@context': 'https://schema.org', '@graph': [article, breadcrumb] };
 }
 const headFor = (p: Page | undefined) =>
-  p ? `${ORIGIN ? `<link rel="canonical" href="${esc(ORIGIN + p.path)}">` : ''}<script type="application/ld+json">${json(structuredData(p))}</script>` : '';
+  p ? `${ORIGIN ? `<link rel="canonical" href="${esc(ORIGIN + p.path)}">` : ''}<link rel="alternate" type="text/markdown" href="${esc(ORIGIN + (p.path === '/' ? '/index' : p.path))}.md"><script type="application/ld+json">${json(structuredData(p))}</script>` : '';
 
 const byFile = new Map(pages.map(p => [htmlOf(p.path), p]));
 let prepainted = 0;
@@ -132,5 +132,5 @@ if (ORIGIN) {
   );
 }
 
-console.log(`${DIST}: head (favicon, stored choices, JSON-LD${ORIGIN ? ', canonical' : ''}) on ${prepainted} pages, _redirects (${rules.length - 2} rules), _headers, ${pages.length} .md pages and 404.md, ${Object.keys(redirects).length} moved-page fallbacks, robots.txt, llms.txt${ORIGIN ? ', sitemap.xml' : ''}`);
+console.log(`${DIST}: head (favicon, stored choices, Markdown link, JSON-LD${ORIGIN ? ', canonical' : ''}) on ${prepainted} pages, _redirects (${rules.length - 2} rules), _headers, ${pages.length} .md pages and 404.md, ${Object.keys(redirects).length} moved-page fallbacks, robots.txt, llms.txt${ORIGIN ? ', sitemap.xml' : ''}`);
 if (!ORIGIN) console.log('  no origin: set it in constants/site.ts (or SITE_ORIGIN) for sitemap.xml, canonical links and JSON-LD URLs');
