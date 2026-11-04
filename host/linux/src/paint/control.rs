@@ -167,6 +167,12 @@ pub(crate) fn authored_accent(node: &NodeRef<'_>, dark: bool) -> Option<[u8; 4]>
         .or_else(|| roles::overridden(platform?).map(|c| rgba(c.resolve(dark))))
 }
 
+/// Whether the author took `node`'s focus ring off: CSS `outline: none`,
+/// the row's one value (LLP 1104 D6), on any element that takes the focus.
+pub(crate) fn ringless(node: &NodeRef<'_>) -> bool {
+    node.style.mask.has(exact_kernel::StyleId::OutlineStyle)
+}
+
 /// A focused node's accent ([`accents`]), except native neutral fields
 /// marked invalid, whose ring matches their system-red border.
 pub(crate) fn ring(node: &NodeRef<'_>, dark: bool) -> [u8; 4] {
@@ -207,6 +213,12 @@ pub struct MenuPaint {
 pub const MENU_PAD: f32 = 4.0;
 
 impl super::Painter {
+    /// Whether focused `node` paints no ring: a press left it without one,
+    /// or its author wrote `outline: none` ([`ringless`]).
+    pub(super) fn unringed(&self, node: &NodeRef<'_>) -> bool {
+        self.ringless == Some(node.id) || ringless(node)
+    }
+
     /// Native text field chrome; text uses the kernel's published content rect.
     pub(super) fn text_field_chrome(
         &mut self,
@@ -273,11 +285,7 @@ impl super::Painter {
             if chevron {
                 neutral::caret(self.backend.as_mut(), node, content, ts, dark);
             }
-            if focused
-                && self.ringless != Some(node.id)
-                && node.props.bool(PropId::Disabled) != Some(true)
-                && !node.style.mask.has(exact_kernel::StyleId::OutlineStyle)
-            {
+            if focused && !self.unringed(node) && node.props.bool(PropId::Disabled) != Some(true) {
                 self.field_ring(&shape, ring(node, dark), ts);
             }
             return;

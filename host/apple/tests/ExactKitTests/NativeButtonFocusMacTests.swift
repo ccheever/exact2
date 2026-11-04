@@ -100,6 +100,32 @@ final class NativeButtonFocusMacTests: XCTestCase {
         }
     }
 
+    /// LLP 1104 D6 (amended 2026-11-05): `outline: none` takes AppKit's ring
+    /// off a native button and a bare one, which still take the focus;
+    /// unset, the ring is back.
+    func testOutlineNoneTakesTheRingOffNativeAndBareButtons() throws {
+        let p = try fixture()
+        let first = try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac)
+        let bare = try XCTUnwrap(p.views[3])
+        func outline(none: Bool) {
+            let quiet: [String: Any] = none ? ["outline_style": "none"] : [:]
+            p.apply(wireBatch([["op": "style", "id": 2, "style": quiet.merging(["appearance": "auto"]) { $1 }],
+                               ["op": "style", "id": 3, "style": quiet]]))
+        }
+        XCTAssertTrue(window.makeFirstResponder(bare))
+        bare.focusVisible = true
+        XCTAssertEqual(bare.focusRingMaskBounds, bare.bounds)
+        outline(none: true)
+        XCTAssertEqual(first.focusRingType, .none)
+        XCTAssertTrue(window.firstResponder === bare, "it keeps the focus")
+        XCTAssertEqual(bare.focusRingMaskBounds, .zero)
+        XCTAssertTrue(window.makeFirstResponder(first), "the native button still takes the focus")
+        outline(none: false)
+        XCTAssertEqual(first.focusRingType, .default)
+        XCTAssertTrue(window.makeFirstResponder(bare))
+        XCTAssertEqual(bare.focusRingMaskBounds, bare.bounds)
+    }
+
     func testFocusBlurKeyAndCollectionReadsRelayToTheNodeOnce() throws {
         let p = try fixture()
         let first = try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac)

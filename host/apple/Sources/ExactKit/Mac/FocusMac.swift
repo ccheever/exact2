@@ -174,15 +174,16 @@ extension NodeView {
     /// box, as AppKit rings an `NSButton` the keyboard moved the focus to.
     /// AppKit draws no mask whose bounds are empty, which keeps it off a box
     /// that is not pressable, a field (its own ring), a focus that is not
-    /// visible and a ring a later backdrop covers.
+    /// visible, a box whose author wrote `outline: none` (LLP 1104 D6) and a
+    /// ring a later backdrop covers (`BackdropCoverMac.swift`).
     var bareFieldFocused: Bool {
         !isNativeTextControl && (field?.currentEditor() != nil || (textArea != nil && window?.firstResponder === textArea))
     }
     package override var focusRingMaskBounds: NSRect {
-        uncovered(bareFieldFocused || (field == nil && ringsFocus && focusVisible) ? bounds : .zero) // `BackdropCoverMac.swift`
+        uncovered(!outlineNone && (bareFieldFocused || (field == nil && ringsFocus && focusVisible)) ? bounds : .zero)
     }
     package override func drawFocusRingMask() {
-        guard bareFieldFocused || (field == nil && ringsFocus) else { return }
+        guard !outlineNone, bareFieldFocused || (field == nil && ringsFocus) else { return }
         roundedPath(in: bounds).fill()
     }
 }

@@ -182,5 +182,28 @@ final class InlineFocusMacTests: XCTestCase {
         XCTAssertFalse(link.canBecomeKeyView)
         XCTAssertNil(p.viewport.nextValidKeyView)
     }
+
+    /// LLP 1104 D6 (amended 2026-11-05): a link run's `outline: none` takes
+    /// AppKit's ring off it; it still takes the focus, and a link run
+    /// without it keeps its ring.
+    func testOutlineNoneTakesALinkRunsRingOff() throws {
+        let (session, window) = fixture()
+        defer { window.makeFirstResponder(nil); window.close(); session.destroy() }
+        let p = session.presenter
+        func link(_ id: Int, quiet: Bool) -> [String: Any] {
+            var style: [String: Any] = ["font_size": 18.0]
+            if quiet { style["outline_style"] = "none" }
+            let props: [String: String] = ["text": "run ", "href": "https://example.com/\(id)"]
+            return ["id": id, "parent": 3, "paint": true, "props": props, "handlers": [String](), "style": style]
+        }
+        p.apply(wireBatch([["op": "paragraph", "id": 3, "runs": [link(5, quiet: false), link(7, quiet: true)]]]))
+        p.syncKeyViewLoop()
+        let paragraph = try XCTUnwrap(p.views[3])
+        for (id, quiet) in [(5, false), (7, true)] {
+            let view = try XCTUnwrap(paragraph.inlineKeyViews[UInt32(id)])
+            XCTAssertTrue(window.makeFirstResponder(view), "run \(id) takes the focus")
+            XCTAssertEqual(view.focusRingMaskBounds.isEmpty, quiet, "run \(id)")
+        }
+    }
 }
 #endif

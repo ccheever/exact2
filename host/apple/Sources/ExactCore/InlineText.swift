@@ -21,6 +21,9 @@ package struct InlineText {
     /// CSS `user-select: all` on the run: a selection that takes part of its
     /// text takes all of it (`TextSelection.atom`).
     package let selectsAll: Bool
+    /// CSS `outline: none` on the run (LLP 1104 D6): a focused link or
+    /// `tabindex` run draws no ring.
+    package let outlineNone: Bool
     /// An image's box (LLP 1011.002) not `visibility: hidden`: its label is
     /// read. The box itself draws no ink either way.
     package let boxShown: Bool
@@ -51,6 +54,7 @@ package struct InlineText {
         paint = style.paint
         hasSchemeColor = style.paired || style.paint.paired
         selectsAll = style.selectsAll
+        outlineNone = style.outlineNone
         self.handlers = handlers; self.paints = paints
     }
 
@@ -103,5 +107,7 @@ package struct InlineStyle {
     package var paired = false
     /// `user-select: all` (`InlineText.selectsAll`).
     package var selectsAll = false
+    /// `outline: none` (`InlineText.outlineNone`).
+    package var outlineNone = false
 }
 
