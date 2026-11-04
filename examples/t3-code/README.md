@@ -494,8 +494,9 @@ filed were moved there or closed). The gaps someone using this app runs into:
   middle of a flow (View source's and Edit from here's polls, the Browser's paint and capture
   timeouts, the debounces) are the flow's own, on the app's clock. A flow whose answer is let go
   while it waits on a timer stops there, its `finally` unrun, so each flow that holds state across
-  a wait has a send no other flow replaces (`app.contract`): View source, a transcript chip's or the composer's (`citationShown`); the
-  Browser's Capture, whose Record start waits for two frames (`capturePressed`, queued); the
+  a wait has a send no other flow replaces (`app.contract`): View source, a transcript chip's or the
+  composer's (`citationShown`); the Browser's Capture, whose Record start waits for two frames
+  (`capturePressed`, queued); the
   checkout dialog's edits, whose next edit takes the debounce over (`prCheckoutTyped`); and the
   prompt links, whose switch to another machine's Scratch project polls (`fragmentChanged`, queued).
   Time is still an argument, and work outside an answer (the transport's tick, the sidebar's
