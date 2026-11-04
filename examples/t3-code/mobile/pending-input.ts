@@ -2,15 +2,21 @@
 // Question attachments and retained native editor lifetime are separate checkpoints.
 import type { T3Client, Pending } from './shared/client';
 import { arr, obj, str, type Obj } from './shared/domain';
-import { activeRun, ClientError, type Native, type Files } from './shared/protocol';
+import { activeRun, bridgeReply, ClientError, type Native, type Files } from './shared/protocol';
 import { pendingRequests } from './shared/requests';
 import { letGo, letGoAware } from './shared/let-go';
 import { mobilePendingInputColors } from './design';
 import { questionJournalConsumed, questionJournalError, questionJournalHome, questionJournalWrite, questionJournalObserve, questionJournalBlocked, questionRecordForPending, questionRecordForRequest, type QuestionRecord } from './pending-input-journal';
+import { mobileComposerAttachmentUploadRetry, mobileComposerAttachmentUploadSnapshot, mobileComposerAttachmentUploadsStart } from './composer-attachment-uploads';
+
+const questionDraftPrefix = (environmentId: string, threadId: string) => `${environmentId}:question:${threadId}:`;
+const questionDraftKey = (environmentId: string, threadId: string, requestId: string, questionId: string) =>
+  `${questionDraftPrefix(environmentId, threadId)}${JSON.stringify([requestId, questionId])}`;
 
 export interface PendingInputRoute { active: boolean; visit: string; url: string; environmentId: string; threadId: string }
 export interface PendingInputOption { id: string; label: string; description: string; selected: boolean }
-export interface PendingInputQuestion { id: string; header: string; question: string; multiSelect: boolean; customAllowed: boolean; answer: string; options: PendingInputOption[] }
+export interface PendingInputAttachment { id: string; name: string; uploadState: string; uploadError: string; }
+export interface PendingInputQuestion { id: string; header: string; question: string; multiSelect: boolean; customAllowed: boolean; answer: string; options: PendingInputOption[]; attachments: PendingInputAttachment[]; canAttach: boolean }
 export interface PendingInputView { cardId: string; owner: string; active: boolean; requestId: string; questions: PendingInputQuestion[]; count: number; editable: boolean; complete: boolean; canOperate: boolean; canSubmit: boolean; canDismiss: boolean; dismissible: boolean; canStop: boolean; responding: boolean; reason: string; error: string; colors: ReturnType<typeof mobilePendingInputColors> }
 export interface PendingInputResult { revision: number; owner: string; message: string }
 interface Draft { selected: string[]; custom: string }
@@ -18,6 +24,7 @@ interface Question { id: string; header: string; question: string; multiSelect: 
 interface Request { id: string; signature: string; questions: Question[]; resumable: boolean; dismissible: boolean }
 interface Entry { incarnation: number; signature: string; drafts: Map<string, Draft>; error: string; operation: { responding: boolean } | null }
 interface State { route: string; serial: number; entries: Map<string, Entry> }
+const MAX_QUESTION_ATTACHMENTS = 100;
 const states = new WeakMap<T3Client, State>();
 const pendingOwners = new WeakMap<Pending, Entry>();
 const state = (client: T3Client) => {
@@ -67,10 +74,32 @@ function answer(question: Question, value: Draft): string | string[] | null {
   const values = selected(question, value);
   return question.multiSelect ? values.length ? values : null : values[0] ?? null;
 }
-function answers(request: Request, value: Entry): Record<string, string | string[]> | null {
+function attachments(client: T3Client, requestId: string, questionId: string) {
+  const key = questionDraftKey(client.environmentId, client.threadId, requestId, questionId), images = client.local.snapshotDrafts[key] ?? [];
+  const uploads = mobileComposerAttachmentUploadSnapshot(client, key);
+  return { key, images, uploads };
+}
+function questionAttachmentCount(client: T3Client, request: Request): number {
+  return request.questions.reduce((count, question) => count + attachments(client, request.id, question.id).images.length, 0);
+}
+function questionAttachmentsReady(client: T3Client, request: Request, question: Question): boolean {
+  const shelf = attachments(client, request.id, question.id);
+  if (!shelf.images.length) return true;
+  if (obj(obj(client.config.environment).capabilities).questionAttachments !== true) return false;
+  return shelf.images.every(image => {
+    const id = str(image.id);
+    return shelf.uploads.states[id] === 'ready' && !!str(image.uploadId) && str(image.uploadEnvironmentId) === client.environmentId;
+  });
+}
+function answers(client: T3Client, request: Request, value: Entry): Record<string, string | string[]> | null {
   const result: Record<string, string | string[]> = {};
   for (const question of request.questions) {
     const resolved = answer(question, draft(value, question.id));
+    const questionAttachments = attachments(client, request.id, question.id);
+    if (questionAttachments.images.length && obj(obj(client.config.environment).capabilities).questionAttachments !== true) return null;
+    // A custom-answer question may be answered by attachments alone; the
+    // server receives an empty string alongside its attachment map.
+    if (resolved === null && question.customAllowed && questionAttachments.images.length > 0) { result[question.id] = ''; continue; }
     if (resolved === null) return null;
     result[question.id] = resolved;
   }
@@ -93,20 +122,35 @@ export function mobilePendingInput(client: T3Client, route: PendingInputRoute, s
   if (!routeCurrent(client, route) || !client.thread) return emptyPendingInput();
   questionJournalObserve(client);
   const list = requests(client), live = new Set(list.map(request => key(client, request.id))), scope = `${prefix(client)}:`;
-  if (client.threadLive) for (const id of s.entries.keys()) if (id.startsWith(scope) && !live.has(id)) s.entries.delete(id);
+  if (client.threadLive) {
+    for (const id of s.entries.keys()) if (id.startsWith(scope) && !live.has(id)) s.entries.delete(id);
+    const retained = new Set(list.flatMap(request => request.questions.map(question => questionDraftKey(client.environmentId, client.threadId, request.id, question.id))));
+    for (const draftKey of Object.keys(client.local.snapshotDrafts)) {
+      if (!draftKey.startsWith(questionDraftPrefix(client.environmentId, client.threadId)) || retained.has(draftKey)) continue;
+      for (const image of client.local.snapshotDrafts[draftKey] ?? []) {
+        const id = str(image.id); if (id && !client.local.snapshotReleases.includes(id)) client.local.snapshotReleases.push(id);
+      }
+      delete client.local.snapshotDrafts[draftKey];
+    }
+  }
   const request = list[0]; if (!request) return emptyPendingInput();
   const value = entry(client, request), responding = value.operation?.responding === true || pendingHere(client, request, value);
   const blocked = questionJournalBlocked(client);
   const editable = request.resumable && !responding;
+  const resolved = answers(client, request, value);
   return { cardId: JSON.stringify([key(client, request.id), value.incarnation]), owner: owner(client, route, request), active: true, requestId: request.id, count: request.questions.length, editable,
-    complete: answers(request, value) !== null, canOperate: client.writable, colors: mobilePendingInputColors(scheme, palette),
-    responding, dismissible: request.dismissible, canSubmit: editable && client.writable && !client.pending && !blocked && !value.operation && !client.busy && answers(request, value) !== null,
+    complete: resolved !== null, canOperate: client.writable, colors: mobilePendingInputColors(scheme, palette),
+    responding, dismissible: request.dismissible, canSubmit: editable && client.writable && !client.pending && !blocked && !value.operation && !client.busy && resolved !== null
+      && request.questions.every(question => questionAttachmentsReady(client, request, question)),
     canDismiss: request.dismissible && !responding && client.writable && !client.pending && !blocked && !value.operation && !client.busy,
     canStop: !!activeRun(client.projection) && client.writable && !client.pending && !blocked && !value.operation && !client.busy && !responding,
     reason: questionJournalError(client) || (!request.resumable ? 'The provider process for this request is no longer available. Interrupt or restart the run to continue.' : ''), error: value.error,
     questions: request.questions.map(question => {
       const current = draft(value, question.id), custom = question.customAllowed && !!current.custom.trim(), values = selected(question, current);
-      return { ...question, answer: question.customAllowed ? current.custom : '', options: question.options.map(option => ({ ...option, selected: !custom && values.includes(option.id) })) };
+      const shelf = attachments(client, request.id, question.id), capabilities = obj(obj(client.config.environment).capabilities), canAttach = question.customAllowed
+        && capabilities.questionAttachments === true && capabilities.attachmentUploads === true;
+      return { ...question, answer: question.customAllowed ? current.custom : '', options: question.options.map(option => ({ ...option, selected: !custom && values.includes(option.id) })),
+        attachments: shelf.images.map(image => ({ id: str(image.id), name: str(image.name), uploadState: shelf.uploads.states[str(image.id)] ?? '', uploadError: shelf.uploads.errors[str(image.id)] ?? '' })), canAttach };
     }) };
 }
 
@@ -147,13 +191,68 @@ export async function mobilePendingInputAction(client: T3Client, nativeInput: Na
       }
       value.error = ''; client.revision++; return result();
     }
+    if (op === 'pick' || op === 'remove-image' || op === 'retry-image') {
+      const capabilities = obj(obj(client.config.environment).capabilities);
+      if (!request!.resumable || !request!.questions.find(question => question.id === questionId)?.customAllowed
+        || capabilities.questionAttachments !== true || capabilities.attachmentUploads !== true)
+        throw new ClientError('This question cannot accept attachments.');
+      if (!nativeInput?.available || !client.writable || client.pending || questionJournalBlocked(client) || value.operation || client.busy)
+        throw new ClientError('This connection cannot change question attachments.');
+      const key = questionDraftKey(client.environmentId, client.threadId, request!.id, questionId), prior = client.local.snapshotDrafts[key] ?? [];
+      if (op === 'retry-image') {
+        if (!mobileComposerAttachmentUploadRetry(client, nativeInput, storage, text, key)) throw stale();
+        value.error = ''; client.revision++; return result();
+      }
+      if (op === 'remove-image') {
+        const image = prior.find(item => str(item.id) === text);
+        if (!image) throw stale();
+        client.local.snapshotDrafts[key] = prior.filter(item => item !== image); client.local.snapshotReleases.push(str(image.id));
+        await client.persist(storage); await bridgeReply(letGoAware(nativeInput), { op: 'snapshotDraftRemove', id: str(image.id) }).catch(() => undefined);
+        value.error = ''; client.revision++; return result();
+      }
+      const remaining = MAX_QUESTION_ATTACHMENTS - questionAttachmentCount(client, request!);
+      if (remaining <= 0) throw new ClientError(`You can attach up to ${MAX_QUESTION_ATTACHMENTS} files per request.`);
+      const reply = await bridgeReply(letGoAware(nativeInput), { op: 'composerAttachPick', source: 'photos', remaining });
+      if (!reply.ok) throw new ClientError(reply.error?.message ?? 'Could not attach files.');
+      const picked = arr(obj(reply.value).files);
+      const release = async (file: Obj) => {
+        const id = str(file.id); if (!id) return;
+        await bridgeReply(letGoAware(nativeInput), { op: file.kind === 'file' ? 'composerAttachRemove' : 'snapshotDraftRemove', id }).catch(() => undefined);
+      };
+      const accepted = picked.filter(file => file.kind === 'image' && /^[a-f0-9-]{36}$/i.test(str(file.id))
+        && /^image\/(png|jpeg|gif|webp)$/i.test(str(file.mimeType).split(';', 1)[0].trim())
+        && Number.isSafeInteger(Number(file.sizeBytes)) && Number(file.sizeBytes) > 0 && Number(file.sizeBytes) <= 10 * 1024 * 1024)
+        .slice(0, remaining).map(file => ({ id: str(file.id), name: str(file.name, 'image'), mimeType: str(file.mimeType), sizeBytes: Number(file.sizeBytes) }));
+      const retained = new Set(accepted.map(file => file.id));
+      for (const file of picked) if (!retained.has(str(file.id))) await release(file);
+      if (!current()) {
+        for (const file of picked) if (retained.has(str(file.id))) await release(file);
+        throw new ClientError('The question changed while files were being chosen.', 'superseded');
+      }
+      if (!accepted.length) throw new ClientError('Choose a supported image to attach.');
+      client.local.snapshotDrafts[key] = [...prior, ...accepted];
+      await client.persist(storage);
+      mobileComposerAttachmentUploadsStart(client, nativeInput, storage, key, accepted.map(file => file.id));
+      value.error = ''; client.revision++; return result();
+    }
     if (!['submit', 'dismiss', 'stop'].includes(op)) throw new ClientError('This question action is unavailable.');
     if (!nativeInput?.available || !client.writable || client.pending || questionJournalBlocked(client) || value.operation || client.busy) throw new ClientError('This connection cannot submit answers.');
     let payload: Obj;
     if (op === 'submit') {
-      const response = answers(request!, value);
+      const response = answers(client, request!, value);
       if (!request!.resumable || response === null) throw new ClientError('Answer every question before submitting.');
       payload = { type: 'runtime-request.respond', threadId: client.threadId, requestId: request!.id, answers: response };
+      const attachmentsByQuestionId: Obj = {};
+      for (const question of request!.questions) {
+        const shelf = attachments(client, request!.id, question.id), rows = shelf.images.map(image => {
+          const id = str(image.id), state = shelf.uploads.states[id];
+          if (state !== 'ready' || !str(image.uploadId) || str(image.uploadEnvironmentId) !== client.environmentId)
+            throw new ClientError('Wait for attachments to finish uploading, or remove failed uploads.');
+          return { type: 'image', id: str(image.uploadId), name: str(image.name), mimeType: str(image.mimeType), sizeBytes: Number(image.sizeBytes) };
+        });
+        if (rows.length) attachmentsByQuestionId[question.id] = rows;
+      }
+      if (Object.keys(attachmentsByQuestionId).length) payload.attachmentsByQuestionId = attachmentsByQuestionId;
     } else if (op === 'dismiss') {
       if (!request!.dismissible) throw new ClientError('This question needs an answer.');
       payload = { type: 'thread.user-input.dismiss', threadId: client.threadId, requestId: request!.id };
