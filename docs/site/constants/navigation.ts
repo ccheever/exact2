@@ -37,6 +37,12 @@ export const sections: NavSection[] = [
         source: 'start-here.md',
         description: 'Build an app with Exact: the idea, the workflow, and the one screen every app starts from.',
       },
+      {
+        route: 'agents',
+        path: '/agents',
+        source: 'site/pages/agents.md',
+        description: 'Give your coding agent these docs, or let it read any page as Markdown.',
+      },
     ],
   },
   {

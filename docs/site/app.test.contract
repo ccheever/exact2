@@ -11,6 +11,14 @@ test "the home page has the hero, the agent prompt, the setup commands and a car
   tap "card-startHere"
   expect tree has "toc"
 
+test "the home page's agent section opens the agent resources page"
+  size 1440x900
+  expect tree has "for-agents"
+  expect tree has "agent-row-/agents#markdown-pages"
+  tap "all-agent-resources"
+  expect tree has "toc"
+  expect tree missing "home-page"
+
 test "a section of a split guide is its own page"
   at "/learn/contract-for-humans/resources-and-mutations"
   expect tree has "page"

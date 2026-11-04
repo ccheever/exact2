@@ -28,9 +28,21 @@ component Card
         text item.title margin-top=10 font-size="var(--text-sm)" font-weight=600 color="var(--color-text-default)"
         text item.description font-size="var(--text-sm)" line-height=1.5 color="var(--color-text-secondary)"
 
+component AgentRow
+  props
+    href: string
+    title: string
+    detail: string
+  view
+    link href=href display="flex" align-items="center" gap=12 padding="14px 0" border-bottom="1px solid var(--color-border-secondary)" testId=`agent-row-${href}`
+      row flex=1 min-width=0 flex-wrap="wrap" align-items="baseline" column-gap=10 row-gap=2
+        text title font-size="var(--text-base)" font-weight=600 color="var(--color-text-default)"
+        text detail font-size="var(--text-sm)" color="var(--color-text-secondary)"
+      image "symbol:back" aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-tertiary)" transform="rotate(180deg)"
+
 // Nico's Home frame, for Exact: a hero, the one prompt an agent needs, the first commands, and a card for
 // each sidebar section that opens its first page. The commands are pages/home.md's; the cards are
-// constants/navigation.ts's.
+// constants/navigation.ts's. The agent rows open sections of pages/agents.md.
 component Home
   props
     page: Page
@@ -63,3 +75,18 @@ component Home
         view class=Grid
           for g in nav.groups key=g.id
             Card(item=g.card, icon=(g.title == "Learn" ? "symbol:book" : g.title == "Recipes" ? "symbol:layers" : "symbol:home"))
+      column margin-top=48 padding="24px clamp(16px, 4vw, 32px) 12px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-xl)" background-color="var(--color-background-subtle)" testId="for-agents"
+        row flex-wrap="wrap" justify-content="space-between" align-items="baseline" gap=8
+          h2 class=SectionTitle
+            text "For AI agents"
+          link href="/agents" display="flex" align-items="center" gap=6 testId="all-agent-resources"
+            text "See all agent resources" font-size="var(--text-sm)" font-weight=500 color="var(--color-text-default)"
+            image "symbol:back" aria-hidden=true font-size="var(--text-xs)" color="var(--color-icon-default)" transform="rotate(180deg)"
+        text "Give your coding agent these docs, or let it read any page as Markdown." margin-top=6 font-size="var(--text-sm)" color="var(--color-text-secondary)"
+        view display="grid" grid-template-columns="repeat(auto-fill, minmax(min(100%, 18rem), 1fr))" column-gap=32 margin-top=8
+          AgentRow(href="/agents#start-prompt", title="Start prompt", detail="The one file to read first")
+          AgentRow(href="/agents#markdown-pages", title="Markdown pages", detail="Add .md to any page URL")
+          AgentRow(href="/agents#llmstxt", title="llms.txt", detail="Every page in one index")
+          AgentRow(href="/agents#open-in-your-agent", title="Open in your agent", detail="Claude, ChatGPT, Cursor, Codex")
+          AgentRow(href="/agents#terminal-lookups", title="Terminal lookups", detail="Answers from an app's folder")
+          AgentRow(href="/agents#feedback", title="Feedback", detail="Report an error in a page")
