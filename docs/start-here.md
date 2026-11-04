@@ -5,14 +5,14 @@ The only required reading; the rest is lookup. A website reads [start-here-site.
 ```prompt Build an app with Exact
 Build a new app with Exact in this folder. Use https://github.com/ccheever/exact2/blob/main/docs/start-here.md as the source for each step: it is the only required reading. The exact2 checkout has the same page at docs/start-here.md.
 
-1. If I did not say what the app does or which platforms it runs on (web, iOS, Android, Windows, Linux), ask me. Find the exact2 checkout (the folder with scripts/exact.mjs); if you cannot find it, ask me where it is.
+1. If I did not say what the app does or which platforms it runs on (web, macOS, iOS, Android, Windows, Linux), ask me. For a website, follow docs/start-here-site.md instead. Find the exact2 checkout (the folder with scripts/exact.mjs); if you cannot find it, ask me where it is.
 2. Run `bun <exact2>/scripts/exact.mjs setup --check`. If it names a missing tool for a platform the app runs on, run `bun <exact2>/scripts/exact.mjs setup`; ignore the others.
 3. Make the app: `bun <exact2>/scripts/exact.mjs new <name>`, then `cd <name>`. For an iOS app, start `bun exact.mjs ios --prebuild` now: the first build takes minutes. Run `bun exact.mjs pattern` and start from the nearest pattern.
 4. Replace the placeholder screen and its tests: the first screen in app.contract, its data in app.ts, and a test in app.test.contract for each thing a person does.
 5. Look up only what you need: `bun exact.mjs docs <heading words>`, `bun exact.mjs contract vocab <name>`, and the recipe the page's table names.
-6. Run `bun exact.mjs verify` until it passes. Fix the app, not the test. If a finding stays after three rounds of fixes, or the pattern has it before you change anything, record it (step 7) and report it; do not keep trying. Then run verify once on each other platform the app runs on (`verify ios`, `verify android` or `verify windows`; for Linux, `bun exact.mjs linux` then `test linux`).
-7. When a doc was wrong or missing, or a step needed a workaround, record it: `bun exact.mjs feedback note "<what happened>"`. Do not send the notes; tell me how many you recorded.
-8. Tell me what you built, what each verify reported, and the command that opens the app on each platform (`bun exact.mjs web`, `ios --run` or `windows --run`; `android` installs it on the device).
+6. Follow the platform checks in docs/start-here.md (`bun exact.mjs docs platform checks`) for the targets in the app's AGENTS.md and app.json. Read the reports, including counted findings; a zero exit code alone does not mean clean. Fix the app, not the test. Stop after three rounds of fixes; record and report any remaining or pre-existing findings (step 7), and any target you could not check.
+7. When a doc was wrong or missing, or a step needed a workaround, read `bun exact.mjs feedback status`. Under `never`, keep no note. Otherwise record it locally: `EXACT_FEEDBACK=0 bun exact.mjs feedback note "<what happened>"` (use your shell's environment syntax). Do not change the saved policy or send notes, even under `always`; tell me how many you kept.
+8. Tell me what you built, what each platform check reported, and the launch command for each platform from the Platform checks section below.
 ```
 
 ## The idea
@@ -92,6 +92,27 @@ the two differ, and draws `home.diff.png`, so neither picture needs viewing. On 
 
 `agent ios` is the app as a person sees it, UIKit's bars included, with screenshots a pixel a
 point (`--scale 3`: the device's): no other simulator tool is needed ([ios-driving](recipes/ios-driving.md)).
+
+## Platform checks
+
+Read the app's AGENTS.md and `app.json` before choosing a host. Check each target
+platform; a native-only app does not need a web build. If a required tool, device
+or simulator is unavailable, report that target as untested.
+
+|Target|Checks|Open the app|
+|---|---|---|
+|Web|`bun exact.mjs verify web`|`bun exact.mjs web`|
+|iOS|`bun exact.mjs verify ios`|`bun exact.mjs ios --run`|
+|Android|`bun exact.mjs verify android`|`bun exact.mjs android --run`|
+|Windows|`bun exact.mjs verify windows`|`bun exact.mjs windows --run`|
+|macOS|`bun exact.mjs test macos`, then `bun exact.mjs agent macos "check both"`|`bun exact.mjs mac --run`|
+|Linux|`bun exact.mjs linux`, then `bun exact.mjs test linux`|The Linux host is headless; inspect it with `bun exact.mjs agent linux tree` after building.|
+
+There is no `verify macos` or `verify linux`. Inspect the launched native app for
+features that headless checks cannot exercise, such as hardware capture or native
+panels, and say what remains untested. Read the whole verification report:
+counted findings can accompany exit zero. Fix app findings for at most three
+rounds, then report what remains without weakening the tests.
 
 ## Look it up
 

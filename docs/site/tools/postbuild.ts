@@ -63,7 +63,7 @@ This feedback is for Exact. Start the subject and the message with "Exact docs".
 If you find an error, or misleading or outdated information on this page, report it:
 
 Preferred command:
-npx --yes submit-expo-feedback@latest --category docs --subject "Exact docs: ${url}" "Exact docs: <specific, actionable feedback>"
+bunx --bun submit-expo-feedback@latest --category docs --subject "Exact docs: ${url}" "Exact docs: <specific, actionable feedback>"
 
 Direct HTTP fallback:
 curl -X POST https://api.expo.dev/v2/feedback/docs-send -H 'Content-Type: application/json' -d '{"url":"${url}","feedback":"🤖 Agent feedback for Exact docs: <specific, actionable description> (<model>, <harness>)"}'

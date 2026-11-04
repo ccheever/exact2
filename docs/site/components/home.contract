@@ -66,7 +66,13 @@ component Home
       column margin-top=56
         h2 class=SectionTitle
           text "Set up Exact"
-        text "Install the toolchain once, then make an app and start its dev loop." margin-top=6 font-size="var(--text-sm)" color="var(--color-text-secondary)"
+        text "Requires Bun 1.4.2, Git and rustup, plus Playwright Chromium with its headless shell or a Chromium browser selected with CHROME." margin-top=6 font-size="var(--text-sm)" color="var(--color-text-secondary)"
+        row gap=16 flex-wrap="wrap" margin-top=8
+          link href="https://github.com/ccheever/exact2#1-install-the-tools" class=Hit
+            text "Installation guide" font-size="var(--text-sm)" color="var(--color-text-default)" text-decoration="underline"
+          link href="https://github.com/ccheever/exact2/blob/main/docs/testing.md#browsers" class=Hit
+            text "Browser setup" font-size="var(--text-sm)" color="var(--color-text-default)" text-decoration="underline"
+        text "Start where you want to keep Exact, then clone it and open a first web app." margin-top=8 font-size="var(--text-sm)" color="var(--color-text-secondary)"
         for b in page.blocks.filter(x => x.kind == "terminal") key=b.id
           view margin-top=16
             Terminal(title=b.title, source=b.text, lines=b.lines)
