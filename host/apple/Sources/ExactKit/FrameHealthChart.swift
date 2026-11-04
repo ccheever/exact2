@@ -50,9 +50,8 @@ final class FrameHealthChart {
     var glides = false
     /// Whether the layers glide now
     private(set) var gliding = false
-    /// Runs after each move between frames that changed the layers, a change of the card's own, with the seconds the
-    /// move took
-    var moved: ((Double) -> Void)?
+    /// Runs after each move between frames that changed the layers, a change of the card's own
+    var moved: (() -> Void)?
     /// While held, the picture the layers keep: its columns, the time its marks reach, and the time at its right edges
     private var held: (columns: [Column], latest: Double, head: Double)?
     /// This run's frame timestamps over the last half second, a ring of `count` from `first`, oldest
@@ -248,8 +247,8 @@ final class FrameHealthChart {
         guard now > head, now - latest >= Self.columnSeconds else { return false }
         head = now
         if counting { recount(at: now) }
-        let begin = CACurrentMediaTime(), changed = present(flush: true)
-        if changed { moved?(CACurrentMediaTime() - begin) }
+        let changed = present(flush: true)
+        if changed { moved?() }
         if now - latest >= Self.span { clock?.invalidate(); clock = nil }
         return changed
     }
@@ -370,6 +369,9 @@ final class FrameHealthChart {
         for (chart, _) in plots { lines[chart].setNeedsDisplay() }
         return true
     }
+
+    /// Draw now the plots whose layers need it.
+    func drawNow() { lines.forEach { $0.displayIfNeeded() } }
 
     /// Place the shown plots, in the card's points, which `scale` maps to the host's. A change of
     /// place, scale or palette draws the layers whole.

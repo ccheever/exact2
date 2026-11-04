@@ -1254,6 +1254,48 @@ mod tests {
     }
 
     #[test]
+    fn a_callback_does_not_follow_the_apply_it_ran() {
+        let id = create();
+        let start = 1_000_000_000;
+        capture(id, 1, start);
+        let incarnation = history_status(id).capture;
+        let arrival = start + 16_000_000;
+        // The apply finishes past its target within the callback, which records once it returns
+        let work = Work {
+            capture: incarnation,
+            began_ns: arrival + 1_000_000,
+            finished_ns: arrival + 5_000_000,
+            target_ns: arrival + 2_000_000,
+            ..Work::default()
+        };
+        applied(id, work, 0);
+        record(
+            id,
+            arrival,
+            arrival + 8_000_000,
+            8_000_000,
+            arrival + 6_000_000,
+            COMPLETE,
+            0,
+        );
+        assert_eq!(hitch(id, 0).flags & history::AFTER_KNOWN, 0);
+        let next = arrival + 16_000_000;
+        record(
+            id,
+            next,
+            next + 8_000_000,
+            8_000_000,
+            next + 1_000_000,
+            COMPLETE,
+            0,
+        );
+        let event = hitch(id, 0);
+        assert_ne!(event.flags & history::AFTER_KNOWN, 0);
+        assert_eq!(event.after_at_us, 11_000);
+        destroy(id);
+    }
+
+    #[test]
     fn recent_hitches_have_bounded_storage_loss_and_adjacent_work_evidence() {
         let id = create();
         let start = 1_000_000_000;

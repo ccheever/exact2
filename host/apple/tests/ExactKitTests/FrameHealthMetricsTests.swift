@@ -929,11 +929,11 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertEqual(exactCore["frameIntervals"] as? String, "0")
     }
 
-    func testEachReadTakesTheMainThreadsWorkAndAPausedCardsCopyReadsNoMore() {
+    func testEachReadTakesTheMainThreadsWorkAndTheReadAfterAPauseCoversIt() {
         let health = FrameHealth(enabled: true)
         defer { health.destroy() }
         let reader = FrameHealthCardReader()
-        XCTAssertTrue(reader.start(claim: false))
+        XCTAssertTrue(reader.start())
         defer { reader.stop() }
         var taken = 0
         reader.sample(health, now: 1, force: true, main: { taken += 1; return (0.004, 0) })
@@ -942,11 +942,12 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertEqual(taken, 2, "each read takes the main thread's work, the baseline's too, so none carries over")
         XCTAssertEqual(reader.window(5).mainLongest, 61, accuracy: 1e-9)
         XCTAssertEqual(reader.window(5).counts.long, 2)
-        let copy = reader.copy()
-        XCTAssertFalse(copy.reading, "a paused card's copy holds no reader's place")
+        // A paused card reads nothing; its first read after covers the paused span, from the last read before it
         health.record(arrival: 1.7, target: 1.71, period: 0, finished: 1.705)
-        reader.sample(health, now: 2.2, force: true, main: { (0.001, 0) })
-        XCTAssertEqual(copy.samples.count, 1)
+        health.record(arrival: 3.7, target: 3.71, period: 0, finished: 3.705)
+        reader.sample(health, now: 4.6, main: { (0.001, 0) })
+        XCTAssertEqual(reader.window(0.5).from, 1.6, accuracy: 1e-9)
+        XCTAssertEqual(reader.window(0.5).counts.callbacks, 2)
         XCTAssertEqual(reader.samples.count, 2)
     }
 

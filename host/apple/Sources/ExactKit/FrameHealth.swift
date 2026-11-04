@@ -56,8 +56,8 @@ final class FrameHealth {
 
     /// A late frame of the screen's, its work begun at `start` (seconds), split.
     func split(at start: Double, waited: Double, exact: Double?, card: Double, layouts: Int?) {
+        if splits.count == 32 { splits.removeFirst() }
         splits.append((Self.nanoseconds(start), waited, exact, card, layouts))
-        if splits.count > 32 { splits.removeFirst(splits.count - 32) }
     }
     var agentCaptureUntil: Double = 0
     /// An agent's scroll track (`FrameHealthTrack`), nil unless one is leased.

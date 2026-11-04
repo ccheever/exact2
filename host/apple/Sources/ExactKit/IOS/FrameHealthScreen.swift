@@ -7,10 +7,10 @@ import QuartzCore
 /// frames and UIKit's alike, and requests none, nor any rate. Two observers of the main run loop time each spell its
 /// thread works without waiting. Stopped, or before iOS 18, it observes nothing.
 ///
-/// Each update is a frame, late when its changes reach the render server after UIKit's completion deadline. A passive
-/// observer cannot tell whether a refresh without an update was one the app had nothing to draw for, so frames bound
-/// no frame time: the time between two taps' updates is no hitch. Frames held up by work show as the main thread's
-/// long spells.
+/// Each update is a frame, late when its last Core Animation commit, as seen just after it, comes after UIKit's
+/// completion deadline, which UIKit says delays its presentation. A passive observer cannot tell whether a refresh
+/// without an update was one the app had nothing to draw for, so frames bound no frame time: the time between two taps'
+/// updates is no hitch. Frames held up by work show as the main thread's long spells.
 final class FrameHealthScreen {
     /// The main thread's work since it was last taken, leaving out the card's own.
     struct MainThread {
@@ -21,8 +21,8 @@ final class FrameHealthScreen {
     }
 
     /// The frames, each with its work, the main thread's time from when its update was scheduled until its last Core
-    /// Animation transaction was committed less its waits between, against UIKit's completion deadline; without a
-    /// schedule, they have no frame times
+    /// Animation commit less its waits between, against UIKit's completion deadline; without a schedule, they have no
+    /// frame times
     let health = FrameHealth(policy: .always, source: FrameHealth.screenSource)
     /// The card's charts, which take each frame and each long spell
     weak var chart: FrameHealthChart?
@@ -43,8 +43,10 @@ final class FrameHealthScreen {
     private struct Update {
         /// Seconds: when it was scheduled, and its deadline
         let start: Double, deadline: Double
-        /// Who asked for it (`askers`), and the nodes' layouts as it began
-        let askers: UInt64, layouts: Int
+        /// Who asked for it (`askers`) and the card's state (`FrameHealth.cardFlags`)
+        let flags: UInt64
+        /// As it began, the nodes' layouts and the seconds of Exact's host phases (`HostPhases.total`)
+        let layouts: Int, phases: Double
         /// Seconds: when its last transaction was committed, and how long the main thread waited and the card worked
         /// within it
         var committed = 0.0, waited = 0.0, card = 0.0
@@ -56,18 +58,13 @@ final class FrameHealthScreen {
     private var newest = 0.0
     /// When the main thread last woke, zero while it waits
     private var woke = 0.0
-    /// When the card last changed on its own, outside any update, so the update that sends the change may be the
-    /// card's alone; zero once an update has begun since
-    private var own = 0.0
-    /// Seconds of this spell the card worked on its own, which are not the app's work, and when the update in progress
-    /// began if it is the card's alone
-    private var cardTime = 0.0, cardUpdate = 0.0
+    /// Seconds of this spell the card worked on its own, which are not the app's work
+    private var cardTime = 0.0
     /// How deep the card's own work nests, so only the outermost is timed
     private var cardDepth = 0
     private var main = MainThread()
 
-    /// Seconds, one chart column: an update this long after the app's newest frame, following a change of the card's
-    /// own, sends only that change
+    /// Seconds, one chart column: the app draws while its newest frame is due on screen within this long of now
     static let idle = 0.1
 
     /// Observe `scene`, from a new generation; before iOS 18, nothing.
@@ -77,7 +74,7 @@ final class FrameHealthScreen {
         self.scene = scene
         refresh = 1 / Double(max(1, scene.screen.maximumFramesPerSecond))
         health.reset()
-        (update, newest, own, cardTime, cardUpdate, slept, main) = (nil, 0, 0, 0, 0, 0, MainThread())
+        (update, newest, cardTime, slept, main) = (nil, 0, 0, 0, MainThread())
         woke = CACurrentMediaTime()
         // A late frame's work is split between Exact's host phases, the card and the rest
         HostPhases.shared.hold(true)
@@ -131,17 +128,12 @@ final class FrameHealthScreen {
         card(took: CACurrentMediaTime() - begin)
     }
 
-    /// The card worked on its own for `seconds`, outside an update of its own alone, which counts as the card's whole.
+    /// The card worked on its own for `seconds`.
     func card(took seconds: Double) {
-        guard running, cardUpdate == 0 else { return }
+        guard running else { return }
         cardTime += seconds
         update?.card += seconds
     }
-
-    /// The card changed on its own, outside any update. The next update, while the app does not draw, sends only the
-    /// card's change, so it is not one of the app's frames, and its time is the card's. A change that sends no update
-    /// within a tenth of a second claims none.
-    func ownChange() { own = CACurrentMediaTime() }
 
     /// The main thread's work since the last call.
     func takeMainThread() -> MainThread {
@@ -150,17 +142,13 @@ final class FrameHealthScreen {
     }
 
     func scheduled(presented: Double, deadline: Double, now: Double = CACurrentMediaTime()) {
-        let cardOnly = own > 0 && now - own < Self.idle && (newest == 0 || presented - newest >= Self.idle)
-        own = 0
-        if cardOnly { (update, cardUpdate) = (nil, now) } else {
-            update = Update(start: now, deadline: deadline, askers: Self.askers(workload?() ?? 0), layouts: HostPhases.shared.counted(.nodeLayouts))
-        }
+        let phases = HostPhases.shared
+        update = Update(start: now, deadline: deadline, flags: Self.askers(workload?() ?? 0) | health.cardFlags,
+            layouts: phases.counted(.nodeLayouts), phases: phases.total)
     }
 
     /// The update completed at `now`, and UIKit expects it on screen at `presented`.
     func completed(presented: Double, now: Double = CACurrentMediaTime()) {
-        // A card-only update's time in this spell is the card's; its time before a wait went to the card in the earlier spell
-        if cardUpdate > 0 { (cardTime, cardUpdate) = (cardTime + now - max(cardUpdate, woke), 0) }
         guard let update else { return }
         self.update = nil
         let finished = update.committed > 0 ? update.committed : now
@@ -169,18 +157,19 @@ final class FrameHealthScreen {
         let start = min(finished, update.start + update.waited)
         // Its work split, for a late frame the capture keeps
         if health.captureID != 0, finished > update.deadline {
-            let exact = HostPhases.shared.charged(from: update.start, to: finished)
-            health.split(at: start, waited: update.waited, exact: exact.map { $0 / 1000 }, card: update.card,
-                layouts: HostPhases.shared.on ? HostPhases.shared.counted(.nodeLayouts) - update.layouts : nil)
+            let phases = HostPhases.shared
+            health.split(at: start, waited: update.waited, exact: phases.on ? phases.total - update.phases : nil,
+                card: update.card, layouts: phases.on ? phases.counted(.nodeLayouts) - update.layouts : nil)
         }
         health.record(arrival: start, target: update.deadline, period: 0, finished: finished,
-            flags: health.captureID == 0 ? 0 : health.environmentFlags | update.askers)
+            flags: health.captureID == 0 ? 0 : health.environmentFlags | update.flags)
         chart?.screenFrame(at: presented, work: finished - start, budget: update.deadline - start)
         newest = max(newest, presented)
     }
 
     /// What asked for an update as it was scheduled: the app session's `workload`, and, from bit 40, each of Exact's
-    /// frame clock's users asking for frames (`FrameClock.Order`). With none of Exact's, UIKit or the system asked.
+    /// frame clock's users asking for frames (`FrameClock.Order`), for any session in the process. With none of
+    /// Exact's, UIKit or the system asked.
     static func askers(_ workload: UInt64) -> UInt64 { workload | FrameClock.shared.asking << 40 }
 
     /// The main thread woke at `now`, as the main run loop's first observer sees.
@@ -194,8 +183,6 @@ final class FrameHealthScreen {
     /// less the card's own time, is the app's work.
     func wait(at now: Double) {
         slept = now
-        // A card-only update's time in this spell is the card's, though the update goes on after the wait
-        if cardUpdate > 0 { cardTime += now - max(cardUpdate, woke) }
         let (start, length) = (woke, max(0, now - woke - cardTime))
         woke = 0
         guard start > 0 else { return }

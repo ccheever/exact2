@@ -45,8 +45,10 @@ enum FrameHealthReport {
         }
         /// A hitch's stored microsecond offset; `INT32_MIN` was not observed.
         func stored(_ value: Int32) -> Any { value == Int32.min ? NSNull() : Int(value) }
-        for index in 0..<min(history.retained, 16) {
-            let event = health.hitch(UInt32(index))
+        // In the order they happened, which is not always the order recorded: an apply a frame callback ran is recorded
+        // before that callback
+        let events = (0..<min(history.retained, 16)).map { health.hitch(UInt32($0)) }.sorted { $0.at_ns < $1.at_ns }
+        for event in events {
             guard event.sequence != 0 else { continue }
             guard event.at_ns <= timestamp, timestamp - event.at_ns <= maximumAgeNs else { expired += 1; continue }
             // A boundary or identity that did not fit its packed field invalidates precision claims
@@ -159,8 +161,6 @@ enum FrameHealthReport {
         return encoded
     }
 
-    /// Copy bounded evidence on the main thread, then encode it on a utility worker.
-    /// Allow one export at a time to prevent an encoding backlog.
     /// The counts since the collector's last reset. The screen's frames have no frame times, so their intervals, active
     /// time, period and missed frames are null, and their lateness, by UIKit's deadlines, holds on the simulator too.
     private static func coreSinceReload(_ snapshot: ExactFrameHealthSnapshot, screen: Bool) -> [String: Any] {
@@ -173,6 +173,8 @@ enum FrameHealthReport {
             "detailMayHaveBeenOff": true]
     }
 
+    /// Copy bounded evidence on the main thread, then encode it on a utility worker, one export at a time so that no
+    /// encoding backlog builds.
     static func prepare(health: FrameHealth, session: ExactSession?, now: Double = CACurrentMediaTime(), completion: @escaping (Data) -> Void) {
         guard !health.reportInFlight, !encoding else {
             completion(Data("{\"format\":\"exact.frame-health/2\",\"available\":false,\"error\":\"report-busy\",\"retryAfterMs\":1000}".utf8))

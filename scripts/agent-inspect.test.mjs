@@ -107,12 +107,15 @@ test("the screen's report gives each late frame's work against its deadline, and
       ['53', '1', '1', 531878, 2 ** 23 + 2, 12258, 13461, 10607, null, null, 0, null, 0, null]] };
   const text = renderFrameHealthReport(report);
   expect(text).toContain("the screen's UI updates against UIKit's deadlines");
-  expect(text).toContain('#40 / capture 1 / generation 1 · 1329.860 ms ago · committed past its deadline');
-  expect(text).toContain("work 39.821 ms · deadline 10.176 ms after its work began · previous update's work 3.695 ms · next update's work began 39.830 ms after this one's, work 24.790 ms");
+  expect(text).toContain('#40 / capture 1 / generation 1 · 1329.860 ms ago · commit seen past its deadline');
+  expect(text).toContain("work 39.821 ms · deadline 10.176 ms after its work's effective start, the commit less its work · previous update's work 3.695 ms · next update's effective start 39.830 ms after this one's, work 24.790 ms");
   const waitedPast = structuredClone(report);
   waitedPast.hitches[0][5] = -1000;
-  expect(renderFrameHealthReport(waitedPast)).toContain('work 39.821 ms · its work began 1.000 ms after the deadline');
+  expect(renderFrameHealthReport(waitedPast)).toContain("work 39.821 ms · deadline 1.000 ms before its work's effective start");
   expect(text).toContain('next update unseen');
+  const dragged = structuredClone(report);
+  dragged.hitches[0][4] += 2 ** 36;
+  expect(renderFrameHealthReport(dragged)).toContain('low power false · card dragged');
   expect(text).toContain('workload none at observation · asked by the scroll pump · thermal nominal');
   expect(text).toContain("asked by none of Exact's frame clock (UIKit or the system)");
   expect(text).toContain("of its work: Exact's host phases 30.000 ms · the card's 0.821 ms · the rest 9.000 ms · nodes laid out 412 · the main thread also waited 6.000 ms in the update");

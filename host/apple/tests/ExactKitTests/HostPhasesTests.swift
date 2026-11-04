@@ -85,6 +85,27 @@ final class HostPhasesTests: XCTestCase {
         XCTAssertEqual((p.work()["counts"] as? [String: Int])?["intrinsicReports"], 150)
     }
 
+    func testAHoldTakesThePhasesTotalAndCountsButKeepsNoSegments() {
+        let p = HostPhases()
+        p.clock = { [unowned self] in now }
+        p.hold(true)
+        now = 1.0
+        p.measure(.apply) { now = 1.004 }
+        p.count(.nodeLayouts)
+        XCTAssertEqual(p.total, 0.004, accuracy: 1e-12)
+        XCTAssertEqual(p.counted(.nodeLayouts), 1)
+        XCTAssertNil(p.window(from: 0.9, to: 1.1), "only the sampler keeps segments")
+        // The sampler's segments cover windows from when it starts, though the hold recorded before
+        now = 2.0
+        p.on = true
+        now = 2.1
+        XCTAssertEqual(p.window(from: 1.9, to: 2.05)?["coverage"] as? String, "partial")
+        XCTAssertNil(p.window(from: 2.0, to: 2.05)?["coverage"])
+        p.on = false
+        p.hold(false)
+        XCTAssertFalse(p.on)
+    }
+
     func testNothingIsRecordedWhileOff() {
         let p = HostPhases()
         p.clock = { [unowned self] in now }
