@@ -21,6 +21,7 @@ import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
 import { providerBadge } from '../client/presentation';
 import { triggerModelName } from '../composer/composer-controls-model';
+import { acpInstanceIcon } from '../composer/acp-instance-icon';
 import { defaultScheduledTaskProjectId, emptyDraft, matchesScheduledTaskScope, offersOnceSchedules, onceDraftErrors, onceSchedule, resolveTaskScope, scheduledTaskDefaultModel, suggestedRunAt, taskStatus, taskToDraft, type TaskScope } from './scheduled-tasks';
 import { wallEpoch } from '../shared/wall-clock';
 import { liveEnvironments, watchLive, type LiveEnvironment } from '../client/live-streams';
@@ -55,17 +56,17 @@ export function defaultModelKey(config: Obj, projectId: string, project: Obj | n
 
 type Choice = { value: string; label: string; selected: boolean };
 type TaskChoice = Choice & { secondary: string; kind: string };
-type TaskModelMark = { value: string; name: string; driver: string; badge: string; accent: string };
+type TaskModelMark = { value: string; name: string; driver: string; icon: string; badge: string; accent: string };
 
 /**
  * The Model trigger's label and mark for any `instance:model` the editor holds (ProviderModelPicker's
  * trigger over getCustomModelOptionsByInstance): every instance's models, the draft's own key when no instance lists it (its
  * slug), and "" for no model: the first instance's first model, or "Choose model" (activeInstanceId falls back to the first).
  */
-export function taskModelMarks(providers: Obj[], draftKey: string): TaskModelMark[] {
+export function taskModelMarks(providers: Obj[], draftKey: string, config: Obj = {}): TaskModelMark[] {
   const mark = (provider: Obj | undefined, value: string, name: string): TaskModelMark => {
     const badge = provider ? providerBadge(provider, providers) : { providerBadge: '', providerBadgeColor: '' };
-    return { value, name, driver: str(provider?.driver), badge: badge.providerBadge, accent: badge.providerBadgeColor };
+    return { value, name, driver: str(provider?.driver), icon: acpInstanceIcon(config, provider), badge: badge.providerBadge, accent: badge.providerBadgeColor };
   };
   const marks = providers.flatMap(provider => arr(provider.models).map(model => mark(provider, `${str(provider.instanceId)}:${str(model.slug)}`, triggerModelName(model, str(provider.driver)) || str(model.slug))));
   if (draftKey && !marks.some(entry => entry.value === draftKey)) {
@@ -264,7 +265,7 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     const defaultProject = scopedProjects.find(project => str(project.id) === defaultId) ?? null;
     const draft = editorDraft(task, defaultId, defaultModelKey(config, defaultId, defaultProject), editing.environmentId, offersOnceSchedules(config, task), now,
       managedCapabilityDenial(managedPolicySummary(config), 'webhookTasks') ?? '');
-    const marks = taskModelMarks(arr(config.providers), draft.modelKey);
+    const marks = taskModelMarks(arr(config.providers), draft.modelKey, config);
     // Base-branch refs for each selectable project (WorktreeBaseBranchPicker's vcs.listRefs), the picker's search and
     // pages for the project it shows, and the base when the shown list does not have it: the picker's selectedRefQuery
     // asks for it by name (limit 10), so a local branch past the first page still reads "From <ref> (remote)". The base is
