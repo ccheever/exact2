@@ -196,7 +196,7 @@ extension NodeView {
 final class TextAreaScroll: NSScrollView {
     weak var owner: NodeView?
     override var focusRingMaskBounds: NSRect {
-        owner?.isNativeTextControl == true && window?.firstResponder === documentView ? bounds : .zero
+        uncovered(owner?.isNativeTextControl == true && window?.firstResponder === documentView ? bounds : .zero)
     }
     override func drawFocusRingMask() {
         if !focusRingMaskBounds.isEmpty { NSBezierPath(rect: bounds).fill() }

@@ -847,11 +847,6 @@ above.
   reference draws those tabs natively and zooms nothing. After the press the focus is on the right panel's region, not
   on the stream's key field (`server-browser.contract`), so the chord reaches View ▸ Zoom In. A desktop tab's page,
   which holds the focus itself, zooms nothing, as in the reference (2026-11-05).
-- In the narrow window with Settings open, ⌘B opens the sidebar sheet under Settings and focuses its toggle, as the
-  reference does. The Mac draws AppKit's focus ring there, which Settings' backdrop dims but does not blur, so a sharp
-  ring shows at the window's top left; the reference's ring is blurred to a faint glow. Exact uses the system ring (LLP
-  1115), and the backdrop's `NSVisualEffectView` does not sample it. A fix changes how the host draws that ring and
-  waits on the user's ruling (2026-11-05).
 
 **Not failures:**
 
