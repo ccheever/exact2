@@ -43,6 +43,13 @@ and the signed app installs and opens on the local Duo. A paired server
 transcript is still needed for the table screenshot pair and repeated
 horizontal-pan check; no native frame-rate or selection claim is made.
 
+The current continuation adds table accessibility coordinates. Contract now
+carries the ARIA row and column count/index attributes through the kernel and
+web host, and Thread Markdown supplies stable one-based coordinates for each
+cell. Mobile source and Contract tests pass. UIKit's native table projection
+does not expose those web attributes directly, so VoiceOver and native cell
+selection remain a separate acceptance item.
+
 The prior integrated history, table, first-read, rail and Home units remain in
 the commit ancestry. Open parity gaps are live history errors/Retry, filtered
 continuation, selection and exact anchor preservation, bounded transcript

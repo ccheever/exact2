@@ -1,6 +1,6 @@
 //! ARIA states the Contract carries by their web names.
 
-use exact_kernel::{Kernel, PropId};
+use exact_kernel::{Kernel, PropId, PropValue};
 use exact_runner::{DataError, DataSource, Event, Runner, Value};
 
 struct NoData;
@@ -287,9 +287,9 @@ fn an_unknown_aria_name_lists_the_carried_ones() {
         .unwrap_err()
         .to_string()
     };
-    let count = refused("aria-rowcount");
+    let count = refused("aria-colindextext");
     assert!(
-        count.contains("`aria-rowcount` is ARIA's, and Contract does not carry it yet; Contract carries aria-atomic, aria-busy, aria-checked, "),
+        count.contains("`aria-colindextext` is ARIA's, and Contract does not carry it yet; Contract carries aria-atomic, aria-busy, aria-checked, "),
         "{count}"
     );
     assert!(
@@ -301,6 +301,22 @@ fn an_unknown_aria_name_lists_the_carried_ones() {
         typo.contains("`aria-curent` is not ARIA's (did you mean `aria-current`?)"),
         "{typo}"
     );
+}
+
+#[test]
+fn table_aria_row_and_column_coordinates_are_integer_props() {
+    let r = boot(
+        "component App\n  view\n    view role=\"table\" aria-rowcount=4 aria-colcount=2 testId=\"table\"\n      view role=\"columnheader\" aria-rowindex=1 aria-colindex=2 testId=\"header\"\n        text \"Name\"\n",
+    );
+    let node = |id: &str| r.kernel().node(view_of(&r, id)).unwrap();
+    let integer = |id: &str, prop: PropId| match node(id).props.get(prop) {
+        Some(PropValue::Int(value)) => Some(*value),
+        _ => None,
+    };
+    assert_eq!(integer("table", PropId::AccessibilityRowCount), Some(4));
+    assert_eq!(integer("table", PropId::AccessibilityColumnCount), Some(2));
+    assert_eq!(integer("header", PropId::AccessibilityRowIndex), Some(1));
+    assert_eq!(integer("header", PropId::AccessibilityColumnIndex), Some(2));
 }
 
 #[test]
