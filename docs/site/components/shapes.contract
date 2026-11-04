@@ -109,6 +109,8 @@ shape Nav
   groups: NavGroup[]
   year: string
   agentIntro: string
+  startPrompt: string
+  startLabel: string
   agents: AgentLink[]
 
 shape Moved

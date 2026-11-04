@@ -7,7 +7,7 @@ Each section below is one way for an agent to read or use these docs, with the c
 Give your agent one file before it builds an app with Exact. The home page has a copy button for this prompt:
 
 ```text
-Read https://github.com/ccheever/exact2/blob/main/docs/start-here.md before building an app with Exact. It is the only required reading.
+{{START_PROMPT}}
 ```
 
 For a website (pages served to a browser), the file is [start-here-site.md](../../start-here-site.md) in place of [start-here.md](../../start-here.md). Everything else in the docs is lookup.

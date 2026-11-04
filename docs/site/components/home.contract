@@ -61,8 +61,8 @@ component Home
             Avatar(icon="symbol:icon.openai", fill="light-dark(#FFFFFF, #FFFFFF)", ink="light-dark(#000000, #000000)", first=false)
             Avatar(icon="symbol:icon.cursor", fill="light-dark(#000000, #000000)", ink="light-dark(#FFFFFF, #FFFFFF)", first=false)
           text "Teach your agent how to use Exact:" font-family="var(--font-mono)" font-size="var(--text-xs)" color="var(--color-text-secondary)"
-          text "docs/start-here.md" font-family="var(--font-mono)" font-size="var(--text-xs)" color="var(--color-text-default)" white-space="nowrap"
-          CopyButton(source="Read https://github.com/ccheever/exact2/blob/main/docs/start-here.md before building an app with Exact. It is the only required reading.")
+          text nav.startLabel font-family="var(--font-mono)" font-size="var(--text-xs)" color="var(--color-text-default)" white-space="nowrap"
+          CopyButton(source=nav.startPrompt)
       column margin-top=56
         h2 class=SectionTitle
           text "Set up Exact"
