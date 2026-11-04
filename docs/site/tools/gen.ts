@@ -19,7 +19,6 @@ const ROUTES_END = '  // routes: end';
 const SKIPPED_SECTIONS = new Set(['contents']);
 const ORIGIN = site.origin;
 const DOCS_URL = site.docs;
-const GITHUB_START = 'https://github.com/ccheever/exact2/blob/main/docs/start-here.md';
 const START_URL = `${DOCS_URL}/start.md`;
 const START_PROMPT = `Read ${START_URL} before building an app with Exact. It is the only required reading.`;
 const MARKDOWN = join(SITE, 'assets/markdown');
@@ -95,8 +94,13 @@ function routeName(path: string): string {
   return path.split(/[/-]/).filter(Boolean).map((w, i) => (i ? w[0].toUpperCase() + w.slice(1) : w)).join('');
 }
 
+const GITHUB_DOCS = 'https://github.com/ccheever/exact2/blob/main/docs/';
+const docsUrlOf = new Map(sections.flatMap(s => s.pages).map(p => [GITHUB_DOCS + p.source, `${DOCS_URL}${p.path === '/' ? '/index' : p.path}.md`]));
+
 function read(nav: NavPage): Doc {
-  const text = readFileSync(join(DOCS, nav.source), 'utf8').replaceAll('{{START_PROMPT}}', START_PROMPT).replaceAll(GITHUB_START, START_URL);
+  const text = readFileSync(join(DOCS, nav.source), 'utf8')
+    .replaceAll('{{START_PROMPT}}', START_PROMPT)
+    .replace(/https:\/\/github\.com\/ccheever\/exact2\/blob\/main\/docs\/[\w./-]+\.md/g, url => docsUrlOf.get(url) ?? url);
   const tokens = marked.lexer(text, { gfm: true });
   const slug = slugger();
   const anchors = new Map<string, string>();
