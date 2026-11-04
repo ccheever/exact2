@@ -899,11 +899,14 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertEqual(column(101.6).fps, 0)
     }
 
-    func testTheScreensReportGivesNoFrameTimes() {
+    func testTheScreensReportGivesNoFrameTimes() throws {
         let screen = FrameHealth(policy: .always, source: FrameHealth.screenSource), exact = FrameHealth(enabled: true)
         defer { screen.destroy(); exact.destroy() }
-        screen.record(arrival: 1, target: 1.008, period: 0, finished: 1.01)
-        let report = FrameHealthReport.snapshot(health: screen, session: nil)
+        // The card shows, so the collector keeps its late frames, which a report gives within two minutes
+        screen.setHUDVisible(true)
+        let now = CACurrentMediaTime()
+        screen.record(arrival: now - 0.02, target: now - 0.012, period: 0, finished: now - 0.01)
+        let report = FrameHealthReport.snapshot(health: screen, session: nil, now: now)
         let core = report["coreSinceReload"] as? [String: Any] ?? [:]
         XCTAssertEqual(report["evidence"] as? String, "ui-update-commit-deadlines")
         for key in ["frameIntervals", "activeNs", "maximumFrameIntervalNs", "scheduledPeriodNs", "missedFrames"] {
@@ -911,7 +914,17 @@ final class FrameHealthMetricsTests: XCTestCase {
         }
         XCTAssertEqual(core["lateFrames"] as? String, "1", "UIKit's deadlines hold on the simulator too")
         XCTAssertEqual((report["unobserved"] as? [String])?.first, "frame times")
-        let exactCore = FrameHealthReport.snapshot(health: exact, session: nil)["coreSinceReload"] as? [String: Any] ?? [:]
+        // Its rows give only what it measures: a late frame's work against its deadline, and its neighbours' work
+        XCTAssertEqual(report["columns"] as? [String], ["sequence", "capture", "generation", "age_us", "flags", "target_offset_us",
+            "callback_us", "before_callback_us", "after_offset_us", "after_callback_us"])
+        let row = try XCTUnwrap((report["hitches"] as? [[Any]])?.first)
+        XCTAssertEqual(row.count, 10)
+        XCTAssertEqual(row[5] as? Int, 8_000, "the deadline, after the update began")
+        XCTAssertEqual(row[6] as? UInt32, 10_000, "the work, from the update's start to its last commit")
+        XCTAssertTrue(row[8] is NSNull && row[9] is NSNull, "its next frame was not seen")
+        let exactReport = FrameHealthReport.snapshot(health: exact, session: nil)
+        XCTAssertEqual((exactReport["columns"] as? [String])?.count, 23)
+        let exactCore = exactReport["coreSinceReload"] as? [String: Any] ?? [:]
         XCTAssertEqual(exactCore["frameIntervals"] as? String, "0")
     }
 

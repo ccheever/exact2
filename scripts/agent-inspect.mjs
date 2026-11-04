@@ -970,20 +970,24 @@ export function renderFrameHealthMetrics(report) {
     'Bounds include the lower value and exclude the upper value. A frame is a callback that started frame work, timed from the display link; presentation, Core Animation commits, input latency and GPU execution remain unmeasured, so a proxy pass covers callbacks and Exact\'s own work only.'].join('\n');
 }
 
+const SCREEN_COLUMNS = ['sequence', 'capture', 'generation', 'age_us', 'flags', 'target_offset_us', 'callback_us', 'before_callback_us', 'after_offset_us', 'after_callback_us'];
+
 /** Read measured boundaries before suggesting causes. Null is missing evidence, never zero cost. */
 export function renderFrameHealthReport(report) {
   if (report.error) return `frame health unavailable: ${report.error}${report.retryAfterMs ? ` · retry after ${report.retryAfterMs} ms` : ''}`;
   const { columns, hitches } = report;
-  if (!Array.isArray(columns) || columns.length !== 23 || !Array.isArray(hitches) || hitches.length > 16 ||
-      Buffer.byteLength(JSON.stringify(report), 'utf8') > 4000 || new Set(columns).size !== columns.length) {
-    throw new Error('Frame health report has an invalid structure or exceeds 4 KB. Export it again from Exact.');
-  }
-  const expected = ['sequence', 'capture', 'generation', 'age_us', 'flags', 'target_offset_us', 'period_us', 'requested_period_us', 'gap_us', 'callback_us',
+  // The screen's frames (`ui-update`) have no frame times and none of Exact's owner or apply boundaries
+  const screen = report.source === 'ui-update';
+  const expected = screen ? SCREEN_COLUMNS : ['sequence', 'capture', 'generation', 'age_us', 'flags', 'target_offset_us', 'period_us', 'requested_period_us', 'gap_us', 'callback_us',
     'before_gap_us', 'before_callback_us', 'after_offset_us', 'after_gap_us', 'after_callback_us',
     'owner_queued_offset_us', 'owner_began_offset_us', 'owner_finished_offset_us', 'main_landed_offset_us',
     'apply_began_offset_us', 'apply_finished_offset_us', 'work_target_offset_us', 'operations'];
+  if (!Array.isArray(columns) || columns.length !== expected.length || !Array.isArray(hitches) || hitches.length > 16 ||
+      Buffer.byteLength(JSON.stringify(report), 'utf8') > 4000 || new Set(columns).size !== columns.length) {
+    throw new Error('Frame health report has an invalid structure or exceeds 4 KB. Export it again from Exact.');
+  }
   if (expected.some((name, index) => name !== columns[index])) throw new Error('Frame health report has unknown timing columns. Use a reader from the same Exact version.');
-  const out = [`frame health · ${report.identity?.app ?? 'app'} · callback/apply proxies · ${report.qualification ?? 'unqualified'}`,
+  const out = [`frame health · ${report.identity?.app ?? 'app'} · ${screen ? "the screen's UI updates against UIKit's deadlines" : 'callback/apply proxies'} · ${report.qualification ?? 'unqualified'}`,
     `retained ${hitches.length} · overwritten ${report.retention?.overwrittenSinceClear ?? '?'} · expired ${report.retention?.expiredAtRead ?? '?'} · omitted for budget ${report.retention?.omittedForBudget ?? '?'} · capture ${report.scope?.armed ? 'armed' : 'paused'}`];
   if (!report.available) out.push(`unavailable: ${report.unavailableReason ?? 'unknown coverage'}`);
   const identity = report.identity ?? {};
@@ -1006,6 +1010,13 @@ export function renderFrameHealthReport(report) {
     const workload = bit(23) ? ['motion', 'spatial', 'canvas', 'frame tasks', 'fill pending', 'tick pending', 'hatch frames'].filter((_, index) => bit(index + 16)).join(', ') || 'none at observation' : 'unknown';
     const thermal = ['nominal', 'fair', 'serious', 'critical'][Math.floor(event.flags / 2 ** 32) % 4];
     const reasons = [event.flags & 1 ? 'callback gap' : null, event.flags & 2 ? 'callback target overrun' : null, event.flags & 4 ? 'tick apply target overrun' : null].filter(Boolean);
+    if (screen) {
+      const next = event.flags & 8 ? `next update began ${ms(event.after_offset_us)} after it, work ${ms(event.after_callback_us)}` : 'next update unseen';
+      out.push(`#${event.sequence} / capture ${event.capture} / generation ${event.generation} · ${ms(event.age_us)} ago · ${event.flags & 2 ? 'committed past its deadline' : 'timing event'}`,
+        `  work ${ms(event.callback_us)} · deadline ${ms(event.target_offset_us)} after the update began · previous update's work ${ms(event.before_callback_us || null)} · ${next}`,
+        `  workload ${workload} · thermal ${thermal} · low power ${bit(34)}`);
+      continue;
+    }
     out.push(`#${event.sequence} / capture ${event.capture} / generation ${event.generation} · ${ms(event.age_us)} ago · ${reasons.join(', ') || 'timing event'}`,
       `  gap ${ms(event.gap_us || null)} / scheduled ${ms(event.period_us || null)} · requested ${ms(event.requested_period_us || null)} · callback ${ms(event.callback_us || null)} · target offset ${ms(event.target_offset_us)}`,
       `  ${event.flags & 32 ? 'largest interval apply' : 'last observed apply'} ${ended} · owner queue ${ms(elapsed('owner_began_offset_us', 'owner_queued_offset_us'))} · owner wall ${ms(elapsed('owner_finished_offset_us', 'owner_began_offset_us'))} · main wait ${ms(elapsed('main_landed_offset_us', 'owner_finished_offset_us'))} · apply ${ms(elapsed('apply_finished_offset_us', 'apply_began_offset_us'))} · operations ${event.operations ?? 'unknown'}`,

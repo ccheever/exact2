@@ -14,6 +14,15 @@ enum FrameHealthReport {
     static let maximumAgeNs: UInt64 = 120_000_000_000
     private static let maximumInteger: UInt64 = 9_007_199_254_740_991
     static let format = "exact.frame-health/2"
+    static let columns = ["sequence", "capture", "generation", "age_us", "flags", "target_offset_us", "period_us", "requested_period_us",
+        "gap_us", "callback_us", "before_gap_us", "before_callback_us", "after_offset_us", "after_gap_us", "after_callback_us",
+        "owner_queued_offset_us", "owner_began_offset_us", "owner_finished_offset_us", "main_landed_offset_us",
+        "apply_began_offset_us", "apply_finished_offset_us", "work_target_offset_us", "operations"]
+    /// The screen's frames have no frame times and none of Exact's owner or apply boundaries, so their rows leave out
+    /// those columns, which they would fill with zeros and nulls
+    static let screenColumns = ["sequence", "capture", "generation", "age_us", "flags", "target_offset_us", "callback_us",
+        "before_callback_us", "after_offset_us", "after_callback_us"]
+    private static let screenIndices = screenColumns.compactMap { columns.firstIndex(of: $0) }
     fileprivate static var encoding = false
     fileprivate static var nextAgentReport: Double = 0
 
@@ -42,7 +51,7 @@ enum FrameHealthReport {
             if event.flags & 64 != 0 { clamped = true }
             let work = event.work
             let hasWork = event.flags & 16 != 0, hasAfter = event.flags & 8 != 0
-            rows.append([
+            let row: [Any] = [
                 String(event.sequence), String(event.capture), String(event.generation), integer((timestamp - event.at_ns) / 1000), integer(event.flags),
                 stored(event.target_us), event.period_us, event.requested_period_us, event.gap_us, event.callback_us,
                 event.before_gap_us, event.before_callback_us,
@@ -55,7 +64,8 @@ enum FrameHealthReport {
                 hasWork ? stored(work.began_us) : NSNull(),
                 hasWork ? stored(work.finished_us) : NSNull(),
                 hasWork ? stored(work.target_us) : NSNull(),
-                hasWork ? work.operations as Any : NSNull()])
+                hasWork ? work.operations as Any : NSNull()]
+            rows.append(health.screenFrames ? screenIndices.map { row[$0] } : row)
         }
         let metadata = ExactEnv.appMetadata
         var identity: [String: Any] = ["app": limited(Bundle.main.bundleIdentifier ?? "embedded", 160),
@@ -101,10 +111,7 @@ enum FrameHealthReport {
             // The screen's frames have no frame times, which a passive observer cannot tell from idle time
             "unobserved": (health.screenFrames ? ["frame times"] : []) + ["presentation", "GPU execution", "CPU-versus-descheduled time",
                 "other main-thread work", "native-only animations", "uncaptured owner work", "app input latency"],
-            "columns": ["sequence", "capture", "generation", "age_us", "flags", "target_offset_us", "period_us", "requested_period_us", "gap_us", "callback_us",
-                "before_gap_us", "before_callback_us", "after_offset_us", "after_gap_us", "after_callback_us",
-                "owner_queued_offset_us", "owner_began_offset_us", "owner_finished_offset_us", "main_landed_offset_us",
-                "apply_began_offset_us", "apply_finished_offset_us", "work_target_offset_us", "operations"],
+            "columns": health.screenFrames ? screenColumns : columns,
             "hitches": rows]
         if let root = session?.frameHealth {
             let others = [root, root.nativeHealth].compactMap { $0 }.filter { $0 !== health }
