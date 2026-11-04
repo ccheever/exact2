@@ -824,6 +824,7 @@ package final class Presenter {
         let anewFrom = placedAnew.count
         let rowsOnly = onlyListRows(batch)
         if batch.controls { controls.facesChanged() }
+        let protoOps = ApplyPhases.cpu() // PROTO (UIKit-first measurement)
         for op in batch.ops {
             let kind = op.op
             switch kind {
@@ -1002,12 +1003,15 @@ package final class Presenter {
             default: menus.sheets.applied(op); owners.applied(op)
             }
         }
+        ApplyPhases.ops += ApplyPhases.cpu() - protoOps; let protoRegrid = ApplyPhases.cpu() // PROTO
         schemes.end(); regridMoved() // every override and move made: the traits before anything reads them
         flats.flush()
         // A view the flush promoted and mounted may have moved its children.
         while !gridMoved.isEmpty { regridMoved(); flats.flush() }
+        ApplyPhases.regrid += ApplyPhases.cpu() - protoRegrid; let protoReach = ApplyPhases.cpu() // PROTO
         fitDocument(); reachPageEdges(); reachSafeEdges() // PROTO (safe-area design r2)
         placeEdgesAfterBatch() // PROTO (rule 4)
+        ApplyPhases.reach += ApplyPhases.cpu() - protoReach // PROTO
         paintCanvas()
         let first = root.subviews.first as? NodeView
         let widget = first?.props["interactiveWidget"]
@@ -1055,7 +1059,9 @@ package final class Presenter {
         // Finish controls and frames before UIKit synchronously lays out the destination.
         afterBatch { [weak self] in
             guard let self else { return }
+            let protoNav = ApplyPhases.cpu() // PROTO
             navigation.batchApplied(batch, rowsOnly: rowsOnly)
+            ApplyPhases.navigation += ApplyPhases.cpu() - protoNav // PROTO
             keyboardToolbars.finishBackendChange()
             for id in scrollers.union(pendingScrolls).union(materialNodes) {
                 guard let node = views[id] else { continue }

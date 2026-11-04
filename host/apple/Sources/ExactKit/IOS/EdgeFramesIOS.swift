@@ -11,6 +11,17 @@
 import UIKit
 
 
+/// PROTO (UIKit-first measurement): the main thread's CPU time in the apply's phases, µs, since the session's last
+/// live log read and reset them: the operations, the regrid and flush, reach and placement, and navigation's sync
+enum ApplyPhases {
+    static var ops = 0.0, regrid = 0.0, reach = 0.0, navigation = 0.0
+    static func cpu() -> Double { Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1000 }
+    static func take() -> String {
+        defer { ops = 0; regrid = 0; reach = 0; navigation = 0 }
+        return String(format: "ops %.0f regrid %.0f reach %.0f navigation %.0f", ops, regrid, reach, navigation)
+    }
+}
+
 extension Presenter {
     /// A `far` op: its route's frames replaced (`property` "reset", `id` the route), or a
     /// box's frames along the edge's range (`property` "<route> x y w h[; t x y w h]…": its
@@ -69,7 +80,7 @@ extension Presenter {
     /// follow from the far pass that registration owes, measured 0.7 to 5.5 ms after this first move on an iPhone 18 Pro (five runs).
     private func noteUnforeseenMove(_ c: RouteController) {
         let id = c.node.id
-        guard !movingTops.contains(id), c.transitionCoordinator == nil, c.view.safeAreaInsets.top < c.restingTop - 0.5 else { return }
+        guard !ExactSession.protoLive, !movingTops.contains(id), c.transitionCoordinator == nil, c.view.safeAreaInsets.top < c.restingTop - 0.5 else { return }
         movedTops.insert(id)
         movingTops.insert(id)
         deliveredMovingTops.insert(id)

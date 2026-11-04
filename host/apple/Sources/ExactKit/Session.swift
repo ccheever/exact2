@@ -409,6 +409,10 @@ public final class ExactSession {
     // frame's tick, a timer, a reply, an intrinsic size, a report) waits on
     // main instead, and runs after the slice lands, in order.
     private(set) var fillInFlight = false
+    /// PROTO (UIKit-first measurement): the live mode, from the simulator default `ExactProtoLive`: the content root
+    /// follows UIKit's live safe area, laid out on every change, and the far pass is off
+    package static let protoLive = UserDefaults.standard.bool(forKey: "ExactProtoLive")
+    private var fillStarted = 0.0
     private typealias IdleWork = (views: Int?, work: () -> Void, cancelled: (() -> Void)?)
     private var afterFill: [IdleWork] = []
     private var viewsEpoch = 0
@@ -577,6 +581,7 @@ public final class ExactSession {
     /// Send a build-only slice to the owner; its batch comes back published.
     private func sendFill(_ view: UInt32, _ bytes: Data) {
         fillInFlight = true
+        fillStarted = CACurrentMediaTime() // PROTO (UIKit-first measurement)
         let captured = generation
         runtime.collectionFeedbackAsync(bytes, now: now()) { [weak self] batch in
             self?.publish(.fill(view), batch, captured)
@@ -631,7 +636,9 @@ public final class ExactSession {
             let began = CACurrentMediaTime()
             var submitted = 0.0
             switch next.kind {
-            case .fill: fillInFlight = false
+            case .fill:
+                fillInFlight = false
+                if Self.protoLive { NSLog("PROTO live fill %.0f µs", (CACurrentMediaTime() - fillStarted) * 1e6) }
             case .tick: tickInFlight = false
             case .advance: advanceInFlight = false
             case .canvas: canvasInFlight = false
@@ -737,7 +744,26 @@ public final class ExactSession {
         // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout as an intrinsic
         // size does, on AppKit too (LLP 1115.002 D8.1); the hatches replay once the module connects.
         // An owner's values change with each frame of a keyboard; where no row reads them the batch changes nothing (LLP 1123 D9).
-        presenter.onCovers = { [unowned self] covers, owners in whenIdle(bound: true) { [unowned self] in applyUnlessEmpty(runtime.covers(covers, owners: owners)) } }
+        presenter.onCovers = { [unowned self] covers, owners in
+            let asked = CACurrentMediaTime(), deferred = fillInFlight // PROTO (UIKit-first measurement)
+            whenIdle(bound: true) { [unowned self] in
+                // The main thread's CPU time, which preemption on a loaded machine does not inflate, and the wall time
+                let cpu = { Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1000 }
+                let start = CACurrentMediaTime(), startCPU = cpu()
+                let batch = runtime.covers(covers, owners: owners)
+                let ranCPU = cpu()
+                applyUnlessEmpty(batch)
+                if Self.protoLive {
+                    let frames = batch.ops.filter { $0.op == .frame }.count
+                    #if os(iOS)
+                    let phases = ApplyPhases.take()
+                    #else
+                    let phases = ""
+                    #endif
+                    NSLog("PROTO live covers cpu %.0f µs runtime %.0f apply %.0f wall %.0f ops %d frames %d waited %.0f µs%@ · %@", cpu() - startCPU, ranCPU - startCPU, cpu() - ranCPU, (CACurrentMediaTime() - start) * 1e6, batch.ops.count, frames, (start - asked) * 1e6, deferred ? " fill-in-flight" : "", phases)
+                }
+            }
+        }
         #if os(iOS) || os(tvOS)
         presenter.onMovingTops = { [unowned self] m in whenIdle(bound: true) { [unowned self] in applyUnlessEmpty(runtime.covers([], movingTops: m)) } } // PROTO (rule 4)
         natives.onHatchesConnected = { [weak self] in
