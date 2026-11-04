@@ -7,7 +7,7 @@ Split the Exact app in this folder into tabs, each with its own route stack. Use
 4. To hide the tab bar, use `display="none"`, never `if`.
 5. Keep the existing tests passing without changing what they check. A test that reads inside a tab other than the first must tap that tab first.
 6. Add a test in app.test.contract that opens a screen in one tab, switches tabs and back, and expects the screen to still be there.
-7. Run `bun exact.mjs test web`, then `bun exact.mjs verify` until it passes. Fix the app, not the test. If a finding stays after three rounds of fixes, or the app had it before you changed anything, record it (step 8) and report it; do not keep trying.
+7. Run `bun exact.mjs test web`, then `bun exact.mjs verify` until it passes. Fix the app, not the test. The tab bar takes height from each screen, so verify may find overlaps at the largest text size: fix them in the app. If a finding stays after three rounds of fixes, or the app had it before you changed anything, record it (step 8) and report it; do not keep trying.
 8. When a doc was wrong or missing, or a step needed a workaround, record it: `bun exact.mjs feedback note "<what happened>"`. Do not send the notes; tell me how many you recorded.
 9. Tell me the tabs and what each holds, what the tests and verify reported, and the command that opens the app: `bun exact.mjs web`. A web window 900 px or wider draws the tab bar as a sidebar.
 ```
