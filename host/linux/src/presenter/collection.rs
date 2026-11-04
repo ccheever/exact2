@@ -13,6 +13,8 @@ mod ack_tests;
 mod anchoring;
 pub(in crate::presenter) use ack::Origin;
 #[cfg(test)]
+mod tests;
+#[cfg(test)]
 mod virtual_ack_tests;
 
 const PASSES: usize = 2;
@@ -97,6 +99,10 @@ struct Cursor {
     end_max: Option<f32>,
     maximum: Option<(f32, f32)>,
     end_port: Option<ScrollPort>,
+    /// The last snapshot's `scrollIntoView` request, and whether the reader
+    /// has moved the port since it began.
+    request: u64,
+    reader_moved: bool,
 }
 
 #[derive(PartialEq)]
@@ -191,16 +197,26 @@ impl Cursor {
     /// from. The resize is not the reader moving, so a correction planned at
     /// it still lands (feed F14: posts put above the reader as a
     /// pull-to-refresh zone closes; a sent message's end-follow as the
-    /// composer shrinks back), as on Apple.
+    /// composer shrinks back), as on Apple. A `scrollIntoView`'s own move
+    /// lands whatever the reader did since (LLP 1070.000 §2.6), as on Apple
+    /// and the web: Android's reader then takes the port from there. Once
+    /// the reader has moved the port after it, the request's corrections
+    /// land only at their sequence, as any does (§2.5).
     fn correction(
         &mut self,
         snapshot: &CollectionSnapshot,
         resized_from: Option<u64>,
     ) -> Option<f64> {
+        if snapshot.request != self.request {
+            self.request = snapshot.request;
+            self.reader_moved = false;
+        }
         let correction = snapshot.correction?;
+        let authored = snapshot.seeking && correction.from.is_none() && !self.reader_moved;
         if self.sequence == u64::MAX
             || (correction.scroll_sequence != self.sequence
-                && Some(correction.scroll_sequence) != resized_from)
+                && Some(correction.scroll_sequence) != resized_from
+                && !authored)
             || self
                 .corrected
                 .is_some_and(|revision| revision >= snapshot.revision)
@@ -865,13 +881,11 @@ impl<D: DataSource> Presenter<D> {
         if moved {
             self.collection.scroll_events.retain(|(id, _)| *id != view);
         }
-        if let Some(cursor) = self
-            .collection
-            .cursors
-            .get_mut(&view)
-            .filter(|c| !c.anchored)
-        {
-            cursor.advance();
+        if let Some(cursor) = self.collection.cursors.get_mut(&view) {
+            cursor.reader_moved |= moved;
+            if !cursor.anchored {
+                cursor.advance();
+            }
         }
         // A reader's move carries the list's own position onto the new sequence (`ack.rs`),
         // before the feedback below reports the new offset.
@@ -1240,6 +1254,7 @@ impl<D: DataSource> Presenter<D> {
             if !unchanged {
                 cursor.sent = Some(feedback.clone());
             }
+            let reader_moved = cursor.reader_moved;
             if let Some(completion) = requested_scroll {
                 self.scroll_end_requested(view, before.unwrap_or_default(), completion);
             } else if tracks_end {
@@ -1248,11 +1263,17 @@ impl<D: DataSource> Presenter<D> {
             if unchanged {
                 continue;
             }
+            // A `scrollIntoView`'s moves are its own until the reader moves
+            // the port: no travel is reported meanwhile, the lead sampled
+            // before its jump included. The reader's move then makes it the
+            // reader's, and the report says so, which ends it (LLP 1070.000
+            // §2.5), as on Apple and the web.
             let velocity = (self.collection.velocity)
-                .filter(|(v, _)| *v == view)
+                .filter(|(v, _)| *v == view && (!snapshot.seeking || reader_moved))
                 .map_or(0.0, |(_, v)| v);
             let fill = CollectionFill {
                 velocity,
+                gesture: snapshot.seeking && reader_moved,
                 limit: self.collection.limit,
                 // `EXACT_LEAN=1`: a window this host leads keeps half a
                 // viewport behind it (crypto rests 4 MB lower after a fling;
@@ -1287,189 +1308,5 @@ impl<D: DataSource> Presenter<D> {
             self.dirty = true;
         }
         error
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use exact_runner::AnchorCorrection;
-
-    fn snapshot() -> CollectionSnapshot {
-        CollectionSnapshot {
-            view: 1,
-            axis: exact_runner::ListAxis::Vertical,
-            parent: None,
-            restored: false,
-            seeking: false,
-            revision: 4,
-            scroll_sequence: 2,
-            count: 0,
-            total_extent: 0.,
-            rows: vec![],
-            correction: Some(AnchorCorrection {
-                scroll_sequence: 2,
-                offset: 200.,
-                from: None,
-                smooth: false,
-            }),
-            pending: false,
-        }
-    }
-    #[test]
-    fn corrections_are_consumed_once_and_user_scroll_or_resize_wins() {
-        let s = snapshot();
-        let mut cursor = Cursor {
-            sequence: 2,
-            ..Cursor::default()
-        };
-        assert_eq!(cursor.correction(&s, None), Some(200.));
-        assert_eq!(cursor.correction(&s, None), None);
-        let mut cursor = Cursor {
-            sequence: 2,
-            ..Cursor::default()
-        };
-        cursor.advance();
-        assert_eq!(cursor.correction(&s, None), None);
-        let mut cursor = Cursor {
-            sequence: 2,
-            ..Cursor::default()
-        };
-        cursor.geometry((200., 300., 180., [10., 0.]));
-        cursor.geometry((190., 300., 170., [10., 0.]));
-        assert_eq!(cursor.correction(&s, None), None);
-        let mut cursor = Cursor {
-            sequence: 2,
-            ..Cursor::default()
-        };
-        cursor.geometry((200., 300., 180., [10., 0.]));
-        cursor.geometry((200., 300., 180., [20., 0.]));
-        assert_eq!(
-            cursor.correction(&s, None),
-            None,
-            "origin changes also invalidate old corrections"
-        );
-        // A resize in the pass that brings the correction (feed F14) is
-        // not the reader: the correction planned before it lands.
-        let mut cursor = Cursor {
-            sequence: 2,
-            ..Cursor::default()
-        };
-        cursor.geometry((200., 300., 180., [10., 0.]));
-        cursor.geometry((200., 348., 180., [10., 0.]));
-        assert_eq!(cursor.correction(&s, Some(2)), Some(200.));
-        let mut cursor = Cursor {
-            sequence: u64::MAX,
-            ..Cursor::default()
-        };
-        let mut overflow = s;
-        overflow.correction.as_mut().unwrap().scroll_sequence = u64::MAX;
-        assert_eq!(cursor.correction(&overflow, None), None);
-    }
-
-    #[test]
-    fn refinement_queue_deduplicates_and_forgets_unmounted_collections() {
-        let mut state = State::default();
-        for _ in 0..1000 {
-            state.schedule(&[snapshot()]);
-        }
-        assert_eq!(state.queue.len(), 1);
-        assert_eq!(state.cursors.len(), 1);
-        state.schedule(&[]);
-        assert!(!state.pending());
-        assert!(state.cursors.is_empty());
-    }
-
-    #[test]
-    fn empty_collection_padding_resolves_lengths_and_percentages() {
-        struct Empty;
-        impl DataSource for Empty {
-            fn query(
-                &mut self,
-                _: &str,
-                _: &[exact_runner::Value],
-            ) -> Result<exact_runner::Value, exact_runner::DataError> {
-                Ok(exact_runner::Value::list(vec![]))
-            }
-        }
-        for (padding, cross) in [
-            ("20px", 60.),
-            ("10%", 60.),
-            ("calc(10% + 3px)", 54.),
-            ("min(10%, 12px)", 76.),
-            ("clamp(10px, 10%, 30px)", 60.),
-        ] {
-            let source = format!("component App\n  resource rows = rows() as shape number[]\n  view\n    column width=200\n      list virtualized=true width=\"50%\" height=100 padding-left=\"{padding}\" padding-right=\"{padding}\" box-sizing=\"border-box\"\n        for x in rows key=x\n          text `${{x}}`\n");
-            let plan = contract::compile(&source).unwrap();
-            let (host, error) = Host::boot(
-                &plan.encode(),
-                Empty,
-                Box::new(exact_kernel::MonospaceMeasurer::default()),
-                400.,
-                500.,
-            )
-            .unwrap();
-            assert!(error.is_none());
-            let facts = geometry(host.kernel(), &host.collections()[0], 400.).unwrap();
-            assert_eq!(facts.width, 100., "{padding}");
-            assert_eq!(facts.cross, cross, "{padding}");
-            assert_eq!(facts.origin, 0., "{padding}");
-        }
-    }
-
-    /// A padding whose `calc()` resolves below zero is zero, CSS's range for
-    /// padding (LLP 1010 §6.9): the origin, the range and the reported
-    /// padding all take 0, on either axis, and the runner accepts the report.
-    #[test]
-    fn a_negative_resolved_padding_is_zero_on_either_axis() {
-        struct Rows;
-        impl DataSource for Rows {
-            fn query(
-                &mut self,
-                _: &str,
-                _: &[exact_runner::Value],
-            ) -> Result<exact_runner::Value, exact_runner::DataError> {
-                Ok(exact_runner::Value::list(
-                    (0..50)
-                        .map(|i| exact_runner::Value::Number(i as f64))
-                        .collect(),
-                ))
-            }
-        }
-        let below = "\"calc(env(safe-area-inset-bottom) - 12px)\"";
-        for list in [
-            format!("list virtualized=true width=200 height=100 overflow-x=\"hidden\" padding-top={below} padding-bottom={below}"),
-            format!("list virtualized=true display=\"flex\" width=200 height=100 overflow-x=\"scroll\" overflow-y=\"hidden\" padding-left={below} padding-right={below}"),
-        ] {
-            let source = format!("component App\n  resource rows = rows() as shape number[]\n  view\n    column width=200\n      {list}\n        for x in rows key=x\n          text `${{x}}` width=40 height=20\n");
-            let plan = contract::compile(&source).unwrap();
-            let (mut host, error) = Host::boot(
-                &plan.encode(),
-                Rows,
-                Box::new(exact_kernel::MonospaceMeasurer::default()),
-                400.,
-                500.,
-            )
-            .unwrap();
-            assert!(error.is_none());
-            let snapshot = host.collections()[0].clone();
-            let facts = geometry(host.kernel(), &snapshot, 400.).unwrap();
-            assert_eq!((facts.origin, facts.padding), (0., [0.; 2]), "{list}");
-            let feedback = CollectionFeedback {
-                view: snapshot.view,
-                revision: snapshot.revision,
-                scroll_sequence: 1,
-                offset: 0.,
-                port_main: facts.main(),
-                port_cross: facts.port_cross(),
-                cross: facts.cross,
-                padding: facts.padding,
-                measurements: vec![],
-                focus_view: None,
-                interaction_view: None,
-            };
-            host.collection_feedback_filled(feedback, CollectionFill::default())
-                .unwrap_or_else(|e| panic!("{list}: {e:?}"));
-        }
     }
 }

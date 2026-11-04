@@ -183,7 +183,14 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         armRest(after: Self.restDelay)
         // A correction's move is not the reader's travel (LLP 1070.000 §2.5).
         // Nor is a smooth correction's frame (`OffsetDriver`).
-        if let node, p.collections.owns(node.id), !p.collections.correcting, !p.collections.animating.contains(node.id) { sample(node, now: lastScroll) }
+        if let node, p.collections.owns(node.id), !p.collections.correcting, !p.collections.animating.contains(node.id) {
+            sample(node, now: lastScroll)
+            // The reader moving the port cancels a request admitted before it
+            // (LLP 1070.000 §2.5): a finger down when it landed drags on from
+            // there, and its sampled travel alone would be lost to each jump.
+            if p.collections.entries[node.id]?.snapshot.seeking == true, let scroll = node.scrollView,
+               scroll.isTracking || scroll.isDecelerating { p.collections.gestureBegan(node.id) }
+        }
         p.leaves.scrolled()
         p.menus.rehostPopovers()
         // What this frame shows has its text before it commits. A pass
@@ -333,8 +340,11 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         // One image decode at a time while a list travels fast.
         RasterWorkers.shared.travelling(self, p.listViews.keys.contains { abs(velocity($0)) > Self.fastTravel })
         // Frames stay asked for until the scroll has been still for two of
-        // them, so a moving scroll keeps one steady request.
-        if !textPending && p.collections.fillPending.isEmpty && now - lastScroll >= refreshInterval * 2 { stop() }
+        // them, so a moving scroll keeps one steady request. Text that waits
+        // only for a worker's slot asks for none: nothing moves, and a slot
+        // that frees asks for the next pass (`TextRasterizer.slotFreed`).
+        let textNeedsFrames = textPending && p.textRasters.hasRoom
+        if !textNeedsFrames && p.collections.fillPending.isEmpty && now - lastScroll >= refreshInterval * 2 { stop() }
     }
     /// Agent reads keep their settled contract, outside the scroll callback.
     func settle() {

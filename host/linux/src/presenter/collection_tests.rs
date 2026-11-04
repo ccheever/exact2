@@ -1274,3 +1274,101 @@ fn scroll_by_moves_a_scroller_within_its_travel() {
         assert_eq!(p.scroll_of(port).1, top, "{button}");
     }
 }
+
+/// Fifty rows 100 tall in a port 100 tall, each estimated `estimate` tall,
+/// and a `scrollIntoView` to row 30.
+fn keyed_request(estimate: u32) -> (Presenter<Rows>, ViewId) {
+    let mut p = boot_source(&format!(
+        r#"component App
+  state ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]
+  action go
+    scrollIntoView("feed", 30, block="start")
+  view
+    column
+      button "go" press=go testId="go"
+      list id="feed" virtualized=true testId="feed" width=200 height=100 estimated-item-height={estimate}
+        for i in ids key=i
+          box height=100
+"#
+    ));
+    settle(&mut p);
+    let feed = named(&p, "feed");
+    (p, feed)
+}
+fn into_view(p: &Presenter<Rows>) -> String {
+    p.host.runner().into_view_json()
+}
+
+/// LLP 1070.000 §2.5: a request's moves are its own until the reader moves
+/// the port, and its reports carry no travel. Android's reader keeps its
+/// lead for 100 ms after its last step; that lead, sampled before the
+/// request's jump, does not lead the window the request builds.
+#[test]
+fn a_lead_sampled_before_a_keyed_request_is_not_reported_while_it_runs() {
+    let (mut p, feed) = keyed_request(100);
+    p.collection.velocity = Some((feed, 4000.));
+    p.tap(named(&p, "go")).unwrap();
+    let rows = |p: &Presenter<Rows>| {
+        p.host
+            .collection(feed)
+            .unwrap()
+            .rows
+            .iter()
+            .map(|r| r.index)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(rows(&p), [29, 30, 31], "a viewport each side of the target");
+    p.run_commands(Rows::default);
+    settle(&mut p);
+    assert!(
+        into_view(&p).contains(r#""status":"done""#),
+        "{}",
+        into_view(&p)
+    );
+    assert_eq!(p.scroll_of(feed).1, 3000.);
+}
+
+/// LLP 1070.000 §2.5: once a request has moved the port, the reader's own
+/// scroll ends it where the reader is, and its corrections do not pull the
+/// port back. Android slices its passes while the port moves fast and holds
+/// them while a frame draws, so the reader's drag can come while a request
+/// still owes corrections.
+#[test]
+fn the_readers_drag_after_a_keyed_requests_jump_ends_it_where_the_reader_is() {
+    // Rows estimated at half their size: the jump lands short, and
+    // corrections are owed
+    let (mut p, feed) = keyed_request(50);
+    let b = p.box_of(feed).unwrap();
+    p.collection.hold = true;
+    let go = named(&p, "go");
+    assert_eq!(p.host.dispatch_at(go, Event::Press, p.host.now()), None);
+    assert_eq!(p.after_commit(), None);
+    p.collection.hold = false;
+    // A sliced pass: the request's jump and its first report
+    p.collection.limit = Some(1);
+    assert!(p.refine_collections().is_none());
+    p.collection.limit = None;
+    let at = p.scroll_of(feed).1;
+    assert!(at > 0., "the request moved the port");
+    // The reader's drag while a frame draws
+    p.collection.hold = true;
+    let words = p.reader_under(b.rect.0 + 10., b.rect.1 + 10., 1.);
+    assert_eq!(words[3], feed as i32);
+    assert_eq!(
+        p.reader_scrolled(feed, (0., 50.), words[5] as u32),
+        Some((0., 50.))
+    );
+    assert!(
+        into_view(&p).contains(r#""status":"pending""#),
+        "{}",
+        into_view(&p)
+    );
+    p.collection.hold = false;
+    settle(&mut p);
+    assert!(
+        into_view(&p).contains(r#""status":"cancelled""#),
+        "{}",
+        into_view(&p)
+    );
+    assert_eq!(p.scroll_of(feed).1, at + 50.);
+}

@@ -83,6 +83,7 @@ extension NodeView {
             let key = ObjectIdentifier(press)
             if !down { return NodeView.steppedPresses.remove(key) != nil }
             guard scroll?.remoteStep(heading) == true else { return false }
+            presenter?.collections.readerMoves(id)
             presenter?.supersedePress()
             NodeView.steppedPresses.insert(key)
             return true

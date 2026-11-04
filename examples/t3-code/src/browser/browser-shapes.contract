@@ -11,7 +11,6 @@ shape BrowserRecent
   title: string
   subtitle: string
   favicon: string
-  fallback: string
   removeLabel: string
 
 shape BrowserServer
@@ -20,7 +19,6 @@ shape BrowserServer
   description: string
   url: string
   favicon: string
-  fallback: string
 
 // browser-frames.ts BrowserFrameView: one tab's partitioned frame and where it shows ("panel", "mini" or "": mounted,
 // hidden); a fixed viewport's CSS size (0 in fill); whether a hidden one keeps drawing, at what size; the dialog it holds;

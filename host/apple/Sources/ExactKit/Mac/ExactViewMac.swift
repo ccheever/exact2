@@ -349,6 +349,8 @@ public final class ExactView: NSView {
                     source.pointerReleased(event)
                 }
                 guard self.session.presenter.hosts(event.window) else { return event }
+                // The reader's press in a list, before any handler here can make a request in answer.
+                self.session.presenter.collections.heard(event)
                 // A window may hold several sessions: the one under the pointer steps its history.
                 if event.type == .otherMouseUp, event.window === self.window,
                    self.bounds.contains(self.convert(event.locationInWindow, from: nil)) { self.session.presenter.historyButton(event) }

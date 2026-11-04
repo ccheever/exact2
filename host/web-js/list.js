@@ -259,15 +259,15 @@ class Collection {
     this.bootstrap = o.init ?? Math.max(1, Math.min(BOOTSTRAP_ROWS, Math.min(Math.ceil(BOOTSTRAP_ROWS * ESTIMATED / this.est), o.inRow && this.port ? Math.ceil(this.port / this.est) + 1 : Infinity)));
     Object.assign(this, { items: [], idents: [], dups: new Map(), mounted: [], spacers: [], children: [], revision: 0, nextEpoch: 0,
       zeros: new Set(), geometry: null, correction: null, endSent: NaN, followEnd: false, edgeArmed: [true, true], edgeFired: [null, null], pending: false, parent: null,
-      kept: new Map(), manual: !!o.manual, restored: false, restoredAt: null, startOffset: 0, inner: [], target: null, status: null, preview: null, atEnd: !!o.atEnd, endTravel: 0, keepKeys: [] });
+      kept: new Map(), manual: !!o.manual, restored: false, restoredAt: null, startOffset: 0, inner: [], target: null, scrolling: false, animating: false, portUnknown: false, request: 0, status: null, preview: null, atEnd: !!o.atEnd, endTravel: 0, keepKeys: [] });
     this.edges = [o.start, o.end]; this.reach = reachMargin(o.reach);
   }
   snapshot() {
     const g = this.geometry;
-    return { view: this.view, axis: this.axis, ...(this.parent != null ? { parent: this.parent } : {}), ...(this.restored ? { restored: true } : {}), ...(this.target ? { seeking: true } : {}),
+    return { view: this.view, axis: this.axis, ...(this.parent != null ? { parent: this.parent } : {}), ...(this.restored ? { restored: true } : {}), ...(this.target ? { [this.requestWaits() ? "waiting" : "seeking"]: true, request: this.request } : {}),
       revision: this.revision, scrollSequence: g ? g.scroll_sequence : 0, count: this.index.len, totalExtent: this.index.total,
       rows: this.mounted.map(m => ({ view: m.view, root: m.root, index: m.position, start: this.index.prefix(m.position), size: this.index.h[m.position], epoch: m.epoch, measured: this.index.measured(this.index.order[m.position]) })),
-      pending: this.pending || !!this.target, correction: this.correction }; // an into-view request wants its next report
+      pending: this.pending || this.portUnknown || (!!this.target && !this.requestWaits()), correction: this.correction }; // a request admitted, or a port whose position is unknown, asks for its next report (into_view.rs `asks_report`)
   }
   scrollAnchor() {
     const horizontal = this.axis === "x", i = this.index;
@@ -317,7 +317,9 @@ class Collection {
     // that slid past it re-arm nothing.
     const kept = last === undefined ? undefined : this.index.pos.get(last);
     if (kept !== undefined && (kept < this.index.len - 1 || this.index.len > count)) this.edgeArmed[1] = true;
-    this.restore(anchor);
+    // The request's row left the items: it ends now, where the reader is (into_view.rs `cancel_if_row_left`).
+    if (this.target && !this.index.pos.has(this.target.key)) this.end("cancelled");
+    if (this.portUnknown) this.correction = null; else this.restore(anchor);
     this.startAtEnd();
     try { this.realize(true, {}); } finally { this.instant = false; }
     const now = this.snapshot();
@@ -337,7 +339,8 @@ class Collection {
   }
   anchor() { const g = this.geometry; return g && this.index.anchor(this.anchorOffset(g.offset, g.port_main), g.port_main, this.follows()); }
   // ------------------------------------------------ scroll-start: end (start.rs)
-  follows() { return (this.followEnd || this.atEnd) && !this.preview; }
+  // Not while a request is under way: it overrides the kept position (start.rs `follows`).
+  follows() { return (this.followEnd || this.atEnd) && !this.preview && !this.target; }
   /** The offset an opening list's anchor is taken at: its end in a port of `port`, no overshoot past it (start.rs). */
   anchorOffset(offset, port) { return this.atEnd ? this.index.maxOffset(port) : offset; }
   /** Before any report: the last rows, and the host told to start at the end. */
@@ -346,8 +349,8 @@ class Collection {
     this.startOffset = this.index.extent;
     this.correction = { scrollSequence: 0, offset: this.startOffset };
   }
-  /** Travel in two reports running is the reader's, as for an into-view
-   * request; a report short of the end may be the host's clamp. */
+  /** Travel in two reports running is the reader's; a report short of the
+   * end may be the host's clamp. */
   leaveEndIfMoved(velocity) {
     if (!this.atEnd) return;
     this.endTravel = velocity ? this.endTravel + 1 : 0;
@@ -642,10 +645,15 @@ class Collection {
     if (r.size === 0) this.zeros.add(key); else this.zeros.delete(key);
   }
   feedback(f, byView, fill) {
+    const waited = this.requestWaits();
+    this.animating = !!fill.animating;
+    // A report gives where the port is, unless the host animates (into_view.rs `port_unknown`).
+    if (!fill.animating) this.portUnknown = false;
     // A new padding is no travel (inset.rs): the anchor is taken on the old range.
     const padding = f.padding, paddingChanged = padding[0] !== this.index.leading || padding[1] !== this.index.trailing;
     const within = paddingChanged ? undefined : this.travelWithin(f, byView, fill);
-    if (within !== undefined) return [false, within];
+    // No request, or one that waits on: the snapshot stays as it was.
+    if (within !== undefined) { this.scrolling = !!fill.scrolling; return [false, within]; }
     const changedWidth = !this.geometry || this.geometry.cross !== f.cross;
     // Arrange's preview (reorder.js, loaded with the motion piece) ends with
     // the row width and loses its pin with the contact (mod.rs `feedback`).
@@ -654,7 +662,10 @@ class Collection {
     if (!this.dims(f)) fill.limit = null;
     if (fill.ancestorMoving) fill.limit = 0;
     const previous = this.snapshot();
+    this.scrolling = !!fill.scrolling;
     this.followIntoView(fill);
+    // A request that waited lands in the report that ends its wait (into_view.rs, mod.rs `feedback`)
+    const landing = waited && !!this.target && !this.requestWaits();
     let measurements = f.measurements;
     if (this.axis === "x" && !changedWidth) {
       const first = [];
@@ -672,8 +683,12 @@ class Collection {
     else for (const r of measurements) this.measure(byView, r);
     if (this.preview) this.checkPreviewHeight();
     this.restore(anchor);
-    this.settleIntoView(f.offset);
+    const doneNested = this.settleIntoView(landing);
     this.realize(false, fill);
+    // Done where the port stands: its inner part begins in the outer row the port shows, as at rest (into_view.rs).
+    if (doneNested) doneNested();
+    // A nested request whose outer part was admitted: the inner list in its row begins the rest (into_view.rs `begin_inner`).
+    if (landing && this.target?.inner) { const inner = this.target.inner; this.target.inner = null; inner(); }
     this.settleStart(extent);
     const now = this.snapshot();
     now.scrollSequence = previous.scrollSequence;
@@ -701,7 +716,7 @@ class Collection {
       const m = this.mounted[byView.get(r.view)], key = this.index.order[m.position];
       return this.index.token(key) === m.token && !(noise(this.index, key, m.position, r.size) && (r.size === 0) === this.zeros.has(key));
     };
-    if (f.measurements.some(remeasures) || this.restoredAt || this.atEnd || this.target || this.pending || this.correction || !this.dims(f)) return undefined;
+    if (f.measurements.some(remeasures) || this.restoredAt || this.atEnd || (this.target && !(this.scrolling && fill.scrolling && !fill.gesture)) || this.pending || this.correction || !this.dims(f)) return undefined;
     const a = this.index.anchor(f.offset, g.port_main, this.followEnd);
     if (!atTarget(a, this.index.restoreAnchor(a, g.port_main), f.offset, this.endSent)) return undefined;
     const pins = this.pins();
@@ -754,54 +769,104 @@ class Collection {
     return above === below ? current : above === (size <= high - low) ? start - low : start + size - high;
   }
   /** Start a request: its window is built at the destination now, and the
-   * host told to move there before it paints (the correction). */
-  intoView(key, align, within) {
+   * host told to move there before it paints (the correction). While the
+   * host says the reader's scroll is under way and a jump would not end it,
+   * or where the port is is unknown, it waits instead (into_view.rs `begin_into_view`). */
+  intoView(key, align, within, smooth) {
     const p = this.index.pos.get(key), g = this.geometry;
-    const offset = this.aligned(p, align, g ? g.offset : this.startOffset, within);
     this.restoredAt = null; this.atEnd = false;
-    this.target = { key, align, offset: within, reports: 0, travelling: 0, aligned: 0 };
+    // A new request stops the host's animation where the port is (LLP 1070.000 §2.5).
+    this.portUnknown ||= this.hostAnimating();
+    this.request++;
+    this.target = { key, align, offset: within, smooth, reports: 0, aligned: 0, inner: null, moved: false };
     this.status = [key, "pending"];
-    if (g) { g.offset = offset; this.correction = { scrollSequence: g.scroll_sequence, offset }; }
+    // One the port already satisfies, where the last report and an anchor's correction since put it, is done and moves
+    // nothing, as CSSOM View skips a scroll to where the port already is, judged when it is made: a reader's fling goes
+    // on (LLP 1070.000 §2.6). Not while the host's animation leaves the port's position unknown.
+    if (g && !this.portUnknown && this.alreadySatisfied(p, align, within, g.offset)) {
+      this.end("done"); this.revision++; return;
+    }
+    if (this.requestWaits()) {
+      // An authored position still owed is the request's to replace when it lands; an anchor's relative one stays.
+      if (this.correction && this.correction.from == null) this.correction = null;
+      this.revision++; return;
+    }
+    const offset = this.aligned(p, align, g ? g.offset : this.startOffset, within);
+    if (g) { g.offset = offset; this.correction = { scrollSequence: g.scroll_sequence, offset, smooth }; }
     else { this.startOffset = Math.max(0, offset); this.correction = { scrollSequence: 0, offset }; }
+    this.target.moved = true;
     this.realize(false, {});
     this.revision++;
   }
-  end(status) { this.status = [this.target.key, status]; this.target = null; }
-  /** The reader's own travel, two reports running, cancels it. */
+  // One that ends while the host animates leaves the port where the host stops it, which only its next report says.
+  end(status) { this.portUnknown ||= this.hostAnimating(); this.status = [this.target.key, status]; this.target = null; }
+  /** Whether the request under way waits: for the reader's scroll, or for a report of where the port is
+   * (into_view.rs `request_waits`). */
+  requestWaits() { return !!this.target && (this.scrolling || this.portUnknown); }
+  hostAnimating() { return this.animating || !!this.correction?.smooth; }
+  /** A gesture begun since the request cancels it, and so does the reader's own scroll once it has moved the port
+   * (into_view.rs `follow_into_view`). */
   followIntoView(fill) {
-    const t = this.target;
-    if (!t) return;
-    t.travelling = (fill.velocity ?? 0) !== 0 ? t.travelling + 1 : 0;
-    if (t.travelling >= 2) this.end("cancelled");
+    if (this.target && (fill.gesture || (this.target.moved && fill.scrolling))) this.end("cancelled");
   }
   /** After a report's measurements: where the target now aligns, judged
    * where the host says the port is; done when it holds for two reports
    * with every row up to it measured, else corrected, six times at most. */
-  settleIntoView(reported) {
+  settleIntoView(landing) {
     const t = this.target, g = this.geometry;
     if (!t) return;
     const p = this.index.pos.get(t.key);
     if (p === undefined) return this.end("cancelled");
     if (!g) return;
-    const desired = this.aligned(p, t.align, reported, t.offset);
-    // The run of mounted rows that reaches it, and each mounted row before
-    // that run alone: the rows between a kept row and the window are never
-    // measured (into_view.rs `settle_target`).
-    let first = p, joined = true, others = true;
-    for (const q of this.mounted.map(m => m.position).filter(q => q < p).sort((a, b) => b - a)) {
-      if (joined && q + 1 === first) first = q;
-      else { joined = false; others &&= this.index.measured(this.index.order[q]); }
-    }
-    if (Math.abs(desired - reported) <= 0.5) {
-      t.aligned = others && this.index.rangeMeasured(first, p + 1) && !this.pending ? t.aligned + 1 : 0;
+    // Where the report and its anchor's correction leave the port: the index already has its measurements.
+    const at = g.offset;
+    // Where its wait ends it is judged again as one made at rest (into_view.rs `settle_target`); a nested request's
+    // inner part then begins in this report (feedback).
+    if (landing && this.alreadySatisfied(p, t.align, t.offset, at)) { this.end("done"); return t.inner; }
+    if (this.requestWaits()) return;
+    // The wait over, it is admitted, a move whether or not a correction follows (into_view.rs `settle_target`)
+    if (landing) t.moved = true;
+    const desired = this.aligned(p, t.align, at, t.offset);
+    if (Math.abs(desired - at) <= 0.5) {
+      // Not while the host animates there: it reports where the animation is headed (LLP 1070.000 §11).
+      t.aligned = this.alignmentMeasured(p) && !this.animating ? t.aligned + 1 : 0;
       if (t.aligned >= 2) this.end("done");
       return;
     }
     t.aligned = 0;
     if (t.reports >= 6) return this.end("unconverged");
     g.offset = desired;
-    this.correction = { scrollSequence: g.scroll_sequence, offset: desired };
-    t.reports++;
+    this.correction = { scrollSequence: g.scroll_sequence, offset: desired, smooth: t.smooth };
+    if (!landing) t.reports++; // landing after a wait is the request's first move, uncounted, as intoView's is
+  }
+  /** Whether row `p` aligns where the index puts it: the run of mounted rows that reaches it, and each mounted row
+   * before that run alone, measured (the rows between a kept row and the window are never measured), and the window
+   * whole (into_view.rs `alignment_measured`). */
+  alignmentMeasured(p) {
+    let first = p, joined = true, others = true;
+    for (const q of this.mounted.map(m => m.position).filter(q => q < p).sort((a, b) => b - a)) {
+      if (joined && q + 1 === first) first = q;
+      else { joined = false; others &&= this.index.measured(this.index.order[q]); }
+    }
+    return others && this.index.rangeMeasured(first, p + 1) && !this.pending;
+  }
+  /** Whether the port already satisfies a request for row `p` wherever it may stand: at `at`, and on a row list also
+   * without an anchor's shift, which the web does not make while the reader moves the list; not while a move of the
+   * list's own is owed (into_view.rs `already_satisfied`). */
+  alreadySatisfied(p, align, within, at) {
+    const c = this.correction;
+    if (c && c.from == null) return false;
+    const unshifted = c && this.axis === "x" ? at - (c.offset - c.from) : at;
+    const holds = q => this.satisfiesMeasured(p, q) && Math.abs(this.aligned(p, align, q, within) - q) <= 0.5;
+    return holds(at) && (unshifted === at || holds(unshifted));
+  }
+  /** Whether row `p` lays out where the index puts it, the port at `at`, for a request it may already satisfy: it
+   * mounted and measured, and no row between the port's start and it mounted unmeasured; a row above the port moves
+   * the port with it when measured, and an unmounted one is laid out as the index has it
+   * (into_view.rs `satisfies_measured`). */
+  satisfiesMeasured(p, at) {
+    const start = Math.min(p, this.index.rowAt(Math.max(0, at)) ?? p), measured = q => this.index.measured(this.index.order[q]);
+    return measured(p) && this.mounted.some(m => m.position === p) && !this.mounted.some(m => m.position >= start && m.position < p && !measured(m.position));
   }
   disarm(i) { this.edgeArmed[i] = false; this.edgeFired[i] = this.index.order[i ? this.index.len - 1 : 0] ?? null; }
   edge(velocity) {
@@ -877,27 +942,38 @@ const Refused = [];
 /** The command (`scrollIntoView("id", key, block=, inline=, behavior=,
  * row=)`) and the agent's `tap <list> into <key>` (`view`), as the runner's
  * `scroll_into_view` (runner/src/runner/into_view.rs). */
-function intoView(list, key, block, inline, row, view, offset) {
-  const refuse = why => { journal.push(`scrollIntoView ${list} refused: ${why}`); Refused.push({ list, status: "refused: " + why.replaceAll('"', "'") }); if (Refused.length > 8) Refused.shift(); };
+function intoView(list, key, block, inline, row, view, offset, smooth) {
+  // A refusal, journaled as the runner's is: the status `state` shows for it
+  const refusal = why => { journal.push(`scrollIntoView ${list} refused: ${why}`); return "refused: " + why.replaceAll('"', "'"); };
+  const refuse = (why, status = refusal(why)) => { Refused.push({ list, status }); if (Refused.length > 8) Refused.shift(); };
   if (offset != null && (typeof offset !== "number" || !Number.isFinite(offset))) return refuse("offset must be a finite number of CSS pixels");
   for (const a of [block, inline]) if (!ALIGN.includes(a)) return refuse(`no alignment ${a}`);
-  const begin = (c, k, within = offset) => { const [text, why] = c.resolve(k); if (!text) return refuse(why); c.intoView(text, c.axis === "y" ? block : inline, within); return true; };
+  const begin = (c, k, within = offset, fail = refuse) => { const [text, why] = c.resolve(k); if (!text) return fail(why); c.intoView(text, c.axis === "y" ? block : inline, within, smooth); return true; };
   if (view != null) { const c = Lists.get(view); if (!c) return refuse(`view ${view} is not a mounted virtualized list`); begin(c, key); }
   else if (row == null) { const c = [...Lists.values()].find(c => !c.up && c.el.id === list); if (!c) return refuse(`no virtualized list has id ${list}`); begin(c, key); }
   else {
     const outer = [...Lists.values()].find(c => !c.up && c.resolve(row)[0]);
     if (!outer) { let t = ""; try { t = keyText(row); } catch {} return refuse(`no virtualized list holds a row keyed ${t}`); }
     if (!begin(outer, row, null)) return;
-    const m = outer.mounted.find(m => m.key === outer.resolve(row)[0]);
-    if (!m) return refuse("the outer row did not mount");
-    const c = m.inner.find(c => c.el.id === list);
-    if (!c) return refuse(`the row holds no list with id ${list}`);
-    begin(c, key);
+    // The inner part, in the outer row: now, or when the outer row lands if the outer list waits for the reader's
+    // scroll (LLP 1070.000 §2.6).
+    const rest = (fail = refuse) => {
+      const m = outer.mounted.find(m => m.key === outer.resolve(row)[0]);
+      if (!m) return fail("the outer row did not mount");
+      const c = m.inner.find(c => c.el.id === list);
+      if (!c) return fail(`the row holds no list with id ${list}`);
+      return begin(c, key, offset, fail);
+    };
+    // What the command refuses for the inner part ends the request, at rest as when the outer list admits it after a
+    // wait; the outer row stays in view.
+    const fail = why => { const refused = refusal(why); refuse(why, refused); if (outer.target) outer.end(refused); };
+    if (outer.requestWaits()) outer.target.inner = () => rest(fail);
+    else if (!rest(fail)) return;
   }
   settled();
 }
 const element = Hosts.scrollIntoView; // an element's, by id: four arguments, the row form's seven (rt.js)
-Hosts.scrollIntoView = (...a) => a.length !== 7 ? element(...a) : intoView(a[0], a[1], a[2] ?? "start", a[3] ?? "nearest", a[5], null, a[6]);
+Hosts.scrollIntoView = (...a) => a.length !== 7 ? element(...a) : intoView(a[0], a[1], a[2] ?? "start", a[3] ?? "nearest", a[5], null, a[6], a[4] === "smooth");
 /** `state.scrollIntoView`: each list's latest request, then refusals. */
 const intoViewState = () => [...[...Lists.values()].filter(c => c.status).map(c => ({ list: c.view, key: c.status[0], status: c.status[1] })), ...Refused];
 function publish() {
@@ -957,7 +1033,8 @@ function load() {
 // A report from the browser half (runner/collection.rs `collection_feedback_filled`).
 function report(bytes, f, fill) {
   f = { ...f, revision: Number(f.revision), scroll_sequence: Number(f.scroll_sequence), focus_view: f.focus_view ?? null, interaction_view: f.interaction_view ?? null };
-  fill = { velocity: fill?.velocity ?? 0, limit: Number.isInteger(fill?.limit) ? fill.limit : null, ancestorMoving: !!fill?.ancestorMoving };
+  fill = { velocity: fill?.velocity ?? 0, limit: Number.isInteger(fill?.limit) ? fill.limit : null, ancestorMoving: !!fill?.ancestorMoving,
+    scrolling: !!fill?.scrolling, gesture: !!fill?.gesture, animating: !!fill?.animating };
   const c = Lists.get(f.view);
   const byView = c?.prepare(f);
   if (!byView) return true;

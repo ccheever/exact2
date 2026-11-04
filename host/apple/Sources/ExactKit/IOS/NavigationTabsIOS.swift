@@ -338,10 +338,11 @@ extension NavigationHost {
               let panel = tabPanels.first(where: { tabStack($0) === controller }),
               let index = tabs.panels.firstIndex(where: { $0.id == panel }) else { return }
         let screen = reselectedRoot(index), id = tabs.tabs[index].id
+        let requests = screen == nil ? nil : presenter.collections.lastRequests()
         _ = act(id, 0)
         // After the tab's own press, which is queued: a batch applied under
         // a running scroll would cut it short.
-        if let screen { presenter.elements.later(id, "scroll to top") { [weak self, weak screen] in if let screen { self?.scrollToTop(screen) } } }
+        if let screen { presenter.elements.later(id, "scroll to top") { [weak self, weak screen] in if let screen { self?.scrollToTop(screen, since: requests) } } }
     }
 
     /// The screen a tap on the bar's item for tab `index` scrolls to its
@@ -360,10 +361,21 @@ extension NavigationHost {
     /// its top, as the status bar's tap takes it: UIKit's animation, to where
     /// a large title is open, which UIKit opens as the offset arrives.
     /// UIKit's tab bar does not do this itself: a selected tab tapped again
-    /// scrolls nothing in UIKit alone (iOS 27, a real touch).
-    func scrollToTop(_ c: RouteController) {
+    /// scrolls nothing in UIKit alone (iOS 27, a real touch). It is the
+    /// reader's move of a list there (`CollectionHost.readerMoves`), and it
+    /// gives way to a `scrollIntoView` the tab's press asked for there,
+    /// landed, under way or already shown: the author's answer to the tap
+    /// wins over the platform's (LLP 1070.000 §2.6). `requests`: every
+    /// list's latest request before the press (`CollectionHost.lastRequests`),
+    /// read for them all because the press may make the screen's list, or
+    /// make another list the screen's.
+    func scrollToTop(_ c: RouteController, since requests: [UInt32: UInt64]? = nil) {
         guard let sv = contentScrollView(of: c) else { return }
         let node = contentScroller(of: c)
+        if let node, presenter.collections.owns(node.id) {
+            if let requests, presenter.collections.lastRequest(node.id) != requests[node.id] ?? 0 { return }
+            presenter.collections.readerMoves(node.id)
+        }
         // At its top under a collapsed title it goes on to the open title's
         // inset, as UIKit's status-bar tap does, and opens it.
         let inset = max(sv.adjustedContentInset.top, node != nil && node === c.collapseScroll ? node?.scrollOrigin ?? 0 : 0)

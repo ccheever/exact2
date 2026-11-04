@@ -941,6 +941,59 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertEqual(nav.viewControllers.count, 1)
     }
 
+    /// LLP 1070.000 §2.6: the selected tab tapped again scrolls its screen's
+    /// list to the top unless the tab's press asked for a row there, landed
+    /// or already shown, whether or not that list was the screen's before
+    /// the press. By the bar's tap (`selectTab`) and by the agent's
+    /// (`activateChrome`), over the real runner.
+    func testTheSelectedTabsScrollToTheTopGivesWayToARequestItsPressMade() throws {
+        try reselectGivesWay("tabs-request-bar") { session, tabs in self.tapTab(tabs, 0) }
+    }
+
+    func testTheAgentsTapOnTheSelectedTabGivesWayToARequestItsPressMade() throws {
+        try reselectGivesWay("tabs-request-agent") { session, _ in
+            XCTAssertNotNil(session.presenter.navigation.activateChrome(try self.node(session, "tab-home")))
+        }
+    }
+
+    private func reselectGivesWay(_ label: String, tap: (ExactSession, UITabBarController) throws -> Void) throws {
+        let session = try fixture(label, plan: "EXACT_TAB_TOP_REQUEST_PLAN")
+        let p = session.presenter, tabs = try XCTUnwrap(p.navigation.tabController)
+        // Unanimated, as under the agent's clock: whether the scroll runs is decided before it starts
+        p.navigation.scrollsToTopAnimated = false
+        let feed = { p.views.values.first { $0.props["testId"] == "feed" && $0.window != nil } }
+        let offset = { feed().flatMap { p.collections.geometry($0.id)?.offset } ?? .nan }
+        func scroll(to y: Double) throws {
+            let sv = try XCTUnwrap(feed()?.scroll)
+            sv.setContentOffset(CGPoint(x: 0, y: CGFloat(y) - sv.adjustedContentInset.top), animated: false)
+            until("the feed at \(y)") { abs(offset() - y) < 0.5 }
+        }
+        func press(_ testId: String) throws {
+            p.press(try node(session, testId).id)
+            spin(0.3)
+        }
+        func reselect(_ what: String, _ y: Double) throws {
+            try tap(session, tabs)
+            until(what) { abs(offset() - y) < 0.5 }
+            spin(0.5)
+            XCTAssertEqual(offset(), y, accuracy: 0.5, what)
+        }
+        until("the feed shows") { feed() != nil }
+        try scroll(to: 300)
+        try reselect("the request lands", 3000)
+        try reselect("done at once, it still wins", 3000)
+        try press("aim-nothing")
+        try reselect("a press that asks for nothing: to the top", 0)
+        try press("unload")
+        try press("aim-row")
+        XCTAssertNil(feed(), "no feed before the press")
+        try reselect("a list the press made", 3000)
+        try press("aim-nothing")
+        try press("name-aside")
+        try scroll(to: 600)
+        try reselect("a list the press made the screen's, which asked for nothing there", 0)
+    }
+
     func testUnmountingAndRemountingTheViewKeepsEveryTabsStack() throws {
         let session = try fixture("tabs-remount")
         try tapNode(session, "detail")

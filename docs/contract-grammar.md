@@ -2209,6 +2209,10 @@ direction)` are the field's own method, by its `id`, after the commit's tree
 is in place (so a `value` written beside it is there first). It does not
 focus the field; the field keeps the selection, and the next key typed there
 replaces it. The offsets are clamped as the DOM's are (`-1` is past the end).
+On the web and macOS, a selection this or `selectText` sets in the `focus`
+handler of a press that focuses the field stays once the press ends, as in
+Chrome (an address bar selects its URL as a click focuses it); a press that
+drags or double-clicks keeps what it selected.
 
 On **web (JS and wasm), macOS, iOS and Linux**, `setRangeText(id, text)` replaces the
 current selection; `setRangeText(id, text, start, end[, selectionMode])`
