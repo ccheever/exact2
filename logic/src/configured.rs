@@ -142,6 +142,13 @@ macro_rules! configured {
             ) -> Vec<Option<u64>> {
                 $crate::exact_runner::DataSource::keep_sent(&mut self.0, store, let_go, refused)
             }
+            fn timer_before_reply(
+                &mut self,
+                store: &$crate::exact_runner::Store,
+                in_flight: $crate::exact_runner::InFlight<'_>,
+            ) -> Option<(u64, $crate::exact_runner::Request)> {
+                $crate::exact_runner::DataSource::timer_before_reply(&mut self.0, store, in_flight)
+            }
             fn module_landed(
                 &mut self,
                 store: &mut $crate::exact_runner::Store,

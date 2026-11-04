@@ -87,12 +87,29 @@ async function answer(source: string, args: any[]): Promise<unknown> {
     // Whichever comes first: another answer's fetch, or its own long timer.
     case "racer":
       return Promise.race([shared!, sleep(10000).then(() => "slept")]);
-    // Natively one wait at a time: the fetch, then the timer.
+    // Whichever comes first: its own fetch, or its own timer. The loser runs on.
     case "raceFetch":
       return Promise.race([
-        fetch("https://fixture.exact.test/slow").then(() => "fetched"),
+        fetch("https://fixture.exact.test/slow").then(() => { log.push("fetch landed"); return "fetched"; }),
         sleep(100).then(() => "slept"),
       ]);
+    // A timer that aborts the fetch its answer awaits.
+    case "abortAt": {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 100);
+      try {
+        await fetch("https://fixture.exact.test/slow", { signal: controller.signal });
+        return "fetched";
+      } catch (e) {
+        return e.name;
+      }
+    }
+    // A timer that settles nothing: its answer goes on waiting for the fetch.
+    case "tickThenFetch": {
+      setTimeout(() => log.push("ticked"), 50);
+      await fetch("https://fixture.exact.test/slow");
+      return "fetched after " + log.join(",");
+    }
     case "chain": {
       await sleep(100);
       await sleep(200);

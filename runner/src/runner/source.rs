@@ -477,6 +477,23 @@ pub trait DataSource {
         vec![None; let_go.len()]
     }
 
+    /// The timer of its own that the answer awaiting request `in_flight`
+    /// armed (the request's [`crate::Request::wake_ms`]) came due before the
+    /// request's reply (LLP 1027.000 D1, *Fetches*). A source that can resume
+    /// the answer now keeps the request running as module work, its reply
+    /// delivered under the token it returns ([`DataSource::module_landed`]),
+    /// and returns the answer's continuation, in which the timer runs. `None`
+    /// leaves the answer waiting for the reply. A source that forwards
+    /// `keep_sent` forwards this.
+    fn timer_before_reply(
+        &mut self,
+        store: &Store,
+        in_flight: InFlight<'_>,
+    ) -> Option<(u64, crate::request::Request)> {
+        let _ = (store, in_flight);
+        None
+    }
+
     /// The kept request `token` came back: deliver it to the let-go answer's
     /// continuation in a module turn, with the store and no checkpoint open,
     /// so what the turn writes stands on its own.
