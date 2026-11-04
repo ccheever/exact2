@@ -624,6 +624,14 @@ fn a_document_path_reads_and_writes_the_chosen_file_under_its_grant() {
     assert_eq!(names.unwrap(), serde_json::json!(["a.md"]));
     let stat = run("fs.read doc:/", "fs.stat", serde_json::json!({"path": doc})).unwrap();
     assert_eq!(stat["size"], 3);
+    // On a desktop, the chosen file's native path (2026-11-04).
+    let real = run("fs.read doc:/", "fs.realpath", json!({"path": doc})).unwrap();
+    let real = std::path::PathBuf::from(real.as_str().unwrap());
+    assert!(
+        real.is_absolute() && real.ends_with("notes/a.md"),
+        "{real:?}"
+    );
+    assert_eq!(std::fs::read(&real).unwrap(), b"# A");
     let refused = run(
         "fs.read app:/data",
         "fs.readFile",
