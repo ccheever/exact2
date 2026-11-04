@@ -107,6 +107,8 @@ component Article
   view
     row justify-content="center" padding="clamp(24px, 5vw, 64px) clamp(20px, 3vw, 32px) 48px"
       main flex=1 min-width=0 max-width="48rem" testId="page"
+        // Not shown, but in the page's text: an agent that reads the HTML learns where the Markdown is.
+        text "This documentation is available as Markdown for AI agents and LLMs. See the full Markdown index at /llms.txt, or add .md to any page's URL." position="absolute" width="0.0625rem" height="0.0625rem" overflow="hidden" white-space="nowrap" testId="agent-note"
         if missing
           NotFound(url=url, moved=moved, suggestions=suggestions)
         else
