@@ -37,6 +37,8 @@ final class FrameClock: NSObject {
     private(set) var linksMade = 0
 
     var running: Bool { link.map { !$0.isPaused } ?? false }
+    /// Bit `Order.rawValue` of each user asking for frames now
+    var asking: UInt64 { users.values.reduce(0) { $1.owner == nil ? $0 : $0 | 1 << UInt64($1.order.rawValue) } }
     func wants(_ owner: AnyObject) -> Bool { users[ObjectIdentifier(owner)]?.owner != nil }
 
     /// Main thread only. `owner` takes frames at `rate` until `drop` or its

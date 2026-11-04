@@ -989,7 +989,6 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         return style["pointer_events"]?.string == "none" || cssVisibilityHidden ? nil : self
     }
 
-
     /// The box on screen, through the placement of the placed child this
     /// node is (or is under), for assistive technology — the same box the
     /// agent's `layout` reports.
@@ -1389,6 +1388,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
 
     /// Its parts move with its frame: in an animation UIKit has open only if the last frame showed it (`Presenter.moveOrPlace`).
     package override func layoutSubviews() {
+        HostPhases.shared.count(.nodeLayouts)
         if let presenter { presenter.moveOrPlace(self, layOutParts) } else { layOutParts() }
     }
     private func layOutParts() {

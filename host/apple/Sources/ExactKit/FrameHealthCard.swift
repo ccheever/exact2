@@ -4,15 +4,17 @@ import CExact
 
 /// The card's reader (LLP 1079.000 §5.3, §7.2). It samples on the collector's own publications,
 /// at most twice a second, keeps at most 60 samples over 30 seconds and takes the per-read maxima,
-/// which no other reader does. It reads nothing while the card is hidden or paused.
+/// which no other reader does. It reads nothing while the card is hidden.
 final class FrameHealthCardReader {
     /// Whether this card holds one of `FrameHealthReaders`' places, and reads
     private(set) var reading = false
 
-    /// Take a place, starting from no samples; false when four other readers hold them.
-    func start() -> Bool {
+    /// Take a place, starting from no samples; false when four other readers hold them. A card's second reader takes
+    /// none, as its first holds the card's.
+    func start(claim: Bool = true) -> Bool {
         guard !reading else { return true }
-        guard FrameHealthReaders.claim() else { return false }
+        guard !claim || FrameHealthReaders.claim() else { return false }
+        claimed = claim
         reading = true
         reset()
         samples.reserveCapacity(60)
@@ -22,7 +24,7 @@ final class FrameHealthCardReader {
     /// Give the place back and free the samples' storage, which the limit counts.
     func stop() {
         guard reading else { return }
-        FrameHealthReaders.release()
+        if claimed { FrameHealthReaders.release() }
         reading = false
         samples = []
         previous = nil
@@ -30,7 +32,16 @@ final class FrameHealthCardReader {
         stale = false
     }
 
-    deinit { if reading { FrameHealthReaders.release() } }
+    deinit { if reading, claimed { FrameHealthReaders.release() } }
+
+    private var claimed = false
+
+    /// A copy of what it has read, which reads nothing more and holds no place: what a paused card shows.
+    func copy() -> FrameHealthCardReader {
+        let copy = FrameHealthCardReader()
+        (copy.samples, copy.overdue, copy.stale) = (samples, overdue, stale)
+        return copy
+    }
 
     /// What changed between two reads, `from` and `read`, with the exact maxima taken at the second.
     /// A half second holds a few hundred frames at most, so its bins keep 16 bits.
@@ -41,6 +52,8 @@ final class FrameHealthCardReader {
         var counts = Counts()
         /// Milliseconds: the longest frame interval, and the slowest work with its own budget
         var longest = 0.0, slowest = 0.0, budget = 0.0
+        /// Milliseconds: the main thread's longest spell of work, where the card measures the screen
+        var mainLongest = 0.0
         /// Frame intervals (64), work (64), refreshes (32) and lateness (32), in that order
         var bins = [UInt16](repeating: 0, count: 192)
         /// False when a bin's count did not fit 16 bits
@@ -56,11 +69,14 @@ final class FrameHealthCardReader {
         var frames: UInt32 = 0, callbacks: UInt32 = 0, held: UInt32 = 0, changes: UInt32 = 0, epochs: UInt32 = 0
         var unclassified: UInt32 = 0, outOfOrder: UInt32 = 0, skipped: UInt32 = 0
         var requested: UInt32 = 0, missed: UInt32 = 0, restricted: UInt32 = 0, worked: UInt32 = 0, late: UInt32 = 0
+        /// The main thread's spells of work longer than one refresh at the display's highest rate
+        var long: UInt32 = 0
         var fps: Double? { activeNs == 0 ? nil : Double(frames) * 1e9 / Double(activeNs) }
         mutating func add(_ c: Counts) {
             activeNs += c.activeNs; frames += c.frames; callbacks += c.callbacks; held += c.held; changes += c.changes
             epochs += c.epochs; unclassified += c.unclassified; outOfOrder += c.outOfOrder; skipped += c.skipped
             requested += c.requested; missed += c.missed; restricted += c.restricted; worked += c.worked; late += c.late
+            long += c.long
         }
     }
 
@@ -70,7 +86,7 @@ final class FrameHealthCardReader {
         var running = false
         var periodNs: UInt64 = 0
         var counts = Counts()
-        var longest = 0.0, slowest = 0.0, budget = 0.0
+        var longest = 0.0, slowest = 0.0, budget = 0.0, mainLongest = 0.0
         var intervals = [UInt32](repeating: 0, count: 64), work = [UInt32](repeating: 0, count: 64)
         var refreshes = [UInt32](repeating: 0, count: 32), lateBy = [UInt32](repeating: 0, count: 32)
         var valid = true
@@ -88,16 +104,18 @@ final class FrameHealthCardReader {
     /// Forget every sample: on Hide, a new generation or a reset.
     func reset() { samples.removeAll(keepingCapacity: true); previous = nil; overdue = 0; stale = false }
 
-    /// Read the collector once at least half a second has passed. The first read after a reset is
+    /// Read the collector once at least half a second has passed, and with it what `main` takes: the main thread's
+    /// longest spell of work and its long spells since the last read, in seconds. The first read after a reset is
     /// only a baseline, and its maxima cover time the card did not watch. A new generation discards
     /// the samples at once, without waiting for the half second.
     @discardableResult
-    func sample(_ health: FrameHealth, now: Double = CACurrentMediaTime(), force: Bool = false) -> Bool {
+    func sample(_ health: FrameHealth, now: Double = CACurrentMediaTime(), force: Bool = false,
+                main: (() -> (longest: Double, long: UInt32))? = nil) -> Bool {
         guard health.enabled else { return false }
         if let previous, previous.snapshot.generation != health.snapshot().generation { reset() }
         if let last = samples.last, !force, now - last.read < 0.5 { return false }
         let current = FrameHealthMetrics.read(health, now: now)
-        let maxima = exact_frame_health_take_maxima(health.handle)
+        let maxima = exact_frame_health_take_maxima(health.handle), work = main?()
         defer { previous = current }
         guard let previous, previous.snapshot.generation == current.snapshot.generation else {
             samples.removeAll(keepingCapacity: true)
@@ -116,6 +134,7 @@ final class FrameHealthCardReader {
         s.longest = Double(maxima.longest_ns) / 1e6
         s.slowest = Double(maxima.slowest_ns) / 1e6
         s.budget = Double(maxima.budget_ns) / 1e6
+        if let work { (s.mainLongest, s.counts.long) = (work.longest * 1000, work.long) }
         // A saturated bin stops counting while its population goes on, so its deltas are not a distribution
         s.valid = b.histogram_overflows == a.histogram_overflows
         var index = 0
@@ -146,6 +165,7 @@ final class FrameHealthCardReader {
             total.from = min(total.from, s.from)
             total.counts.add(s.counts)
             total.longest = max(total.longest, s.longest)
+            total.mainLongest = max(total.mainLongest, s.mainLongest)
             if s.slowest > total.slowest { total.slowest = s.slowest; total.budget = s.budget }
             total.valid = total.valid && s.valid
             for i in 0..<64 { total.intervals[i] += UInt32(s.bins[i]); total.work[i] += UInt32(s.bins[64 + i]) }
@@ -160,38 +180,70 @@ final class FrameHealthCardReader {
 enum FrameHealthCardText {
     struct Display { var name: String, detail: String, maximumHz: Double, adaptiveSync: Bool }
 
+    /// What the face measures (LLP 1079.000 §7.2, §7.4).
+    enum Source: Equatable {
+        /// Exact's frame callbacks, under the rate Exact requested and the schedule the system gave them
+        case exact
+        /// Every UI update of the app on its screen, under UIKit's completion deadlines, and the main thread's spells of
+        /// work, with one refresh at the display's highest rate and the state of Exact's own frame clock. Its frames
+        /// bound no frame time, so its rate is frames over the time a window covers, and the main thread stands in for
+        /// pacing.
+        case screen(refreshMs: Double, exact: Clock)
+
+        var screen: Bool { if case .screen = self { true } else { false } }
+        var refreshMs: Double { if case .screen(let refresh, _) = self { refresh } else { 0 } }
+    }
+
+    /// Exact's own frame clock, beside the screen's frames: whether it runs, and what it asked for.
+    struct Clock: Equatable {
+        var running: Bool
+        var rates: Rates
+    }
+
     /// What the app asked for and what the platform scheduled, from the newest sample.
-    struct Rates {
+    struct Rates: Equatable {
         var requestedHz: Double
         var periodMs: Double
-        /// UIKit scrolls under observation, and its updates feed the charts while Exact's own frames do not
-        var nativeScrolling = false
         var scheduleHz: Double { periodMs > 0 ? 1000 / periodMs : 0 }
         var limited: Bool { requestedHz > 0 && scheduleHz > 0 && scheduleHz.rounded() < requestedHz.rounded() }
     }
 
     static let workLayout = FrameHealthMetrics.Layout.frames, lateLayout = FrameHealthMetrics.Layout.late
-    static let rows: [(String, KeyPath<Figures, String>)] = [("Frame rate", \.fps), ("Missed frames", \.missed),
-        ("Work time, median", \.median), ("Max work time", \.maxWork), ("Late frames", \.late),
-        ("Late by, median", \.lateBy), ("Max frame time", \.maxFrame), ("Pacing changes", \.changes)]
+    /// Each figure's name and value, in the order the face, the table and the shared text give them: the first two are
+    /// the face's, beside each window's frame rate.
+    static func rows(_ source: Source) -> [(String, KeyPath<Figures, String>)] {
+        guard source.screen else {
+            return [("Frame rate", \.fps), ("Missed frames", \.missed), ("Work time, median", \.median), ("Max work time", \.maxWork),
+                ("Late frames", \.late), ("Late by, median", \.lateBy), ("Max frame time", \.maxFrame), ("Pacing changes", \.changes)]
+        }
+        return [("Frame rate", \.fps), ("Late frames", \.late), ("Frames", \.frames), ("Late by, median", \.lateBy),
+            ("Work time, median", \.median), ("Max work time", \.maxWork), ("Main thread, longest", \.mainLongest),
+            ("Main thread over \(ms(source.refreshMs))", \.mainLong)]
+    }
 
-    struct Figures { var fps, missed, median, maxWork, late, lateBy, maxFrame, changes: String }
+    struct Figures { var fps, missed, median, maxWork, late, lateBy, maxFrame, changes, frames, mainLongest, mainLong: String }
 
     /// The figures for one window. `count` abbreviates large counts on the card; the shared text gives them in full.
-    static func figures(_ t: FrameHealthCardReader.Window, rates: Rates, adaptiveSync: Bool,
+    static func figures(_ t: FrameHealthCardReader.Window, rates: Rates, adaptiveSync: Bool, source: Source = .exact,
                         count: (UInt64) -> String = abbreviated) -> Figures {
         // Each figure has its own population: a window can hold misses or late work without a
-        // completed frame interval, as when a run's end finalizes a held callback's slot
-        let c = t.counts, lateness = FrameHealthAssessment.deadlinesObserved
+        // completed frame interval, as when a run's end finalizes a held callback's slot. UIKit's deadlines hold on
+        // the simulator too, unlike the display link's.
+        let c = t.counts, lateness = source.screen || FrameHealthAssessment.deadlinesObserved
+        // The screen's frames bound no frame time: its rate is its frames over the time the window covers
+        let fps = source.screen ? (c.callbacks > 0 && t.read > t.from ? Double(c.callbacks) / (t.read - t.from) : nil) : t.fps
         return Figures(
-            fps: t.fps.map { "\(Int($0.rounded())) FPS" } ?? "—",
+            fps: fps.map { "\(Int($0.rounded())) FPS" } ?? "—",
             missed: c.requested > 0 ? count(UInt64(c.missed)) : "—",
             median: t.valid ? medianWork(t) : "—",
             maxWork: t.slowest > 0 ? duration(t.slowest, .nearest) : "—",
             late: c.worked > 0 && lateness ? count(UInt64(c.late)) : "—",
             lateBy: lateness && t.valid ? durationText(lateLayout, FrameHealthMetrics.bin(t.lateBy, fraction: 0.5)) : "—",
             maxFrame: t.longest > 0 ? duration(t.longest, .nearest) : "—",
-            changes: c.frames > 0 && !adaptiveSync ? count(UInt64(c.changes)) : "—")
+            changes: c.frames > 0 && !adaptiveSync && !source.screen ? count(UInt64(c.changes)) : "—",
+            frames: source.screen && t.read > 0 ? count(UInt64(c.callbacks)) : "—",
+            mainLongest: source.screen && t.read > 0 ? duration(t.mainLongest, .nearest) : "—",
+            mainLong: source.screen && t.read > 0 ? count(UInt64(c.long)) : "—")
     }
 
     /// The median work time: its bin's upper bound, but never more than the exact maximum it cannot
@@ -205,20 +257,23 @@ enum FrameHealthCardText {
     }
 
     /// A window's name: its nominal span, or the span it actually covers when that differs by more
-    /// than a tenth and the window has frames whose figures the span qualifies.
-    static func window(_ t: FrameHealthCardReader.Window, nominal: Double) -> String {
-        let span = t.read - t.from
-        guard t.read > 0, t.frames > 0, abs(span - nominal) > nominal / 10 else { return nominal < 1 ? "Last 0.5s" : "Last \(Int(nominal))s" }
+    /// than a tenth and the window has frames whose figures the span qualifies: frame intervals, or the screen's frames,
+    /// whose rate is over that span.
+    static func window(_ t: FrameHealthCardReader.Window, nominal: Double, source: Source = .exact) -> String {
+        let span = t.read - t.from, frames = source.screen ? UInt64(t.counts.callbacks) : t.frames
+        guard t.read > 0, frames > 0, abs(span - nominal) > nominal / 10 else { return nominal < 1 ? "Last 0.5s" : "Last \(Int(nominal))s" }
         return "Last " + (span < 10 ? String(format: "%.1fs", span) : "\(Int(span.rounded()))s")
     }
 
     /// Pacing over a window: a verdict, then the counts behind it. Counts, not rounded shares, so a
     /// rare long frame never reads as 0%. Refresh counts are in each frame's own schedule, so a
     /// window whose schedule changed gives them without a rate or a time.
-    static func pacing(_ t: FrameHealthCardReader.Window, rates: Rates, adaptiveSync: Bool,
+    static func pacing(_ t: FrameHealthCardReader.Window, rates: Rates, adaptiveSync: Bool, source: Source = .exact,
                        count: (UInt64) -> String = abbreviated) -> (String, String) {
+        guard !source.screen else { return mainThread(t, source: source, count: count) }
         guard t.frames > 0 else { return ("No frames", "") }
         guard t.valid else { return ("—", "") }
+        // On a VRR display no one refresh period holds, so frame times are a distribution
         if adaptiveSync {
             let n = t.intervals.reduce(0) { $0 + UInt64($1) }
             guard n >= 100, let bin = FrameHealthMetrics.bin(t.intervals, fraction: 0.99) else {
@@ -252,6 +307,15 @@ enum FrameHealthCardText {
         return (changed ? verdict : "Uneven", "\(first), \(count(others)) at \(range)")
     }
 
+    /// Where the face measures the screen, its line under the figures: the main thread's longest spell of work over a
+    /// window, then how many spells were longer than one refresh at the display's highest rate, which would hold up a
+    /// frame due then.
+    static func mainThread(_ t: FrameHealthCardReader.Window, source: Source, count: (UInt64) -> String = abbreviated) -> (String, String) {
+        guard t.read > 0 else { return ("—", "") }
+        let long = UInt64(t.counts.long), over = "over one refresh, \(ms(source.refreshMs))"
+        return ("Longest " + duration(t.mainLongest, .nearest), long == 0 ? "None " + over : "\(count(long)) " + over)
+    }
+
     /// The deadline is one scheduled refresh after each frame starts; `varied` says the schedule
     /// changed in the window, so the current value is not every frame's.
     static func deadline(_ rates: Rates, varied: Bool = false) -> String {
@@ -260,9 +324,29 @@ enum FrameHealthCardText {
     }
 
     static func request(_ rates: Rates) -> (String, String) {
-        guard rates.requestedHz > 0 else { return ("No rate requested", rates.nativeScrolling ? "UIKit scrolling" : "") }
+        guard rates.requestedHz > 0 else { return ("No rate requested", "") }
         return ("Requested \(Int(rates.requestedHz.rounded())) FPS",
             rates.limited ? "system limit \(Int(rates.scheduleHz.rounded())) FPS" : "no limit")
+    }
+
+    /// The context row: what Exact requested, or, where the face measures the screen, that it does and what Exact's own
+    /// frame clock does beside it.
+    static func context(_ rates: Rates, source: Source) -> (String, String) {
+        guard case .screen(_, let exact) = source else { return request(rates) }
+        return ("This app's frames", clock(exact))
+    }
+
+    /// Exact's own frame clock, in words: idle, at the default rate, or at the rate it requested and any system limit.
+    static func clock(_ exact: Clock) -> String {
+        guard exact.running else { return "Exact's clock idle" }
+        guard exact.rates.requestedHz > 0 else { return "Exact's clock at the default rate" }
+        return "Exact asks \(Int(exact.rates.requestedHz.rounded())) FPS"
+            + (exact.rates.limited ? ", limit \(Int(exact.rates.scheduleHz.rounded()))" : "")
+    }
+
+    /// The table's caption: the deadline Exact's frames have, or what makes the screen's frames late.
+    static func caption(_ rates: Rates, source: Source, varied: Bool) -> String {
+        source.screen ? "Late: sent after UIKit's deadline" : deadline(rates, varied: varied)
     }
 
     /// The shared summary, in the parts the image draws too.
@@ -272,25 +356,32 @@ enum FrameHealthCardText {
     }
 
     /// The shared summary: every figure with its window, leaving out windows without one, then the
-    /// results Details gives.
-    static func summary(reader: FrameHealthCardReader, rates: Rates, display: Display, paused: Bool, health: FrameHealth) -> Summary {
+    /// results Details gives, from `clock`, the reader of Exact's own frames, where the face measures the screen.
+    static func summary(reader: FrameHealthCardReader, clock: FrameHealthCardReader? = nil, rates: Rates, display: Display,
+                        source: Source = .exact, paused: Bool, health: FrameHealth) -> Summary {
         let windows = [(0.5, reader.window(0.5)), (5, reader.window(5)), (30, reader.window(30))]
-            .map { (window($0.1, nominal: $0.0).lowercased(), $0.1) }
-        let figures = windows.map { figures($0.1, rates: rates, adaptiveSync: display.adaptiveSync, count: { String($0) }) }
-        let (verdict, detail) = pacing(windows[1].1, rates: rates, adaptiveSync: display.adaptiveSync, count: { String($0) })
+            .map { (window($0.1, nominal: $0.0, source: source).lowercased(), $0.1) }
+        let figures = windows.map { figures($0.1, rates: rates, adaptiveSync: display.adaptiveSync, source: source, count: { String($0) }) }
+        let (verdict, detail) = pacing(windows[1].1, rates: rates, adaptiveSync: display.adaptiveSync, source: source, count: { String($0) })
+        let requested = rates.requestedHz > 0
+            ? "Requested rate: \(Int(rates.requestedHz.rounded())) FPS" + (rates.limited ? ", limited by the system to \(Int(rates.scheduleHz.rounded())) FPS" : "")
+            : "Requested rate: none"
+        let measured: [String] = if case .screen(_, let exact) = source {
+            ["Frames: every UI update of this app on its screen", "Exact's frame clock: " + Self.clock(exact).lowercased()]
+        } else { [requested] }
         return Summary(title: "Frame health, \(paused ? "paused" : "live")",
-            context: [rates.requestedHz > 0
-                    ? "Requested rate: \(Int(rates.requestedHz.rounded())) FPS" + (rates.limited ? ", limited by the system to \(Int(rates.scheduleHz.rounded())) FPS" : "")
-                    : "Requested rate: none",
-                "Display: \(display.name), \(display.detail)", deadline(rates, varied: windows[2].1.counts.epochs > 0),
-                "Pacing (\(windows[1].0)): " + [verdict, detail].filter { !$0.isEmpty }.joined(separator: "; ")],
-            figures: rows.map { name, key in
+            context: measured + ["Display: \(display.name), \(display.detail)",
+                caption(rates, source: source, varied: windows[2].1.counts.epochs > 0),
+                (source.screen ? "Main thread" : "Pacing") + " (\(windows[1].0)): " + [verdict, detail].filter { !$0.isEmpty }.joined(separator: "; ")],
+            figures: rows(source).map { name, key in
                 let values = zip(figures, windows).filter { $0.0[keyPath: key] != "—" }.map { "\($0.0[keyPath: key]) (\($0.1.0))" }
                 return "\(name): " + (values.isEmpty ? "—" : values.joined(separator: ", "))
             },
-            results: results(reader: reader, health: health),
-            notes: ["Frames (\(windows[2].0)): \(windows[2].1.frames)",
-                "Not measured: when pictures appeared on screen, Core Animation's commit, compositor and GPU time, input latency"])
+            results: results(reader: clock ?? reader, health: health, screen: source.screen),
+            notes: ["Frames (\(windows[2].0)): \(source.screen ? UInt64(windows[2].1.counts.callbacks) : windows[2].1.frames)",
+                "Not measured: " + (source.screen
+                ? "frame times, which a passive observer cannot tell from time the app had nothing to draw; when pictures actually appeared on screen, compositor and GPU time, Core Animation's own animations, input latency"
+                : "when pictures appeared on screen, Core Animation's commit, compositor and GPU time, input latency")])
     }
 
     /// A row of Details: a result with its reason, or a count.
@@ -318,14 +409,16 @@ enum FrameHealthCardText {
             .map { Detail(name: $0, value: $1) }
     }
 
-    /// Details' caption: the window its rows cover, and what Exact does not observe.
-    static func detailsCaption(reader: FrameHealthCardReader) -> String {
-        window(reader.window(5), nominal: 5) + ". Exact does not observe presentation, compositor or GPU time, or input latency."
+    /// Details' caption: the window its rows cover, whose frames they are where the face measures the screen, and what
+    /// Exact does not observe.
+    static func detailsCaption(reader: FrameHealthCardReader, screen: Bool = false) -> String {
+        (screen ? "Exact's frame clock, " + window(reader.window(5), nominal: 5).lowercased() : window(reader.window(5), nominal: 5))
+            + ". Exact does not observe presentation, compositor or GPU time, or input latency."
     }
 
     /// Each result with its window, as the shared text gives them.
-    static func results(reader: FrameHealthCardReader, health: FrameHealth) -> [String] {
-        let span = window(reader.window(5), nominal: 5).lowercased()
+    static func results(reader: FrameHealthCardReader, health: FrameHealth, screen: Bool = false) -> [String] {
+        let span = (screen ? "Exact's frame clock, " : "") + window(reader.window(5), nominal: 5).lowercased()
         return details(reader: reader, health: health).prefix(3).map { "\($0.name) (\(span)): \($0.value)" + ($0.reason.map { ", " + $0 } ?? "") }
     }
 
@@ -353,7 +446,21 @@ enum FrameHealthCardText {
         }
     }
 
-    /// The definitions sheet: each figure and what Exact does not measure.
+    /// The definitions sheet: each figure the face gives, from the screen or Exact's frames, and what neither measures.
+    static func definitions(_ source: Source) -> [(String, String)] { source.screen ? screenDefinitions : definitions }
+
+    static let screenDefinitions: [(String, String)] = [
+        ("Frame rate (FPS)", "Frames of this app per second over the last 0.5s and the last 5s, or the time each window actually covers. Each frame is one UI update, Exact's or UIKit's, such as a step of a scroll; with nothing changing there are none. Core Animation's own animations run outside the app and make no frames of its."),
+        ("Exact's clock", "What Exact's own frame clock does beside these frames: idle, at the default rate, or at the rate it asks for, with any system limit. Details gives its frames."),
+        ("Displays", "Fixed refresh redraws the screen at one rate. Adaptive refresh, which ProMotion uses, has the system choose the rate from a set to suit the content; frames still land on the display's refreshes."),
+        ("Late frames", "Frames whose changes reached the render server after UIKit's completion deadline, so they appear at least one refresh later than UIKit expected: commit hitches, in Apple's words. Hitches the render server causes are not seen from the app."),
+        ("Work time", "The main thread's time in a frame's update, from its start until its changes reached the render server, less any wait between. The work chart has a gridline at each whole refresh at the display's highest rate, 8.3ms, 16.7ms, 25ms and 33.3ms at 120 Hz, the first dotted: to keep that rate, a frame's work must stay under one refresh, though UIKit's deadline for each frame comes later, as the render server draws it after. The card records work time in 0.5ms steps below 24ms, and the table rounds the median up to its step."),
+        ("Late by", "How far past UIKit's deadline the median late frame's changes reached the render server."),
+        ("Main thread", "The main thread's longest spell of work without waiting, and the spells longer than one refresh at the display's highest rate, which would hold up a frame due then, whether or not anything moves. The work chart plots each long spell against that refresh. The card's own work is not counted."),
+        ("No frame times", "The card does not give the time between frames: it observes updates without asking for any, and cannot tell a refresh the app had nothing to draw for, such as between two taps, from one it missed. Frames held up by work show as the main thread's long spells."),
+        ("Not measured", "When a picture actually appeared on screen, compositor and GPU time, Core Animation's own animations and input latency. The card's own changes go out with the app's frames, or in updates it does not count; dragging the card makes frames of the app's."),
+    ]
+
     static let definitions: [(String, String)] = [
         ("Frame rate (FPS)", "Frames Exact produced per second, over the last 0.5s and over the last 5s. Both are averages over their window; the chart plots the average over the last 0.5s at the newest frame of each tenth of a second. A frame is a display-link callback that ran Exact's work; a callback that had to wait for earlier work still in flight is not a frame."),
         ("Requested rate and limits", "The rate the app asked the system for. Moving content asks for the display's maximum; a simple fade asks for 60 FPS. \"System limit\" means the system scheduled fewer frames than requested, for example in Low Power Mode."),
@@ -403,8 +510,9 @@ struct FrameHealthCardPresentation {
     typealias T = FrameHealthCardText
     var status = FrameHealthCardFace.Status.idle
     var request = ("No rate requested", ""), display = ""
-    var rows = [("Last 0.5s", "—", "—"), ("Last 5s", "—", "—")]
-    var pacing = ("—", ""), pacingWindow = "last 5s"
+    /// Each window's name, frame rate and the face's second figure, and that figure's word
+    var rows = [("Last 0.5s", "—", "—"), ("Last 5s", "—", "—")], unit = "missed"
+    var pacing = ("—", ""), pacingName = "Pacing", pacingWindow = "last 5s"
     var input: FrameHealthCardDrawing.Input?
     var columns: [String] = [], table: [(String, [String])] = [], caption = ""
     var rateSummary = "Frame rate", timeSummary = "Frame time"
@@ -412,40 +520,50 @@ struct FrameHealthCardPresentation {
 
     init() {}
 
-    /// `details` asks for Details' rows too, which only a card that shows them needs.
-    init(reader: FrameHealthCardReader, rates: T.Rates, display: T.Display, status: FrameHealthCardFace.Status,
-         unavailable: String?, health: FrameHealth, details: Bool = false) {
+    /// `details` asks for Details' rows too, which only a card that shows them needs. Where the face measures the
+    /// screen, `clock` reads Exact's own frames, which Details gives.
+    init(reader: FrameHealthCardReader, clock: FrameHealthCardReader? = nil, rates: T.Rates, display: T.Display,
+         source: T.Source = .exact, status: FrameHealthCardFace.Status, unavailable: String?, health: FrameHealth, details: Bool = false) {
         let now = reader.window(0.5), five = reader.window(5), thirty = reader.window(30)
         if details {
-            self.details = T.details(reader: reader, health: health)
-            detailsCaption = T.detailsCaption(reader: reader)
+            self.details = T.details(reader: clock ?? reader, health: health)
+            detailsCaption = T.detailsCaption(reader: clock ?? reader, screen: source.screen)
         }
         self.status = status
-        request = unavailable.map { ($0, "") } ?? T.request(rates)
+        request = unavailable.map { ($0, "") } ?? T.context(rates, source: source)
         self.display = "\(display.name) · \(display.detail)"
-        rows = [(now, 0.5), (five, 5.0)].map { t, nominal in
-            (T.window(t, nominal: nominal), t.fps.map { String(Int($0.rounded())) } ?? "—",
-             T.figures(t, rates: rates, adaptiveSync: display.adaptiveSync).missed)
+        let rows = T.rows(source), second = rows[1]
+        self.rows = [(now, 0.5), (five, 5.0)].map { t, nominal in
+            let figures = T.figures(t, rates: rates, adaptiveSync: display.adaptiveSync, source: source)
+            return (T.window(t, nominal: nominal, source: source), String(figures.fps.prefix { $0 != " " }), figures[keyPath: second.1])
         }
-        pacing = T.pacing(five, rates: rates, adaptiveSync: display.adaptiveSync)
-        pacingWindow = T.window(five, nominal: 5).lowercased()
-        input = .init(reader: reader, rates: rates, displayMaximumHz: display.maximumHz)
+        unit = second.0 == "Late frames" ? "late" : "missed"
+        pacing = T.pacing(five, rates: rates, adaptiveSync: display.adaptiveSync, source: source)
+        (pacingName, pacingWindow) = (source.screen ? "Main thread" : "Pacing", T.window(five, nominal: 5, source: source).lowercased())
+        // The screen's frames answer to no rate of Exact's: the charts' scales come from the display alone
+        input = .init(reader: reader, rates: source.screen ? T.Rates(requestedHz: 0, periodMs: 0) : rates, displayMaximumHz: display.maximumHz,
+            screen: source.screen)
         let windows = [(five, 5.0), (thirty, 30.0)]
-        let figures = windows.map { T.figures($0.0, rates: rates, adaptiveSync: display.adaptiveSync) }
-        columns = windows.map { T.window($0.0, nominal: $0.1) }
-        table = T.rows.dropFirst(2).map { name, key in (name, figures.map { $0[keyPath: key] }) }
-        caption = T.deadline(rates, varied: thirty.counts.epochs > 0)
-        let request = rates.requestedHz > 0 ? "\(Int(rates.requestedHz.rounded())) requested" : "none requested"
-        rateSummary = "Frame rate over the last 30 seconds: \(rows[0].1) FPS in the newest sample, \(rows[1].1) over the \(pacingWindow), \(request)."
-        timeSummary = "Frame time over the last 30 seconds. \([pacing.0, pacing.1].filter { !$0.isEmpty }.joined(separator: ", ")). "
-            + "Over the \(pacingWindow), the longest frame time was \(figures[0].maxFrame), the slowest work \(figures[0].maxWork), "
-            + "and \(figures[0].late) frames were late. " + caption + "."
+        let figures = windows.map { T.figures($0.0, rates: rates, adaptiveSync: display.adaptiveSync, source: source) }
+        columns = windows.map { T.window($0.0, nominal: $0.1, source: source) }
+        table = rows.dropFirst(2).map { name, key in (name, figures.map { $0[keyPath: key] }) }
+        caption = T.caption(rates, source: source, varied: thirty.counts.epochs > 0)
+        let request = source.screen ? "the display's highest \(Int(display.maximumHz)) FPS at the top"
+            : rates.requestedHz > 0 ? "\(Int(rates.requestedHz.rounded())) requested" : "none requested"
+        rateSummary = "Frame rate over the last 30 seconds: \(self.rows[0].1) FPS in the newest sample, \(self.rows[1].1) over the \(pacingWindow), \(request)."
+        timeSummary = source.screen
+            ? "Work over the last 30 seconds, each frame's and the main thread's long spells, against whole refreshes at the display's highest rate. "
+                + "Over the \(pacingWindow), the slowest frame's work was \(figures[0].maxWork), the main thread's longest spell "
+                + "\(figures[0].mainLongest), with \(figures[0].mainLong) over one refresh, and \(figures[0].late) frames were late."
+            : "Frame time over the last 30 seconds. \([pacing.0, pacing.1].filter { !$0.isEmpty }.joined(separator: ", ")). "
+                + "Over the \(pacingWindow), the longest frame time was \(figures[0].maxFrame), the slowest work \(figures[0].maxWork), "
+                + "and \(figures[0].late) frames were late. " + caption + "."
     }
 
     /// Carry the figures into the face, keeping its own interaction state.
     func apply(to state: inout FrameHealthCardFace.State) {
-        state.status = status; state.request = request; state.display = display; state.rows = rows; state.pacing = pacing
-        state.pacingWindow = pacingWindow
+        state.status = status; state.request = request; state.display = display; state.rows = rows; state.unit = unit
+        state.pacing = pacing; state.pacingName = pacingName; state.pacingWindow = pacingWindow
     }
 }
 
@@ -463,16 +581,18 @@ enum FrameHealthShare: CaseIterable {
 }
 
 extension FrameHealthCardText {
-    /// The shared image, from the same reader the card shows (frozen while paused): the summary's
+    /// The shared image, from the same readers the card shows (copies while paused): the summary's
     /// context, both charts, every figure and the results.
-    static func picture(reader: FrameHealthCardReader, chart: FrameHealthChart, rates: Rates, display: Display, paused: Bool,
-                        health: FrameHealth, palette: FrameHealthCardDrawing.Palette) -> Data? {
-        let summary = summary(reader: reader, rates: rates, display: display, paused: paused, health: health)
+    static func picture(reader: FrameHealthCardReader, clock: FrameHealthCardReader? = nil, chart: FrameHealthChart, rates: Rates,
+                        display: Display, source: Source = .exact, paused: Bool, health: FrameHealth,
+                        palette: FrameHealthCardDrawing.Palette) -> Data? {
+        let summary = summary(reader: reader, clock: clock, rates: rates, display: display, source: source, paused: paused, health: health)
         let windows = [(reader.window(0.5), 0.5), (reader.window(5), 5.0), (reader.window(30), 30.0)]
-        let all = windows.map { figures($0.0, rates: rates, adaptiveSync: display.adaptiveSync, count: { String($0) }) }
-        let table = [[""] + windows.map { window($0.0, nominal: $0.1) }]
-            + rows.map { name, key in [name] + all.map { $0[keyPath: key] } }
-        let input = FrameHealthCardDrawing.Input(reader: reader, rates: rates, displayMaximumHz: display.maximumHz)
+        let all = windows.map { figures($0.0, rates: rates, adaptiveSync: display.adaptiveSync, source: source, count: { String($0) }) }
+        let table = [[""] + windows.map { window($0.0, nominal: $0.1, source: source) }]
+            + rows(source).map { name, key in [name] + all.map { $0[keyPath: key] } }
+        let input = FrameHealthCardDrawing.Input(reader: reader, rates: source.screen ? Rates(requestedHz: 0, periodMs: 0) : rates,
+            displayMaximumHz: display.maximumHz, screen: source.screen)
         return FrameHealthCardDrawing.picture(title: summary.title, context: summary.context, input: input, chart: chart,
             table: table, results: summary.results, notes: summary.notes, palette: palette)
     }

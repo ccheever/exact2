@@ -2,6 +2,7 @@
 import UIKit
 import QuartzCore
 import XCTest
+import ExactCore
 @testable import ExactKit
 
 final class FrameHealthIOSTests: XCTestCase {
@@ -193,8 +194,10 @@ final class FrameHealthIOSTests: XCTestCase {
             XCTAssertEqual(layout.control(at: CGPoint(x: rect.midX, y: rect.midY - 21)), control)
             XCTAssertEqual(layout.control(at: CGPoint(x: rect.midX + (control == .share ? 18 : -18), y: rect.midY)), control)
         }
-        XCTAssertEqual(overlay.card.state.status, .idle)
-        XCTAssertEqual(overlay.card.state.rows.map(\.1), ["—", "—"], "no figure without data")
+        // The card measures the screen while it shows, so it is live from the start
+        XCTAssertEqual(overlay.card.state.status, .live)
+        XCTAssertEqual(overlay.card.state.request.0, "This app's frames")
+        XCTAssertEqual(overlay.card.state.unit, "late")
 
         let elements = overlay.card.accessibilityElements?.compactMap { $0 as? UIAccessibilityElement } ?? []
         XCTAssertEqual(elements.first?.accessibilityLabel, "Close frame health", "Close comes first, in its corner")
@@ -267,7 +270,7 @@ final class FrameHealthIOSTests: XCTestCase {
         defer { health.destroy() }
         health.requestedRate(120)
         let made = FrameClock.shared.linksMade
-        let overlay = FrameHealthOverlay(health: health)
+        let overlay = FrameHealthOverlay(health: health, measuresScreen: false)
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
             throw missing("scene", "a real host window for the frame-health card")
         }
@@ -289,14 +292,21 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertEqual(overlay.card.state.status, .live)
         XCTAssertEqual(overlay.card.state.rows[0].1, "120")
         XCTAssertEqual(overlay.card.state.pacing.0, "Uneven", "the hitch is in the last 5 seconds")
-        // A pause freezes the figures: later frames change nothing until it resumes
+        // A pause keeps the figures while the card goes on reading: later frames change nothing until it resumes
         overlay.card.activate?(.status)
         XCTAssertEqual(overlay.card.state.status, .paused)
+        XCTAssertTrue(health.chart === overlay.card.chart, "the charts still take each frame")
         health.record(arrival: time, target: time + 0.1, period: 0.1, finished: time + 0.001)
         overlay.refresh(now: start + 6)
         XCTAssertEqual(overlay.card.state.rows[0].1, "120")
         overlay.card.activate?(.status)
         XCTAssertEqual(overlay.card.state.status, .live)
+        XCTAssertEqual(overlay.card.state.rows[0].0, "Last 1.0s", "resumed, the face shows the read taken while it was paused")
+        // Hidden and shown again, the card starts unpaused
+        overlay.card.activate?(.status)
+        overlay.setVisible(false)
+        overlay.setVisible(true)
+        XCTAssertNotEqual(overlay.card.state.status, .paused)
         // Hidden, the card reads nothing and releases what it drew from
         overlay.setVisible(false)
         XCTAssertNil(overlay.card.presentation.input)
@@ -313,7 +323,7 @@ final class FrameHealthIOSTests: XCTestCase {
         let scroll = FrameHealth(enabled: true, source: "native-scroll-ui-update")
         health.nativeHealth = scroll
         defer { health.destroy() }
-        let overlay = FrameHealthOverlay(health: health)
+        let overlay = FrameHealthOverlay(health: health, measuresScreen: false)
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
             throw missing("scene", "a real host window for the frame-health card")
         }
@@ -338,6 +348,220 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertTrue(published, "the app chart refreshes before tracking ends, even with an active unknown-cadence scroll observer")
     }
 
+    func testAnIdleAppShowsNoFramesThoughTheCardRedrawsItself() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("UIUpdateLink is available from iOS 18") }
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window for the frame-health card")
+        }
+        let health = FrameHealth(enabled: true)
+        defer { health.destroy() }
+        let overlay = FrameHealthOverlay(health: health)
+        let window = hosted(overlay, in: scene, size: CGSize(width: 393, height: 852)), dot = CALayer()
+        window.layer.addSublayer(dot)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        overlay.setVisible(true)
+        // The card reads twice a second, changes of its own; none of them is the app's frame, nor do they make UIKit run
+        // updates that would be
+        RunLoop.main.run(until: Date().addingTimeInterval(3))
+        XCTAssertEqual(overlay.screenFrames, 0, "\(overlay.card.state.rows)")
+        XCTAssertEqual(overlay.card.state.rows.map(\.1), ["—", "—"])
+        // While the charts move with the time, the app's own changes are its frames: only one falling in the same refresh
+        // as a change of the card's, twice a second, is taken for the card's
+        for x in 1...6 {
+            dot.position.x = CGFloat(x)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        }
+        XCTAssertGreaterThanOrEqual(overlay.screenFrames, 4)
+        XCTAssertLessThanOrEqual(overlay.screenFrames, 6, "the card's own changes are not counted")
+        // The charts glide with the time, Core Animation moving them; a pause stops them, and resuming starts them again
+        XCTAssertTrue(overlay.card.chart.gliding)
+        overlay.card.activate?(.status)
+        XCTAssertFalse(overlay.card.chart.gliding)
+        overlay.card.activate?(.status)
+        XCTAssertTrue(overlay.card.chart.gliding)
+        overlay.setVisible(false)
+    }
+
+    /// A late frame of the screen's names who asked for its update: the app session's workload, and each of Exact's
+    /// frame clock's users asking for frames
+    func testTheScreensLateFrameNamesWhoAskedForIt() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("UIUpdateLink is available from iOS 18") }
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window for the screen's frames")
+        }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        addTeardownBlock { window.isHidden = true }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let screen = FrameHealthScreen()
+        screen.workload = { 1 << 23 | 1 << 19 }
+        screen.start(scene)
+        defer { screen.stop() }
+        screen.health.setHUDVisible(true)
+        defer { screen.health.setHUDVisible(false) }
+        // A live SVG filter's frames, the first held up past its deadline in one of Exact's host phases
+        let filter = NSObject()
+        var stalled = false
+        FrameClock.shared.want(filter, .svgFilter) { _ in
+            guard !stalled else { return }
+            stalled = true
+            HostPhases.shared.measure(.draw) { usleep(60_000) }
+            screen.card { usleep(5_000) }
+        }
+        defer { FrameClock.shared.drop(filter) }
+        func asked() -> UInt64? {
+            let retained = UInt32(min(screen.health.historyStatus().retained, 16))
+            return (0..<retained).map { screen.health.hitch($0).flags }.first { $0 & (1 << 45) != 0 }
+        }
+        let end = Date().addingTimeInterval(3)
+        while asked() == nil, Date() < end { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+        let flags = try XCTUnwrap(asked(), "the stalled frame was late, and a live SVG filter asked for it")
+        XCTAssertEqual(flags & (1 << 23 | 1 << 19), 1 << 23 | 1 << 19, "with the session's workload")
+        XCTAssertEqual(flags & (1 << 40), 0, "and no other user of the frame clock")
+        // Its work split: the stall in Exact's phases, and the card's own work within the update
+        let report = FrameHealthReport.snapshot(health: screen.health, session: nil)
+        let columns = try XCTUnwrap(report["columns"] as? [String])
+        let row = try XCTUnwrap((report["hitches"] as? [[Any]])?.first { (($0[4] as? UInt64) ?? 0) & (1 << 45) != 0 })
+        let value = { (name: String) in row[columns.firstIndex(of: name)!] }
+        XCTAssertGreaterThanOrEqual(value("exact_us") as? Int ?? 0, 55_000)
+        XCTAssertGreaterThanOrEqual(value("card_us") as? Int ?? 0, 4_500)
+        XCTAssertLessThan(value("card_us") as? Int ?? .max, 20_000)
+        XCTAssertNotNil(value("layouts") as? Int)
+    }
+
+    /// UIKit lets the main thread wait between an update's scheduling and its commit: the wait is none of the frame's
+    /// work, which is taken to end at the commit, so the frame is late as before
+    func testAWaitWithinAnUpdateIsNoneOfItsWork() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("UIUpdateLink is available from iOS 18") }
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window for the screen's frames")
+        }
+        let screen = startedScreen(in: scene)
+        defer { screen.stop() }
+        screen.health.setHUDVisible(true)
+        defer { screen.health.setHUDVisible(false) }
+        let t = CACurrentMediaTime()
+        screen.scheduled(presented: t + 0.02, deadline: t + 0.004, now: t)
+        screen.wait(at: t + 0.001)
+        screen.wake(at: t + 0.006)
+        screen.completed(presented: t + 0.02, now: t + 0.009)
+        let report = FrameHealthReport.snapshot(health: screen.health, session: nil, now: t + 0.01)
+        let columns = try XCTUnwrap(report["columns"] as? [String])
+        let row = try XCTUnwrap((report["hitches"] as? [[Any]])?.last)
+        let value = { (name: String) in row[columns.firstIndex(of: name)!] }
+        XCTAssertEqual(value("waited_us") as? Int, 5_000)
+        XCTAssertEqual(Int(value("callback_us") as? UInt32 ?? 0), 4_000, "the 9 ms update less its 5 ms wait")
+        XCTAssertEqual(value("target_offset_us") as? Int, -1_000, "the deadline, from the work's start, which it ran past")
+        // The collector counts it, though its work began after its deadline
+        let snapshot = screen.health.snapshot()
+        XCTAssertEqual(snapshot.worked, 1)
+        XCTAssertEqual(snapshot.late, 1)
+    }
+
+    /// A change of the card's own whose update spans a wait is the card's in the spell after it too: the app's long
+    /// spells leave it out
+    func testACardOnlyUpdateAcrossAWaitIsTheCardsInTheNextSpell() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("UIUpdateLink is available from iOS 18") }
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window for the screen's frames")
+        }
+        let screen = startedScreen(in: scene)
+        defer { screen.stop() }
+        _ = screen.takeMainThread()
+        screen.ownChange()
+        let t = CACurrentMediaTime()
+        screen.scheduled(presented: t + 0.2, deadline: t + 0.03, now: t)
+        screen.wait(at: t + 0.001)
+        screen.wake(at: t + 0.005)
+        screen.completed(presented: t + 0.2, now: t + 0.045)
+        screen.wait(at: t + 0.046)
+        XCTAssertEqual(screen.takeMainThread().long, 0, "1 ms of the spell's 41 is not the card's")
+        XCTAssertEqual(screen.health.snapshot().callbacks, 0, "and it is not one of the app's frames")
+    }
+
+    /// A screen observer started on `scene`, after a window's first frames there.
+    private func startedScreen(in scene: UIWindowScene) -> FrameHealthScreen {
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        addTeardownBlock { window.isHidden = true }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let screen = FrameHealthScreen()
+        screen.start(scene)
+        return screen
+    }
+
+    func testTheScreenSeesEachFrameAndTheMainThreadsWorkOnlyWhileItRuns() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("UIUpdateLink is available from iOS 18") }
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window for the screen's frames")
+        }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        addTeardownBlock { window.isHidden = true }
+        let scroll = UIScrollView(frame: window.bounds), dot = CALayer()
+        scroll.contentSize = CGSize(width: window.bounds.width, height: 20_000)
+        window.rootViewController?.view.addSubview(scroll)
+        window.layer.addSublayer(dot)
+        func run(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+        run(0.3)
+        let screen = FrameHealthScreen(), chart = FrameHealthChart(in: CALayer())
+        chart.start()
+        screen.chart = chart
+        screen.start(scene)
+        defer { screen.stop() }
+        // A spell is the app's work less the card's own time within it, so an app stall the card's timers fire after
+        // still counts, and the card's work alone does not; times are given, as the run loop's observers give them
+        let t = CACurrentMediaTime()
+        screen.wake(at: t)
+        screen.card(took: 0.02)
+        screen.wait(at: t + 0.08)
+        var spell = screen.takeMainThread()
+        XCTAssertEqual(spell.longest, 0.06, accuracy: 1e-9)
+        XCTAssertEqual(spell.long, 1)
+        screen.wake(at: t + 0.1)
+        screen.card(took: 0.03)
+        screen.wait(at: t + 0.13)
+        spell = screen.takeMainThread()
+        XCTAssertEqual(spell.longest, 0, accuracy: 1e-9)
+        XCTAssertEqual(spell.long, 0)
+        // The card's changes of its own, while the app draws nothing, are not the app's frames
+        for x in 1...4 {
+            screen.card { dot.position.x = CGFloat(x) }
+            screen.ownChange()
+            run(0.12)
+        }
+        XCTAssertEqual(screen.health.snapshot().callbacks, 0)
+        // Scrolling, each update is a frame with its work, and the frames of the last half second give the rate; a frame
+        // of the screen's bounds no frame time
+        scroll.setContentOffset(CGPoint(x: 0, y: 3000), animated: true)
+        run(0.6)
+        let snapshot = screen.health.snapshot()
+        XCTAssertGreaterThan(snapshot.callbacks, 10)
+        XCTAssertEqual(snapshot.worked, snapshot.callbacks, "each frame's commit is its work")
+        XCTAssertEqual(snapshot.intervals, 0)
+        XCTAssertTrue(chart.columns.contains { $0.fps >= 20 && $0.budget > 0 })
+        XCTAssertFalse(chart.columns.contains { $0.frame > 0 }, "the charts plot no frame time")
+        _ = screen.takeMainThread()
+        // A stall within a scroll is the main thread's long spell, and the charts' work
+        run(0.3)
+        scroll.setContentOffset(.zero, animated: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { usleep(60_000) }
+        run(0.6)
+        let main = screen.takeMainThread()
+        XCTAssertGreaterThanOrEqual(main.longest, 0.06)
+        XCTAssertGreaterThanOrEqual(main.long, 1)
+        XCTAssertTrue(chart.columns.contains { $0.work >= 60 }, "the stall is the work chart's")
+        // Stopped, it observes nothing
+        screen.stop()
+        let callbacks = screen.health.snapshot().callbacks
+        scroll.setContentOffset(CGPoint(x: 0, y: 3000), animated: true)
+        run(0.4)
+        XCTAssertEqual(screen.health.snapshot().callbacks, callbacks)
+    }
+
     func testADragGoesPastTheEdgesAndTheCardSpringsBackToAScreenCorner() throws {
         let health = FrameHealth(enabled: true)
         defer { health.destroy() }
@@ -350,11 +574,18 @@ final class FrameHealthIOSTests: XCTestCase {
         overlay.setVisible(true)
         overlay.layoutIfNeeded()
         XCTAssertEqual(overlay.card.frame.origin, CGPoint(x: 8, y: 8), "a new card rests in the top-left corner, past the safe area")
+        // Held and dragged, the card asks for the display's highest rates
+        overlay.card.grabbed?()
+        if #available(iOS 18.0, *) { XCTAssertTrue(overlay.movesFast) }
         overlay.card.moved?(CGPoint(x: -92, y: 8))
         XCTAssertLessThan(overlay.card.frame.minX, 8, "a drag carries the card past the edge")
         XCTAssertGreaterThan(overlay.card.frame.minX, -92, "but not as far as the press")
         overlay.card.released?(.zero)
         XCTAssertEqual(overlay.card.frame.origin, CGPoint(x: 8, y: 8), "on release it springs back to its corner")
+        if #available(iOS 18.0, *) { XCTAssertTrue(overlay.movesFast, "and asks for them as it springs") }
+        let limit = Date(timeIntervalSinceNow: 10)
+        while overlay.movesFast, Date() < limit { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
+        XCTAssertFalse(overlay.movesFast, "and no longer once the spring settles")
         if #available(iOS 26.0, *) {
             // In a corner of a rounded screen the card's corner follows the screen's (54 points on an iPhone 18
             // Pro); a square screen corner, as the folded iPhone Duo's top-left, leaves the minimum
@@ -433,6 +664,50 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertEqual(moved.corners.topLeft, 12, "the card's top-left corner is away from the screen's")
         XCTAssertLessThan(moved.share.maxX, square.share.maxX, "Share moves in from the rounder corner")
         XCTAssertEqual(moved.close, square.close)
+    }
+
+    func testTheCardsFaceShowsItsTitleAndButtons() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window for the frame-health card")
+        }
+        let health = FrameHealth(enabled: true)
+        defer { health.destroy() }
+        let overlay = FrameHealthOverlay(health: health)
+        let window = hosted(overlay, in: scene, size: CGSize(width: 430, height: 900))
+        window.overrideUserInterfaceStyle = .light
+        overlay.setVisible(true)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        // The face renders itself as an image; what it shows is what the card's layers hold
+        let card = overlay.card, layout = FrameHealthCardFace.Layout(width: card.bounds.width / card.scale)
+        let width = Int(card.bounds.width), height = Int(card.bounds.height)
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        bytes.withUnsafeMutableBytes { buffer in
+            let ctx = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+            ctx.translateBy(x: 0, y: CGFloat(height))
+            ctx.scaleBy(x: 1, y: -1)
+            card.layer.render(in: ctx)
+        }
+        // Text and symbols draw in the label's colours on the card's white ground in light mode
+        func inked(_ rect: CGRect) -> Int {
+            let r = rect.applying(CGAffineTransform(scaleX: card.scale, y: card.scale)).integral
+            var n = 0
+            for y in max(0, Int(r.minY))..<min(height, Int(r.maxY)) {
+                for x in max(0, Int(r.minX))..<min(width, Int(r.maxX)) where bytes[(y * width + x) * 4] < 160 { n += 1 }
+            }
+            return n
+        }
+        XCTAssertGreaterThan(inked(layout.title), 30, "the title shows")
+        XCTAssertGreaterThan(inked(layout.close), 5, "Close shows its symbol")
+        // At the display's scale, so its text is as sharp as UIKit's
+        func picture(in view: UIView) -> CALayer? {
+            "\(type(of: view.layer))".hasSuffix("Picture") ? view.layer : view.subviews.lazy.compactMap(picture).first
+        }
+        let face = try XCTUnwrap(picture(in: card))
+        let image = try XCTUnwrap(face.contents as! CGImage?)
+        XCTAssertEqual(face.contentsScale, card.traitCollection.displayScale)
+        XCTAssertEqual(CGFloat(image.width), face.bounds.width * card.traitCollection.displayScale, accuracy: 1)
+        overlay.setVisible(false)
     }
 
     func testTheCardFollowsDarkModeWithoutBeingMoved() throws {

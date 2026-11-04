@@ -49,6 +49,16 @@ final class FrameHealth {
     private(set) var unavailableReason: String?
     private(set) var unavailableCode: String?
     var captureID: UInt64 = 0
+    /// The screen's late frames' work split, by when their work began (nanoseconds): seconds the main thread waited in
+    /// their updates, seconds of their work in Exact's host phases and the card's own, and the nodes' views laid out;
+    /// nil where unmeasured. The newest 32.
+    private(set) var splits: [(at: UInt64, waited: Double, exact: Double?, card: Double, layouts: Int?)] = []
+
+    /// A late frame of the screen's, its work begun at `start` (seconds), split.
+    func split(at start: Double, waited: Double, exact: Double?, card: Double, layouts: Int?) {
+        splits.append((Self.nanoseconds(start), waited, exact, card, layouts))
+        if splits.count > 32 { splits.removeFirst(splits.count - 32) }
+    }
     var agentCaptureUntil: Double = 0
     /// An agent's scroll track (`FrameHealthTrack`), nil unless one is leased.
     var track: FrameHealthTrack?
@@ -65,8 +75,8 @@ final class FrameHealth {
     /// Each kind is in flight one at a time, so at most three frames wait.
     private var pending = [Pending?](repeating: nil, count: 3)
     var changed: (() -> Void)? { didSet { FrameHealthPublication.update(self) } }
-    /// A card's charts while it reads, fed by each frame (LLP 1079.000 §7.2), and by native scrolling's updates
-    weak var chart: FrameHealthChart? { didSet { nativeHealth?.chart = chart } }
+    /// A card's charts while it reads, fed by each frame (LLP 1079.000 §7.2)
+    weak var chart: FrameHealthChart?
     var ended: (() -> Void)?
     var hudVisible = false
     /// The card shows and can be seen; an on-demand collector collects only then
@@ -74,13 +84,16 @@ final class FrameHealth {
     var hudBounds: CGRect?
     private(set) var virtual = false
     var publicationDirty = false
+    /// The source of the card's observer of the screen, whose frames have work against UIKit's deadlines and no frame
+    /// times (LLP 1079.000 §7.4)
+    static let screenSource = "ui-update"
+    var screenFrames: Bool { source == Self.screenSource }
     /// Whether it collects now
     var enabled: Bool { handle != 0 && (policy != .onDemand || demanded) }
     /// Whether it collects now or can when asked
     var available: Bool { unavailableCode == nil }
-    /// Whether it may observe native scrolling now: in a development build while it collects, and in a production
-    /// build only while the card shows (LLP 1079.000 §6.1)
-    var observesNativeScrolling: Bool { enabled && (policy == .onDemand || Self.developmentObserver) }
+    /// Whether it may observe native scrolling now: in a development build, while it collects (LLP 1079.000 §6.1)
+    var observesNativeScrolling: Bool { enabled && Self.developmentObserver }
 
     init(policy: Policy = FrameHealth.policy, source: String = "exact-app-display-link") {
         self.policy = policy
@@ -180,9 +193,6 @@ final class FrameHealth {
             // A rejected or idle callback ends the run; a held one is no frame
             if !accepted || outcome == 3 { chart.endRun() }
             else if outcome != 2, period > 0 { chart.frame(at: target - period, finished: outcome == 0 ? finished : nil, deadline: target) }
-            // A native update, whose period is unknown, starts as it begins; it shows only while Exact's own frame
-            // callbacks do not run, which the charts take instead
-            else if outcome == 0, period == 0, publicationOwner?.running != true { chart.frame(at: arrival, finished: finished, deadline: target) }
         }
         // Work not yet returned was registered during this callback; any other is left from one that
         // was never recorded

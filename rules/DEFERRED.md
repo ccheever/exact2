@@ -1740,8 +1740,12 @@ only Show and Hide (user, 2026-10-31). "Let’s do it all"
 also admits live-clock scheduling, cursor reads, the development-only passive
 native-scroll experiment and macOS card/inspector controls. "Let's do this in a
 zero-cost way. When the Frame Health UI is hidden there should be zero cost in release
-builds" (user, 2026-11-02) admits collection, and that experiment, in production builds
-while the frame-health card shows, and nothing while it is hidden.
+builds" (user, 2026-11-02) admits collection in production builds while the
+frame-health card shows, and nothing while it is hidden. "When I don't scroll we
+should still be showing the screen is at 120fps and also measure work that could be
+happening that slow things down" (user, 2026-11-03) admits the card's observers of the
+screen while it shows, in every build: a passive `UIUpdateLink` for its window scene
+and two observers of the main run loop (LLP 1079.000 §7.4).
 Production default-on requires measured adapter qualification. No production inspection endpoint or
 remote telemetry is added.
 
