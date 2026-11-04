@@ -1,8 +1,10 @@
-// Integrations › Devices › EAS Simulator (MIT T3 Code 74541bab17, see LICENSE-T3:
-// components/settings/EasDeviceHostsSettings.tsx and easDeviceHostsSettings.logic.ts).
-// EAS hosts are the environment's `easDeviceHosts` setting, offered only when its device
-// state says `supportsEasHosts`; the editor's account check is `device.easAccount`. A saved
-// access token arrives redacted, and sending the redacted value back keeps it.
+// Settings › Devices › Device sources › EAS Simulator (MIT T3 Code 5d3d78ab93, see LICENSE-T3:
+// components/settings/EasDeviceHostEditor.tsx, easDeviceHostsSettings.logic.ts and
+// DeviceSourcesSettings.tsx saveEas). EAS hosts are each environment's `easDeviceHosts` setting,
+// offered only when the device state says `supportsEasHosts`; Save and Remove write every
+// connected environment of the scope. The editor's account check is `device.easAccount` on an
+// environment that holds the host. A saved access token arrives redacted, and sending the
+// redacted value back keeps the token each environment holds.
 // exact2: the editor's fields live in the dialog (settings-eas-hosts.contract). Each account
 // check carries the dialog's check number, and an answer shows only while that number is the
 // dialog's latest: a later check or a token edit makes it stale, as the reference's
@@ -12,7 +14,7 @@ import { arr, decodeEasAccount, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
 import { pushToast } from '../shell/toast';
-import { randomId } from './settings-a-hosts';
+import { hostTargets, randomId, type HostTarget } from './settings-a-hosts';
 
 export type EasHost = { kind: 'eas'; id: string; label: string; appId?: string; accessToken: string; maxSessionMinutes: number; idleMinutes: number; maxConcurrentSessions: number };
 
@@ -35,10 +37,16 @@ export function easHostProblem(host: EasHost): string {
     : 'Give the host a label and limits within the ranges shown.';
 }
 
-/** Adds, replaces, or removes one EAS host. */
-export function updateEasDeviceHosts(hosts: EasHost[], host: EasHost, remove: boolean): EasHost[] {
+/**
+ * Adds, replaces, or removes one EAS host. With `keepToken`, the environment keeps the token it holds: a saved
+ * token arrives redacted, and one environment's token says nothing about another's. One new to the host uses its
+ * own Expo login.
+ */
+export function updateEasDeviceHosts(hosts: EasHost[], host: EasHost, remove: boolean, keepToken = false): EasHost[] {
   if (remove) return hosts.filter(candidate => candidate.id !== host.id);
-  return hosts.some(candidate => candidate.id === host.id) ? hosts.map(candidate => candidate.id === host.id ? host : candidate) : [...hosts, host];
+  const existing = hosts.find(candidate => candidate.id === host.id);
+  const next = keepToken ? { ...host, accessToken: existing?.accessToken ?? '' } : host;
+  return existing ? hosts.map(candidate => candidate.id === host.id ? next : candidate) : [...hosts, next];
 }
 
 export function easSessionLimits(host: EasHost): string {
@@ -55,18 +63,10 @@ export const easHostsOf = (settings: Obj): EasHost[] => arr(settings.easDeviceHo
 // ── Views ──────────────────────────────────────────────────────────────────
 type EasApp = { id: string; fullName: string };
 type Account = { seq: number; status: 'checking' | 'signed-in' | 'failed'; message: string; apps: EasApp[] };
-type Editor = { serial: number; isNew: boolean; host: EasHost; account: Account; mount: number };
+type Editor = { serial: number; isNew: boolean; host: EasHost; account: Account; mount: number; environmentId: string };
 type EasState = { editor: Editor | null; serial: number };
 const states = new WeakMap<T3Client, EasState>();
 const stateOf = (client: T3Client) => { let state = states.get(client); if (!state) states.set(client, state = { editor: null, serial: 0 }); return state; };
-
-export type EasHostRow = { id: string; label: string; limits: string; first: boolean };
-export type EasHostsView = { supported: boolean; disabled: boolean; editing: boolean; hosts: EasHostRow[] };
-/** The row under Device hosts; `disabled` is the reference's `!canConfigure || projectScope || !environmentId`. */
-export function easHostsView(client: T3Client, settings: Obj, deviceState: Obj | null, projectScope: boolean, writable: boolean, connected: boolean): EasHostsView {
-  return { supported: deviceState?.supportsEasHosts === true, disabled: !writable || projectScope || !connected, editing: stateOf(client).editor !== null,
-    hosts: easHostsOf(settings).map((host, index) => ({ id: host.id, label: host.label, limits: easSessionLimits(host), first: index === 0 })) };
-}
 
 export type EasEditorView = { open: boolean; serial: string; isNew: boolean; title: string; id: string; label: string; tokenSaved: boolean; appId: string;
   sessions: string; sessionMinutes: string; idleMinutes: string; accountSeq: number; accountStatus: string; accountMessage: string; apps: EasApp[] };
@@ -109,7 +109,7 @@ export async function easAccountCheck(client: T3Client, native: Native, input: R
     ...(input.tokenKind === 'new' ? { accessToken: str(input.token) } : input.tokenKind === 'cleared' ? { accessToken: '' } : {}) };
   let account: Account;
   try {
-    const result = decodeEasAccount(await client.restAccess(native).request('device.easAccount', payload));
+    const result = decodeEasAccount(await targetClient(client, editor.environmentId).restAccess(native).request('device.easAccount', payload));
     account = { seq, status: 'signed-in', message: `Signed in as ${result.signedInAs} with ${CREDENTIAL_SOURCES[result.credentialSource] ?? result.credentialSource}.`, apps: result.apps };
   } catch (error) {
     if (letGo(error)) throw error;
@@ -120,18 +120,26 @@ export async function easAccountCheck(client: T3Client, native: Native, input: R
   return '';
 }
 
+const targetClient = (client: T3Client, environmentId: string) => hostTargets(client).find(target => target.client.environmentId === environmentId)?.client ?? client;
+const named = (target: HostTarget) => target.secondary ? `${target.label} · ${target.secondary}` : target.label;
+
+/** One settings write per connected environment; the environments it could not change go in one toast. */
 async function writeHosts(client: T3Client, native: Native, change: (hosts: EasHost[]) => EasHost[], failedTitle: string): Promise<boolean> {
-  const access = client.restAccess(native);
-  try {
-    const settings = obj((await access.request('server.getConfig')).settings);
-    const updated = await access.request('server.updateSettings', { patch: { easDeviceHosts: change(easHostsOf(settings)) } }, true);
-    client.config = { ...client.config, settings: updated };
-    return true;
-  } catch (error) {
-    if (letGo(error)) throw error;
-    pushToast(client, { kind: 'error', title: failedTitle, description: failure(error) });
-    return false;
-  }
+  const targets = hostTargets(client).length ? hostTargets(client) : [{ client, label: str(obj(client.config.environment).label, 'this environment'), secondary: '', state: null }];
+  const failed = (await Promise.all(targets.map(async target => {
+    const access = target.client.restAccess(native);
+    try {
+      const settings = obj((await access.request('server.getConfig')).settings);
+      const updated = await access.request('server.updateSettings', { patch: { easDeviceHosts: change(easHostsOf(settings)) } }, true);
+      target.client.config = { ...target.client.config, settings: updated };
+      return '';
+    } catch (error) {
+      if (letGo(error)) throw error;
+      return `${named(target)}: ${failure(error)}`;
+    }
+  }))).filter(Boolean);
+  if (failed.length) pushToast(client, { kind: 'error', title: failedTitle, description: failed.join('\n') });
+  return failed.length === 0;
 }
 
 /** rest:eas-* — open / edit / close the editor, save, remove. */
@@ -140,10 +148,12 @@ export async function easHostsCommand(client: T3Client, native: Native, op: stri
   if (op === 'eas-close') { state.editor = null; return ''; }
   if (projectScope) throw new ClientError(PROJECT_SCOPE);
   if (op === 'eas-open' || op === 'eas-edit') {
-    const host = op === 'eas-open' ? newEasDeviceHost(randomId()) : easHostsOf(obj(client.config.settings)).find(entry => entry.id === input.id);
+    // Edit names the environment its row checks the account on: one that holds the host, the selected one first.
+    const environmentId = input.environment || client.environmentId;
+    const host = op === 'eas-open' ? newEasDeviceHost(randomId()) : easHostsOf(obj(targetClient(client, environmentId).config.settings)).find(entry => entry.id === input.id);
     if (!host) throw new ClientError('That EAS host is no longer configured.');
     // The editor checks the account as it opens: its first answer is the check its dialog sends on mount (seq 1).
-    state.editor = { serial: ++state.serial, isNew: op === 'eas-open', host, account: { seq: 0, status: 'checking', message: '', apps: [] }, mount: 0 };
+    state.editor = { serial: ++state.serial, isNew: op === 'eas-open', host, account: { seq: 0, status: 'checking', message: '', apps: [] }, mount: 0, environmentId };
     return '';
   }
   if (op === 'eas-save') {
@@ -151,13 +161,15 @@ export async function easHostsCommand(client: T3Client, native: Native, op: stri
     if (!editor || String(editor.serial) !== input.serial) throw new ClientError('That EAS host editor is no longer open.');
     const host = easDraft(editor, input), problem = easHostProblem(host);
     if (problem) throw new ClientError(problem);
-    if (await writeHosts(client, native, hosts => updateEasDeviceHosts(hosts, host, false), 'EAS host not saved') && state.editor === editor) state.editor = null;
+    const keepToken = !editor.isNew && host.accessToken === editor.host.accessToken;
+    if (await writeHosts(client, native, hosts => updateEasDeviceHosts(hosts, host, false, keepToken), 'EAS host not saved everywhere') && state.editor === editor) state.editor = null;
     return '';
   }
   if (op === 'eas-remove') {
-    const host = easHostsOf(obj(client.config.settings)).find(entry => entry.id === input.id);
+    const held = hostTargets(client).length ? hostTargets(client).map(target => target.client) : [client];
+    const host = held.flatMap(target => easHostsOf(obj(target.config.settings))).find(entry => entry.id === input.id);
     if (!host) throw new ClientError('That EAS host is no longer configured.');
-    await writeHosts(client, native, hosts => updateEasDeviceHosts(hosts, host, true), 'EAS host not removed');
+    await writeHosts(client, native, hosts => updateEasDeviceHosts(hosts, host, true), 'EAS host not removed everywhere');
     return '';
   }
   throw new ClientError(`Unknown settings action: ${op}`);

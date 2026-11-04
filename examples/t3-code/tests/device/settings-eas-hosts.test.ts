@@ -1,10 +1,10 @@
-// Integrations › Devices › EAS Simulator: easDeviceHostsSettings.logic.test.ts (T3 Code 74541bab17) and the
-// editor's account check and writes (EasDeviceHostsSettings.tsx).
+// Settings › Devices › Device sources › EAS Simulator: easDeviceHostsSettings.logic.test.ts (T3 Code 5d3d78ab93)
+// and the editor's account check and writes (EasDeviceHostEditor.tsx, DeviceSourcesSettings.tsx saveEas).
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
-import { easAccountCheck, easEditorView, easHostProblem, easHostsCommand, easHostsView, easSessionLimits, newEasDeviceHost, updateEasDeviceHosts } from '../../src/device/settings-eas-hosts';
+import { easAccountCheck, easEditorView, easHostProblem, easHostsCommand, easSessionLimits, newEasDeviceHost, updateEasDeviceHosts } from '../../src/device/settings-eas-hosts';
 import { toasts } from '../../src/shell/toast';
 import { contractComponent, contractFns } from '../support/contract-action-fixture';
 import { appPath } from '../support/app-files';
@@ -19,6 +19,13 @@ describe('EAS device host settings', () => {
     const edited = { ...eas, label: 'Cloud iPhone', maxConcurrentSessions: 1 };
     expect(updateEasDeviceHosts(added, edited, false)).toEqual([other, edited]);
     expect(updateEasDeviceHosts(added, eas, true)).toEqual([other]);
+  });
+
+  test('keepToken leaves each environment the token it holds, and a new one its own Expo login', () => {
+    const held = { ...newEasDeviceHost('eas-1'), accessToken: 'secret' }, redacted = { ...held, accessToken: REDACTED, label: 'Renamed' };
+    expect(updateEasDeviceHosts([held], redacted, false, true)).toEqual([{ ...redacted, accessToken: 'secret' }]);
+    expect(updateEasDeviceHosts([], redacted, false, true)).toEqual([{ ...redacted, accessToken: '' }]);
+    expect(updateEasDeviceHosts([held], redacted, false)).toEqual([redacted]);
   });
 
   test('rejects limits EAS does not allow', () => {
@@ -70,24 +77,6 @@ describe('the EAS hosts row and editor', () => {
   };
   const native = { available: true } as unknown as Native;
 
-  test('the row shows only on servers that support EAS hosts, and is off where the reference disables it', () => {
-    const { client, settings } = fixture();
-    expect(easHostsView(client, settings, { hosts: [] }, false, true, true).supported).toBe(false);
-    const view = easHostsView(client, settings, { hosts: [], supportsEasHosts: true }, false, true, true);
-    expect(view).toEqual({ supported: true, disabled: false, editing: false, hosts: [{ id: 'cloud', label: 'Cloud iPhone', limits: 'Up to 1 session at once, each stopped after 40 min or 5 idle min', first: true }] });
-    expect(easHostsView(client, settings, { supportsEasHosts: true }, true, true, true).disabled).toBe(true);
-    expect(easHostsView(client, settings, { supportsEasHosts: true }, false, false, true).disabled).toBe(true);
-    expect(easHostsView(client, settings, { supportsEasHosts: true }, false, true, false).disabled).toBe(true);
-  });
-
-  test('a host saved while the save ran draws its Edit and Remove at disabled:opacity-64, then at 1 once it ends', () => {
-    const row = contractComponent('src/device/settings-eas-hosts.contract', 'EasDeviceHostsRow');
-    const button = contractComponent('src/device/settings-eas-hosts.contract', 'EasGhostButton');
-    const opacity = (label: string, busy: boolean) => button.attribute('button id=buttonId', 'opacity', { over: false },
-      { destructive: label === 'Remove', disabled: row.attribute(`EasGhostButton(label="${label}"`, 'disabled', {}, { busy, view: { disabled: false } }) });
-    expect([opacity('Edit', true), opacity('Remove', true), opacity('Edit', false), opacity('Remove', false)]).toEqual([0.64, 0.64, 1, 1]);
-  });
-
   test('Add opens a new host with the defaults and checks the account; a token edit or a later check makes an answer stale', async () => {
     const { client, requests, replies } = fixture();
     await expect(easHostsCommand(client, native, 'eas-open', {}, true)).rejects.toThrow('EAS hosts belong to the environment.');
@@ -95,7 +84,6 @@ describe('the EAS hosts row and editor', () => {
     const editor = easEditorView(client);
     expect(editor).toMatchObject({ open: true, isNew: true, title: 'Add EAS host', label: 'EAS Simulator', tokenSaved: false, appId: '', sessions: '2', sessionMinutes: '30', idleMinutes: '10', accountSeq: 0, accountStatus: 'checking', apps: [] });
     expect(editor.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-    expect(easHostsView(client, {}, { supportsEasHosts: true }, false, true, true).editing).toBe(true);
     // The dialog's first check: no token yet, so the server's EXPO_TOKEN or eas login answers.
     replies['device.easAccount'] = () => ({ signedInAs: 'fixture-user', credentialSource: 'env', apps: [{ id: 'app-1', fullName: '@fixture/app' }] });
     await easAccountCheck(client, native, { serial: editor.serial, seq: '1', tokenKind: 'cleared', token: '' });
@@ -181,15 +169,15 @@ describe('the EAS hosts row and editor', () => {
     const { client, requests, replies, settings } = fixture();
     await easHostsCommand(client, native, 'eas-remove', { id: 'cloud' }, false);
     expect(requests.at(-1)).toEqual(['server.updateSettings', { patch: { easDeviceHosts: [] } }]);
-    expect(easHostsView(client, client.config.settings as Obj, { supportsEasHosts: true }, false, true, true).hosts).toEqual([]);
+    expect((client.config.settings as Obj).easDeviceHosts).toEqual([]);
     client.config = { ...client.config, settings };
     replies['server.updateSettings'] = () => { throw new Error('Device host ids must be unique.'); };
     await easHostsCommand(client, native, 'eas-remove', { id: 'cloud' }, false);
-    expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'EAS host not removed', description: 'Device host ids must be unique.' });
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'EAS host not removed everywhere', description: 'Studio: Device host ids must be unique.' });
     await easHostsCommand(client, native, 'eas-open', {}, false);
     const { serial } = easEditorView(client);
     await easHostsCommand(client, native, 'eas-save', { serial, label: 'Cloud', tokenKind: 'cleared', token: '', appId: '', sessions: '2', sessionMinutes: '30', idleMinutes: '10' }, false);
-    expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'EAS host not saved', description: 'Device host ids must be unique.' });
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'EAS host not saved everywhere', description: 'Studio: Device host ids must be unique.' });
     expect(easEditorView(client).open).toBe(true);
     await easHostsCommand(client, native, 'eas-close', {}, false);
     expect(easEditorView(client).open).toBe(false);

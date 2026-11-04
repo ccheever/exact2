@@ -67,6 +67,13 @@ horizontal scrolling. The source regression covers the declaration, with no
 native screenshot or frame-rate claim. The diary is
 `examples/t3-code/mobile/diary/2026-11-03-markdown-prose-wrap.md`.
 
+The November 4 continuation aligns the transcript error disclosure with the
+reference. Long provider errors still begin collapsed, while the control now
+reads “Show full error” and “Show less” with the reference muted inline styling
+and spacing. The Contract regression covers the presentation; a native long
+error screenshot and reachability check remain open. The diary is
+`examples/t3-code/mobile/diary/2026-11-04-error-disclosure.md`.
+
 The prior integrated history, table, first-read, rail and Home units remain in
 the commit ancestry. Open parity gaps are live history errors/Retry, filtered
 continuation, selection and exact anchor preservation, bounded transcript

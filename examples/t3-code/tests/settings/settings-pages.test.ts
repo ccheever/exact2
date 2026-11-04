@@ -177,8 +177,10 @@ const pages: Record<string, [file: string, component: string, props: Env]> = {
   'source-control': ['settings-source-control.contract', 'SourceControlPanel', { ...host, data: { available: true, error: '', scanned: true, vcs: [{ kind: 'git', details: false }],
     providers: ['github', 'gitcafe', 'bitbucket'].map(kind => ({ kind, details: true })), repositories: [{}], writing: [{}], writingAdvanced: [{}], hostCredentials: [] } }],
   browser: ['settings-source-control.contract', 'IntegrationsPanel', { ...host, view: 'browser', data: { available: true, error: '', browser: [{}] } }],
-  devices: ['settings-source-control.contract', 'IntegrationsPanel', { ...host, view: 'devices', data: { available: true, error: '', simulatorSupport: [any],
-    deviceHosts: { available: true, canAdd: true, groups: [any] }, easHosts: { supported: true, disabled: false, editing: false, hosts: [{ id: 'eas-1', label: 'EAS', limits: '' }] } } }],
+  // Device sources with a failed SSH host: its Retry, platform icons, Edit and More.
+  devices: ['settings-source-control.contract', 'IntegrationsPanel', { ...host, view: 'devices', data: { available: true, error: '', deviceSources: { canAdd: true, disabled: false, eas: true,
+    rows: [some({ key: 'local', menuId: 'device-source-menu-local', actions: false, pending: '', problems: [], platforms: [] }),
+      some({ key: 'ssh:mini:env', menuId: 'device-source-menu-ssh-mini-env', actions: true, test: true, pending: '', problems: [some({ id: 'env', action: 'Retry' })], platforms: [some({ id: 'ios', groups: [], grid: [] })] })] } } }],
   worktrees: ['settings-storage.contract', 'StoragePanel', { ...host, view: 'worktrees', data: { available: true, directorySupported: true, error: '', notice: '', creation: [{}], creationAdvanced: [{}],
     branches: [{}], worktrees: [{}], worktreesAdvanced: [{}], keepSupported: true, project: false, databaseNotices: [], artifacts: [], cleanupAvailable: false, cleanupReports: [], diagnostics: [] } }],
   maintenance: ['settings-storage.contract', 'StoragePanel', { ...host, view: 'maintenance', data: { available: true, error: '', notice: '', databaseNotices: [{}], artifacts: [{}],
@@ -220,7 +222,7 @@ describe("Shift+Tab from the first stop wraps to the page's last control (RouteF
   const shiftTab = { shiftKey: true, metaKey: false, ctrlKey: false, altKey: false };
   test.each([
     ['open-source-licenses', 'View project source for'],
-    ['devices', 'EasGhostButton'],
+    ['devices', '${source.menuId}-more'],
     // Environments: Add environment with this machine alone; with more, Pull request sharing's last machine (its fold open).
     ['connections (one machine)', 'manage-connection'],
     ['connections', 'CnSelect'],

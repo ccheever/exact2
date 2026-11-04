@@ -65,7 +65,7 @@ describe('dialog focus lifecycle uses the actual previous focus', () => {
     ['pages-usage.contract', 'UsageBreadcrumb', '"usage-environment-menu"', '"usage-environment"', 'usage-environment-menu', 'usage-environment', 'usage-environment-keys', 'usage-model-prices'],
     ['timeline-plan.contract', 'PlanCard', '`plan-menu-${message.id}`', '`plan-actions-${message.id}`', 'plan-menu-one', 'plan-actions-one', 'plan-menu-one-keys', 'plan-save-one'],
     ['settings-scheduled.contract', 'TaskRow', '`task-menu-${item.id}`', '`task-actions-${item.environmentId}|${item.id}`', 'task-menu-one', 'task-actions-remote|one', 'task-menu-one-keys', 'task-edit-one'],
-    ['settings-a-hosts.contract', 'HostRowView', 'host.menuId', '`device-host-options-${host.id}`', 'device-host-menu-one', 'device-host-options-one', 'device-host-menu-one-keys', 'device-host-edit-one'],
+    ['settings-device-sources.contract', 'SourceRowView', 'source.menuId', '`${source.menuId}-more`', 'device-source-menu-one', 'device-source-menu-one-more', 'device-source-menu-one-keys', 'device-source-menu-one-test'],
     ['connections.contract', 'EnvironmentRow', '`environment-menu-${environment.environmentId}-popup`', '`environment-menu-${environment.environmentId}`', 'environment-menu-remote-popup', 'environment-menu-remote', 'environment-menu-remote-popup-keys', 'environment-remove-remote'],
     ['connections.contract', 'EnvironmentRow', '`environment-menu-${environment.environmentId}-popup`', '`environment-menu-${environment.environmentId}`', 'environment-menu-local-popup', 'environment-menu-local', 'environment-menu-local-popup-keys', 'forget-server'],
     ['git.contract', 'GitMenu', '"details-git-options"', '"details-git-menu"', 'details-git-options', 'details-git-menu', 'details-git-options-keys', 'details-git-menu-commit'],
@@ -78,7 +78,7 @@ describe('dialog focus lifecycle uses the actual previous focus', () => {
   for (const [file, name, popupExpr, invokerExpr, popup, invoker, first, row] of menus) {
     test(`${name} ${row}: closing returns hidden keyboard/pointer menu focus to its actual invoker`, async () => {
       const lines = (await component(file, name)).join('\n');
-      if (['TaskRow', 'HostRowView', 'EnvironmentRow'].includes(name)) {
+      if (['TaskRow', 'SourceRowView', 'EnvironmentRow'].includes(name)) {
         expect(lines).toContain(`menuId=${popupExpr}, invoker=${invokerExpr}`);
         const shared = (await component(name === 'EnvironmentRow' ? 'settings-b-kit.contract' : 'settings-kit.contract', name === 'EnvironmentRow' ? 'CnMenu' : 'SkPopup')).join('\n');
         expect(shared).toContain('id=menuId data-dialog-return="menu" focusin=dialogMenuEntered(menuId, invoker)');

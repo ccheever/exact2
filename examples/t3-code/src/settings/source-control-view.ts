@@ -7,17 +7,16 @@ import { can } from '../connections/command-permissions';
 // SourceControlWritingSettings.tsx, IntegrationsSettings.tsx, SettingInheritance.tsx).
 // Rows carry their inheritance chain; writes are server.updateSettings patches
 // with the reference's project-override replacement semantics.
-// 1e2ecbd975 (5318d054a5): Integrations › Devices adds the Simulator support row (device-support.ts).
 import { redactedValue } from '../shared/redacted-text'; // RedactedAccount
 import { arr, obj, str, num, type Json, type Obj } from '../client/domain';
 import { writingStyleOf } from './scoped-settings';
 import type { T3Client } from '../client/client';
 import { providerAvailable, type Native } from '../client/protocol';
 import { deviceTool } from '../device/settings-a-integrations';
-import { deviceHostsView, scopedDeviceHostsView } from '../device/settings-a-hosts';
-import { easHostsView } from '../device/settings-eas-hosts';
+import { hostEditorView, syncHostTargets } from '../device/settings-a-hosts';
+import { easEditorView } from '../device/settings-eas-hosts';
+import { deviceSourcesView } from '../device/settings-device-sources';
 import { deviceScope } from '../device/settings-integrations-scope';
-import { connectedEnvironmentCount, simulatorSupportRows, type SimulatorSupportRow } from '../device/device-support'; // 5318d054a5: Simulator support row
 import { letGo } from '../client/let-go';
 import { linkTargetPreference } from '../browser/browser-links';
 import { resolveScope, memberFiles, serverContext, inheritanceGroups, type InheritanceGroup, formatSettingValue as formatValue, traitsControl, type CoreOption } from './settings-core';
@@ -173,13 +172,12 @@ export function integrationRows(settings: Obj, projectId: string, environmentLab
     browser: [row(settings, projectId, environmentLabel, 'enableAgentBrowserAccess', { kind: 'switch', title: 'Agent browser access', resetLabel: 'default browser access', first: true, checked: value.enableAgentBrowserAccess !== false, disabled: !writable,
       description: project ? 'Allow agents in this project to use the shared browser. Applies when the agent session next starts.' : 'Allow agents to use the shared browser. Projects can override it.',
       reset: project ? (overridden('enableAgentBrowserAccess') ? 'key=enableAgentBrowserAccess&value=__inherit__' : '') : value.enableAgentBrowserAccess === false ? 'key=enableAgentBrowserAccess&value=__default__' : '' })],
-    deviceHub: row(settings, projectId, environmentLabel, 'enableDeviceSupport', { kind: 'switch', title: 'Device hub', first: true, checked: settings.enableDeviceSupport === true, disabled: project || !writable,
-      description: 'Enable this environment to open simulators and emulators, whether they run here or on a remote device host.' }),
-    agentDevice: row(settings, projectId, environmentLabel, 'enableAgentDeviceAccess', { kind: 'switch', title: 'Agent device access', checked: value.enableAgentDeviceAccess === true, disabled: !writable || (!project && settings.enableDeviceSupport !== true),
-      description: 'Allow new agent sessions in this environment to start and control local and remote devices, with required tools set up automatically.',
+    // The description ends with the tool's version button (DeviceToolVersions), drawn after it.
+    deviceHub: row(settings, projectId, environmentLabel, 'enableDeviceSupport', { kind: 'switch', title: 'Use devices', control: 'Device hub', first: true, checked: settings.enableDeviceSupport === true, disabled: project || !writable,
+      description: 'Open simulators and emulators in the Device panel. Hub:' }),
+    agentDevice: row(settings, projectId, environmentLabel, 'enableAgentDeviceAccess', { kind: 'switch', title: 'Agents can use devices', control: 'Agent device access', checked: value.enableAgentDeviceAccess === true, disabled: !writable || (!project && settings.enableDeviceSupport !== true),
+      description: 'New agent sessions can open and drive these devices. agent-device:',
       reset: project ? (overridden('enableAgentDeviceAccess') ? 'key=enableAgentDeviceAccess&value=__inherit__' : '') : '' }),
-    hostsRow: row(settings, projectId, environmentLabel, 'deviceHosts', { kind: 'hosts', title: 'Device hosts' }),
-    easHostsRow: row(settings, projectId, environmentLabel, 'easDeviceHosts', { kind: 'hosts', title: 'EAS Simulator' }),
   };
 }
 
@@ -328,9 +326,8 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
 
 export async function integrationsPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, machine = '', projectKey = '', checkout = '') {
   const empty = { available: false, error: '', project: projectId !== '', scope: `${environmentId}:${projectId}`, deviceScope: '', browser: [] as ScopedRow[], deviceHub: blankRow(), agentDevice: blankRow(), hubStatus: '', agentStatus: '', hosts: 0,
-    hubTool: deviceTool('hub', null), agentTool: deviceTool('agent', null), hostsRow: blankRow(), deviceHosts: deviceHostsView(client, {}, null, projectId !== '', false),
-    easHostsRow: blankRow(), easHosts: easHostsView(client, {}, null, projectId !== '', false, false),
-    simulatorSupport: [] as SimulatorSupportRow[], linkTarget: linkTargetPreference(client) }; // "Open links in"
+    hubTool: deviceTool('hub', null), agentTool: deviceTool('agent', null), deviceSources: deviceSourcesView([], '', false, true, false),
+    linkTarget: linkTargetPreference(client) }; // "Open links in"
   if (!active) return { ...empty };
   const error = scopeError(client, native, environmentId, projectId);
   if (error || !native) return { ...empty, error };
@@ -348,7 +345,7 @@ export async function integrationsPage(client: T3Client, native: Native | null |
     const devices = deviceScope(client, machine, legacy ? legacy.key : projectKey, legacy ? '' : checkout);
     const scope = resolveScope(client, machine, legacy?.key ?? projectKey, checkout);
     const context = serverContext(client, scope, await memberFiles(client, native, scope.members, scope));
-    for (const row of [...rows.browser, rows.deviceHub, rows.agentDevice, rows.hostsRow, rows.easHostsRow]) row.layerGroups = inheritanceGroups(context, row.key, DEFAULTS);
+    for (const row of [...rows.browser, rows.deviceHub, rows.agentDevice]) row.layerGroups = inheritanceGroups(context, row.key, DEFAULTS);
     rows.deviceHub = { ...rows.deviceHub, checked: devices.checked.enableDeviceSupport, mixed: devices.mixed.enableDeviceSupport,
       disabled: devices.project || devices.unavailable || devices.connectedCount === 0 || !can(client, 'settings:write') };
     rows.agentDevice = { ...rows.agentDevice, checked: devices.checked.enableAgentDeviceAccess, mixed: devices.mixed.enableAgentDeviceAccess,
@@ -359,9 +356,9 @@ export async function integrationsPage(client: T3Client, native: Native | null |
     const deviceState = deviceStateOf(client), tools = obj(arr(deviceState?.hosts).find(host => host.kind === 'local')?.tools);
     const hubStatus = deviceState ? toolVersion(tools.hub) : 'Version unknown', agentStatus = deviceState ? toolVersion(tools.agent) : 'Version unknown';
     return { ...empty, available: true, ...rows, deviceScope: devices.scopeKey, hubStatus, agentStatus, hosts: Array.isArray(settings.deviceHosts) ? settings.deviceHosts.length : 0,
-      hubTool: deviceTool('hub', deviceState), agentTool: deviceTool('agent', deviceState), deviceHosts: scopedDeviceHostsView(client, native, resolveScope(client, machine, legacy?.key ?? projectKey, checkout).selected, resolveScope(client, machine, legacy?.key ?? projectKey, checkout).environments, deviceState, projectId !== ''),
-      easHosts: easHostsView(client, settings, deviceState, projectId !== '', can(client, 'settings:write'), client.ready),
-      simulatorSupport: simulatorSupportRows(client, environmentId, settings.enableDeviceSupport === true, deviceState, connectedEnvironmentCount(client)) };
+      hubTool: deviceTool('hub', deviceState), agentTool: deviceTool('agent', deviceState),
+      deviceSources: deviceSourcesView(syncHostTargets(client, native, scope.selected, scope.environments, deviceState), client.environmentId, deviceState?.supportsEasHosts === true,
+        projectId !== '' || devices.project, hostEditorView(client).open || easEditorView(client).open) };
   } catch (failure) { return { ...empty, error: failure instanceof Error ? failure.message : 'Could not load settings.' }; }
 }
 export function toolVersion(value: unknown): string {

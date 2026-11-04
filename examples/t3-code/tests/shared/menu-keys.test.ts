@@ -157,7 +157,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     ['settings-rows.contract', 'ScopeSentence', 'projectKey'], ['settings-rows.contract', 'ScopeSentence', 'environmentKey'],
     ['settings-source-control.contract', 'WriterTraitsPicker', 'triggerKey'],
     ['settings-rows.contract', 'CoreRowView', 'traitsKey'], ['settings-rows.contract', 'CoreSelect', 'triggerKey'],
-    ['pages-pr-code.contract', 'PrdCodeToolbar', 'triggerKey'], ['pages-pr-code.contract', 'PrdDiffOptions', 'triggerKey'], ['settings-a-hosts.contract', 'HostRowView', 'triggerKey'],
+    ['pages-pr-code.contract', 'PrdCodeToolbar', 'triggerKey'], ['pages-pr-code.contract', 'PrdDiffOptions', 'triggerKey'], ['settings-device-sources.contract', 'SourceRowView', 'triggerKey'], ['settings-device-sources.contract', 'DeviceSourcesSection', 'triggerKey'],
     ['pages-pr-quick.contract', 'PrRowStack', 'triggerKey'], ['settings-kit.contract', 'SelectControl', 'triggerKey'],
     ['pages-prs.contract', 'PrSortMenu', 'triggerKey'], ['pages-prs.contract', 'PrHostMenu', 'triggerKey'],
     ['pages-prs.contract', 'PrFiltersMenu', 'triggerKey'], ['device-tools.contract', 'ToolsSelect', 'triggerKey'],
@@ -201,7 +201,7 @@ describe('public popover triggers execute one ordered command sequence', () => {
     const scope: Env = { ...await helpers, ...effects(calls), [itemName]: items, section: 'models', rowId: 'model', rowRef: 'repo:42',
       selectId: 'select', menuId: 'popup', popId: 'row-popup', idPrefix: 'account-', t: { id: 'thread' }, row: { id: 'row' },
       projects: [{ id: 'project' }], environments: [{ id: 'env' }], environment: { environmentId: 'env' }, account: { instanceId: 'instance' }, message: { id: 'message' },
-      host: { id: 'host', menuId: 'host-popup' }, item: { id: 'task', environmentId: 'task-env' }, approval: { id: 'approval' }, testId: 'rail-trigger',
+      host: { id: 'host', menuId: 'host-popup' }, source: { menuId: 'source-popup' }, item: { id: 'task', environmentId: 'task-env' }, approval: { id: 'approval' }, testId: 'rail-trigger',
       frame: () => ({ x: 0, y: 0, width: 600, height: 28 }) };
     // SelectControl measures its trigger as the keys open it (SelectPopup's min-w-(--anchor-width)).
     const state = (): Env => (name === 'SelectControl' ? { anchorWidth: 0 } : {});

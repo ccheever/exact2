@@ -13,7 +13,8 @@ import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { scopeEnvironments, scopeProjectGroups } from '../../src/settings/settings-scope-sources';
 import { restCommand } from '../../src/settings/settings-rest-commands';
 import { archivedSettings, lastRunSummary, storageSettings, worktreeRows } from '../../src/settings/settings-data';
-import { groupDeviceHosts, scopedDeviceHostsView, deviceHostsCommand, hostChecks } from '../../src/device/settings-a-hosts';
+import { groupDeviceHosts, syncHostTargets, deviceHostsCommand, hostChecks } from '../../src/device/settings-a-hosts';
+import { deviceSourcesView } from '../../src/device/settings-device-sources';
 import { taskEnvironmentSummaries } from '../../src/settings/scheduled-view';
 import { toasts } from '../../src/shell/toast';
 import { runCleanup } from '../../src/settings/storage-maintenance';
@@ -349,18 +350,17 @@ describe('eight-machine settings', () => {
       return { ok: true, generation: environment.generation, value };
     } };
     const scope = resolveScope(as(client), '', '', '');
-    const view = scopedDeviceHostsView(as(client), native, scope.selected, scope.environments, null, false);
-    expect(view.groups).toEqual([]);
-    expect(view.hosts).toHaveLength(1);
+    const sources = () => deviceSourcesView(syncHostTargets(as(client), native, scope.selected, scope.environments, null), as(client).environmentId, false, false, false).rows.slice(1);
+    expect(sources()).toHaveLength(1);
     await deviceHostsCommand(as(client), native, 'hosts-test-row', { id: 'h-a' }, false);
     expect(hostChecks(as(client))[0]!.results).toHaveLength(8);
     expect(hostChecks(as(client))[0]!.summary).toBe('Connection checks passed');
     expect(groupDeviceHosts([{ environmentId: 'a', label: 'A', hosts: [host] }, { environmentId: 'b', label: 'B', hosts: [{ ...host, target: 'other' }] }])).toBeNull();
     const changed = fleet.entries.values().next().value!;
     changed.config.settings = { deviceHosts: [{ ...host, label: 'Different label' }] };
-    expect(scopedDeviceHostsView(as(client), native, scope.selected, scope.environments, null, false).groups).toHaveLength(8);
+    expect(sources()).toHaveLength(8);
   });
-  test('folded device hosts identify configured hosts and summarize more than two names', () => {
+  test('device hosts that differ between environments stay one row each, acting on their own environment', () => {
     const host = { id: 'shared', label: 'Build host', target: 'builder' };
     const client = focused({ deviceHosts: [host] });
     Object.assign(client, { shell: initialShell() });
@@ -369,9 +369,10 @@ describe('eight-machine settings', () => {
     ] }));
     fleet.entries.set(C, entry(C, 'env-c', 'Empty machine', {}));
     const scope = resolveScope(as(client), '', '', '');
-    const view = scopedDeviceHostsView(as(client), nativeFor(), scope.selected, scope.environments, null, false);
-    expect(view.groups.map(group => [group.id, group.summary])).toEqual([
-      ['env-a', 'Build host'], ['env-b', 'Mac mini, Simulator +1'], ['env-c', 'No device hosts'],
+    const rows = deviceSourcesView(syncHostTargets(as(client), nativeFor(), scope.selected, scope.environments, null), as(client).environmentId, false, false, false).rows;
+    expect(rows.map(row => [row.title, row.editParams])).toEqual([
+      ['Local simulators', ''], ['Build host', 'id=shared&environment=env-a'], ['Mac mini', 'id=shared&environment=env-b'],
+      ['Simulator', 'id=sim&environment=env-b'], ['Device lab', 'id=lab&environment=env-b'],
     ]);
   });
   test('archives join logical projects, preserve colliding thread ids and cache reads per machine', async () => {

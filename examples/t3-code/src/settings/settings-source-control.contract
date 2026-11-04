@@ -27,12 +27,8 @@ use BrandAzureDevOps from "./settings-brands.contract"
 use BrandBitbucket from "./settings-brands.contract"
 use BrandGitCafe from "./settings-brands.contract"
 use BrandForgejo from "./settings-brands.contract"
-use DeviceHostsView from "../device/settings-a-hosts.contract"
-use DeviceHostsRow from "../device/settings-a-hosts.contract"
-use EasHostsView from "../device/settings-eas-hosts.contract"
-use EasDeviceHostsRow from "../device/settings-eas-hosts.contract"
-use SimulatorSupportRow from "../device/device-support.contract"
-use SimulatorSupportSettingsRow from "../device/device-support.contract"
+use DeviceSourcesView from "../device/settings-device-sources.contract"
+use DeviceSourcesSection from "../device/settings-device-sources.contract"
 use ScopedSwitch from "./settings-scoped-switch.contract"
 use BrowserProfilesView from "../browser/browser-profiles.contract"
 use BrowserProfilesSetting from "../browser/browser-profiles.contract"
@@ -152,12 +148,8 @@ shape IntegrationsPage
   hosts: number
   hubTool: DeviceTool
   agentTool: DeviceTool
-  hostsRow: ScopedRow
-  deviceHosts: DeviceHostsView
-  // EAS Simulator hosts (settings-eas-hosts.ts), shown when the device state says `supportsEasHosts`.
-  easHostsRow: ScopedRow
-  easHosts: EasHostsView
-  simulatorSupport: SimulatorSupportRow[]
+  // Device sources (settings-device-sources.ts): this machine's simulators, SSH hosts and EAS hosts.
+  deviceSources: DeviceSourcesView
   // Browser profiles and the import wizard (browser-profiles-settings.ts).
   browserProfiles: BrowserProfilesView
   // "Open links in" ("system" or "app", the client setting browserLinkTarget).
@@ -523,18 +515,8 @@ component IntegrationsPanel
             SectionTitle(title="Devices")
           Card()
             DeviceRow(row=data.deviceHub, tool=data.hubTool, scope=data.deviceScope, busy=busy, rest=rest)
-            // 1e2ecbd975 (5318d054a5): Simulator support, revealed once the hub is ready or the local host lacks a platform.
-            for support in data.simulatorSupport key=support.key
-              SimulatorSupportSettingsRow(row=support, busy=busy, rest=rest)
             DeviceRow(row=data.agentDevice, tool=data.agentTool, scope=data.deviceScope, busy=busy, rest=rest)
-            column width="100%" id="device-hosts" tabindex=-1
-              DeviceHostsRow(view=data.deviceHosts, busy=busy, rest=rest)
-                if data.hostsRow.summary != ""
-                  Inheritance(row=data.hostsRow, rest=rest, rowHovered=true)
-            if data.easHosts.supported
-              EasDeviceHostsRow(view=data.easHosts, busy=busy, rest=rest)
-                if data.easHostsRow.summary != ""
-                  Inheritance(row=data.easHostsRow, rest=rest, rowHovered=true)
+        DeviceSourcesSection(view=data.deviceSources, busy=busy, rest=rest)
 
 component DeviceRow
   props
@@ -554,10 +536,12 @@ component DeviceRow
           if row.summary != ""
             Inheritance(row=row, rest=rest, rowHovered=hovered)
           box width="1.25rem" height="1.25rem"
-        text row.description font-size="0.75rem" line-height="1.125rem" color="light-dark(#71717b, #a1a1a1)" max-width="42rem" text-wrap="balance"
+        // The description ends with the tool's version (DeviceToolVersions), an inline button after "Hub:".
+        row flex-wrap="wrap" align-items="baseline" column-gap="0.25rem" max-width="42rem"
+          text row.description font-size="0.75rem" line-height="1.125rem" color="light-dark(#71717b, #a1a1a1)"
+          DeviceVersions(tool=tool, busy=busy, rest=rest)
       row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem"
-        DeviceVersions(tool=tool, busy=busy, rest=rest)
-        ScopedSwitch(checked=row.checked, mixed=row.mixed, label=row.title, disabled=(busy or row.disabled), faded=(busy or row.disabled), on="light-dark(#1b4ed8, #346bf1)", off="light-dark(#d4d4d8, #ffffff1c)", thumb="light-dark(#fcfcfc, #000000)", thumbOff="light-dark(#fcfcfc, #a1a1a1)", reduced=false, switchId=`device-${row.key}`, press=rest("device", `key=${row.key}&value=${row.mixed or not row.checked ? "true" : "false"}&scope=${scope}`))
+        ScopedSwitch(checked=row.checked, mixed=row.mixed, label=row.control, disabled=(busy or row.disabled), faded=(busy or row.disabled), on="light-dark(#1b4ed8, #346bf1)", off="light-dark(#d4d4d8, #ffffff1c)", thumb="light-dark(#fcfcfc, #000000)", thumbOff="light-dark(#fcfcfc, #a1a1a1)", reduced=false, switchId=`device-${row.key}`, press=rest("device", `key=${row.key}&value=${row.mixed or not row.checked ? "true" : "false"}&scope=${scope}`))
 
 // SettingsGroup's divider above a row that draws none of its own.
 component CardDivided
@@ -655,8 +639,8 @@ component DeviceVersions
     hovered = over
   view
     box position="relative" flex-shrink=0
-      button popovertarget=`device-versions-${tool.kind}` hover=hover aria-label=tool.aria testId=`device-status-${tool.kind}` display="flex" flex-direction="row" align-items="center" height="1.5rem" padding=0 border-width=0 background-color="#00000000" id=`device-status-${tool.kind}` data-focus-stop="enabled page"
-        text tool.label font-size="1rem" font-weight=500 line-height="1.5rem" color=(hovered ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)") text-decoration-line=(hovered ? "underline" : "none") white-space="nowrap"
+      button popovertarget=`device-versions-${tool.kind}` hover=hover aria-label=tool.aria testId=`device-status-${tool.kind}` display="flex" flex-direction="row" align-items="center" padding=0 border-width=0 background-color="#00000000" id=`device-status-${tool.kind}` data-focus-stop="enabled page"
+        text tool.label font-size="0.75rem" font-weight=500 line-height="1.125rem" color=(hovered ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)") text-decoration-line=(hovered ? "underline" : "none") white-space="nowrap"
       column id=`device-versions-${tool.kind}` popover="auto" position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width="20rem" padding="1rem" gap=0 box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff1a)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label=tool.title testId=`device-versions-${tool.kind}-popover`
         text tool.title font-size="0.875rem" font-weight=600 line-height="0.875rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2
         if tool.known

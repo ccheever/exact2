@@ -1,25 +1,12 @@
-// Integrations › Devices › EAS Simulator (settings-eas-hosts.ts): the row with its host list
-// (EasDeviceHostsSettings) and the Add/Edit EAS host dialog (EasDeviceHostEditor), mounted at
-// the window root by SettingsADialogs.
+// Settings › Devices › Device sources › EAS Simulator (settings-eas-hosts.ts): the Add/Edit EAS
+// host dialog (EasDeviceHostEditor), mounted at the window root by SettingsADialogs.
 use FieldPlaceholder from "../shared/field-placeholder.contract"
-use LucideCloud from "../settings/settings-icons.contract"
 use LucideX from "../settings/settings-icons.contract"
 use PvRemoveButton from "../settings/providers-kit.contract"
-use HostButton from "./settings-a-hosts.contract"
 use HostField from "./settings-a-hosts.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 
-shape EasHostRow
-  id: string
-  label: string
-  limits: string
-  first: bool
-shape EasHostsView
-  supported: bool
-  disabled: bool
-  editing: bool
-  hosts: EasHostRow[]
 shape EasApp
   id: string
   fullName: string
@@ -60,63 +47,6 @@ component EasSpinner
     box width="0.75rem" height="0.75rem" flex-shrink=0 animation=(still ? "none" : "easSpin 1s linear infinite") aria-hidden=true
       svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
         path d="M21 12a9 9 0 1 1-6.219-8.56"
-
-// Button size sm, variant ghost or ghost-destructive (ui/button.tsx): the foreground's ink, or the muted one for
-// ghost-destructive; hovered, the accent behind it and ghost-destructive's ink destructive. A :hover block cannot set
-// `color`, so the button keeps its hover in state; its :active block is the pressed accent.
-component EasGhostButton
-  inject
-    dialogOpener: action
-  props
-    label: string
-    destructive: bool
-    disabled: bool
-    press: action
-    buttonId: string
-  state over = false
-  action hover(value: bool)
-    over = value
-  derive lit = over and not disabled
-  action pressed
-    dialogOpener(buttonId)
-    press()
-  view
-    button id=buttonId press=pressed hover=hover disabled=disabled testId=buttonId display="flex" flex-direction="row" align-items="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) data-focus-stop=(disabled ? "" : "enabled page")
-      :active
-        background-color="light-dark(#f4f4f5, #ffffff0a)"
-      text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(destructive ? (lit ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)") : "light-dark(#18181b, #f5f5f5)") white-space="nowrap"
-
-// SettingsRow "EAS Simulator" over `easDeviceHosts` (serverScoped; its inheritance button is the slot), with the host list as its children.
-component EasDeviceHostsRow
-  props
-    view: EasHostsView
-    busy: bool
-    rest: action
-  slot
-  view
-    column width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.25rem" padding-left="1rem" padding-right="1rem" border-top-width=1 border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" testId="device-row-eas-hosts" id="eas-device-hosts"
-      row width="100%" gap="2rem" align-items="center"
-        column flex=1 min-width=0 gap="0.25rem"
-          row min-height="1.25rem" align-items="center" gap="0.375rem"
-            text "EAS Simulator" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
-            children
-            box width="1.25rem" height="1.25rem"
-          text "Run iOS Simulators in Expo's cloud from this environment. Sessions bill the Expo account until they stop, so each host limits how many run and for how long. Editing or removing a host stops its running sessions." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)" max-width="36rem"
-        row flex-shrink=0 min-width="10rem" justify-content="flex-end"
-          HostButton(label="Add EAS host", disabled=(busy or view.disabled or view.editing), press=rest("eas-open", ""), buttonId="eas-hosts-add", plus=true, stop="enabled page")
-      column width="100%" padding-top="0.75rem" padding-bottom="0.5rem" box-sizing="border-box"
-        if view.hosts.length == 0
-          text "No EAS hosts." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" testId="eas-hosts-empty"
-        for host in view.hosts key=host.id
-          row width="100%" gap="0.75rem" align-items="center" justify-content="space-between" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-top-width=(host.first ? 0 : 1) border-top-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" testId=`eas-host-${host.id}`
-            column flex=1 min-width=0
-              row min-width=0 gap="0.375rem" align-items="center"
-                LucideCloud(size=14, color="light-dark(#18181b, #f5f5f5)")
-                text host.label font-size="0.875rem" font-weight=500 line-height="1.25rem" line-clamp=1 color="light-dark(#18181b, #f5f5f5)"
-              text host.limits font-size="0.75rem" line-height="1rem" line-clamp=1 color="light-dark(#71717b, #a1a1a1)" testId=`eas-host-limits-${host.id}`
-            row flex-shrink=0 gap="0.25rem"
-              EasGhostButton(label="Edit", destructive=false, disabled=(busy or view.disabled), press=rest("eas-edit", `id=${encodeURIComponent(host.id)}`), buttonId=`eas-host-edit-${host.id}`)
-              EasGhostButton(label="Remove", destructive=true, disabled=(busy or view.disabled), press=rest("eas-remove", `id=${encodeURIComponent(host.id)}`), buttonId=`eas-host-remove-${host.id}`)
 
 // EasDeviceHostEditor: Name, the Expo access token, the account check, the EAS project and the
 // three limits; Cancel / Save host. The draft lives here; Save sends it and the server checks it.
