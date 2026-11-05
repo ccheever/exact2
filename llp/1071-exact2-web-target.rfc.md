@@ -344,6 +344,12 @@ JS render path (`render.mjs --serve`) streams the same way. Chrome acts on a
 103 only over HTTP/2, so on the bench's HTTP/1.1 loopback the 103 changes
 nothing; it is there for a CDN in front.
 
+**Status before headers (James, 2026-11-04):** "Ok wait for pages that can correctly specify their status".
+The Bun renderer holds a navigation's headers when an active head declares a status, or outstanding data can
+change a status condition, loop or navigation selector. A settled resource can change after another source writes
+the store or announces a watched change, so it counts while work remains. The compiler excludes a literal route
+that a fixed selector and an always-present selected sibling keep inactive. Other pages keep the early head.
+
 **A smaller page.** The checkpoint's answers are JSON text (lossless:
 records `{"r":[…]}`, `some` `{"s":…}`, `none` `{}`; `-0` and non-finite
 numbers kept), not base64 value bytes, so brotli matches them against the

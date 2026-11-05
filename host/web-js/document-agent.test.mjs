@@ -3,6 +3,335 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
 import { webCompiler } from './module.mjs';
+import { suiteBrowser } from '../../scripts/agent-launch.mjs';
+
+test('navigation waits for unknown status capability', async () => {
+  const { pageServer } = await import('./render.mjs');
+  const page = pageServer('/unused', { begin: async () => ({
+    policy: 'request', head: '<!doctype html>',
+    finish: async () => ({ html: 'Missing', rest: 'Missing', status: 404, policy: 'request', failed: [], location: '/missing' }),
+  }) }, () => {});
+  const response = await page('/missing', name => name === 'sec-fetch-dest' ? 'document' : undefined);
+  expect(response.status).toBe(404);
+});
+
+test.each([
+  ['navigation waits for a page that can declare its status', [
+    ['plain', '/', 200, false], ['inactive', '/inactive', 200, false],
+    ['missing', '/missing', 404, true], ['gone', '/gone', 410, true], ['unavailable', '/unavailable', 503, true],
+    ['static', '/static', 410, true], ['matched', '/matched', 404, true], ['rows', '/rows', 410, true],
+    ['virtual', '/virtual', 410, true], ['selection', '/selection', 404, true],
+    ['childSelection', '/child-selection', 404, true], ['tabSelection', '/tab-selection', 404, true],
+    ['panelRole', '/panel-role', 404, true], ['panelId', '/panel-id', 404, true], ['tabControls', '/tab-controls', 404, true],
+    ['siblingSelection', '/sibling-selection', 404, true], ['siblingRemoval', '/sibling-removal', 404, true],
+    ['cachedUnavailable', '/cached-unavailable', 503, true], ['cachedUnavailable', '/cached-unavailable', 503, true],
+    ['cachedOk', '/cached-ok', 200, true], ['client', '/client', 200, false],
+  ]],
+  ['navigation waits for store-driven status revalidation', [['storeStatus', '/store-status', 404, true]]],
+  ['navigation waits for a discarded request that can change status', [['discardedStatus', '/discarded-status', 404, true]]],
+  ['navigation waits for a route mounted in an inactive tab', [
+    ['conditionalTab', '/conditional-tab', 404, true],
+    ['conditionalMatch', '/conditional-match', 404, true],
+    ['conditionalRows', '/conditional-rows', 404, true],
+    ['conditionalNaming', '/conditional-naming', 404, true],
+  ]],
+  ['navigation sends its head before an unselectable conditional status', [['conditionalInactive', '/conditional-inactive', 200, false]]],
+  ['navigation sends its head before an unselectable conditional tab', [['conditionalInactiveTab', '/conditional-inactive-tab', 200, false]]],
+  ['navigation ignores data confined to an inactive route', [['inactiveData', '/inactive-data', 200, false]]],
+])('%s', async (_name, cases) => {
+  if (webCompiler().cmd === 'cargo') { throw new Error('build the compiler first: cargo build -p exact-web-js'); }
+  const root = resolve(import.meta.dirname, '../..'), dir = mkdtempSync(resolve(root, 'target/status-document-test-'));
+  const held = new Set(), waiting = new Map();
+  let arrived, site, browser;
+  const api = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+    const name = new URL(request.url).pathname.slice(1);
+    return new Promise(done => {
+      const release = () => {
+        held.delete(release);
+        done(Response.json({ ready: name !== 'cachedOk', key: 'second', label: name + ' loaded', rows: [410] }, { headers: { 'cache-control': 'no-store' } }));
+      };
+      held.add(release);
+      waiting.set(name, release);
+      arrived?.(name);
+    });
+  } });
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Status Document Test', app: { id: 'test.status-document', name: 'Status Document Test' }, host: { web: {} } }));
+    writeFileSync(resolve(dir, 'app.contract'), `shape Page
+  ready: bool
+  key: string
+  label: string
+  rows: number[]
+
+routes nav
+  plain "/" render=request activate=never
+  missing "/missing" render=request activate=never
+  gone "/gone" render=request activate=never
+  unavailable "/unavailable" render=request activate=never
+  static "/static" render=request activate=never
+  matched "/matched" render=request activate=never
+  rows "/rows" render=request activate=never
+  virtual "/virtual" render=request activate=never
+  inactive "/inactive" render=request activate=never
+  conditionalInactive "/conditional-inactive" render=request activate=never
+  storeStatus "/store-status" render=request activate=never
+  discardedStatus "/discarded-status" render=request activate=never
+  conditionalInactiveTab "/conditional-inactive-tab" render=request activate=never
+  selection "/selection" render=request activate=never
+  childSelection "/child-selection" render=request activate=never
+  siblingSelection "/sibling-selection" render=request activate=never
+  siblingRemoval "/sibling-removal" render=request activate=never
+  tabSelection "/tab-selection" render=request activate=never
+  conditionalTab "/conditional-tab" render=request activate=never
+  conditionalMatch "/conditional-match" render=request activate=never
+  conditionalRows "/conditional-rows" render=request activate=never
+  conditionalNaming "/conditional-naming" render=request activate=never
+  inactiveData "/inactive-data" render=request activate=never
+  panelRole "/panel-role" render=request activate=never
+  panelId "/panel-id" render=request activate=never
+  tabControls "/tab-controls" render=request activate=never
+  cachedUnavailable "/cached-unavailable" render=cached activate=never
+  cachedOk "/cached-ok" render=cached activate=never
+  client "/client" render=request activate=idle
+
+component App
+  state pressed = false
+  state selected = "first"
+  resource page = page(top(nav).name) as shape Page else empty(key="first")
+  resource stored = stored() as shape bool
+  resource mode = mode() as shape string
+  resource discarded = discarded(mode, top(nav).name) as shape number
+  resource initialized = initialized(top(nav).name) as shape number
+  action flip
+    pressed = not pressed
+  view
+    main
+      if top(nav).name == "plain"
+        head title="Plain"
+      else if top(nav).name == "storeStatus" or top(nav).name == "discardedStatus"
+        if stored
+          head title="Missing" status=404
+        else
+          head title="Checking"
+      else if top(nav).name == "conditionalInactive"
+        view navigationBack="" navigationKey="first"
+          view navigationKey="first"
+            head title="First"
+          if page.ready
+            view navigationKey="second"
+              head title="Missing" status=404
+      else if top(nav).name == "inactiveData"
+        view navigationBack="" navigationKey=selected
+          view navigationKey="first"
+            head title="First"
+          view navigationKey="second" id=(page.ready ? "changed" : "initial")
+            if page.ready
+              view role="group"
+                view navigationBack="" navigationKey="nested"
+                  view navigationKey="nested"
+                    head title="Missing" status=404
+      else if top(nav).name == "conditionalInactiveTab"
+        view navigationBack="" navigationKey="first"
+          row role="tablist"
+            button role="tab" aria-controls="fixed-first-panel"
+              text "First"
+            button role="tab" aria-controls="fixed-second-panel"
+              text "Second"
+          view role="tabpanel" id="fixed-first-panel"
+            view navigationKey="first"
+              head title="First"
+          if page.ready
+            view role="tabpanel" id="fixed-second-panel"
+              view navigationKey="second"
+                head title="Missing" status=404
+      else if top(nav).name == "client"
+        if pressed
+          head title="Client missing" status=404
+        else
+          head title="Client"
+        button press=flip testId="flip"
+          text "Change head"
+      else if top(nav).name == "inactive" or top(nav).name == "selection"
+        view navigationBack="" navigationKey=(top(nav).name == "selection" ? page.key : "first")
+          view navigationKey="first"
+            head title="First"
+            text "First"
+          view navigationKey="second"
+            head title="Missing" status=404
+            text "Missing"
+      else if top(nav).name == "gone"
+        if page.ready
+          head title="Gone" status=410
+      else if top(nav).name == "unavailable" or top(nav).name == "cachedUnavailable"
+        if page.ready
+          head title="Unavailable" status=503
+      else if top(nav).name == "static"
+        head title="Static" status=410
+      else if top(nav).name == "childSelection"
+        view navigationBack="" navigationKey="second"
+          view navigationKey=page.key
+            head title="Missing" status=404
+          view navigationKey=(page.ready ? "first" : "second")
+            head title="First"
+      else if top(nav).name == "tabSelection" or top(nav).name == "panelRole" or top(nav).name == "panelId" or top(nav).name == "tabControls"
+        view navigationBack="" navigationKey=(top(nav).name == "tabSelection" ? "second" : "first")
+          row role="tablist"
+            button role="tab" aria-controls=(top(nav).name == "tabControls" and page.ready ? "unused" : "status-panel")
+              text "Status"
+            button role="tab" aria-controls="plain-panel"
+              text "Plain"
+          view role=(top(nav).name == "panelRole" and page.ready ? "group" : "tabpanel") id=(top(nav).name == "panelId" and page.ready ? "unused" : "status-panel")
+            view navigationKey=(top(nav).name == "tabSelection" ? page.key : "second")
+              head title="Missing" status=404
+          view role="tabpanel" id="plain-panel"
+            view navigationKey=(top(nav).name == "tabSelection" and not page.ready ? "second" : "first")
+              head title="First"
+      else if top(nav).name == "siblingSelection" or top(nav).name == "siblingRemoval"
+        view navigationBack="" navigationKey="first"
+          if top(nav).name == "siblingSelection"
+            view navigationKey=(page.ready ? "third" : "first")
+              text "Plain"
+          else if not page.ready
+            view navigationKey="first"
+              text "Plain"
+          view navigationKey="second"
+            head title="Missing" status=404
+      else if top(nav).name == "conditionalTab" or top(nav).name == "conditionalMatch" or top(nav).name == "conditionalRows" or top(nav).name == "conditionalNaming"
+        view navigationBack="" navigationKey="first"
+          view role="tabpanel" id="future-panel"
+            if top(nav).name == "conditionalNaming"
+              if page.ready
+                row role="tablist"
+                  button role="tab" aria-controls="future-panel"
+                    text "Future"
+              view navigationKey="second"
+                head title="Missing" status=404
+            else if top(nav).name == "conditionalTab"
+              if page.ready
+                view navigationKey="first"
+                  head title="Missing" status=404
+            else if top(nav).name == "conditionalMatch"
+              match (page.ready ? some(page.label) : none)
+                case some(label)
+                  view navigationKey="first"
+                    head title=label status=404
+                case none
+                  text "Waiting"
+            else
+              for code in page.rows key=code
+                view navigationKey="first"
+                  head title="Missing" status=404
+          view role="tabpanel" id="current-panel"
+            view navigationKey="first"
+              head title="First"
+          row role="tablist"
+            button role="tab" aria-controls="future-panel"
+              text "Future"
+            button role="tab" aria-controls="current-panel"
+              text "Current"
+      else if top(nav).name == "matched"
+        match (page.ready ? some(page.label) : none)
+          case some(label)
+            head title=label status=404
+          case none
+            text "Waiting"
+      else if top(nav).name == "rows"
+        for code in page.rows key=code
+          view
+            head title="Row" status=410
+            text "Row"
+      else if top(nav).name == "virtual"
+        list virtualized=true height=200
+          for code in page.rows key=code
+            view height=24
+              head title="Virtual row" status=410
+              text "Virtual row"
+      else
+        if page.ready
+          head title="Result" status=404
+      text page.label testId="loaded"
+`);
+    writeFileSync(resolve(dir, 'app.ts'), `import type { Answer } from './app.contract.d.ts';
+export const appId = 'test.status-document';
+export const grants = ${JSON.stringify('net.fetch ' + api.url.origin + '\nsecret.keep status\nsecret.keep mode')};
+export const answer: Answer = (source, args, store) => {
+  const [name] = args;
+  if (source === 'stored') { return (store.get('status') === 'missing') as never; }
+  if (source === 'mode') { return (store.get('mode') ?? 'old') as never; }
+  if (source === 'initialized') {
+    if (name === 'discardedStatus') { store.set('mode', 'new'); }
+    return 0 as never;
+  }
+  if (source === 'discarded') {
+    const [mode, page] = args;
+    if (page !== 'discardedStatus' || mode !== 'old') { return 0 as never; }
+    return fetch(${JSON.stringify(api.url.origin)} + '/discardedStatus', { cache: 'no-store' }).then(() => {
+      store.set('status', 'missing');
+      return 0;
+    }) as never;
+  }
+  if (name === 'discardedStatus') {
+    return { ready: false, key: 'first', label: 'discardedStatus loaded', rows: [] } as never;
+  }
+  return (async () => {
+    const value = await (await fetch(${JSON.stringify(api.url.origin)} + '/' + name, { cache: 'no-store' })).json();
+    if (name === 'storeStatus') { store.set('status', 'missing'); }
+    return value;
+  })() as never;
+};
+`);
+    const dist = resolve(dir, 'dist');
+    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'status-document-test', '--out', dist, '--render', 'js'], {
+      cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [status, stdout, stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+    expect({ status, error: status ? stdout + stderr : '' }).toEqual({ status: 0, error: '' });
+    const { pageServer } = await import('./render.mjs');
+    const serve = pageServer(dist, undefined, () => {});
+    site = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
+      const path = new URL(request.url).pathname;
+      if (path === '/favicon.ico') { return new Response(null, { status: 404 }); }
+      const asset = Bun.file(resolve(dist, path.slice(1)));
+      if (path.includes('.') && await asset.exists()) { return new Response(asset); }
+      const reply = await serve(path, name => request.headers.get(name) ?? undefined);
+      return new Response(reply.body, { status: reply.status, headers: reply.headers });
+    } });
+    browser = await suiteBrowser();
+    const page = await browser.newPage();
+    for (const [name, path, expected, waits] of cases) {
+      const seen = new Promise(done => { arrived = found => { if (found === name) { done(); } }; });
+      let headers = false;
+      const navigation = page.goto(site.url.origin + path, { waitUntil: 'commit' }).then(response => { headers = true; return response; });
+      navigation.catch(() => {});
+      let bound;
+      await Promise.race([seen, new Promise((_, reject) => {
+        bound = setTimeout(() => reject(new Error(name + ' never asked for its data')), 10_000);
+      })]).finally(() => clearTimeout(bound));
+      if (waits) {
+        expect(headers, name + ' commits its status after the data answers').toBe(false);
+      } else {
+        expect((await navigation).status(), name + ' sends its head before the data answers').toBe(200);
+      }
+      waiting.get(name)();
+      const response = await navigation;
+      expect(response.status(), name).toBe(expected);
+      if (expected !== 200) { expect(response.headers()['cache-control'], name).toBe('no-store'); }
+      if (expected === 503) { expect(response.headers()['retry-after'], name).toBe('1'); }
+      if (name === 'cachedOk') { expect(response.headers()['cache-control']).toBe('public, max-age=0, s-maxage=60'); }
+      await page.locator('[data-testid="loaded"]').waitFor({ state: 'attached' });
+      expect(await page.locator('[data-testid="loaded"]').textContent()).toBe(name + ' loaded');
+      if (name === 'client') {
+        await page.locator('[data-testid="flip"]').click();
+        await page.waitForFunction(() => document.title === 'Client missing');
+      }
+      waiting.delete(name);
+    }
+  } finally {
+    for (const release of held) { release(); }
+    await browser?.close(); site?.stop(true); api.stop(true);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 120_000);
 
 test('a second navigation root keeps its split list live while its detail supplies the head', async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
