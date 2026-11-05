@@ -108,7 +108,7 @@ extension ActivityDriverTests {
         let lines = descendants(laid.root).filter { $0.kind == "text" && !$0.lines.isEmpty }
         for line in lines {
             let rect = rect(of: line, in: laid)
-            let shown = try region(clear, rect), hidden = try region(locked, rect)
+            let shown = try comparisonPixels(clear, in: rect), hidden = try comparisonPixels(locked, in: rect)
             XCTAssertGreaterThan(try ink(clear, in: rect, background: [255,255,255]), 20, "the comparison contains the label's own ink")
             XCTAssertEqual(shown == hidden, line.lines.first?.text == "Public label", "only the private line redacts: \(line.lines.map(\.text))")
         }
@@ -121,6 +121,8 @@ extension ActivityDriverTests {
         let laid = try XCTUnwrap(render.laidOut(.lockScreen, proposal: proposal))
         let node = try XCTUnwrap(laid.snapshot.nodes.values.first { $0.props["testId"] == "private-paint" })
         let rect = rect(of: node, in: laid)
+        let empty = try XCTUnwrap(CapturePixelsTests.clearedContext(width: 300, height: Int(laid.size.height.rounded(.up))).makeImage())
+        XCTAssertThrowsError(try region(empty, rect))
         let view = SnapshotActivity.view(render, placement: .lockScreen, environment: environment(.lockScreen)).background(Color.white)
         let clear = try XCTUnwrap(image(view, proposal: proposal))
         let locked = try XCTUnwrap(image(view.redacted(reason: .privacy), proposal: proposal))
@@ -143,12 +145,15 @@ extension ActivityDriverTests {
         let rows = max(0, Int(rect.minY))..<min(p.height, Int(rect.maxY.rounded(.up)))
         let columns = max(0, Int(rect.minX))..<min(p.width, Int(rect.maxX.rounded(.up)))
         var out: [UInt8] = []
+        var painted = false
         for y in rows {
             for x in columns {
                 let at = (y * p.width + x) * 4
+                painted = painted || CapturePixels.painted(p.data, at: at)
                 out.append(contentsOf: p.data[at..<(at + 3)])
             }
         }
+        guard painted else { throw CaptureFailure.noPaint }
         return out
     }
 }

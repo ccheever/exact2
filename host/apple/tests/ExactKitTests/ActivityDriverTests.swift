@@ -1,11 +1,7 @@
-// A Live Activity's placements through the snapshot driver (LLP 1126.001
-// WP10): Caltrain's two activities and three fixtures (a tinted root with
-// links, a gradient root, the sizes a region takes), each placement laid
-// out at the widths the system proposes to a region (finite, none, zero,
-// infinite), rendered in-process with `ImageRenderer` as the widget tests
-// are (a `Link`, which `ImageRenderer` refuses, through a hosting view).
-// The 1x PNGs go to `EXACT_WP10_OUT` for the eye. The resolver, its cache
-// and the presentation are `ActivityResolverTests`'.
+// Check Live Activity sizes and drawing (LLP 1126.001 WP10) with Caltrain's
+// two activities and fixtures for links, gradients and region sizing.
+// Write PNGs to `EXACT_WP10_OUT`; `ActivityResolverTests` covers resolution
+// and presentation.
 import XCTest
 import SwiftUI
 import ImageIO
@@ -14,11 +10,6 @@ import ExactCore
 import ExactSnapshot
 #if canImport(WidgetKit)
 import WidgetKit
-#endif
-#if canImport(UIKit)
-import UIKit
-#else
-import AppKit
 #endif
 
 #if canImport(WidgetKit)
@@ -61,19 +52,9 @@ final class ActivityDriverTests: XCTestCase {
         return renderer.cgImage
     }
 
-    /// The platform's own hosting view drawing a SwiftUI view at 1x: what
-    /// `ImageRenderer` refuses (a `Link`) draws here as the archive draws it.
+    #if os(macOS)
+    /// Draw links through AppKit on macOS, where `ImageRenderer` substitutes a placeholder
     func hosted<V: View>(_ view: V, size: CGSize) -> CGImage? {
-        #if canImport(UIKit)
-        let controller = UIHostingController(rootView: view)
-        controller.view.bounds = CGRect(origin: .zero, size: size)
-        controller.view.backgroundColor = .white
-        controller.view.layoutIfNeeded()
-        let format = UIGraphicsImageRendererFormat(); format.scale = 1
-        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            controller.view.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
-        }.cgImage
-        #else
         let host = NSHostingView(rootView: view)
         host.frame = CGRect(origin: .zero, size: size)
         host.layoutSubtreeIfNeeded()
@@ -81,8 +62,8 @@ final class ActivityDriverTests: XCTestCase {
         bitmap.size = size
         host.cacheDisplay(in: host.bounds, to: bitmap)
         return bitmap.cgImage
-        #endif
     }
+    #endif
 
     @discardableResult
     func write(_ image: CGImage?, _ name: String) throws -> URL {
@@ -94,7 +75,7 @@ final class ActivityDriverTests: XCTestCase {
         return url
     }
 
-    /// RGBA8 pixels of a 1x image.
+    /// Read premultiplied RGBA8 pixels without rescaling the image
     func pixels(_ image: CGImage) throws -> (width: Int, height: Int, data: [UInt8]) {
         let w = image.width, h = image.height
         var data = [UInt8](repeating: 0, count: w * h * 4)
@@ -104,8 +85,8 @@ final class ActivityDriverTests: XCTestCase {
         return (w, h, data)
     }
 
-    /// How many pixels in `rect` (the whole image when nil) differ from
-    /// `background` by more than 32 in some channel: the ink the leaves drew.
+    /// Count nontransparent pixels differing from `background` by more than
+    /// 32 in an RGB channel, within `rect` or the whole image when nil
     func ink(_ image: CGImage, in rect: CGRect? = nil, background: [UInt8]) throws -> Int {
         let p = try pixels(image)
         let rect = rect ?? CGRect(x: 0, y: 0, width: p.width, height: p.height)
@@ -113,16 +94,47 @@ final class ActivityDriverTests: XCTestCase {
         for y in max(0, Int(rect.minY))..<min(p.height, Int(rect.maxY.rounded(.up))) {
             for x in max(0, Int(rect.minX))..<min(p.width, Int(rect.maxX.rounded(.up))) {
                 let at = (y * p.width + x) * 4
-                if (0..<3).contains(where: { abs(Int(p.data[at + $0]) - Int(background[$0])) > 32 }) { count += 1 }
+                if CapturePixels.painted(p.data, at: at), (0..<3).contains(where: { abs(Int(p.data[at + $0]) - Int(background[$0])) > 32 }) { count += 1 }
             }
         }
         return count
     }
 
+    func testInkCountsPaintedPixelsAndSkipsTransparentPixels() throws {
+        let proposal = ProposedViewSize(width: 2, height: 2)
+        let clear = try XCTUnwrap(CapturePixelsTests.clearedContext(width: 2, height: 2).makeImage())
+        let black = try XCTUnwrap(image(Color.black, proposal: proposal))
+        XCTAssertEqual(try ink(clear, background: [255, 255, 255]), 0, "transparent pixels are not ink")
+        XCTAssertEqual(try ink(black, background: [255, 255, 255]), 4, "opaque black pixels are ink")
+        XCTAssertEqual(try ink(black, background: [0x1e, 0x3a, 0x5f]), 4, "opaque black differs from the tint")
+        let white = try XCTUnwrap(image(Color.white, proposal: proposal))
+        for rect: CGRect? in [nil, CGRect(x: 0, y: 0, width: 1, height: 1)] {
+            XCTAssertThrowsError(try comparisonPixels(clear, in: rect))
+            XCTAssertThrowsError(try comparisonPixels(white, in: rect))
+            XCTAssertFalse(try comparisonPixels(black, in: rect).isEmpty)
+        }
+        let context = try CapturePixelsTests.clearedContext(width: 2, height: 2)
+        context.setFillColor(CGColor(gray: 0, alpha: 1)); context.fill(CGRect(x: 1, y: 0, width: 1, height: 2))
+        let partial = try XCTUnwrap(context.makeImage())
+        XCTAssertThrowsError(try comparisonPixels(partial, in: CGRect(x: 0, y: 0, width: 1, height: 1)))
+        XCTAssertFalse(try comparisonPixels(partial).isEmpty)
+    }
+
+    enum CaptureFailure: Error { case noInk, noPaint }
+
+    func comparisonPixels(_ image: CGImage, in rect: CGRect? = nil) throws -> [UInt8] {
+        guard try ink(image, in: rect, background: [255, 255, 255]) > 0 else { throw CaptureFailure.noInk }
+        let p = try pixels(image)
+        guard let rect else { return p.data }
+        var out: [UInt8] = []
+        for y in Int(rect.minY)..<Int(rect.maxY) { for x in Int(rect.minX)..<Int(rect.maxX) { out.append(contentsOf: p.data[((y * p.width + x) * 4)..<((y * p.width + x) * 4 + 3)]) } }
+        return out
+    }
+
     func color(_ image: CGImage, x: Int, y: Int) throws -> [Int] {
         let p = try pixels(image)
         let at = (y * p.width + x) * 4
-        return [Int(p.data[at]), Int(p.data[at + 1]), Int(p.data[at + 2])]
+        return (0..<4).map { Int(p.data[at + $0]) }
     }
 
     func texts(_ laid: ActivityRender.Laid) -> [String] {
@@ -293,17 +305,11 @@ final class ActivityDriverTests: XCTestCase {
     // MARK: D8: account content is private but for a node that says `data-privacy="public"`
 
     func testContentIsRedactedOnALockedPhoneUnlessANodeSaysPublic() throws {
-        func region(_ image: CGImage, _ rect: CGRect) throws -> [UInt8] {
-            let p = try pixels(image)
-            var out: [UInt8] = []
-            for y in Int(rect.minY)..<Int(rect.maxY) { for x in Int(rect.minX)..<Int(rect.maxX) { out.append(contentsOf: p.data[((y * p.width + x) * 4)..<((y * p.width + x) * 4 + 3)]) } }
-            return out
-        }
         // Caltrain's departure says `data-privacy="public"` on every placement: a locked phone shows it unchanged.
         let departure = try self.render(try Self.plan("SNAPSHOT_DEPARTURE"), kind: "departure", state: nil)
         let open = try XCTUnwrap(image(SnapshotActivity.view(departure, placement: .lockScreen, environment: environment(.lockScreen)).background(Color.white), proposal: ProposedViewSize(width: 362, height: nil)))
         let locked = try XCTUnwrap(image(SnapshotActivity.view(departure, placement: .lockScreen, environment: environment(.lockScreen)).background(Color.white).environment(\.redactionReasons, .privacy), proposal: ProposedViewSize(width: 362, height: nil)))
-        XCTAssertEqual(try pixels(open).data, try pixels(locked).data, "Caltrain's departure shows the same on a locked phone")
+        XCTAssertEqual(try comparisonPixels(open), try comparisonPixels(locked), "Caltrain's departure shows the same on a locked phone")
         XCTAssertGreaterThan(try ink(locked, background: [255, 255, 255]), 8)
         // An activity that says nothing is account content: redacted on a locked phone, every line of it.
         let sized = try self.render(try Self.plan("SNAPSHOT_SIZED"), kind: "sized", state: nil)
@@ -315,12 +321,12 @@ final class ActivityDriverTests: XCTestCase {
         try write(redacted, "sized-lockScreen-privacy")
         for line in lines {
             let rect = line.frame.offsetBy(dx: laid.root.frame.minX, dy: laid.root.frame.minY)
-            XCTAssertNotEqual(try region(shown, rect), try region(redacted, rect), "the unannotated line is redacted: \(line.lines.map(\.text))")
+            XCTAssertNotEqual(try comparisonPixels(shown, in: rect), try comparisonPixels(redacted, in: rect), "the unannotated line is redacted: \(line.lines.map(\.text))")
         }
         // The placeholder carries no privacy: it is redacted as a placeholder and no further.
         let placeholder = try XCTUnwrap(image(SnapshotActivity.view(sized, placement: .lockScreen, environment: environment(.lockScreen, placeholder: true)).redacted(reason: .placeholder).background(Color.white), proposal: ProposedViewSize(width: 362, height: nil)))
         let placeholderLocked = try XCTUnwrap(image(SnapshotActivity.view(sized, placement: .lockScreen, environment: environment(.lockScreen, placeholder: true)).redacted(reason: .placeholder).background(Color.white).environment(\.redactionReasons, [.placeholder, .privacy]), proposal: ProposedViewSize(width: 362, height: nil)))
-        XCTAssertEqual(try pixels(placeholder).data, try pixels(placeholderLocked).data)
+        XCTAssertEqual(try comparisonPixels(placeholder), try comparisonPixels(placeholderLocked))
     }
 
     // MARK: D5 and D7: the tint, the gradient and the links of a Lock Screen placement
@@ -342,25 +348,30 @@ final class ActivityDriverTests: XCTestCase {
         XCTAssertTrue(environment(.lockScreen).takesLinks); XCTAssertTrue(environment(.expandedBottom).takesLinks)
         XCTAssertFalse(environment(.compactTrailing).takesLinks); XCTAssertFalse(environment(.minimal).takesLinks)
         XCTAssertNil(SnapshotActivity.url(try tinted.layout(.lockScreen, width: 362, height: nil), environment: environment(.lockScreen, placeholder: true, link: base)), "the placeholder opens nothing")
-        // The link's content draws: the title's ink inside its line, and no prohibition mark (ImageRenderer's refusal of a
-        // Link) anywhere in the placement, through the platform's hosting view.
+        // Draw the nested link with its title over the tint
         let size = tinted.size(.lockScreen, proposal: ProposedViewSize(width: 362, height: nil))
-        let drawn = try XCTUnwrap(hosted(SnapshotActivity.view(tinted, placement: .lockScreen, environment: environment(.lockScreen, link: base)).background(tint).environment(\.colorScheme, .light), size: size))
-        try write(drawn, "tinted-lockScreen-hosted")
-        let laid = try XCTUnwrap(tinted.laidOut(.lockScreen, proposal: ProposedViewSize(width: 362, height: nil)))
-        let title = try XCTUnwrap(laid.snapshot.nodes.values.first { $0.kind == "text" && $0.lines.first?.text == "Northbound delayed" })
-        var line = title.frame
-        var parent = laid.snapshot.nodes.values.first { $0.children.contains(title.id) }
-        while let p = parent, p.id != laid.root.id { line = line.offsetBy(dx: p.frame.minX, dy: p.frame.minY); parent = laid.snapshot.nodes.values.first { $0.children.contains(p.id) } }
-        line = line.offsetBy(dx: laid.root.frame.minX, dy: laid.root.frame.minY)
-        // The hosting view draws at the screen's scale.
+        let view = SnapshotActivity.view(tinted, placement: .lockScreen, environment: environment(.lockScreen, link: base)).background(tint).environment(\.colorScheme, .light)
+        #if os(macOS)
+        let drawn = try XCTUnwrap(hosted(view, size: size))
+        #else
+        let drawn = try XCTUnwrap(image(view, proposal: ProposedViewSize(width: 362, height: nil)))
+        #endif
+        try write(drawn, "tinted-lockScreen-link")
         let scale = CGFloat(drawn.width) / size.width
+        // Sample inside the fixture's 8-point padding, away from the link and the edges
+        let padding = CGRect(x: 4 * scale, y: 4 * scale, width: scale, height: scale)
+        XCTAssertEqual(try color(drawn, x: Int(padding.minX), y: Int(padding.minY))[3], 255, "the padding is opaque")
+        XCTAssertEqual(try ink(drawn, in: padding, background: [0x1e, 0x3a, 0x5f]), 0, "the padding draws the tint")
+        let laid = try XCTUnwrap(tinted.laidOut(.lockScreen, proposal: ProposedViewSize(width: 362, height: nil)))
+        let link = try XCTUnwrap(laid.root.children.compactMap { laid.snapshot.nodes[$0] }.first { $0.props["href"] == "/alerts" })
+        let title = try XCTUnwrap(link.children.compactMap { laid.snapshot.nodes[$0] }.first { $0.kind == "text" && $0.lines.first?.text == "Northbound delayed" })
+        let line = title.frame.offsetBy(dx: laid.root.frame.minX + link.frame.minX, dy: laid.root.frame.minY + link.frame.minY)
         let scaled = CGRect(x: line.minX * scale, y: line.minY * scale, width: line.width * scale, height: line.height * scale)
-        XCTAssertGreaterThan(try ink(drawn, in: scaled, background: [0x1e, 0x3a, 0x5f]), 8, "the white title over the tint")
+        XCTAssertGreaterThan(try ink(drawn, in: scaled, background: [0x1e, 0x3a, 0x5f]), 8, "ink inside the nested link's title frame")
         let p = try pixels(drawn)
         var yellow = 0
         for at in stride(from: 0, to: p.data.count, by: 4) where p.data[at] > 200 && p.data[at + 1] > 180 && p.data[at + 2] < 90 { yellow += 1 }
-        XCTAssertEqual(yellow, 0, "no prohibition mark: the link draws its content")
+        XCTAssertEqual(yellow, 0, "no yellow placeholder pixels")
         // Caltrain's activities leave the background unsaid: the system's material.
         let departure = try self.render(try Self.plan("SNAPSHOT_DEPARTURE"), kind: "departure", state: nil)
         let unsaid = SnapshotActivity.background(of: try departure.layout(.lockScreen, width: 362, height: nil), dark: false)
