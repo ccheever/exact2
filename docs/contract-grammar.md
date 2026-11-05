@@ -2587,6 +2587,11 @@ box and a radio group are passed over. On, Tab reaches every control, including
 each inline link or pressable text run inside a paragraph, including in a dialog.
 Return activates a focused inline link before a dialog's default button. Space
 activates a pressable run only when it has no `href`; it never follows a link.
+Return presses no other focused button on the Mac: it belongs to a dialog's default
+button, as in AppKit (LLP 1115.000 D7.3). An app that copies a web app's keys writes
+`-exact-return-presses="descendants"` on a container: under it Return presses the focused
+button as Space does, before a dialog's default button, as Chromium presses a focused
+`<button>` on Enter. The web does that already, and other hosts ignore the property.
 A `tabindex` you write wins either way: `0` or more is always a stop, a negative one never. A button that
 `focus(id)` or `autofocus` reached while it is no stop still goes on to the next stop
 with Tab, and back to the one before with Shift-Tab. Under the agent the setting is the

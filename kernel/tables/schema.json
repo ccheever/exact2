@@ -1795,30 +1795,36 @@
     },
     {
       "id": 299,
+      "name": "returnPresses",
+      "kind": "str",
+      "_comment": "@ref LLP 1115.000 D7.3: `-exact-return-presses` on a container, `descendants` or `none` (the default). Under `descendants` the Mac presses a focused pressable descendant on Return as on Space, before a dialog's default button, as Chromium presses a focused `<button>` on Enter. The web already does, and other hosts ignore it."
+    },
+    {
+      "id": 300,
       "name": "navigationSystemBars",
       "kind": "str",
       "_comment": "@ref LLP 1130.010: a fullscreen route's system bars, `hidden` or `auto` (the default). iOS hides the status bar and auto-hides the home indicator while the route is presented; other hosts ignore it."
     },
     {
-      "id": 300,
+      "id": 301,
       "name": "accessibilityRowCount",
       "kind": "int",
       "_comment": "ARIA `aria-rowcount` on a `table`, `grid` or `treegrid`: the total rows when only a page is mounted. The DOM attribute on the web; native hosts retain the value for accessibility adapters."
     },
     {
-      "id": 301,
+      "id": 302,
       "name": "accessibilityColumnCount",
       "kind": "int",
       "_comment": "ARIA `aria-colcount` on a `table`, `grid` or `treegrid`: the total columns when only a page is mounted. The DOM attribute on the web; native hosts retain the value for accessibility adapters."
     },
     {
-      "id": 302,
+      "id": 303,
       "name": "accessibilityRowIndex",
       "kind": "int",
       "_comment": "ARIA `aria-rowindex` on a `row`, `gridcell`, `columnheader` or `rowheader`: the one-based row position in the table. The DOM attribute on the web; native hosts retain the value for accessibility adapters."
     },
     {
-      "id": 303,
+      "id": 304,
       "name": "accessibilityColumnIndex",
       "kind": "int",
       "_comment": "ARIA `aria-colindex` on a `gridcell`, `columnheader` or `rowheader`: the one-based column position in the table. The DOM attribute on the web; native hosts retain the value for accessibility adapters."

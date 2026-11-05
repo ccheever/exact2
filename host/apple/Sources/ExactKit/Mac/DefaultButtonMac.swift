@@ -21,6 +21,20 @@ extension NodeView {
         (isButton || pressable) && Self.choiceRoles.contains(props["accessibilityRole"] ?? "")
     }
     private static let choiceRoles: Set<String> = ["menuitem", "menuitemradio", "menuitemcheckbox", "option"]
+
+    /// Return presses this control as Space does: a menu's row, or any
+    /// button under an ancestor whose author asked for Chromium's keys with
+    /// `-exact-return-presses="descendants"`, as Chromium presses a focused
+    /// `<button>` on Enter (LLP 1115.000 D7.3). Either comes before a dialog's
+    /// default button. The ancestors are the ones a key bubbles to, so a
+    /// dialog or popover declared under the node counts as under it.
+    var pressesOnReturn: Bool {
+        guard isButton || pressable else { return false }
+        if choosesOnReturn { return true }
+        guard let presenter else { return false }
+        return sequence(first: self as NSView, next: { presenter.eventParent(of: $0) })
+            .dropFirst().contains { ($0 as? NodeView)?.props["returnPresses"] == "descendants" }
+    }
 }
 
 extension DialogHost {
@@ -70,7 +84,7 @@ extension DialogHost {
         let responder = window.firstResponder
         if let inline = responder as? InlineKeyView, inline.run?.props["href"] != nil { return false }
         if let focus = presenter.keyTarget(responder) {
-            if focus.choosesOnReturn { return false }
+            if focus.pressesOnReturn { return false }
             if focus.textArea != nil || focus.props["href"] != nil || focus.canvasInput != nil { return false }
             if let field = focus.field {
                 if focus.handlers.contains("submit") { return false }
