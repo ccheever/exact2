@@ -849,10 +849,11 @@ above.
   which holds the focus itself, zooms nothing, as in the reference (2026-11-05).
 - A Browser tab floated by closing the right panel draws its page at full size in the card, where the reference
   scales the page down to fit the card (real input, 2026-11-05).
-- After the hero's "or start without a project", Go back does nothing; the reference returns to the project's hero
-  (real input, 2026-11-05).
-- ⌘N's project picker lists This machine's scratch folder as a project below the "No project ⌥⌘N" row; the
-  reference lists only that row (real input, 2026-11-05).
+- At a View zoom other than Actual Size (seen at 120%), a click on a sidebar row leaves that row's project name
+  undrawn until the page next lays out again (another zoom step, Settings opened and closed); the reference keeps it.
+  Hover and a selection by ⇧⌘] keep it, so a mouse press under a page zoom triggers it. Its cause in the Mac host is
+  not found: in `PressWashMacTests`' fixture, a 12 px translucent label at 120% and 125% stays drawn after a press, a
+  release, a fill change and a move (real input, 2026-11-05).
 
 **Not failures:**
 

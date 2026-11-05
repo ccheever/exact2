@@ -456,11 +456,14 @@ const NO_PROJECT_KEY = 'new-thread-in:no-project';
  * handleKeyDown); a pin cannot move a number to another row.
  */
 export function newThreadInItems(client: T3Client): Item[] {
+  // isScratchProject against each project's own environment's folder (scratchWorkspaceRootFor): projectScopes marks
+  // every machine's Scratch project, the focused one's and the fleet's.
   const root = scratchRoot(client.config), picked = pickerProjects(client);
-  const ordered = picked.filter(project => !isScratchProject(project, root));
+  const scratch = (project: Obj) => project.isScratch === true || isScratchProject(project, root);
+  const ordered = picked.filter(project => !scratch(project));
   let items = projectItems(client, ordered, 'new-thread-in', 'new-thread');
   if (scratchTarget(client) !== null) {
-    const at = newThreadNoProjectIndex(picked.map(project => ({ isScratch: isScratchProject(project, root), pinned: project.scopePinned === true, isPreferred: project.preferred === true })));
+    const at = newThreadNoProjectIndex(picked.map(project => ({ isScratch: scratch(project), pinned: project.scopePinned === true, isPreferred: project.preferred === true })));
     items = [...items.slice(0, at), { terms: ['No project', 'no project', 'without project', 'none'],
       row: row({ key: NO_PROJECT_KEY, op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'No project', shortcut: commandShortcut(client, 'chat.newWithoutProject'), jump: fieldChords(client, 'chat.newWithoutProject') }) },
     ...items.slice(at)];
