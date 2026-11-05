@@ -42,12 +42,12 @@ component MobileGitBranches
           text data.error font-size=12 color=colors.warningForeground
         column gap=7 padding=14 border-radius=18 border-width=1 border-style="solid" border-color=colors.border background-color=colors.card
           text "NEW BRANCH" font-size=10.5 font-weight=700 letter-spacing="1px" color=colors.secondary
-          input value=newBranch input=editBranch placeholder="feature/mobile-polish" aria-label="New branch name" border-radius=18 color=colors.foreground font-size=14
+          input value=newBranch input=editBranch placeholder="feature/mobile-polish" aria-label="New branch name" autocapitalize="none" autocomplete="off" spellcheck=false border-radius=18 color=colors.foreground font-size=14
           MobileGitActionButton(label="Create & checkout", symbol="plus", primary=true, disabled=(not data.canChange or data.busy or newBranch == ""), press=action("create", newBranch, ""), colors=colors)
         column gap=7 padding=14 border-radius=18 border-width=1 border-style="solid" border-color=colors.border background-color=colors.card
           text "NEW WORKTREE" font-size=10.5 font-weight=700 letter-spacing="1px" color=colors.secondary
-          input value=worktreeBase input=editBase placeholder="main" aria-label="Worktree base branch" border-radius=18 color=colors.foreground font-size=14
-          input value=worktreeBranch input=editWorktree placeholder="feature/mobile-thread" aria-label="Worktree branch name" border-radius=18 color=colors.foreground font-size=14
+          input value=worktreeBase input=editBase placeholder="main" aria-label="Worktree base branch" autocapitalize="none" autocomplete="off" spellcheck=false border-radius=18 color=colors.foreground font-size=14
+          input value=worktreeBranch input=editWorktree placeholder="feature/mobile-thread" aria-label="Worktree branch name" autocapitalize="none" autocomplete="off" spellcheck=false border-radius=18 color=colors.foreground font-size=14
           MobileGitActionButton(label="Create worktree", symbol="square.split.2x1", primary=true, disabled=(not data.canChange or data.busy or worktreeBase == "" or worktreeBranch == ""), press=action("worktree", worktreeBranch, worktreeBase), colors=colors)
         column gap=7
           text "EXISTING BRANCHES" font-size=10.5 font-weight=700 letter-spacing="1px" color=colors.secondary
