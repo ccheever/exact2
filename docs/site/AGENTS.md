@@ -32,5 +32,5 @@ whether notes are sent and whether to keep a diary; under `never`, skip all of t
 
 The search dialog (Cmd+K) asks the Algolia app and index in `constants/search.ts` with its
 search-only key. After a build, `bun run search:index` makes one record per section of each
-page and replaces the index; it needs the app's Write API key, from `ALGOLIA_WRITE_KEY` or the macOS
-Keychain item `exact-docs-algolia-write`, and the key never goes in the repository. `--dry-run` prints the record count and the first records.
+page and replaces the index; it needs the app's Write API key in `ALGOLIA_WRITE_KEY`, which
+never goes in the repository. `--dry-run` prints the record count and the first records.

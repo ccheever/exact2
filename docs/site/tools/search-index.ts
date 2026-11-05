@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { search } from '../constants/search.ts';
@@ -56,16 +55,8 @@ async function recordsOf(entry: Entry): Promise<Record[]> {
   return records;
 }
 
-const KEYCHAIN = 'exact-docs-algolia-write';
-const fromKeychain = () => {
-  if (process.platform !== 'darwin') return '';
-  const found = spawnSync('security', ['find-generic-password', '-s', KEYCHAIN, '-w'], { encoding: 'utf8' });
-  return found.status === 0 ? found.stdout.trim() : '';
-};
-const writeKey = process.env.ALGOLIA_WRITE_KEY || fromKeychain();
-
 async function algolia(method: string, path: string, body?: unknown) {
-  const key = writeKey;
+  const key = process.env.ALGOLIA_WRITE_KEY;
   const response = await fetch(`https://${search.appId}.algolia.net${path}`, {
     method,
     headers: { 'X-Algolia-Application-Id': search.appId, 'X-Algolia-API-Key': key ?? '', 'Content-Type': 'application/json' },
@@ -86,8 +77,8 @@ if (process.argv.includes('--dry-run')) {
   console.log(JSON.stringify(records.slice(0, 3), null, 2));
   process.exit(0);
 }
-if (!writeKey) {
-  console.error(`search-index: no Write API key: set ALGOLIA_WRITE_KEY, or keep it in the macOS Keychain as "${KEYCHAIN}" (security add-generic-password -a "$USER" -s ${KEYCHAIN} -w), or pass --dry-run`);
+if (!process.env.ALGOLIA_WRITE_KEY) {
+  console.error('search-index: set ALGOLIA_WRITE_KEY to the Write API key of the Algolia app (dashboard: Settings, API Keys), or pass --dry-run');
   process.exit(1);
 }
 
