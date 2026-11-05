@@ -288,6 +288,14 @@ describe('bounded transcript Markdown reuse', () => {
     expect(prepended.at(-1)!.blocks).toBe(a.at(-1)!.blocks);
   });
 
+  test('projection index follows a replaced visible-item array without retaining old rows', () => {
+    const client = fixture([answer('Before')]);
+    expect(mobileThreadRows(client, now).map(row => row.body)).toEqual(['Before']);
+    const replacement = item('replacement', 'assistant_message', { text: 'After', messageId: 'replacement', streaming: false });
+    client.thread!.projection.visibleTurnItems = [{ position: 0, visibility: 'local', sourceThreadId: 't1', sourceItemId: replacement.id, item: replacement }];
+    expect(mobileThreadRows(client, now).map(row => row.body)).toEqual(['After']);
+  });
+
   test('theme, route and client ownership changes invalidate blocks without changing message identity', () => {
     const client = fixture([answer('```typescript\nconst answer = 42;\n```')]);
     let before = mobileThreadRows(client, now, false, 'visit')[0]!;

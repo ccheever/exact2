@@ -51,6 +51,36 @@ export interface ThreadSnapshot { queuedCanSelect: boolean; queuedFailed: boolea
   emptyTitle: string; emptyDetail: string; error: string; errorWarning: boolean; errorSummary: string; errorExpandable: boolean; errorLimit: '' | 'workspace' | 'chatgpt'; uncertain: boolean; hasMore: boolean; historyRequest: string; historyLoading: boolean; historyError: string; historyRevision: number;
   readsNeeded: boolean; answerFilesOwner: string; answerFilesRequest: string; approvals: ThreadApproval[]; composer: ThreadComposerState; pendingInput: PendingInputView; }
 interface ProjectedThreadItem { row: Obj; item: Obj }
+interface ProjectedThreadItemsCache {
+  source: unknown;
+  revision: number;
+  threadEpoch: number;
+  threadId: string;
+  map: Map<string, ProjectedThreadItem>;
+}
+const projectedThreadItemsCache = new WeakMap<T3Client, ProjectedThreadItemsCache>();
+
+/**
+ * Scroll events re-render the feed without changing the selected projection.
+ * Keep the source-index lookup across those renders; client revisions and
+ * thread epochs still invalidate it for live updates and selection changes.
+ */
+function projectedThreadItems(client: T3Client): Map<string, ProjectedThreadItem> {
+  const source = client.projection.visibleTurnItems;
+  const previous = projectedThreadItemsCache.get(client);
+  if (previous && previous.source === source && previous.revision === client.revision
+    && previous.threadEpoch === client.threadEpoch && previous.threadId === client.threadId) return previous.map;
+  const map = new Map<string, ProjectedThreadItem>();
+  if (Array.isArray(source)) {
+    for (const value of source) {
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) continue;
+      const row = value as Obj;
+      map.set(JSON.stringify([row.sourceThreadId, row.sourceItemId]), { row, item: obj(row.item) });
+    }
+  }
+  projectedThreadItemsCache.set(client, { source, revision: client.revision, threadEpoch: client.threadEpoch, threadId: client.threadId, map });
+  return map;
+}
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
 const legacyAutomationPrefix = /^\[Triggered by schedule task: [^\r\n]+\]\r?\n\r?\n/;
 const legacyAutomationMessageId = /^scheduled-task-message:(.+):\d+:(?:scheduled|manual)$/;
@@ -76,10 +106,7 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false, ro
 function threadRows(client: T3Client, now: number, dark = false, routeKey = '', html?: ThreadHtmlPresentation,
   markdown?: ReturnType<typeof mobileThreadMarkdownCache>): ThreadRow[] {
   mobileThreadForkObserveProjection(client);
-  const source = transcriptRows(client, true), projected = new Map<string, ProjectedThreadItem>();
-  for (const row of arr(client.projection.visibleTurnItems)) {
-    projected.set(JSON.stringify([row.sourceThreadId, row.sourceItemId]), { row, item: obj(row.item) });
-  }
+  const source = transcriptRows(client, true), projected = projectedThreadItems(client);
   const view = timelineView(client), rows: ThreadRow[] = [];
   for (const message of source) {
     // Pinned mobile buildThreadFeed omits checkpoints, including populated changes.
