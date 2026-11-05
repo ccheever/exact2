@@ -1,6 +1,6 @@
 # T3 Code clone handoff
 
-Updated November 1, 2026, Toronto time. Finish the one-to-one clone with pstack
+Updated November 5, 2026, Toronto time. Finish the one-to-one clone with pstack
 handling routine execution and review. The legacy scheduled coordinator stays
 disabled. Use this handoff when taking over the work.
 
@@ -11,9 +11,10 @@ connected environment and published as each answer arrives, so a slow fleet
 member no longer blanks an already matching list. Related query refinements keep
 their prior matches visible until the new answer settles; unrelated queries stay
 empty while pending. The focused search suite covers incremental answers,
-related-query retention and stale unrelated results. Native filtered-state
-screenshots and accessibility readback remain open; this source unit makes no
-frame-rate claim.
+related-query retention and stale unrelated results. A follow-up now includes a
+visible message excerpt in each filtered thread row's accessibility name, while
+keeping queued-state wording. Native filtered-state screenshots and readback
+remain open; these source units make no frame-rate claim.
 
 The coordinator worktree is clean at `fe882b504b` on
 `t3/coordinate-t3-ios-mini`. The branch is pushed to PR216's

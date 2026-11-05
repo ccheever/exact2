@@ -445,6 +445,7 @@ component HomeListItem
   derive rowTertiary = selectedRow ? colors.selectedMuted : sidebar ? colors.drawerMuted : colors.tertiary
   derive rowStatusColor = item.status.length > 0 ? statusColor : selectedRow ? colors.selectedForeground : rowTertiary
   derive queuedColor = selectedRow ? colors.selectedQueued : colors.muted
+  derive threadAccessibilityLabel = item.searchExcerpt.length > 0 ? `${item.title}, ${item.searchExcerpt}` : item.title
   view
     column min-width=0 padding-bottom=(item.last ? bottomClearance * (collapsing ? 1 - exitEase : 1) : 0)
       height=(collapsing ? exitHeight * (1 - exitEase) : "auto") min-height=0 box-sizing="border-box" overflow=(exiting ? "hidden" : "visible") pointer-events=(exiting ? "none" : "auto")
@@ -542,7 +543,7 @@ component HomeListItem
               data-mobile-home-menu-id=(surface == "sidebar-list" ? menuId : "")
               padding=0
               text-align="left"
-              aria-label=(item.queued ? `${item.title}, messages queued to send` : item.title)
+              aria-label=(item.queued ? `${threadAccessibilityLabel}, messages queued to send` : threadAccessibilityLabel)
               aria-selected=selectedRow
               testId=`home-thread-${item.key}`
               if item.card
