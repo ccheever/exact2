@@ -88,7 +88,7 @@ extension Presenter {
             if sub === o.metal || sub === o.overlay { return ("canvas", id) }
             if sub === o.field || sub === o.textArea || sub === o.textAreaScroll { return ("editor", id) }
             if sub === o.scroll { return ("scroll", id) }
-            if sub === o.video || sub === o.web { return ("heavy", id) }
+            if sub === o.video || sub === o.web || sub is FrameScaleHolder { return ("heavy", id) }
             if sub === controls.controls[id] { return ("control", id) }
             if segments.inspectionOwns(sub) { return ("segment", id) }
             if Self.platformKinds.contains(o.kind) || o.props["hatch"] != nil { return ("platform", id) }
