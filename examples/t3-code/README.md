@@ -900,8 +900,10 @@ above.
   lasts, 5 s (`sidebar-commands.ts`); a ⌘Z after that leaves the row snoozed (FN29).
 - A composer pull request chip is named 'Open Open pull request #132: …': the reference's own
   template, `Open ${kindLabel} …` with the kind label 'Open pull request' (contextChipParts.tsx:113).
-- Return on a focused button that is not the default one, such as 'Edit Echo test', does nothing
-  and Space presses it, as in any AppKit window (Return presses the default button).
+- Outside the timeline and the chat header, Return on a focused button that is not the default one, such as
+  'Edit Echo test', does nothing and Space presses it, as in any AppKit window (Return presses the default button).
+  The timeline's and the header's buttons take Return as the reference's `<button>`s do, each by a `key` handler
+  (`tests/timeline/timeline-return-keys.test.ts`).
 - A press outside a chip's popover closes it and still does what it lands on (a press on a
   timeline image opens its preview), as Base UI's outside press lets the press through.
 - Interface fonts: a picked family's bold face draws the bold text (Georgia Bold for the PR title
