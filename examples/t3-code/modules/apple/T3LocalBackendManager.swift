@@ -8,7 +8,9 @@
 // databases can take over a minute), a restart after an unexpected exit with min(500 ms × 2ⁿ, 10 s),
 // n back to 0 once ready, and stop (SIGTERM, SIGKILL after 5 s).
 // An exit with code 78 (`SERVER_EXIT_CODE_STATE_DIR_OWNED`: another server owns the T3 home) is
-// not restarted: the instance stops wanting to run and reports it once (`onStateDirOwned`).
+// not restarted: the instance stops wanting to run and reports it once (`onStateDirOwned`). An exit with
+// code 77 (`SERVER_EXIT_CODE_MANAGED_POLICY`: the machine's managed policy refused the start) is restarted
+// as any other, and `managedPolicyRefused` says so until a run is ready (reference 322f6544dfad).
 // Effect's fibers become callbacks on one serial executor; its clock becomes `T3LocalClock`, so
 // the ported tests (macos/tests/local-backend) drive time by hand. Every method runs on the
 // executor. The WSL preflight states, the telemetry control, browser and host-sample channels, and
@@ -143,6 +145,8 @@ final class T3LocalBackendManager {
     static let readinessPath = "/.well-known/t3/environment"
     /// `SERVER_EXIT_CODE_STATE_DIR_OWNED` (packages/contracts/src/desktopBootstrap.ts): EX_CONFIG.
     static let stateDirOwnedExitCode: Int32 = 78
+    /// `SERVER_EXIT_CODE_MANAGED_POLICY` (packages/contracts/src/desktopBootstrap.ts): EX_NOPERM.
+    static let managedPolicyExitCode: Int32 = 77
 
     /// `calculateRestartDelay`.
     static func restartDelay(_ attempt: Int) -> Double { min(initialRestartDelay * pow(2, Double(attempt)), maxRestartDelay) }
@@ -196,6 +200,9 @@ final class T3LocalBackendManager {
     private(set) var lastExit: String?
     /// The last run exited because another server owns the T3 home; cleared by the next start.
     private(set) var stateDirOwned = false
+    /// A run exited because the managed policy refused it, and none has been ready since. Retrying cannot fix
+    /// that, so it is reported at the first such exit; the restarts go on and pick up a fixed policy.
+    private(set) var managedPolicyRefused = false
     private var nextRunId = 1
 
     init(executor: T3LocalExecutor, clock: T3LocalClock, spawner: T3LocalSpawner, prober: T3LocalProber, log: T3LocalOutputLog, spec: T3LocalBackendSpec) {
@@ -318,6 +325,7 @@ final class T3LocalBackendManager {
         run.cancelTimers()
         guard active === run else { return }
         restartAttempt = 0
+        managedPolicyRefused = false
         ready = true
         changed()
         spec.onReady(run.config.httpBaseUrl)
@@ -374,7 +382,10 @@ final class T3LocalBackendManager {
         }
         if desiredRunning {
             if run.stopRequested { start() }
-            else { scheduleRestart(reason) }
+            else {
+                if run.exit?.code == Self.managedPolicyExitCode { managedPolicyRefused = true }
+                scheduleRestart(reason)
+            }
         }
         changed()
     }

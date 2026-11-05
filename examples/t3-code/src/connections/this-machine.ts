@@ -15,7 +15,7 @@ import { managedByOrganization } from '../settings/managed-policy';
 import { obj, str } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { writeDesktopSettings } from './local-backend';
-import { canManageLocalBackend, localEnvironmentEnabled, primary, type LocalPrimary } from './local-primary';
+import { canManageLocalBackend, localEnvironmentEnabled, MANAGED_POLICY_STARTUP_FAILURE, primary, type LocalPrimary } from './local-primary';
 import { versionMismatch } from './version-skew';
 import { desktopManagedOnly, DESKTOP_MANAGED_NOTE } from './server-installation';
 import { serverUpdateStageLabel, serverUpdateStateFor } from './server-update';
@@ -56,7 +56,8 @@ function project(source: Source | undefined, row: SavedRowView | null, local: Lo
   const policy = managedPolicySummary(config), updatesDenial = managedUpdatesDenial(policy);
   const displayUrl = local.target?.httpBaseUrl ?? '';
   const status = local.status.state === 'refused' ? local.status.refused
-    : local.status.state === 'runtime-missing' || local.status.state === 'failed' ? `Connection failed: ${local.status.failure || local.status.install?.reason || 'The local server could not start.'}` : '';
+    : local.status.state === 'runtime-missing' || local.status.state === 'failed' ? `Connection failed: ${local.status.failure || local.status.install?.reason || 'The local server could not start.'}`
+    : local.status.state === 'restarting' && local.status.managedPolicy ? `Connection failed: ${MANAGED_POLICY_STARTUP_FAILURE}` : '';
   return {
     title: source?.label || local.target?.label || 'This machine',
     kind: Object.keys(config).length ? str(row?.kind, 'desktop') : 'desktop',

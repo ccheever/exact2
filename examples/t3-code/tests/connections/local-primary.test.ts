@@ -81,6 +81,8 @@ describe('the primary from the embedded server', () => {
     expect(primaryPhase(parseLocalBackendStatus({ state: 'installing' }), connected)).toEqual({ phase: 'connecting', message: '' });
     expect(primaryPhase(parseLocalBackendStatus({ state: 'starting' }), connected)).toEqual({ phase: 'connecting', message: '' });
     expect(primaryPhase(parseLocalBackendStatus({ state: 'restarting', lastExit: 'killed by SIGKILL' }), connected)).toEqual({ phase: 'reconnecting', message: 'The local server exited (killed by SIGKILL).' });
+    expect(primaryPhase(parseLocalBackendStatus({ state: 'restarting', lastExit: 'code=77', managedPolicy: true }), connected))
+      .toEqual({ phase: 'reconnecting', message: "The local server exited (code=77). Your organization's managed policy stopped T3 Code from starting." });
     expect(primaryPhase(parseLocalBackendStatus({ state: 'failed', failure: 'No desktop backend port is available.' }), connected)).toEqual({ phase: 'error', message: 'No desktop backend port is available.' });
     expect(primaryPhase(ready(), connected)).toEqual(connected);
     expect(primaryPhase(ready(), idle)).toEqual({ phase: 'connecting', message: '' });
@@ -367,6 +369,8 @@ describe('the Local environment switch persists before requesting app relaunch',
     primaryOff();
     expect(thisMachine(undefined, null)).toMatchObject({ enabled: false, description: LOCAL_OFF_DESCRIPTION, canManage: false, dialogTitle: TURN_ON.title, dialogConfirm: 'Restart and turn on',
       dialogBody: 'T3 Code will restart and start running a server on this computer again.' });
+    primary.update(parseLocalBackendStatus({ state: 'restarting', lastExit: 'code=77', managedPolicy: true }), true);
+    expect(thisMachine(undefined, null)).toMatchObject({ status: "Connection failed: Your organization's managed policy stopped T3 Code from starting.", statusError: true });
     noPrimary();
     expect(thisMachine(undefined, null)).toMatchObject({ status: 'Development build: set T3_LOCAL_HOME and T3_LOCAL_PORT to start the local server.', canManage: false });
     primaryAt('http://127.0.0.1:16437', 'env-local', 'Lane Mac');
