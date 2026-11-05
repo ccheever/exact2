@@ -71,6 +71,8 @@ component FileLinkButton
     fileLinkPopover: string
     fileLinkPressMenu: bool
   props
+    // The chip's text, its accessible name: "File options for <label>" where the press opens the menu.
+    label: string
     tip: string
     target: string
     menu: LinkMenuRow[]
@@ -84,5 +86,5 @@ component FileLinkButton
     else
       local("surface-file-link", tip, target)
   view
-    button press=press contextmenu=fileLinkMenu(tip, target, menu) contextPopover=fileLinkPopover aria-label=tip tabindex=0 padding=0 border-width=0 background-color="#00000000" testId=testId title=""
+    button press=press contextmenu=fileLinkMenu(tip, target, menu) contextPopover=fileLinkPopover aria-label=(fileLinkPressMenu ? `File options for ${label}` : label) tabindex=0 padding=0 border-width=0 background-color="#00000000" testId=testId title=""
       children

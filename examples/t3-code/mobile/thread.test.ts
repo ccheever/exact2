@@ -61,6 +61,18 @@ describe('bounded transcript Markdown reuse', () => {
     expect(source).toContain('background-color=colors.borderSubtle');
   });
 
+  test('working lifecycle rows keep the source bordered elapsed-time header', () => {
+    const client = fixture([user('Keep working.')], {
+      runs: [{ id: 'r1', status: 'running', startedAt: at(0), completedAt: null }],
+    });
+    const row = mobileThreadRows(client, now + 3_000).find(value => value.kind === 'working');
+    expect(row?.title).toBe('Working for 3s');
+    const source = appText('mobile/thread.contract');
+    expect(source).toContain('row min-height=44 align-items="center" border-bottom-width=1');
+    expect(source).toContain('font-variant-numeric="tabular-nums"');
+    expect(source).toContain('border-bottom-color=colors.border');
+  });
+
   test('thread Markdown keeps prose and code selectable like the reference reader', () => {
     const source = appText('mobile/thread-markdown.contract');
     expect(source).toContain('text token.text user-select="text"');
@@ -274,6 +286,14 @@ describe('bounded transcript Markdown reuse', () => {
     const prepended = content(mobileThreadRows(client, now));
     expect(prepended.map(row => row.body)).toEqual(['Older paragraph.', ...items.map(value => value.text)]);
     expect(prepended.at(-1)!.blocks).toBe(a.at(-1)!.blocks);
+  });
+
+  test('projection index follows a replaced visible-item array without retaining old rows', () => {
+    const client = fixture([answer('Before')]);
+    expect(mobileThreadRows(client, now).map(row => row.body)).toEqual(['Before']);
+    const replacement = item('replacement', 'assistant_message', { text: 'After', messageId: 'replacement', streaming: false });
+    client.thread!.projection.visibleTurnItems = [{ position: 0, visibility: 'local', sourceThreadId: 't1', sourceItemId: replacement.id, item: replacement }];
+    expect(mobileThreadRows(client, now).map(row => row.body)).toEqual(['After']);
   });
 
   test('theme, route and client ownership changes invalidate blocks without changing message identity', () => {
