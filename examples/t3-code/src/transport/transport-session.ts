@@ -1231,13 +1231,18 @@ export class Session {
   }
 }
 
-/** `ws(s)://<host>/ws` with the socket ticket and this client's surface, as the reference's resolver builds it. */
+/**
+ * `ws(s)://<host>/ws` with the socket ticket and this client's surface, as the reference's resolver builds it. The
+ * gated socket also names the wire shapes this client reads (compatibility.ts appendOrchestrationProtocol,
+ * 322f6544df): with `settingsSecretReferences`, a secret setting that names a secret provider arrives as that
+ * reference rather than as a saved secret's redaction marker.
+ */
 export function socketURL(origin: string, ticket: string, gated: boolean): string {
   const url = new URL(origin);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   url.pathname = '/ws';
   const query = new URLSearchParams({ wsTicket: ticket });
-  if (gated) query.set('orchestrationProtocol', '2');
+  if (gated) { query.set('orchestrationProtocol', '2'); query.set('clientCapabilities', 'settingsSecretReferences'); }
   query.set('clientSurface', 'desktop'); query.set('clientOs', 'macos'); query.set('clientDeviceType', 'desktop');
   url.search = query.toString();
   return url.href;

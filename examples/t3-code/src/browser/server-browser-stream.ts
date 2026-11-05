@@ -80,7 +80,8 @@ export class ServerBrowserStream {
       } else if (typeof event.data === 'string') this.message(event.data);
     } else if (event.type === 'close' || event.type === 'error') {
       this.closed = true;
-      this.socket = null; this.control = null; this.frame.connected = false;
+      // The server offers a picker still open again, under a new id, when this viewer reattaches (322f6544df).
+      this.socket = null; this.control = null; this.frame.connected = false; this.chooser = ''; this.frame.chooserId = '';
       if (event.code === 4404) this.frame.gone = true;
       else if (event.code === 4503) {
         let setup: Record<string, unknown> = {};

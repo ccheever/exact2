@@ -26,6 +26,12 @@ describe('source control host settings', () => {
     expect(views.find(view => view.kind === 'bitbucket')?.fields.find(field => field.key === 'apiToken')).toMatchObject({ value: '', saved: true });
     expect(JSON.stringify(views)).not.toContain('redacted>');
   });
+  test('a token read from a secret provider counts as saved', () => {
+    const reference = { provider: 'onepassword', reference: 'op://Team/GitHub/token' };
+    const views = hostCredentials({ sourceControlHosts: { github: { tokens: { 'ghe.example': reference } }, bitbucket: { apiToken: reference } } }, {}, 'env1', 1, true);
+    expect(views.find(view => view.kind === 'github')?.savedHosts).toEqual([{ host: 'ghe.example' }]);
+    expect(views.find(view => view.kind === 'bitbucket')?.fields.find(field => field.key === 'apiToken')).toMatchObject({ value: '', saved: true });
+  });
   test('token/account and generic field writes retain other redacted secrets and rescan', async () => {
     const { client, native } = await connected(), later = native.later.bind(native), patches: Obj[] = [];
     client.scopes = [...client.scopes, 'settings:write'];

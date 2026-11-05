@@ -4,7 +4,8 @@
 // offered only when the device state says `supportsEasHosts`; Save and Remove write every
 // connected environment of the scope. The editor's account check is `device.easAccount` on an
 // environment that holds the host. A saved access token arrives redacted, and sending the
-// redacted value back keeps the token each environment holds.
+// redacted value back keeps the token each environment holds; a token read from a secret
+// provider arrives as its reference (SettingsSecretValue, 322f6544df), which Save sends back as is.
 // exact2: the editor's fields live in the dialog (settings-eas-hosts.contract). Each account
 // check carries the dialog's check number, and an answer shows only while that number is the
 // dialog's latest: a later check or a token edit makes it stale, as the reference's
@@ -16,7 +17,9 @@ import { letGo } from '../client/let-go';
 import { pushToast } from '../shell/toast';
 import { hostTargets, randomId, type HostTarget } from './settings-a-hosts';
 
-export type EasHost = { kind: 'eas'; id: string; label: string; appId?: string; accessToken: string; maxSessionMinutes: number; idleMinutes: number; maxConcurrentSessions: number };
+/** A credential setting: the literal (redacted when saved) or the secret reference it is read from. */
+export type SecretValue = string | Obj;
+export type EasHost = { kind: 'eas'; id: string; label: string; appId?: string; accessToken: SecretValue; maxSessionMinutes: number; idleMinutes: number; maxConcurrentSessions: number };
 
 /** EasDeviceHostConfig's upper bounds; every limit starts at 1. */
 export const EAS_LIMITS = { maxConcurrentSessions: 20, maxSessionMinutes: 115, idleMinutes: 60 } as const;
@@ -54,10 +57,11 @@ export function easSessionLimits(host: EasHost): string {
   return `Up to ${sessions} at once, each stopped after ${host.maxSessionMinutes} min or ${host.idleMinutes} idle min`;
 }
 
+const secretValue = (value: unknown): SecretValue => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Obj : str(value);
 const count = (value: unknown, fallback: number) => typeof value === 'number' ? value : fallback;
 /** The `easDeviceHosts` setting with EasDeviceHostConfig's decoding defaults. */
 export const easHostsOf = (settings: Obj): EasHost[] => arr(settings.easDeviceHosts).map(host => ({
-  kind: 'eas', id: str(host.id), label: str(host.label), ...(str(host.appId) ? { appId: str(host.appId) } : {}), accessToken: str(host.accessToken),
+  kind: 'eas', id: str(host.id), label: str(host.label), ...(str(host.appId) ? { appId: str(host.appId) } : {}), accessToken: secretValue(host.accessToken),
   maxSessionMinutes: count(host.maxSessionMinutes, 30), idleMinutes: count(host.idleMinutes, 10), maxConcurrentSessions: count(host.maxConcurrentSessions, 2) }));
 
 // ── Views ──────────────────────────────────────────────────────────────────
