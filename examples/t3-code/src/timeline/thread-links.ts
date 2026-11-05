@@ -1,4 +1,4 @@
-// shared/threadLinks.ts and chat/MarkdownThreadLink.tsx at T3 Code v0.1.5 (MIT, see LICENSE-T3).
+// shared/threadLinks.ts and chat/MarkdownThreadLink.tsx at T3 Code v0.1.7 (MIT, see LICENSE-T3).
 import { str, type Obj } from '../client/domain';
 import { obj, threadSnapshot } from '../client/domain';
 import type { T3Client } from '../client/client';
@@ -6,16 +6,35 @@ import type { Native } from '../client/protocol';
 import { holdThreadDiff, reopenThreadDiff } from '../panel/panel-surfaces';
 import { fleet, fleetThreadId, focusFleetThread, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { contextLinks, contextTarget, replaceLinks } from '../composer/context-links';
+import { contextId, contextLink } from '../composer/composer-editor-menu';
+import { HOSTED_APP_URL, hostedThreadLink } from '../shared/hosted-thread-link';
+export { hostedThreadLink };
 
 const V1_PREFIX = 't3-thread://v1/';
 const V2_PREFIX = 't3-thread://v2/';
+const HOSTED_PREFIX = `${HOSTED_APP_URL}/threads/`;
+const HOSTED_SEGMENT = '[A-Za-z0-9_%-]+';
+const HOSTED_LINK = `${HOSTED_PREFIX.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}${HOSTED_SEGMENT}/${HOSTED_SEGMENT}`;
+const HOSTED_PATH = new RegExp(`^(${HOSTED_SEGMENT})/(${HOSTED_SEGMENT})$`);
 const validId = (id: string) => id.trim().length > 0;
 
 /** A v1 link names no environment; the message's own, or a unique match, stands in. */
 export interface ThreadLink { environmentId: string | null; threadId: string }
 
-/** The ids as written. Thread ids can hold percent escapes of their own, so they are not decoded. */
+function parseHostedThreadLink(href: string): ThreadLink | null {
+  const match = HOSTED_PATH.exec(href.slice(HOSTED_PREFIX.length));
+  if (!match) return null;
+  try {
+    const environmentId = decodeURIComponent(match[1]!), threadId = decodeURIComponent(match[2]!);
+    return validId(environmentId) && validId(threadId) ? { environmentId: environmentId.trim(), threadId: threadId.trim() } : null;
+  } catch { return null; }
+}
+/**
+ * The ids as written. Thread ids can hold percent escapes of their own, so they are not decoded, except in a hosted
+ * link, which escapes them itself.
+ */
 export function parseThreadLinkHref(href: string): ThreadLink | null {
+  if (href.startsWith(HOSTED_PREFIX)) return parseHostedThreadLink(href);
   if (href.startsWith(V1_PREFIX)) {
     const threadId = href.slice(V1_PREFIX.length);
     return validId(threadId) ? { environmentId: null, threadId: threadId.trim() } : null;
@@ -37,12 +56,18 @@ const linkIds = (link: ThreadLink) => {
 function threadLinkHref(link: ThreadLink): string {
   return link.environmentId === null ? `${V1_PREFIX}${link.threadId}` : `${V2_PREFIX}${link.environmentId}/${link.threadId}`;
 }
+const linkLabel = (label: string | undefined) => label?.replace(/[[\]\\\r\n]/g, ' ').replace(/\s+/g, ' ').trim();
 /** Without a label, an autolink: clients show the thread's current title. */
 export function formatThreadLink(link: ThreadLink, label?: string): string {
-  const cleaned = label?.replace(/[[\]\\\r\n]/g, ' ').replace(/\s+/g, ' ').trim();
+  const cleaned = linkLabel(label);
   return cleaned ? `[${cleaned}](${threadLinkHref(link)})` : `<${threadLinkHref(link)}>`;
 }
-export function hasThreadLinks(markdown: string): boolean { return markdown.includes('t3-thread://v'); }
+/** formatHostedThreadLink: what a person copies out of T3 Code, a Markdown link that opens the thread anywhere. */
+export function formatHostedThreadLink(ref: { environmentId: string; threadId: string }, label: string): string {
+  const href = hostedThreadLink(ref), cleaned = linkLabel(label);
+  return cleaned ? `[${cleaned}](${href})` : href;
+}
+export function hasThreadLinks(markdown: string): boolean { return markdown.includes('t3-thread://v') || markdown.includes(HOSTED_PREFIX); }
 
 /** "Thread on another machine" for a link to another environment, else "Thread no longer available". */
 export function unknownThreadLinkLabel(link: ThreadLink, messageEnvironmentId: string): string {
@@ -50,8 +75,19 @@ export function unknownThreadLinkLabel(link: ThreadLink, messageEnvironmentId: s
 }
 
 // Code comes first in the alternation so a link written inside a code span or fence is skipped.
-const OUTSIDE_CODE = /(?<fence>(`{3,}|~{3,})[\s\S]*?(?:\2|$))|(?<span>(`+)[^\n]*?\4)|\[(?<label>[^\]\n]*)\]\((?<href>t3-thread:\/\/v[12]\/[^\s)]+)\)|<(?<autolink>t3-thread:\/\/v[12]\/[^\s<>]+)>/g;
-type LinkGroups = { href?: string; autolink?: string; label?: string };
+const OUTSIDE_CODE = new RegExp(String.raw`(?<fence>(\`{3,}|~{3,})[\s\S]*?(?:\2|$))|(?<span>(\`+)[^\n]*?\4)|\[(?<label>[^\]\n]*)\]\((?<href>t3-thread:\/\/v[12]\/[^\s)]+|${HOSTED_LINK})\)|<(?<autolink>t3-thread:\/\/v[12]\/[^\s<>]+|${HOSTED_LINK})>|(?<bare>${HOSTED_LINK})(?![\w%/?#-])`, 'g');
+type LinkGroups = { href?: string; autolink?: string; bare?: string; label?: string };
+const groupHref = (groups: LinkGroups) => groups.href ?? groups.autolink ?? groups.bare;
+
+/** replaceThreadLinks: rewrites each link outside code that `replace` answers for; `label` is a Markdown link's own text. */
+export function replaceThreadLinks(markdown: string, replace: (link: ThreadLink, label: string | undefined) => string | undefined): string {
+  if (!hasThreadLinks(markdown)) return markdown;
+  return markdown.replace(OUTSIDE_CODE, (source, ...args) => {
+    const groups = args.at(-1) as LinkGroups, href = groupHref(groups);
+    const link = href === undefined ? null : parseThreadLinkHref(href);
+    return (link && replace(link, groups.label)) ?? source;
+  });
+}
 
 /**
  * The thread links outside code, each with its written label: null for an autolink, whose text is its own URL and so
@@ -62,7 +98,7 @@ export function threadLinksIn(markdown: string): { href: string; label: string |
   const links: { href: string; label: string | null }[] = [];
   // A replace, not matchAll: Hermes's matchAll finds nothing with this expression's backreferences.
   markdown.replace(OUTSIDE_CODE, (source, ...args) => {
-    const groups = args.at(-1) as LinkGroups, href = groups.href ?? groups.autolink;
+    const groups = args.at(-1) as LinkGroups, href = groupHref(groups);
     if (href === undefined || parseThreadLinkHref(href) === null) return source;
     const written = groups.label?.trim() ?? '';
     links.push({ href, label: written && parseThreadLinkHref(written) === null ? written : null });
@@ -80,10 +116,13 @@ export function threadLinksIn(markdown: string): { href: string; label: string |
 export function relabelThreadLinks(markdown: string, threads: Obj[], messageEnvironmentId = ''): string {
   if (!hasThreadLinks(markdown)) return markdown;
   return markdown.replace(OUTSIDE_CODE, (source, ...args) => {
-    const groups = args.at(-1) as LinkGroups, href = groups.href ?? groups.autolink;
+    const groups = args.at(-1) as LinkGroups, href = groupHref(groups);
     const written = href === undefined ? null : parseThreadLinkHref(href);
     if (!written) return source;
-    const kept = groups.autolink === undefined ? source : `[${groups.autolink}](${groups.autolink})`;
+    // A hosted link is written as the v2 link it names, so the rest of the timeline reads one kind.
+    const hosted = href!.startsWith(HOSTED_PREFIX), v2 = hosted ? threadLinkHref(written) : href!;
+    const autolink = groups.autolink ?? groups.bare;
+    const kept = autolink !== undefined ? `[${v2}](${v2})` : hosted ? formatThreadLink(written, groups.label) : source;
     if (written.environmentId !== null && written.environmentId !== messageEnvironmentId) return kept;
     const thread = linkIds(written).map(id => threads.find(candidate => candidate.id === id)).find(Boolean);
     const title = str(thread?.title).trim();
@@ -157,5 +196,19 @@ export function projectPendingUserInputAnswer(answer: string | string[], records
   return replaceLinks(answer, contextLinks(answer), link => {
     const target = contextTarget(link.href), record = target?.kind === 'thread' ? records.find(record => record.contextId === target.id) : undefined;
     return record && str(record.threadId) ? formatThreadLink({ environmentId: str(record.environmentId) || null, threadId: str(record.threadId) }, link.label) : null;
+  });
+}
+
+/**
+ * threadLinkContextReferences (composerContextReferences.ts) for a paste: each link to a thread of this environment
+ * becomes that thread's chip, named by its title here, else the link's own label, else "Thread". A link to another
+ * machine, or a v1 link, which names none, stays as written: this composer's agent reads only its own machine.
+ */
+export function pastedThreadLinkChips(text: string, threads: Obj[], environmentId: string): string {
+  return replaceThreadLinks(text, (link, label) => {
+    if (link.environmentId === null || link.environmentId !== environmentId) return undefined;
+    const thread = linkIds(link).map(id => threads.find(candidate => str(candidate.id) === id)).find(Boolean);
+    const threadId = thread ? str(thread.id) : link.threadId;
+    return contextLink('thread', contextId('thread', threadId), str(thread?.title).trim() || label?.trim() || 'Thread');
   });
 }

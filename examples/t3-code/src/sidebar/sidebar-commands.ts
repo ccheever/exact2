@@ -673,7 +673,7 @@ async function runChoice(client: T3Client, nativeHandle: Native, storage: Files,
       await copy(client, nativeHandle, path, 'Path copied'); return '';
     }
     case 'copy-branch': if (thread.branch) await copy(client, nativeHandle, str(thread.branch), 'Branch copied'); return '';
-    case 'copy-thread': await copyThreadTarget(client, nativeHandle, threadChipCopyTarget(targetOf(client, id)?.threadId ?? id, str(thread.title))); return '';
+    case 'copy-thread': { const target = targetOf(client, id); await copyThreadTarget(client, nativeHandle, threadChipCopyTarget({ environmentId: target?.environmentId ?? client.environmentId, threadId: target?.threadId ?? id }, str(thread.title))); return ''; }
     case 'copy-thread-id': await copy(client, nativeHandle, targetOf(client, id)?.threadId ?? id, 'Thread ID copied'); return '';
     case 'project-settings': return `sidebar:project-settings:${str(thread.projectId)}`;
     case 'new-thread-on-branch': {

@@ -130,6 +130,11 @@ describe('instance-scoped model selection', () => {
     expect(instanceModelOptions({}, settings, providerEntries(providers)[0]!).map(option => option.slug)).toEqual(customModels);
     expect(resolveAppModelSelectionForInstance({}, settings, providers, 'claude_openrouter', 'proxy/model-40')).toBe('proxy/model-40');
   });
+  test('a custom model named like a Codex alias keeps that model', () => {
+    const providers = [wire('codex', 'codex_work', { models: models(['gpt-5.3-codex']) })];
+    const settings = { providerInstances: { codex_work: { driver: 'codex', config: { customModels: ['gpt-5.3'] } } } };
+    expect(resolveAppModelSelectionForInstance({}, settings, providers, 'codex_work', 'gpt-5.3', true)).toBe('gpt-5.3');
+  });
   test('preserves an explicit draft OpenCode selection while the catalog is empty', () => {
     const providers = [wire('opencode', 'opencode_work')];
     expect(resolveAppModelSelectionForInstance({}, {}, providers, 'opencode_work', 'openrouter/kimi-k3', true)).toBe('openrouter/kimi-k3');

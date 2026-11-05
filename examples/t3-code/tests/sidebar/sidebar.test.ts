@@ -275,9 +275,9 @@ describe('the rows\' context popover (sidebar-row.contract ThreadMenu, DraftMenu
     expect(rows.find(row => row.id === 'a')!.menu.filter(entry => entry.parent === 'copy').map(entry => entry.label)).toEqual(['Path', 'Branch', 'Thread', 'Thread ID']);
     await sidebarCommand(client, native, files, 'menu-choice', 'a', 'copy-path');
     expect(calls.filter(call => call.op === 'copyText').map(call => call.text)).toEqual(['/wt/a']);
-    // Copy › Thread: the thread's chip, "Thread copied" with its title.
+    // Copy › Thread: the thread's hosted link, "Thread copied" with its title.
     await sidebarCommand(client, native, files, 'menu-choice', 'a', 'copy-thread');
-    expect(calls.filter(call => call.op === 'copyText').at(-1)?.text).toBe('[Thread a](t3-context://v1/thread/thread_a)');
+    expect(calls.filter(call => call.op === 'copyText').at(-1)?.text).toBe('https://app.t3.codes/threads/env/a');
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'success', title: 'Thread copied', description: 'Thread a' });
     sidebarSession(client).selection = ['b', 'c'];
     const selected = sidebarSnapshot(client, NOW, helpers).threads;

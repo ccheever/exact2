@@ -457,6 +457,10 @@ shape Snapshot
   providerBannerAlert: bool
   providerBannerDismiss: string
   providerBannerSetup: string
+  // The banner's Refresh (`server.refreshProviders` for its instance): its label, whether this client may, and while it runs.
+  providerBannerRefresh: string
+  providerBannerCanRefresh: bool
+  providerBannerRefreshing: bool
   serverUrl: string
   // auto-balance-owner.ts: the open draft's identity; a draft Auto balance moved keeps its earlier one.
   composerOwner: string

@@ -92,19 +92,22 @@ component ModelRow
           ComposerInstanceMark(driver=row.driver, icon=row.icon, size=16, color="light-dark(#18181b, #f5f5f5)", badge=row.providerBadge, accent=row.providerBadgeColor)
           row flex=1 min-width=0 gap="0.5rem" align-items="center"
             text row.name title=row.nameTip font-size="0.875rem" font-weight=400 line-height="1.203125rem" color="light-dark(#18181b, #f5f5f5)" line-clamp=1 min-width=0
+            // The check follows the name on the composer's model, or on each model a multi-model draft chose, muted
+            // as the row's unclassed icons are; an unselected row reserves no column for it.
+            if row.selected
+              box display="flex" flex-shrink=0 aria-hidden=true testId=`model-check-${row.id}`
+                CcIcon(name="check", size=14, color="light-dark(#71717b, #a1a1a1)", weight=1.75)
             if row.label != ""
               text row.label font-size="0.75rem" line-height="1rem" color="light-dark(#71717ab3, #a1a1a1b3)" line-clamp=1 min-width=0
             if row.isNew
               text "NEW" font-size="0.5rem" font-weight=700 line-height="0.5rem" letter-spacing=0.2 padding-left="0.125rem" padding-right="0.125rem" padding-top=1 padding-bottom=1 border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed859, #346bf159)" background-color="light-dark(#1b4ed826, #346bf126)" color="light-dark(#1b4ed8, #51a2ff)" flex-shrink=0
-        // ModelListRow's jumpLabel Kbd (h-5 min-w-5 px-1, bg-muted, text-xs medium) before the star.
-        if row.jump != ""
-          text row.jump height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color="light-dark(#f4f4f5, #ffffff0d)" font-size="0.75rem" line-height="1.25rem" font-weight=500 text-align="center" color="light-dark(#71717b, #a1a1a1)" flex-shrink=0 testId=`model-jump-${row.id}`
-        button press=favorite("favorite-model", row.providerId, row.id, 0) disabled=(row.reason != "" or not favoriteWritable) testId=`favorite-${row.id}` aria-label=(row.favorite ? "Remove from favorites" : "Add to favorites") hover=hoverStar focus=starFocused(true) blur=starFocused(false) class=Control width="1.5rem" height="1.5rem" min-height="1.5rem" padding=0 border-radius="0.5rem" flex-shrink=0 opacity=((row.favorite and not starOnHover) or highlighted or over or starFocus ? 1 : 0) background-color=(starOver ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
-          CmpIcon(name=(row.favorite ? "star-filled" : "star"), size=12, color=(row.favorite ? "#fe9a00" : starOver ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717a, #a1a1a1)"), weight=1.75)
-        // ModelListRow: the check comes last and keeps its column on every row, so stars and checks line up;
-        // it shows on the composer's model, or on each model a multi-model draft chose, muted as the row's unclassed icons are.
-        box display="flex" flex-shrink=0 opacity=(row.selected ? 1 : 0) aria-hidden=true testId=`model-check-${row.id}`
-          CcIcon(name="check", size=14, color="light-dark(#71717b, #a1a1a1)", weight=1.75)
+        // ModelListRow's trailing group (gap-1.5): the star, then the jumpLabel Kbd (h-5 min-w-5 px-1, bg-muted,
+        // text-xs medium).
+        row flex-shrink=0 gap="0.375rem" align-items="center"
+          button press=favorite("favorite-model", row.providerId, row.id, 0) disabled=(row.reason != "" or not favoriteWritable) testId=`favorite-${row.id}` aria-label=(row.favorite ? "Remove from favorites" : "Add to favorites") hover=hoverStar focus=starFocused(true) blur=starFocused(false) class=Control width="1.5rem" height="1.5rem" min-height="1.5rem" padding=0 border-radius="0.5rem" flex-shrink=0 opacity=((row.favorite and not starOnHover) or highlighted or over or starFocus ? 1 : 0) background-color=(starOver ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+            CmpIcon(name=(row.favorite ? "star-filled" : "star"), size=12, color=(row.favorite ? "#fe9a00" : starOver ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717a, #a1a1a1)"), weight=1.75)
+          if row.jump != ""
+            text row.jump height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color="light-dark(#f4f4f5, #ffffff0d)" font-size="0.75rem" line-height="1.25rem" font-weight=500 text-align="center" color="light-dark(#71717b, #a1a1a1)" flex-shrink=0 testId=`model-jump-${row.id}`
 
 component ModelPicker
   inject

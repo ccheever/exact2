@@ -21,6 +21,8 @@ import { letGo } from '../client/let-go';
 import { draftFiles } from './composer-editor-files';
 import { newThreadEnvMode, refreshNewThreadContext } from './new-thread-context';
 import { peekVcsStatus, restartVcsStatus, vcsStreamFollows } from '../details/shell-vcs'; // the workspace status the card's stream holds
+import { workingTreeRoot } from '../details/git-logic';
+import { workspaceRelativeFilePath } from '../timeline/workspace-file-lookup';
 import { commandShortcut } from '../shell/shell'; // the workspace and host tooltips' shortcuts
 
 export type DraftContext = { envMode: string; branch: string; worktreePath: string };
@@ -318,6 +320,13 @@ async function setThreadBranch(client: T3Client, native: Native, storage: Files,
     branch: branch || null, worktreePath: worktreePath || null }, 'Change branch');
 }
 
+/**
+ * resolveBranchSelectionTarget's project checkout (T3 Code v0.1.7 #29908): a ref's worktree is the project's own when
+ * it is the checkout root of the project folder; until that root loads, a checkout containing the project counts.
+ */
+export function isProjectCheckout(projectCwd: string, checkoutRoot: string | undefined, worktreePath: string): boolean {
+  return checkoutRoot === undefined ? workspaceRelativeFilePath(projectCwd, worktreePath) !== null : workspaceRelativeFilePath(checkoutRoot, worktreePath) === '.';
+}
 /** BranchToolbarBranchSelector.selectBranch / createRef. */
 export async function selectBranch(client: T3Client, native: Native, storage: Files, name: string, create = false, known?: Obj): Promise<string> {
   const root = projectRoot(client), cwd = cwdFor(client);
@@ -330,10 +339,11 @@ export async function selectBranch(client: T3Client, native: Native, storage: Fi
     contexts(client)[client.draftKey] = { envMode: 'worktree', branch: name, worktreePath: '' };
     return '';
   }
-  // resolveBranchSelectionTarget: a ref checked out in a worktree is reused there.
+  // resolveBranchSelectionTarget: a ref checked out in a worktree is reused there; the project's own checkout keeps
+  // the thread in the project folder, a subfolder project's included.
   if (!create && str(ref?.worktreePath)) {
-    const path = str(ref!.worktreePath);
-    await setThreadBranch(client, native, storage, name, path === root ? '' : path);
+    const path = str(ref!.worktreePath), checkoutRoot = workingTreeRoot(peekVcsStatus(client, root)) || undefined;
+    await setThreadBranch(client, native, storage, name, isProjectCheckout(root, checkoutRoot, path) ? '' : path);
     return '';
   }
   const nextWorktree = !create && worktreePath && ref?.isDefault === true ? '' : worktreePath;

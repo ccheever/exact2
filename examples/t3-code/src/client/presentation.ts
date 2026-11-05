@@ -46,6 +46,7 @@ import { adoptHostLocale } from '../shared/timestamp-format'; // the Region's fo
 import { serverUpdateView } from '../connections/server-update-notices';
 import { composerOwner } from '../composer/auto-balance-owner';
 import { providerBanner } from '../providers/provider-status-message'; // the banner and its setup button
+import { providerBannerRefreshState } from '../providers/provider-banner-refresh'; // the banner's Refresh
 import { feedbackUploading, withFeedbackRows } from '../composer/composer-feedback'; // Codex /feedback
 import { waitingSend } from '../composer/composer-uploads';
 
@@ -152,7 +153,7 @@ export function snapshot(client: T3Client, now = 0, displayMode = '', formatLoca
       : client.connection === 'reconnecting' ? 'Reconnecting…' : client.connection === 'connecting' ? 'Connecting…'
         : client.statusMessage || 'Disconnected';
   return {
-    revision: client.revision, telemetry: client.telemetryRevision, alertClip: alertClip(client.presentation), heroInlineWidth: heroInlineWidth(client.presentation), draftLaunching: draftLaunching(client), ...providerBanner(provider), available: client.available, connected: client.connection === 'connected',
+    revision: client.revision, telemetry: client.telemetryRevision, alertClip: alertClip(client.presentation), heroInlineWidth: heroInlineWidth(client.presentation), draftLaunching: draftLaunching(client), ...providerBanner(provider), ...providerBannerRefreshState(client), available: client.available, connected: client.connection === 'connected',
     connecting: ['connecting', 'reconnecting'].includes(client.connection), syncComplete: client.ready,
     status: connectionMessage, serverUrl: client.origin, composerOwner: composerOwner(client), // a moved draft keeps its owner
     uncertain: pending?.uncertain === true,
