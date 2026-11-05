@@ -40,6 +40,7 @@ final class RasterColorTests: XCTestCase {
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.floatComponents.rawValue | CGBitmapInfo.byteOrder32Little.rawValue))
         ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
         let data = try XCTUnwrap(ctx.data).assumingMemoryBound(to: Float.self)
+        XCTAssertTrue(stride(from: 3, to: w * h * 4, by: 4).contains { data[$0] > 0 }, "the linear colour capture draws")
         return (w, h, Array(UnsafeBufferPointer(start: data, count: w * h * 4)))
     }
     /// sRGB's transfer, extended to negatives and values above 1: errors

@@ -23,7 +23,7 @@ final class BaselinePrecisionIOSTests: XCTestCase {
                 label.text = "Hxg"; label.textColor = .black
                 label.traitOverrides.displayScale = scale; label.updateTraitsIfNeeded()
                 label.frame = CGRect(origin: .zero, size: label.sizeThatFits(CGSize(width: 100, height: 100)))
-                let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = true; format.preferredRange = .standard
+                let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = false; format.preferredRange = .standard
                 func render(_ paint: (CGContext) -> Void) -> UIImage {
                     UIGraphicsImageRenderer(size: CGSize(width: 100, height: 40), format: format).image { context in
                         UIColor.white.setFill(); context.fill(CGRect(x: 0, y: 0, width: 100, height: 40))
@@ -34,10 +34,12 @@ final class BaselinePrecisionIOSTests: XCTestCase {
                 let exact = render { TextEngine.draw(paragraph, spec: spec, in: CGRect(x: 0, y: 0, width: 80, height: 30), context: $0) }
                 let native = render { label.layer.render(in: $0) }
                 func inkRows(_ image: UIImage) throws -> ClosedRange<Int> {
-                    let cg = try XCTUnwrap(image.cgImage), data = try XCTUnwrap(cg.dataProvider?.data)
-                    let bytes = CFDataGetBytePtr(data)!
+                    let cg = try XCTUnwrap(image.cgImage), bytes = try XCTUnwrap(cg.dataProvider?.data) as Data
                     let rows = (0..<cg.height).filter { y in
-                        (0..<cg.width).contains { x in bytes[y * cg.bytesPerRow + x * cg.bitsPerPixel / 8] < 240 }
+                        (0..<cg.width).contains { x in
+                            let at = y * cg.bytesPerRow + x * cg.bitsPerPixel / 8
+                            return CapturePixels.painted(bytes, at: at) && bytes[at] < 240
+                        }
                     }
                     return try XCTUnwrap(rows.first)...XCTUnwrap(rows.last)
                 }

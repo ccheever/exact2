@@ -40,6 +40,7 @@ final class TextPaintTests: XCTestCase {
             ctx.translateBy(x: 0, y: CGFloat(height)); ctx.scaleBy(x: 1, y: -1)
             TextEngine.draw(p, spec: spec, in: CGRect(x: 0, y: 20, width: size.width, height: p.height), context: ctx)
         }
+        XCTAssertTrue(CapturePixels.hasPaint(bytes), "the paragraph draws")
         return (bytes, width, height)
     }
 
@@ -285,11 +286,11 @@ final class TextPaintTests: XCTestCase {
         let shadow = TextRunShadow([0, 8, 0, 0, 0, 0, 0])
         shadowed.addAttribute(.exactShadow, value: shadow, range: NSRange(location: 4, length: 4))
         func capture(_ string: NSAttributedString, pass: TextLinePaint.Pass = .all) throws -> [UInt8] {
-            let ctx = try XCTUnwrap(CGContext(data: nil, width: 240, height: 60, bitsPerComponent: 8,
-                bytesPerRow: 240 * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            let ctx = try CapturePixelsTests.clearedContext(width: 240, height: 60)
             TextLinePaint.draw(CTLineCreateWithAttributedString(string), at: CGPoint(x: 10, y: 40), in: ctx, pass: pass)
-            return Array(UnsafeBufferPointer(start: try XCTUnwrap(ctx.data).assumingMemoryBound(to: UInt8.self), count: 240 * 60 * 4))
+            let bytes = Array(UnsafeBufferPointer(start: try XCTUnwrap(ctx.data).assumingMemoryBound(to: UInt8.self), count: 240 * 60 * 4))
+            XCTAssertTrue(CapturePixels.hasPaint(bytes), "the line draws")
+            return bytes
         }
         let reference = try capture(plain)
         for pass: TextLinePaint.Pass in [.all, .ink] {
@@ -464,15 +465,19 @@ final class TextPaintTests: XCTestCase {
             }
             let shaped = try XCTUnwrap(job(geometry.clamped).render())
             let laidOut = try XCTUnwrap(job(nil).render(lines: p.lines))
+            let expected = CapturePixels.bytes(laidOut)
+            XCTAssertTrue(CapturePixels.hasPaint(expected), "the reference paragraph draws")
             XCTAssertEqual(shaped.frame, laidOut.frame)
-            XCTAssertEqual(rasterBytes(shaped), rasterBytes(laidOut), "align \(align)")
+            XCTAssertEqual(CapturePixels.bytes(shaped), expected, "align \(align)")
             // Mounted paragraphs reuse the engine's plain range lines, not
             // paragraph.lines (which already ends with the clamp's ellipsis).
             let reused = engine.rasterLines(spec, ranges: geometry.ranges, width: box.width).1
             let firstPixels = try XCTUnwrap(job(geometry.clamped).render(lines: reused))
             XCTAssertEqual(firstPixels.frame, laidOut.frame)
-            XCTAssertEqual(rasterBytes(firstPixels), rasterBytes(laidOut), "first pixels: clamp \(clamp), align \(align)")
-            XCTAssertNotEqual(rasterBytes(try XCTUnwrap(job(nil).render())), rasterBytes(laidOut), "the clamp paints its ellipsis")
+            XCTAssertEqual(CapturePixels.bytes(firstPixels), expected, "first pixels: clamp \(clamp), align \(align)")
+            let unclamped = CapturePixels.bytes(try XCTUnwrap(job(nil).render()))
+            XCTAssertTrue(CapturePixels.hasPaint(unclamped), "the unclamped paragraph draws")
+            XCTAssertNotEqual(unclamped, expected, "the clamp paints its ellipsis")
         }
     }
 
@@ -525,13 +530,14 @@ final class TextPaintTests: XCTestCase {
 
     private func rasterPixels(_ image: TextRasterImage) -> [SIMD4<Float>] {
         #if os(macOS)
-        let width = image.surface.width, height = image.surface.height, row = image.surface.bytesPerRow
+        let width = image.surface.width, height = image.surface.height
         let deep = image.surface.bytesPerElement == 8
         #else
-        let width = image.image.width, height = image.image.height, row = image.image.bytesPerRow
+        let width = image.image.width, height = image.image.height
         let deep = image.image.bitsPerComponent == 16
         #endif
-        let data = rasterBytes(image)
+        let row = width * (image.tint != nil ? 1 : deep ? 8 : 4)
+        let data = CapturePixels.bytes(image)
         return data.withUnsafeBytes { raw in
             (0..<height).flatMap { y in (0..<width).map { x in
                 if let tint = image.tint?.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .relativeColorimetric, options: nil)?.components {
@@ -549,16 +555,6 @@ final class TextPaintTests: XCTestCase {
         }
     }
 
-    private func rasterBytes(_ r: TextRasterImage) -> Data {
-        #if os(iOS)
-        return (r.image.dataProvider?.data as Data?) ?? Data()
-        #else
-        r.surface.lock(options: .readOnly, seed: nil)
-        defer { r.surface.unlock(options: .readOnly, seed: nil) }
-        return Data(bytes: r.surface.baseAddress, count: r.surface.allocationSize)
-        #endif
-    }
-
     #if os(macOS)
     /// `-webkit-font-smoothing: antialiased` (LLP 1019 D12): AppKit's raster,
     /// both its paths, draws with font smoothing off, as Chrome does on the
@@ -573,7 +569,8 @@ final class TextPaintTests: XCTestCase {
                                     baselines: p.baselines, flush: 0, box: box, size: box.size, scale: 2, antialiased: antialiased,
                                     measuredGlyphs: glyphs ? try XCTUnwrap(MeasuredGlyphs(p, spec: spec, width: 300)) : nil,
                                     measuredColor: glyphs ? CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1) : nil)
-            let bytes = rasterBytes(try XCTUnwrap(job.render()))
+            let bytes = CapturePixels.bytes(try XCTUnwrap(job.render()))
+            XCTAssertTrue(CapturePixels.hasPaint(bytes), "the paragraph draws")
             return stride(from: 3, to: bytes.count, by: 4).reduce(0) { $0 + Int(bytes[$1]) }
         }
         for glyphs in [false, true] {
@@ -613,6 +610,7 @@ final class TextPaintTests: XCTestCase {
         let smoothed = Spec(runs: [run("Settings General", weight: 500)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
         var antialiased = smoothed; antialiased.antialiased = true
         let drawn = ink([smoothed, antialiased, smoothed])
+        XCTAssertTrue(drawn.allSatisfy { $0 > 0 }, "each paragraph draws")
         XCTAssertLessThan(Double(drawn[1]), Double(drawn[0]) * 0.97, "\(drawn)")
         XCTAssertEqual(drawn[2], drawn[0], "the context smooths again after the antialiased paragraph")
     }

@@ -39,6 +39,13 @@ final class SymbolColorIOSTests: XCTestCase {
         return [r, g, b, a].map { (Double($0) * 255).rounded() }
     }
 
+    private func picture(_ image: UIImage?) throws -> Data {
+        let data = try XCTUnwrap(image?.pngData())
+        let cg = try XCTUnwrap(UIImage(data: data)?.cgImage)
+        XCTAssertTrue(CapturePixels.hasPaint(BorderParity.pixels(cg).2), "the projected segment draws")
+        return data
+    }
+
     func testAWrittenColourIsTheSymbolsInk() throws {
         let p = presenter([(2, true, ["text_color": tint]), (3, true, ["text_color": pink]), (4, false, ["text_color": pink]),
                            (5, true, ["text_color": pink, "tint_color": teal])])
@@ -102,20 +109,20 @@ final class SymbolColorIOSTests: XCTestCase {
         ops += [["op": "children", "id": 100, "ids": [102, 104]], ["op": "children", "id": 1, "ids": [100]]]
         p.apply(wireBatch(ops))
         let control = try XCTUnwrap(p.segments.control(of: 100)), icon = try XCTUnwrap(p.views[103])
-        let glyph = icon.image, before = try XCTUnwrap(control.imageForSegment(at: 0)?.pngData())
+        let glyph = icon.image, before = try picture(control.imageForSegment(at: 0))
         p.apply(wireBatch([["op": "style", "id": 103, "style": ["font_size": 24, "symbol_rendering": "palette",
             "symbol_palette": [[0, 255, 0, 255], [255, 0, 255, 255]]]]]))
         XCTAssertTrue(icon.image === glyph, "paint preserves the page glyph")
-        XCTAssertNotEqual(control.imageForSegment(at: 0)?.pngData(), before, "the projected palette changes")
+        XCTAssertNotEqual(try picture(control.imageForSegment(at: 0)), before, "the projected palette changes")
         p.apply(wireBatch([["op": "style", "id": 103, "style": ["font_size": 24, "symbol_rendering": "hierarchical"]]]))
         let hierarchical = icon.image
         try XCTUnwrap(p.views[100]).tintColor = .red
         p.segments.sync()
-        let red = try XCTUnwrap(control.imageForSegment(at: 0)?.pngData())
+        let red = try picture(control.imageForSegment(at: 0))
         try XCTUnwrap(p.views[100]).tintColor = .blue
         p.segments.sync()
         XCTAssertTrue(icon.image === hierarchical)
-        XCTAssertNotEqual(control.imageForSegment(at: 0)?.pngData(), red, "native inherited tint repaints hierarchical segments")
+        XCTAssertNotEqual(try picture(control.imageForSegment(at: 0)), red, "native inherited tint repaints hierarchical segments")
     }
 
     /// A projected segment made again while UIKit dims tints keeps its palette as written: UIKit
@@ -137,11 +144,11 @@ final class SymbolColorIOSTests: XCTestCase {
         ops += [["op": "children", "id": 100, "ids": [102, 104]], ["op": "children", "id": 1, "ids": [100]]]
         p.apply(wireBatch(ops))
         let control = try XCTUnwrap(p.segments.control(of: 100))
-        let before = try XCTUnwrap(control.imageForSegment(at: 0)?.pngData())
+        let before = try picture(control.imageForSegment(at: 0))
         p.viewport.tintAdjustmentMode = .dimmed
         p.segments.sync()
         p.viewport.tintAdjustmentMode = .automatic
-        XCTAssertEqual(control.imageForSegment(at: 0)?.pngData(), before, "the palette as written, once the dimming ends")
+        XCTAssertEqual(try picture(control.imageForSegment(at: 0)), before, "the palette as written, once the dimming ends")
     }
 
     /// LLP 1121 D9: a symbol a native control shows as its face keeps the

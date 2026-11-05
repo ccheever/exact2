@@ -375,20 +375,8 @@ extension TextGeometryTests {
     }
 
     private func glyphPixels(_ raster: TextRasterImage) -> Data {
-        #if os(macOS)
-        let surface = raster.surface
-        surface.lock(options: .readOnly, seed: nil)
-        defer { surface.unlock(options: .readOnly, seed: nil) }
-        let width = surface.width * surface.bytesPerElement, height = surface.height, row = surface.bytesPerRow
-        let base = surface.baseAddress
-        #else
-        let image = raster.image
-        let data = image.dataProvider!.data!
-        let width = image.width * image.bitsPerPixel / 8, height = image.height, row = image.bytesPerRow
-        let base = UnsafeRawPointer(CFDataGetBytePtr(data))!
-        #endif
-        var out = Data()
-        for y in 0..<height { out.append(base.advanced(by: y * row).assumingMemoryBound(to: UInt8.self), count: width) }
+        let out = CapturePixels.bytes(raster)
+        XCTAssertTrue(CapturePixels.hasPaint(out), "the measured glyphs draw")
         return out
     }
 }

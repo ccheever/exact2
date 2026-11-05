@@ -20,7 +20,15 @@ final class FieldSmoothingMacTests: XCTestCase {
             guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
             sum += Int(((1 - c.brightnessComponent) * c.alphaComponent * 255).rounded())
         } }
+        XCTAssertGreaterThan(sum, 0, "the field draws ink")
         return sum
+    }
+
+    func testACaptureWithoutInkIsRejected() throws {
+        _ = NSApplication.shared
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 8, height: 8))
+        _ = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        XCTExpectFailure("zero ink cannot prove that antialiasing reduces a field's ink") { _ = try? ink(view) }
     }
 
     func testAnAntialiasedFieldDrawsWithoutFontSmoothing() throws {

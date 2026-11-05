@@ -147,7 +147,9 @@ import XCTest
         }
         TextEngine.draw(ordinary,spec: spec,in: CGRect(x: 0,y: -phase.scroll.y,width: 320,height: ordinary.height),context: context)
         context.flush()
-        XCTAssertEqual(result.image()!.dataProvider!.data! as Data,Data(bytes: context.data!,count: 320*160*4))
+        let expected = Data(bytes: context.data!,count: 320*160*4)
+        XCTAssertTrue(CapturePixels.hasPaint(expected), "the selection reference draws")
+        XCTAssertEqual(result.image()!.dataProvider!.data! as Data,expected)
         withExtendedLifetime([a,alias]) {}
     }
     func testCompleteOutputCertificateRejectsABAAndPhaseChanges() {

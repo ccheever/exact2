@@ -71,7 +71,7 @@ final class SymbolColorMacTests: XCTestCase {
             let rep = try XCTUnwrap(Capture.picture(of: page))
             let scale = CGFloat(rep.pixelsWide) / page.bounds.width
             func rgb(_ x: CGFloat) throws -> [Int] {
-                let c = try XCTUnwrap(rep.colorAt(x: Int(x * scale), y: Int(32 * scale))?.usingColorSpace(.sRGB))
+                let c = try XCTUnwrap(rep.paintedColorAt(x: Int(x * scale), y: Int(32 * scale))?.usingColorSpace(.sRGB))
                 return [c.redComponent, c.greenComponent, c.blueComponent].map { Int(($0 * 255).rounded()) }
             }
             let path = try rgb(32), sf = try rgb(72)

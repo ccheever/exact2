@@ -61,6 +61,7 @@ final class WidgetGalleryTests: XCTestCase {
         let context = CGContext(data: &bytes, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
                                 space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        XCTAssertTrue(CapturePixels.hasPaint(bytes), "the gallery region draws")
         return bytes
     }
 

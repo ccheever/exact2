@@ -47,9 +47,13 @@ class SvgFilterMetalTests: XCTestCase {
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         out.draw(ci, in: CGRect(x: 0, y: 0, width: w, height: h))
         let a = out.data!.assumingMemoryBound(to: UInt8.self)
+        XCTAssertTrue(CapturePixels.hasPaint(UnsafeBufferPointer(start: a, count: w * h * 4)), "the Core Image reference draws")
         surface.lock(options: .readOnly, seed: nil)
         defer { surface.unlock(options: .readOnly, seed: nil) }
         let b = surface.baseAddress.assumingMemoryBound(to: UInt8.self)
+        XCTAssertTrue((0..<h).contains { y in
+            CapturePixels.hasPaint(UnsafeBufferPointer(start: b.advanced(by: y * surface.bytesPerRow), count: w * 4))
+        }, "the Metal result draws")
         var sum = 0.0
         for y in 0..<h { for x in 0..<w {
             let i = (y * w + x) * 4, j = y * surface.bytesPerRow + x * 4

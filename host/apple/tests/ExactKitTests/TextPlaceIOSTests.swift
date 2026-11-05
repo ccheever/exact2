@@ -748,12 +748,13 @@ final class TextPlaceIOSTests: XCTestCase {
     /// The window's pixels as the screen shows them, at one point each: their luminance.
     private func screen(_ window: UIWindow) throws -> [UInt8] {
         let format = UIGraphicsImageRendererFormat()
-        format.scale = 1; format.opaque = true
+        format.scale = 1; format.opaque = false
         var drawn = false
         let shot = try XCTUnwrap(UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
             drawn = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }.cgImage)
         XCTAssertTrue(drawn, "the screen's pixels")
+        XCTAssertTrue(CapturePixels.hasPaint(BorderParity.pixels(shot).2), "the fade screen capture draws")
         var gray = [UInt8](repeating: 0, count: shot.width * shot.height)
         let context = try XCTUnwrap(CGContext(data: &gray, width: shot.width, height: shot.height, bitsPerComponent: 8, bytesPerRow: shot.width,
                                               space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue))

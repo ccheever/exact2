@@ -6,25 +6,11 @@
 // up *IOSTests); under Thread Sanitizer it is the race check for that rule.
 import XCTest
 import CoreText
-#if os(macOS)
-import IOSurface
-#endif
 @testable import ExactKit
 
 final class TextRasterRaceIOSTests: XCTestCase {
     private func run(_ text: String) -> Run {
         Run(text: text, size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
-    }
-
-    private func bytes(_ r: TextRasterImage?) -> Data {
-        guard let r else { return Data() }
-        #if os(iOS)
-        return (r.image.dataProvider?.data as Data?) ?? Data()
-        #else
-        r.surface.lock(options: .readOnly, seed: nil)
-        defer { r.surface.unlock(options: .readOnly, seed: nil) }
-        return Data(bytes: r.surface.baseAddress, count: r.surface.allocationSize)
-        #endif
     }
 
     /// Workers render clamped and unclamped paragraphs from their geometry
@@ -58,7 +44,9 @@ final class TextRasterRaceIOSTests: XCTestCase {
                     job.measuredGlyphs = MeasuredGlyphs(p, spec: spec, width: width)
                     job.measuredColor = TextEngine.color(spec.color).cgColor
                 }
-                jobs.append((job, bytes(job.render())))
+                let reference = CapturePixels.bytes(try XCTUnwrap(job.render(), "the reference raster is available"))
+                XCTAssertTrue(CapturePixels.hasPaint(reference), "the reference paragraph draws")
+                jobs.append((job, reference))
             }
         }
         let lock = NSLock()
@@ -69,7 +57,7 @@ final class TextRasterRaceIOSTests: XCTestCase {
             DispatchQueue.concurrentPerform(iterations: 8) { worker in
                 for round in 0..<200 {
                     let (job, expected) = jobs[(worker * 7 + round) % jobs.count]
-                    let got = self.bytes(job.render())
+                    let got = CapturePixels.bytes(job.render())
                     lock.lock(); rendered += 1; if got != expected { mismatches += 1 }; lock.unlock()
                 }
             }

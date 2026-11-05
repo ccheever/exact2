@@ -658,13 +658,18 @@ extension TextGeometryTests {
                                CTLineGetStringIndexForPosition(b, CGPoint(x: offset, y: 0)))
             }
         }
+        #else
+        let original = p
+        #endif
         if p.height.isFinite && p.baselines.allSatisfy({ $0.isFinite }) {
             let box = CGRect(x: 12, y: 9, width: width, height: p.height)
             let clip = CGRect(x: 0, y: 0, width: 360, height: 180)
-            XCTAssertEqual(inkBitmap(p, spec: input, bounds: box, clip: clip, exhaustive: false),
-                           inkBitmap(original, spec: input, bounds: box, clip: clip, exhaustive: true))
+            let expected = inkBitmap(original, spec: input, bounds: box, clip: clip, exhaustive: true)
+            if input.runs.contains(where: { !$0.text.isEmpty && $0.size > 0 }) {
+                XCTAssertTrue(CapturePixels.hasPaint(expected), "the visible strut reference draws")
+            }
+            XCTAssertEqual(inkBitmap(p, spec: input, bounds: box, clip: clip, exhaustive: false), expected)
         }
-        #endif
         return (p, calls)
     }
 
@@ -853,7 +858,7 @@ extension TextGeometryTests {
     func assertInkMatches(_ paragraph: Paragraph, spec: Spec, bounds: CGRect,
                                   clip: CGRect, file: StaticString = #filePath, line: UInt = #line) {
         let expected = inkBitmap(paragraph, spec: spec, bounds: bounds, clip: clip, exhaustive: true)
-        XCTAssertTrue(expected.contains { $0 != 0 }, "Oracle clip must contain ink", file: file, line: line)
+        XCTAssertTrue(CapturePixels.hasPaint(expected), "the reference clip contains ink", file: file, line: line)
         let actual = inkBitmap(paragraph, spec: spec, bounds: bounds, clip: clip, exhaustive: false)
         XCTAssertTrue(actual == expected, "Viewport differs from exhaustive paint: \(clip)", file: file, line: line)
     }

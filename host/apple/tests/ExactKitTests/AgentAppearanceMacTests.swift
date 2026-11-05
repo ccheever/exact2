@@ -75,7 +75,7 @@ final class AgentAppearanceMacTests: XCTestCase {
             XCTAssertNil(agent.prefer(["media": ["prefers-color-scheme": name]])["error"])
             XCTAssertNil(agent.clock(["settle": true])["error"])
             let picture = try XCTUnwrap(Capture.picture(of: view))
-            let colour = try XCTUnwrap(picture.colorAt(x: picture.pixelsWide / 2, y: picture.pixelsHigh / 2)?.usingColorSpace(.sRGB))
+            let colour = try XCTUnwrap(picture.paintedColorAt(x: picture.pixelsWide / 2, y: picture.pixelsHigh / 2)?.usingColorSpace(.sRGB))
             if name == "dark" { XCTAssertLessThan(colour.redComponent, 0.15) }
             else { XCTAssertGreaterThan(colour.redComponent, 0.85) }
         }
