@@ -4,7 +4,7 @@ Write an app once. It runs natively on the web, macOS, iOS, and Linux.
 
 ## Set up Exact
 
-Requires Bun 1.4.2, Git and rustup, plus Playwright Chromium with its headless shell or a Chromium browser selected with `CHROME`. Follow the [installation guide](https://github.com/ccheever/exact2#1-install-the-tools) and [browser setup](https://github.com/ccheever/exact2/blob/main/docs/testing.md#browsers) first.
+Requires Bun 1.4.2, Git, rustup and Chromium. [Install the tools](install.md) first.
 
 Start in the directory where you want to keep Exact; these commands clone it, install its pinned toolchains and open a first web app.
 

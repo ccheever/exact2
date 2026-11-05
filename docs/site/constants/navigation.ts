@@ -37,6 +37,12 @@ export const sections: NavSection[] = [
         source: 'start-here.md',
         description: 'Build an app with Exact: the idea, the workflow, and the one screen every app starts from.',
       },
+      {
+        route: 'install',
+        path: '/install',
+        source: 'site/pages/install.md',
+        description: 'Install Bun, Git, rustup and Chromium before setting up Exact.',
+      },
     ],
   },
   {
