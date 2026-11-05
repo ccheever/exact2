@@ -190,10 +190,10 @@ component SidebarScopeMenu
     cleared = over ? false : (hovered == key ? true : cleared)
   action pinHover(key: string, over: bool)
     pinOver = over ? key : (pinOver == key ? "" : pinOver)
-  // The trigger is the header row's third button from the right (sidebar.contract: 0.5rem padding, New thread, a
-  // 0.25rem gap, Add project, then the filter, each 1.75rem), 1.75rem tall, centred in the 2rem row under 5.5rem.
+  // The trigger is the header row's third button from the right (sidebar.contract: 0.5rem padding, then New thread,
+  // Add project and the filter, each 1.75rem), 1.75rem tall, centred in the 2rem row under 5.5rem.
   view
-    column position="absolute" left=max(5, min(width - 6 * rem, viewportWidth - 5 - min(18 * rem, viewportWidth - 10))) top="5.875rem" z-index=31 width=min(18 * rem, viewportWidth - 10) max-height="23rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" backdrop-filter=(scheme == "dark" ? "blur(16px)" : "blur(12px)") box-shadow="0 17px 42px -18px light-dark(#0000008c, #000000cc)" overflow="hidden" role="dialog" testId="scope-menu"
+    column position="absolute" left=max(5, min(width - 5.75 * rem, viewportWidth - 5 - min(18 * rem, viewportWidth - 10))) top="5.875rem" z-index=31 width=min(18 * rem, viewportWidth - 10) max-height="23rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" backdrop-filter=(scheme == "dark" ? "blur(16px)" : "blur(12px)") box-shadow="0 17px 42px -18px light-dark(#0000008c, #000000cc)" overflow="hidden" role="dialog" testId="scope-menu"
       column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" box-sizing="border-box"
         row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" align-items="flex-start" position="relative" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#1b4ed8, #346bf1)"
           box position="absolute" left=0 top="0.375rem" width="1rem" height="1rem" pointer-events="none"
