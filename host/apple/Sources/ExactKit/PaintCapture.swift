@@ -1,8 +1,9 @@
 // An ordered copy for Core Graphics, which ignores a layer's zPosition.
 // Live views and layers stay in logical order for input and accessibility.
-// The copy shares its layers' contents, AppKit's backing stores among them:
-// draw it (`render(in:)`), never commit it to a window's layer tree, where
-// sharing a view's backing store blanks the view (`PressLookMac.swift`).
+// The copy shares its layers' contents, AppKit's backing stores among them
+// (with `redraw`, a node's own drawing is drawn again instead): draw it
+// (`render(in:)`), never commit it to a window's layer tree, where sharing a
+// view's backing store blanks the view (`PressLookMac.swift`).
 #if os(macOS)
 import AppKit
 #else
@@ -11,7 +12,10 @@ import UIKit
 
 extension Capture {
     /// `branchProbe` counts membership lookups so tests can bound work without timing.
-    static func paintOrderLayer(of view: PaintView, root: CALayer, branchProbe: (() -> Void)? = nil) -> CALayer {
+    /// `redraw`, on the Mac, is the scale at which a node that AppKit draws
+    /// (`draw(_:)`) is drawn again into a picture of the copy's own, in place
+    /// of its backing stores (`borrowsBackingStore`).
+    static func paintOrderLayer(of view: PaintView, root: CALayer, redraw: CGFloat? = nil, branchProbe: (() -> Void)? = nil) -> CALayer {
         var owners: [ObjectIdentifier: PaintView] = [:]
         func index(_ v: PaintView) {
             #if os(macOS)
@@ -84,6 +88,26 @@ extension Capture {
                     if let animation = source.animation(forKey: key) { overlay(animation, from: presentation, onto: layer) }
                 }
             }
+            #if os(macOS)
+            // A node's own drawing, its backing store and the content layers
+            // AppKit adds for ink past its bounds, drawn again: a copy that
+            // shares them, even uncommitted, can leave the live view showing
+            // nothing at a fractional device scale (a page zoom) until it is
+            // laid out again, however often it draws.
+            let redrawn = redraw.flatMap { scale -> CALayer? in
+                guard let node = owners[ObjectIdentifier(source)] as? NodeView else { return nil }
+                let stores = (source.sublayers ?? []).filter(Capture.borrowsBackingStore)
+                guard Capture.borrowsBackingStore(source) || !stores.isEmpty else { return nil }
+                // Out to whole device pixels, so the picture is not resampled into its box.
+                let ink = stores.reduce(node.bounds) { $0.union($1.frame) }
+                let pixels = CGRect(x: ink.minX * scale, y: ink.minY * scale, width: ink.width * scale, height: ink.height * scale)
+                    .insetBy(dx: 0.001, dy: 0.001).integral
+                let box = CGRect(x: pixels.minX / scale, y: pixels.minY / scale, width: pixels.width / scale, height: pixels.height / scale)
+                return Capture.drawing(of: node, in: box, scale: scale).map { picture($0, in: box) }
+            }
+            if redrawn != nil, Capture.borrowsBackingStore(source) { layer.contents = nil }
+            if let redrawn { layer.addSublayer(redrawn) }
+            #endif
             layer.mask = source.mask.map { copy($0) }
             // Order is explicit: negative ranks still follow the parent's
             // own fill/gradient layers. Authored 3D transforms stay intact.
@@ -109,7 +133,14 @@ extension Capture {
             })
             // Own contents and decorations first: shadow casters, fills,
             // text rasters, Canvas 2D pictures. Each view branch is below.
-            let own = (source.sublayers ?? []).filter { !childSet.contains(ObjectIdentifier($0)) && !replacements.contains(ObjectIdentifier($0)) }
+            #if os(macOS)
+            let redrawnStore = { (sub: CALayer) in redrawn != nil && Capture.borrowsBackingStore(sub) }
+            #else
+            let redrawnStore = { (_: CALayer) in false }
+            #endif
+            let own = (source.sublayers ?? []).filter {
+                !childSet.contains(ObjectIdentifier($0)) && !replacements.contains(ObjectIdentifier($0)) && !redrawnStore($0)
+            }
             #if os(macOS)
             // A decoration the Mac raises over the node's own views (a
             // press's wash, PressLookMac.swift) is painted after them.
@@ -145,4 +176,33 @@ extension Capture {
         }
         return copy(root)
     }
+
+    #if os(macOS)
+    /// Whether a layer shows a backing store AppKit drew a view into, not a
+    /// picture of Exact's (an image, a surface).
+    static func borrowsBackingStore(_ layer: CALayer) -> Bool {
+        guard let contents = layer.contents else { return false }
+        let type = CFGetTypeID(contents as CFTypeRef)
+        return type != CGImage.typeID && type != IOSurfaceGetTypeID() && !(contents is NSImage)
+    }
+
+    /// What a node's `draw(_:)` paints in `box` (its own coordinates, whole
+    /// device pixels), at `scale` device pixels per point, its first row at
+    /// the top.
+    static func drawing(of node: NodeView, in box: CGRect, scale: CGFloat) -> CGImage? {
+        let width = Int((box.width * scale).rounded()), height = Int((box.height * scale).rounded())
+        guard width > 0, height > 0,
+              let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                  bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.scaleBy(x: scale, y: scale)
+        if node.isFlipped { ctx.translateBy(x: 0, y: box.height); ctx.scaleBy(x: 1, y: -1) }
+        ctx.translateBy(x: -box.minX, y: -box.minY)
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: node.isFlipped)
+        node.draw(box)
+        return ctx.makeImage()
+    }
+    #endif
 }
