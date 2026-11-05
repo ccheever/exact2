@@ -144,7 +144,7 @@ export async function fetchWith(set, input, init = {}, expires = null, redirect 
   }
   catch (error) {
     if (error instanceof FetchError) throw error;
-    if (deadline && signal?.aborted && signal.reason === deadline.signal.reason) throw new FetchError('Timeout', `the request timed out after ${deadline.ms} ms`);
+    if (deadline && signal?.aborted && signal.reason === deadline.signal.reason) throw new FetchError('Timeout', `the request timed out after ${until.ms} ms`);
     // The caller's own abort rejects with its signal's reason, as Fetch and the native prelude do: an
     // `AbortError` for a bare `abort()`, or the very value the app gave it.
     if (own?.aborted) throw own.reason;
