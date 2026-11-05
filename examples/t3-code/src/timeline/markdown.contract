@@ -1024,8 +1024,7 @@ component CitationContextChip
   action hover(over: bool)
     hovered = over
   derive popupId = `citation-context-${chip.owner}-${chip.id}-${run.id}`
-  // Base UI's Popover: a press focuses the chip, which the popup gives the focus back to as it closes (finalFocus); as it
-  // opens, Go to source takes the focus, else (no source) the popup itself (initialFocus).
+  // Base UI's Popover: a press focuses the chip, given the focus back as the popup closes; Go to source, else the popup, takes it.
   action pressed
     focus(`context-chip-${run.id}`)
   action toggled(e: ToggleEvent)
