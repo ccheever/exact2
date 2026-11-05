@@ -15,6 +15,127 @@ test('navigation waits for unknown status capability', async () => {
   expect(response.status).toBe(404);
 });
 
+test('an answered open stream settles its page and subscribes again in the browser', async () => {
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/stream-document-test-'));
+  const streams = new Map(), encoder = new TextEncoder(), connected = Promise.withResolvers();
+  const event = value => encoder.encode(`data: ${value}\n\n`);
+  const peer = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+    const name = new URL(request.url).pathname.slice(1);
+    if (name === 'heartbeat') { return new Response(null, { status: 204 }); }
+    const body = new ReadableStream({ start(controller) {
+      const connections = streams.get(name) ?? [];
+      connections.push(controller); streams.set(name, connections);
+      if (name === 'home' && connections.length === 2) { connected.resolve(); }
+      if (name !== 'silent') { controller.enqueue(event('first')); }
+    } });
+    return new Response(body, { headers: { 'content-type': 'text/event-stream', 'access-control-allow-origin': '*' } });
+  } });
+  let browser, site;
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Stream Document', app: { id: 'test.stream-document', name: 'Stream Document' }, host: { web: {} } }));
+    writeFileSync(resolve(dir, 'app.contract'), `routes nav
+  home "/" render=request
+  status "/status" render=request
+  silent "/silent" render=request
+  heartbeat "/heartbeat" render=request
+
+component App
+  resource live = feed(top(nav).name) as shape string else empty()
+  view
+    main
+      if top(nav).name == "status" && live != ""
+        head status=410
+      text live testId="live"
+`);
+    writeFileSync(resolve(dir, 'app.ts'), `export const grants = 'net.fetch ${peer.url.origin}';
+export const answer = (_name: string, args: string[]): any => fetch('${peer.url.origin}/' + args[0], {
+  exactStream: (event: any) => event.data,
+  ...(args[0] === 'heartbeat' ? { exactLongPoll: { cursor: 'since', from: 'seq' } } : {}),
+} as RequestInit);
+`);
+    const dist = resolve(dir, 'dist');
+    const built = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'stream-document-test', '--out', dist, '--render', 'js'], {
+      cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [status, stdout, stderr] = await Promise.all([built.exited, new Response(built.stdout).text(), new Response(built.stderr).text()]);
+    expect(status, stdout + stderr).toBe(0);
+    const { renderer } = await import('./render.mjs');
+    const render = renderer(dist); render.ahead = false;
+    const pages = new Map();
+    for (const [path, expected] of [['/', 200], ['/status', 410], ['/silent', 503], ['/heartbeat', 503]]) {
+      const reply = await render(path, 500);
+      expect([reply.status, reply.settled], path).toEqual([expected, expected !== 503]);
+      expect(reply.html).toContain('data-activate="eager"');
+      expect(reply.html).toContain('"revalidate":true');
+      expect(reply.html).toContain(expected === 503 ? '"pending":["live"]' : '"pending":[]');
+      pages.set(path, reply);
+    }
+    site = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
+      const path = new URL(request.url).pathname, page = pages.get(path);
+      if (page) { return new Response(page.html, { status: page.status, headers: { 'content-type': 'text/html' } }); }
+      const asset = Bun.file(resolve(dist, path.slice(1)));
+      return await asset.exists() ? new Response(asset) : new Response(null, { status: 404 });
+    } });
+    browser = await suiteBrowser();
+    const page = await browser.newPage();
+    await page.goto(site.url.href);
+    await page.waitForFunction(() => document.querySelector('[data-testid="live"]')?.textContent === 'first');
+    let bound;
+    try {
+      await Promise.race([connected.promise, new Promise((_, reject) => { bound = setTimeout(() => reject(new Error('the browser did not subscribe')), 5000); })]);
+    } finally { clearTimeout(bound); }
+    streams.get('home')[1].enqueue(event('second'));
+    await page.waitForFunction(() => document.querySelector('[data-testid="live"]')?.textContent === 'second');
+  } finally {
+    await browser?.close(); site?.stop(true); peer.stop(true);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 30000);
+
+test.each([false, true])('a refused settlement restores renderer pending state (initially pending: %s)', async initiallyPending => {
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(root, 'target/rollback-document-test-'));
+  const peer = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+    return new URL(request.url).pathname === '/trigger' ? Response.json(1) : new Response(null, { status: 204 });
+  } });
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Rollback Document', app: { id: 'test.rollback-document', name: 'Rollback Document' }, host: { web: {} } }));
+    writeFileSync(resolve(dir, 'app.contract'), `routes nav
+  home "/" render=request
+
+component App
+  resource trigger = trigger() as shape number
+  resource later = later(trigger) as shape number
+  resource bad = bad(trigger) as shape number
+  view
+    main
+      head title="Retained" status=410
+      text \`\${trigger} \${later} \${bad}\`
+`);
+    writeFileSync(resolve(dir, 'app.ts'), `export const grants = 'net.fetch ${peer.url.origin}';
+export const answer = (name: string, [value]: number[]): any => {
+  if (name === 'trigger') return fetch('${peer.url.origin}/trigger').then(response => response.json());
+  if (name === 'later' && (value === 0) === ${initiallyPending}) return fetch('${peer.url.origin}/heartbeat', {
+    exactStream: (event: any) => Number(event.data), exactLongPoll: { cursor: 'since', from: 'seq' },
+  } as RequestInit);
+  if (name === 'bad' && value === 1) throw Object.assign(new Error('source refused'), { refuse: true });
+  return 0;
+};
+`);
+    const dist = resolve(dir, 'dist');
+    const built = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'rollback-document-test', '--out', dist, '--render', 'js'], {
+      cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [status, stdout, stderr] = await Promise.all([built.exited, new Response(built.stdout).text(), new Response(built.stderr).text()]);
+    expect(status, stdout + stderr).toBe(0);
+    const { renderer } = await import('./render.mjs');
+    const render = renderer(dist); render.ahead = false;
+    const reply = await render('/', 1000);
+    expect([reply.status, reply.settled]).toEqual(initiallyPending ? [503, false] : [410, true]);
+    expect(reply.html).toContain('0 0 0');
+    expect(reply.html).toContain(initiallyPending ? '"pending":["later"]' : '"pending":[]');
+  } finally { peer.stop(true); rmSync(dir, { recursive: true, force: true }); }
+}, 30000);
+
 test.each([
   ['navigation waits for a page that can declare its status', [
     ['plain', '/', 200, false], ['inactive', '/inactive', 200, false],

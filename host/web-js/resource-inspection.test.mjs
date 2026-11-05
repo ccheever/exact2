@@ -2,17 +2,21 @@ import { test, expect } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
 
+function runtimeServer(development = false) {
+  return Bun.serve({ port: 0, fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path === '/favicon.ico') { return new Response(null, { status: 204 }); }
+    if (path.endsWith('/names.js')) { return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } }); }
+    if (path === '/') { return new Response('<div id="exact-root"></div>', { headers: { 'content-type': 'text/html' } }); }
+    const local = new URL('../..' + path, import.meta.url), file = existsSync(local) ? local : new URL('../web/' + path.split('/').pop(), import.meta.url);
+    if (path.endsWith('/rt.js') && development) { return new Response(readFileSync(file, 'utf8').replace('const DEVELOPMENT_STORE = null;', 'const DEVELOPMENT_STORE = "fixture";'), { headers: { 'content-type': 'text/javascript' } }); }
+    return new Response(Bun.file(file));
+  } });
+}
+
 test('resource observations keep request provenance through switching, failure, rollback and recovery', async () => {
   for (const development of [true, false]) {
-    const server = Bun.serve({ port: 0, fetch(request) {
-      const path = new URL(request.url).pathname;
-      if (path === '/favicon.ico') return new Response(null, { status: 204 });
-      if (path.endsWith('/names.js')) return new Response('export const sourceTypes = {};', { headers: { 'content-type': 'text/javascript' } });
-      if (path === '/') return new Response('<div id="exact-root"></div>', { headers: { 'content-type': 'text/html' } });
-      const local = new URL('../..' + path, import.meta.url), file = existsSync(local) ? local : new URL('../web/' + path.split('/').pop(), import.meta.url);
-      if (path.endsWith('/rt.js') && development) return new Response(readFileSync(file, 'utf8').replace('const DEVELOPMENT_STORE = null;', 'const DEVELOPMENT_STORE = "fixture";'), { headers: { 'content-type': 'text/javascript' } });
-      return new Response(Bun.file(file));
-    } });
+    const server = runtimeServer(development);
     const browser = await suiteBrowser(), page = await browser.newPage();
     try {
       await page.goto(server.url.href);
@@ -70,4 +74,39 @@ test('resource observations keep request provenance through switching, failure, 
       expect(await page.evaluate(() => fixture.feed())).toBe('C rows');
     } finally { await browser.close(); server.stop(true); }
   }
+}, 30000);
+
+test.each([false, true])('resource pending state rolls back with its request (initially pending: %s)', async initiallyPending => {
+  const server = runtimeServer(), browser = await suiteBrowser(), page = await browser.newPage();
+  try {
+    await page.goto(server.url.href);
+    const before = await page.evaluate(async initiallyPending => {
+      globalThis.__exactRender = true;
+      const rt = await import('/host/web-js/rt.js'), answer = Promise.withResolvers();
+      let trigger, later, bad, controller;
+      rt.data.answer = (name, [value]) => {
+        if (name === 'trigger') { return { promise: answer.promise }; }
+        if (name === 'later' && (value === 0) === initiallyPending) {
+          return { stream: (_deliver, owner) => { controller = owner; return new Promise(() => {}); } };
+        }
+        if (name === 'bad' && value === 1) { throw Object.assign(new Error('source refused'), { refuse: true }); }
+        return { v: 0 };
+      };
+      rt.mount(root => {
+        trigger = rt.res('trigger', 'trigger', () => [], undefined, undefined, 'n', 0);
+        later = rt.res('later', 'later', () => [trigger()], undefined, undefined, 'n', 0);
+        bad = rt.res('bad', 'bad', () => [trigger()], undefined, undefined, 'n', 0);
+        rt.hd(root, { headTitle: () => [trigger(), later(), bad()].join(' ') });
+      });
+      // A heartbeat ends the transport wait while the resource still needs a value.
+      controller?.replied();
+      const state = () => ({ pending: later.p(), ticket: !!later.r.ticket, title: document.title });
+      window.fixture = { trigger, answer, state };
+      return state();
+    }, initiallyPending);
+    expect(before).toEqual({ pending: initiallyPending, ticket: initiallyPending, title: '0 0 0' });
+    await page.evaluate(() => fixture.answer.resolve(1));
+    await page.waitForFunction(() => fixture.trigger.f());
+    expect(await page.evaluate(() => fixture.state())).toEqual(before);
+  } finally { await browser.close(); server.stop(true); }
 }, 30000);

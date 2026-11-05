@@ -322,6 +322,7 @@ test.each(['request', 'cached'])('serve renders home "/" render=%s and a notfoun
     const home = await serve.get('/'), missing = await serve.get('/no/such/route'), item = await serve.get('/item/7');
     expect([home.status, home.body.includes('The note, rendered.'), generationIn(home.body) !== undefined]).toEqual([200, true, true]);
     expect(home.cache).toBe(policy === 'cached' ? 'public, max-age=0, s-maxage=60' : 'no-store');
+    expect([home.retryAfter, missing.retryAfter]).toEqual([null, null]);
     expect([missing.status, missing.body.includes('The note, rendered.'), missing.body.includes('/no/such/route')]).toEqual([404, true, true]);
     expect([item.status, item.body.includes('The note, rendered.')]).toEqual([200, false]);
   } finally {
@@ -329,6 +330,28 @@ test.each(['request', 'cached'])('serve renders home "/" render=%s and a notfoun
     rmSync(dir, { recursive: true, force: true });
   }
 }, 60000);
+
+test('serve preserves the retry delay for unfinished request and cached pages', async () => {
+  const root = resolve(import.meta.dir, '../..');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-site-retry-')), app = resolve(dir, 'site'), out = resolve(app, 'dist');
+  let serve;
+  try {
+    site(app, 'shape Note\n  text: string\n\nroutes nav\n  home "/" render=request\n  feed "/feed" render=cached\n\ncomponent App\n  resource note = note("waiting") as shape Note\n  view\n    text note.text\n');
+    writeFileSync(resolve(app, 'app.ts'), "export const grants = '';\nexport const answer = () => new Promise<never>(() => {});\n");
+    const built = spawnSync(process.execPath, ['host/web/build.mjs', app, '--out', out], { cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8' });
+    expect(built.status, built.stdout + built.stderr).toBe(0);
+    serve = await serving(root, out);
+    for (const path of ['/', '/feed']) {
+      const page = await serve.get(path);
+      expect([page.status, page.cache, page.retryAfter]).toEqual([503, 'no-store', '1']);
+      const head = await fetch(`http://127.0.0.1:${serve.port}${path}`, { method: 'HEAD', headers: { accept: 'text/html', 'accept-encoding': 'gzip' } });
+      expect([head.status, head.headers.get('retry-after'), head.headers.get('content-encoding'), await head.text()]).toEqual([503, '1', 'gzip', '']);
+    }
+  } finally {
+    await serve?.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 30000);
 
 /** The test app `site` in `app` with `source` as its app.contract and a data source `note`. */
 function site(app, source) {
@@ -363,7 +386,7 @@ async function serving(root, out, { fromEnv = false } = {}) {
   await heard((text) => text.includes(`http://127.0.0.1:${port}/`));
   const get = async (path) => {
     const r = await fetch(`http://127.0.0.1:${port}${path}`, { headers: { accept: 'text/html' } });
-    return { status: r.status, cache: r.headers.get('cache-control'), body: await r.text() };
+    return { status: r.status, cache: r.headers.get('cache-control'), retryAfter: r.headers.get('retry-after'), body: await r.text() };
   };
   const renders = (path) => (said.match(new RegExp(`render ${path} 200 `, 'g')) ?? []).length;
   return { port, get, renders, heard, stop: () => child.stop(5_000) };

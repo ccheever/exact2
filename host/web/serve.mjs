@@ -915,7 +915,7 @@ export async function serveBuildTree(dist, req, res, { pinned = null, pages = nu
       res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('This page could not be rendered.\n'); return;
     }
     if (page) {
-      const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': page.cacheControl, ...(page.acceptCH ? { 'accept-ch': page.acceptCH } : {}) };
+      const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': page.cacheControl, ...(page.acceptCH ? { 'accept-ch': page.acceptCH } : {}), ...(page.retryAfter ? { 'retry-after': page.retryAfter } : {}) };
       // A page made for this request is compressed as it goes: brotli at quality 5 takes a few milliseconds for a
       // page and is a tenth of its size, which the reader's first paint waits on (LLP 1048.007 D6).
       const accepted = compression ? acceptedEncodings(req.headers['accept-encoding']) : new Set();
@@ -979,7 +979,7 @@ function sitePages(dist, { pageServer, deferredAnswers, deferredPath }) {
       const { status, headers, body } = await render(location, asked);
       if (current && id && generationOf(dist) !== id) continue;
       const html = Buffer.from(body).toString('utf8');
-      return { status, cacheControl: headers['cache-control'], vary: headers.vary, acceptCH: headers['accept-ch'], html: id ? withGenerationBase(html, id) : html };
+      return { status, cacheControl: headers['cache-control'], vary: headers.vary, acceptCH: headers['accept-ch'], retryAfter: headers['retry-after'], html: id ? withGenerationBase(html, id) : html };
     }
     return null;
   };
