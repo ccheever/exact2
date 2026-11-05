@@ -499,6 +499,9 @@ fn one_text(name: &str, shown: &mut Shown) -> bool {
         if name == "navigationHistory" {
             println!("  on the navigation root (LLP 1115.000 D5.5), the ways through history it offers now: \"back forward\", the default, offers each wherever the router has somewhere to go; \"back\", \"forward\" or \"none\" withholds the rest. Bind it when the app's own Back and Forward go less far than its router's visits (a palette open over the page, a history it caps, a visit it will not return to). On macOS a way withheld is no two-finger swipe AppKit tracks (so no `historyswipe`), no three-finger swipe, no Go ▸ Back or Forward and no mouse side button; with Back withheld the toolbar's Back is disabled. The web's Back and Forward are the browser's, and other hosts ignore it");
         }
+        if name == "-exact-return-presses" {
+            println!("  on a container (LLP 1115.000 D7.3). On the Mac, Return presses no focused button: it is a dialog's default button's, as in AppKit, and Space presses the focused one. \"descendants\" asks for Chromium's keys under this node: Return presses the focused button or pressable as Space does, before a dialog's default button, as a focused `<button>` takes Enter on the web. For an app that copies a web app's keys (a port of an Electron app); \"none\", the default, keeps AppKit's rule. The web already presses a focused button on Enter, and other hosts ignore it");
+        }
         if name == "navigationGrabber" {
             println!("  on a sheet route (`navigationPresentation=\"modal\"`). \"visible\" shows the sheet's grabber, the short bar at its top edge, \"hidden\" hides it; \"auto\", the default, is the platform's: iOS shows one on a sheet with several detents (`navigationDetent=\"medium large\"`), which the grabber resizes, and none on a sheet of one height. UIKit's `prefersGrabberVisible`. Draw no grabber of your own: say this. Hosts whose sheets have none ignore it");
         }

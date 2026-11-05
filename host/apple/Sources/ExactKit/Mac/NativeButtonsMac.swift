@@ -115,8 +115,9 @@ final class NativeButtonMac: NSButton {
         // Space presses the focused control. Return is the default button's
         // (LLP 1115.000 D7.3): a dialog's took it before it came here
         // (`DialogHost.key`), and a merely focused button does nothing with
-        // it. A menu's row chooses on it (`choosesOnReturn`).
-        if name == " " || name == "Enter" && owner.choosesOnReturn {
+        // it. A menu's row, or a button its author opted in, presses on it
+        // (`pressesOnReturn`).
+        if name == " " || name == "Enter" && owner.pressesOnReturn {
             performClick(nil)
             return
         }

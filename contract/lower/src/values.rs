@@ -1128,6 +1128,8 @@ pub(crate) fn check_prop_value(
         // @ref LLP 1115.000 D5.5 — the ways the navigation root offers now.
         PropId::NavigationHistory => Some((&["back forward", "back", "forward", "none"], "`navigationHistory` takes \"back forward\" (the default: Back and Forward, wherever the router has somewhere to go), \"back\", \"forward\" or \"none\", the ways through history the navigation root offers now")),
         PropId::NavigationSystemBars => Some((&["hidden", "auto"], "`navigationSystemBars` takes \"hidden\" (hide the status bar and auto-hide the home indicator on iOS) or \"auto\" (the platform default)")),
+        // @ref LLP 1115.000 D7.3 — Return presses a focused pressable under the node, as Chromium's Enter does.
+        PropId::ReturnPresses => Some((&["descendants", "none"], "`-exact-return-presses` takes \"descendants\" (Return presses a focused button under this node, as Space does) or \"none\" (the default: Return is the dialog's default button's)")),
         PropId::FocusGuide => Some((&["auto"], "`focusGuide` takes \"auto\"")),
         PropId::Wakelock => Some((&["screen", "none"], "`wakelock` takes \"screen\" (the display stays awake while this element is displayed) or \"none\" (the default)")),
         PropId::Orientationlock => Some((&["portrait", "landscape", "portrait-primary", "portrait-secondary", "landscape-primary", "landscape-secondary", "natural", "any", "current", "none"], "`orientationlock` takes a Screen Orientation API lock type (\"portrait\", \"landscape\", \"portrait-primary\", \"portrait-secondary\", \"landscape-primary\", \"landscape-secondary\", \"natural\", \"any\"), \"current\" (the orientation the window has when the lock begins) or \"none\" (the default)")),

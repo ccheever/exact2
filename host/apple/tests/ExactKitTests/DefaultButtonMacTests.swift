@@ -24,8 +24,11 @@ class DefaultButtonMacTests: XCTestCase {
     /// three native buttons: Cancel (7, closes it), Delete (8, destructive)
     /// and OK (12). `filled` says which buttons are `buttonStyle="filled"`.
     /// `rows` adds to the dialog a custom `menuitem` button (13) and a native
-    /// `option` button (14), each with a `press` handler.
-    private func fixture(filled: Set<UInt32> = [12], fieldHandlers: [String] = [], open: Bool = true, rows: Bool = false) -> Presenter {
+    /// `option` button (14), each with a `press` handler. `opted` adds to the
+    /// dialog, or to the page when it is not open, a box (15) with `-exact-return-presses="descendants"` holding a
+    /// custom button (16) and a native one (17), each with a `press` handler.
+    private func fixture(filled: Set<UInt32> = [12], fieldHandlers: [String] = [], open: Bool = true, rows: Bool = false,
+                         opted: Bool = false) -> Presenter {
         _ = NSApplication.shared
         let p = Presenter()
         presenter = p
@@ -71,7 +74,15 @@ class DefaultButtonMacTests: XCTestCase {
                     ["op": "frame", "id": 13, "x": 150, "y": 220, "w": 100, "h": 30]]
             ops += native(14, ["id": "option", "accessibilityRole": "option"], y: 255)
         }
-        ops += [["op": "children", "id": 3, "ids": [4, 5, 6, 7, 8, 12] + (rows ? [13, 14] : [Int]())], ["op": "children", "id": 1, "ids": [9, 10, 11, 3]], ["op": "roots", "ids": [1]]]
+        if opted {
+            ops += [["op": "create", "id": 15, "kind": "view", "props": ["returnPresses": "descendants", "id": "transcript"]],
+                    ["op": "frame", "id": 15, "x": 150, "y": 10, "w": 140, "h": 80],
+                    ["op": "create", "id": 16, "kind": "button", "props": ["id": "copy"], "handlers": ["press"]],
+                    ["op": "frame", "id": 16, "x": 0, "y": 0, "w": 100, "h": 30]]
+            ops += native(17, ["id": "fork"], y: 40)
+            ops += [["op": "children", "id": 15, "ids": [16, 17]]]
+        }
+        ops += [["op": "children", "id": 3, "ids": [4, 5, 6, 7, 8, 12] + (rows ? [13, 14] : [Int]()) + (opted && open ? [15] : [Int]())], ["op": "children", "id": 1, "ids": [9, 10, 11, 3] + (opted && !open ? [15] : [Int]())], ["op": "roots", "ids": [1]]]
         p.apply(wireBatch(ops))
         p.flushKeyViewLoop()
         if open { p.dialogs.show(p.views[3]!) }
@@ -168,6 +179,49 @@ class DefaultButtonMacTests: XCTestCase {
         XCTAssertTrue(front.makeFirstResponder(try button(p, 8)))
         deliver(p, returnKey)
         XCTAssertEqual(pressed, [13, 13, 14, 12], "from a button that is no row, Return is the default's")
+    }
+
+    /// Under `-exact-return-presses="descendants"` Return presses the focused
+    /// button, custom or native, as Space does and as Chromium presses a
+    /// focused `<button>` on Enter, before the dialog's default button. A
+    /// button outside that box leaves Return to the default, and with the
+    /// property gone Return is the default's again; on the page the dialog
+    /// is declared under, it reaches every button in it (LLP 1115.000 D7.3).
+    func testReturnPressesAFocusedButtonUnderAnOptedInBoxBeforeTheDefault() throws {
+        let p = fixture(opted: true)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertTrue(p.dialogs.defaultButton(of: try XCTUnwrap(p.views[3])) === p.views[12])
+        XCTAssertTrue(front.makeFirstResponder(p.views[16]))
+        deliver(p, returnKey)
+        XCTAssertEqual(pressed, [16], "the focused custom button, not the default")
+        XCTAssertTrue(front.makeFirstResponder(try button(p, 17)))
+        deliver(p, returnKey)
+        XCTAssertEqual(pressed, [16, 17], "the focused native button, not the default")
+        XCTAssertTrue(front.makeFirstResponder(try button(p, 8)))
+        deliver(p, returnKey)
+        XCTAssertEqual(pressed, [16, 17, 12], "outside the box Return is the default's")
+        p.apply(wireBatch([["op": "props", "id": 15, "set": [:], "clear": ["returnPresses"]]]))
+        XCTAssertTrue(front.makeFirstResponder(p.views[16]))
+        deliver(p, returnKey)
+        XCTAssertEqual(pressed, [16, 17, 12, 12], "without the property Return is the default's")
+        // On the page the dialog is declared under, it reaches into the dialog, presented or painted.
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["returnPresses": "descendants"]]]))
+        XCTAssertTrue(front.makeFirstResponder(try button(p, 8)))
+        deliver(p, returnKey)
+        XCTAssertEqual(pressed, [16, 17, 12, 12, 8], "the dialog is under the page's opted-in node")
+    }
+
+    /// Outside a dialog the opted-in box's buttons press on Return too.
+    func testReturnPressesAFocusedButtonUnderAnOptedInBoxOutsideADialog() throws {
+        let p = fixture(open: false, opted: true)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertTrue(window.makeFirstResponder(p.views[16]))
+        deliver(p, returnKey)
+        XCTAssertTrue(window.makeFirstResponder(try button(p, 17)))
+        deliver(p, returnKey)
+        XCTAssertEqual(pressed, [16, 17])
     }
 
     /// In a dialog a single-line field with a `submit` handler takes Return
