@@ -231,6 +231,9 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private var dismiss: UIButton?
     private var systemTabController: T3SystemTabController?
     private var systemTabDelegate: T3SystemTabDelegate?
+    private weak var systemTabParent: UIViewController?
+    private weak var systemTabHost: UIView?
+    private var systemTabConstraints: [NSLayoutConstraint] = []
     private var glassLeading: NSLayoutConstraint?
     private var glassTrailing: NSLayoutConstraint?
     private var glassCenter: NSLayoutConstraint?
@@ -267,6 +270,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         root.layoutChanged = { [weak self] in
             self?.updateWidth()
             if let controller = self?.systemTabController {
+                self?.relocateSystemTabsIfNeeded()
                 controller.view.superview?.bringSubviewToFront(controller.view)
                 controller.view.setNeedsLayout()
                 controller.view.layoutIfNeeded()
@@ -508,21 +512,28 @@ private final class T3HomeChromeView: ExactNativeInstance {
         let delegate = T3SystemTabDelegate(keys: keys) { [weak self] key in self?.emit("tab", key) }
         controller.delegate = delegate
         controller.view.translatesAutoresizingMaskIntoConstraints = false
-        route.controller.addChild(controller)
         // Keep UIKit's system tab bar outside Exact's route viewport. The
-        // route node is mounted inside that viewport, so placing the tab
-        // controller under `root` makes the bar scroll with the page when the
-        // route has no authored list (for example while Home is loading).
+        // route node is mounted inside that viewport, and its controller view
+        // is therefore still a descendant of Exact's full-screen scroll view.
+        // A window-level host gives UIKit's bar a fixed presentation surface:
+        // the Home document can scroll underneath it without moving the bar.
         let routeView = route.controller.view!
-        routeView.addSubview(controller.view)
-        NSLayoutConstraint.activate([
-            controller.view.leadingAnchor.constraint(equalTo: routeView.leadingAnchor),
-            controller.view.trailingAnchor.constraint(equalTo: routeView.trailingAnchor),
-            controller.view.topAnchor.constraint(equalTo: routeView.topAnchor),
-            controller.view.bottomAnchor.constraint(equalTo: routeView.bottomAnchor),
-        ])
+        let window = routeView.window
+        let parent = window?.rootViewController ?? route.controller
+        let host = parent === route.controller ? routeView : parent.view!
+        parent.addChild(controller)
+        host.addSubview(controller.view)
+        systemTabHost = host
+        systemTabParent = parent
+        systemTabConstraints = [
+            controller.view.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            controller.view.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            controller.view.topAnchor.constraint(equalTo: host.topAnchor),
+            controller.view.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+        ]
+        NSLayoutConstraint.activate(systemTabConstraints)
         controller.view.layer.zPosition = 1000
-        controller.didMove(toParent: route.controller)
+        controller.didMove(toParent: parent)
         systemTabController = controller
         systemTabDelegate = delegate
         DispatchQueue.main.async { [weak controller] in
@@ -548,6 +559,35 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private var acceptsSearch: Bool {
         isAttached && !settingQuery && !(config?.layout == "sidebar" && workspaceHidden)
     }
+
+    /// UIKit may create a route before it has joined the window. If that
+    /// happens, the initial fallback host is the route view; move the tab
+    /// controller to the window as soon as the route becomes visible.
+    private func relocateSystemTabsIfNeeded() {
+        guard let controller = systemTabController, let route,
+              let window = route.controller.view.window,
+              let parent = window.rootViewController,
+              let host = parent.viewIfLoaded,
+              systemTabHost !== host || systemTabParent !== parent else { return }
+        NSLayoutConstraint.deactivate(systemTabConstraints)
+        systemTabConstraints.removeAll()
+        controller.willMove(toParent: nil)
+        controller.removeFromParent()
+        controller.view.removeFromSuperview()
+        parent.addChild(controller)
+        host.addSubview(controller.view)
+        systemTabParent = parent
+        systemTabHost = host
+        systemTabConstraints = [
+            controller.view.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            controller.view.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            controller.view.topAnchor.constraint(equalTo: host.topAnchor),
+            controller.view.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+        ]
+        NSLayoutConstraint.activate(systemTabConstraints)
+        controller.didMove(toParent: parent)
+    }
+
     private func searchChanged(_ value: String) {
         guard acceptsSearch else { return }; query = value; emit("search", value)
     }
@@ -637,9 +677,13 @@ private final class T3HomeChromeView: ExactNativeInstance {
         bar?.removeFromSuperview(); bar = nil
         if let controller = systemTabController {
             controller.willMove(toParent: nil)
+            NSLayoutConstraint.deactivate(systemTabConstraints)
+            systemTabConstraints.removeAll()
             controller.view.removeFromSuperview()
             controller.removeFromParent()
         }
+        systemTabParent = nil
+        systemTabHost = nil
         systemTabController = nil; systemTabDelegate = nil
         filter = nil; compose = nil; dismiss = nil
         width = nil; keyboardBottom = nil; restingBottom = nil; glassLeading = nil; glassTrailing = nil; glassCenter = nil
