@@ -322,16 +322,18 @@ describe('image-only messages', () => {
 describe('a work row\'s time after a press', () => {
   const { contractComponent } = require('../support/contract-action-fixture') as typeof import('../support/contract-action-fixture');
   for (const [component, down] of [['TimelineContent', 'workDown'], ['WorkGroupHeader', 'down']] as const) {
-    test(`${component}: shown from the press until the next one, and while the button has the focus`, () => {
+    test(`${component}: shown from the press until the next one or the window resigns key, and while the button has the focus in a key window`, () => {
       const row = contractComponent('timeline.contract', component), state = row.state();
-      const shown = (windowPresses: number, extra = {}) => {
-        const derived = row.derives({ ...state, ...extra }, { hovering: false, windowPresses, message: {} });
+      const shown = (windowPresses: number, extra = {}, windowFocused = true, windowLeaves = 2) => {
+        const derived = row.derives({ ...state, ...extra }, { hovering: false, windowPresses, windowFocused, windowLeaves, message: {} });
         return derived.timeShown ?? derived.hovering;
       };
       expect(shown(4)).toBe(false);
-      row.call(down, state, { windowPresses: 4 }, []);
+      row.call(down, state, { windowPresses: 4, windowLeaves: 2 }, []);
       expect([shown(4), shown(5), shown(6)]).toEqual([true, true, false]);
-      expect(shown(9, { focused: true })).toBe(true);
+      // Chromium's `:focus-within` is off while the window is not key, and back in the window the reference focuses the composer.
+      expect([shown(4, {}, false, 2), shown(4, {}, true, 3)]).toEqual([false, false]);
+      expect([shown(9, { focused: true }), shown(9, { focused: true }, false)]).toEqual([true, false]);
     });
   }
 });

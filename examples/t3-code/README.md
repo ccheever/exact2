@@ -740,8 +740,6 @@ Differences that belong to the app:
   with `tabindex=0`, which #1483 gave the changed-files card ("Checked with real input (2026-11-05, second)").
 - ⇧Tab from a thread's first timeline stop goes to the sidebar's footer buttons, where the reference's goes to the chat
   header (Thread actions, New thread in the project, Toggle right panel).
-- After a press on a work group's "Worked for …", the clone keeps the group's time shown once the pointer has left;
-  the reference shows none.
 - Appearance has no Environment identification row. The clone is the stable app only, and it does
   not draw the Nightly or Dev artwork. At v0.1.5 the stable app's default also shows no art, but the
   row lets a user opt into Nightly or Dev artwork ("Show Dev or Nightly artwork in the sidebar

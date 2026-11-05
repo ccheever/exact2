@@ -492,6 +492,8 @@ component TreeStat
 component TimelineContent
   inject
     windowPresses: number
+    windowFocused: bool
+    windowLeaves: number
   props
     documents: ChatDocument[]
     message: Message
@@ -507,14 +509,16 @@ component TimelineContent
     // The answer's signed media URLs.
     attachments: AttachmentUrl[]
   // A work summary's time also shows while its button has the focus (group-focus-within/timeline-row), as in
-  // WorkGroupHeader: after a press, until the next press anywhere in the window.
+  // WorkGroupHeader: after a press, until the next press anywhere in the window or the window resigns key.
   state pressedAt = -2
+  state pressLeaves = -1
   state focused = false
   action workDown
     pressedAt = windowPresses
+    pressLeaves = windowLeaves
   action workFocus(value: bool)
     focused = value
-  derive timeShown = hovering or focused or windowPresses <= pressedAt + 1
+  derive timeShown = hovering or windowFocused and (focused or windowPresses <= pressedAt + 1 and windowLeaves == pressLeaves)
   view
     column width="100%"
       for card in message.secret key=`${card.key}:${card.submitted}`
@@ -674,6 +678,8 @@ component ThreadStatusLine
 component WorkGroupHeader
   inject
     windowPresses: number
+    windowFocused: bool
+    windowLeaves: number
   props
     message: Message
     local: action
@@ -683,14 +689,17 @@ component WorkGroupHeader
     over = value ? id : (over == id ? "" : over)
   // The time also shows while the row has the focus (group-focus-within). Chromium focuses a pressed button, so it
   // stays shown after a press until the next press anywhere moves the focus; on the Mac a pressed button takes no
-  // focus (LLP 1115.000 D7.1), so the press's place in the window's count of presses stands in for it.
+  // focus (LLP 1115.000 D7.1), so the press's place in the window's count of presses stands in for it. Like the focus,
+  // it ends when the window resigns key (src/shell/shell-members.contract windowLeaves).
   state pressedAt = -2
+  state pressLeaves = -1
   state focused = false
   action down
     pressedAt = windowPresses
+    pressLeaves = windowLeaves
   action focusChanged(value: bool)
     focused = value
-  derive hovering = over != "" or focused or windowPresses <= pressedAt + 1
+  derive hovering = over != "" or windowFocused and (focused or windowPresses <= pressedAt + 1 and windowLeaves == pressLeaves)
   view
     button hover=hover("row") pointerdown=down focus=focusChanged(true) blur=focusChanged(false) press=local("group", message.groupId, "") testId=`group-${message.id}` aria-label=(message.failed ? `${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height="1.75rem" padding="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
       for keyed in message.activities key=keyed.id
