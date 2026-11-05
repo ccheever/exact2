@@ -7,7 +7,7 @@ import { arr, mergeHistory, obj, type Obj } from './shared/domain';
 import { chatLocal, transcriptRows } from './shared/timeline-presentation';
 import { timelineEntries } from './shared/timeline-rows';
 import type { Native } from './shared/protocol';
-import { mobileMessageTime, mobileThread, mobileThreadRows, mobileThreadComposer, mobileThreadAnswerFilesPrepare } from './thread';
+import { mobileMessageTime, mobileThread, mobileThreadRows, mobileThreadComposer, mobileThreadAnswerFilesPrepare, mobileTranscriptRows } from './thread';
 import { mobileCodeTokens } from './thread-highlight';
 import { mobileModelSelectionReady, mobileModelSelectionUnavailable } from './model-availability';
 import { htmlRenderFileName, htmlRenderFrameHeight, htmlRenderFromToolItem, htmlRenderReferencesEqual, readHtmlRenderReference } from './html-render';
@@ -252,6 +252,7 @@ describe('bounded transcript Markdown reuse', () => {
     response.text = 'First paragraph.\n\nNext paragraph.';
     response.streaming = true;
     response.updatedAt = at(120);
+    client.revision++;
     const after = mobileThreadRows(client, now, false, 'visit');
     expect(after[0]!.blocks).toBe(before[0]!.blocks);
     expect(after[1]!.blocks).not.toBe(before[1]!.blocks);
@@ -260,6 +261,7 @@ describe('bounded transcript Markdown reuse', () => {
     expect(before[1]!.blocks).toEqual([{ id: '0', kind: 'markdown', text: 'First paragraph.', language: '', tokens: [], columns: 0, alignments: [], rows: [] }]);
     response.streaming = false;
     response.updatedAt = at(180);
+    client.revision++;
     const completed = mobileThreadRows(client, now, false, 'visit');
     expect(completed[1]!.blocks).toBe(after[1]!.blocks);
     expect(completed[1]).toMatchObject({ streaming: false, showMeta: true, timestamp: mobileMessageTime(at(180)) });
@@ -348,6 +350,17 @@ describe('bounded transcript Markdown reuse', () => {
     expect(second[1]!.blocks).toHaveLength(17_000);
     expect(second[1]!.blocks.every(block => block.text === 'x' && block.tokens.map(token => token.text).join('') === 'x')).toBe(true);
     expect(JSON.parse(second[1]!.copyConfiguration).text).toBe(manyBlocks);
+  });
+
+  test('unchanged scroll redraws reuse the presented transcript rows while local actions invalidate them', async () => {
+    const client = fixture([user('Keep this.'), answer('The answer.')]);
+    client.revision = 1;
+    const first = mobileTranscriptRows(client), second = mobileTranscriptRows(client);
+    expect(second).toBe(first);
+    mobileThreadRows(client, now);
+    expect(mobileTranscriptRows(client)).toBe(first);
+    await chatLocal(client, { available: true, watch() {}, async later() { return {}; } }, 'fold', 'r1', '');
+    expect(mobileTranscriptRows(client)).not.toBe(first);
   });
 
   test('inherited source identities stay separate and code edits leave previous snapshots intact', () => {

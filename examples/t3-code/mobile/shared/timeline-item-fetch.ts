@@ -1,5 +1,6 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/timeline-item-fetch.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Adapted body from examples/t3-code/timeline-item-fetch.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Mobile parity: expose a presentation revision so redraw caches observe local detail changes.
 // On-demand work-log detail, adapted from T3 Code 1e2ecbd975's turnItem atom family.
 // Exact adaptation: per-client keyed cache over the existing authenticated RPC seam.
 import { composerNow } from './composer-controls';
@@ -13,12 +14,15 @@ import { letGo } from './let-go';
 const TTL = 60_000;
 interface Detail { item?: Obj | null; error: string; pending?: Promise<void>; touched: number; fetched: number }
 interface OpenItem { environment: string; thread: string; id: string; sourceThread: string }
-interface Cache { connection: string; details: Map<string, Detail>; open: Map<string, OpenItem> }
+interface Cache { connection: string; details: Map<string, Detail>; open: Map<string, OpenItem>; presentationRevision: number }
 const caches = new WeakMap<T3Client, Cache>();
 function cache(client: T3Client): Cache {
   let value = caches.get(client);
   const connection = JSON.stringify([client.generation, client.origin]);
-  if (!value || value.connection !== connection) { value = { connection, details: new Map(), open: value?.open ?? new Map() }; caches.set(client, value); }
+  if (!value || value.connection !== connection) {
+    value = { connection, details: new Map(), open: value?.open ?? new Map(), presentationRevision: (value?.presentationRevision ?? 0) + 1 };
+    caches.set(client, value);
+  }
   return value;
 }
 const identity = (environment: string, thread: string, id: string) => JSON.stringify([environment, thread, id]);
@@ -36,10 +40,12 @@ function prune(value: Cache, now: number): void {
 /** Disclosure settles immediately; the root read mutation owns all native work. */
 export function setTurnItemOpen(client: T3Client, id: string, open: boolean): void {
   const value = cache(client), scope = identity(client.environmentId, client.threadId, id);
-  if (!open) { value.open.delete(scope); return; }
+  if (!open) { if (value.open.delete(scope)) value.presentationRevision++; return; }
   const row = rowFor(client, id);
   if (!row) return;
+  const previous = value.open.get(scope);
   value.open.set(scope, { environment: client.environmentId, thread: client.threadId, id, sourceThread: str(row.sourceThreadId) || client.threadId });
+  if (!previous || previous.id !== id || previous.sourceThread !== str(row.sourceThreadId) || previous.thread !== client.threadId) value.presentationRevision++;
 }
 async function fetchDetail(client: T3Client, native: Native, item: Obj, now: number, rowId: string): Promise<void> {
   if (!turnItemNeedsDetailFetch(item)) return;
@@ -68,7 +74,7 @@ async function fetchDetail(client: T3Client, native: Native, item: Obj, now: num
       if (letGo(error)) { if (value.details.get(key) === detail) value.details.delete(key); return; }
       detail.error = error instanceof Error ? error.message : String(error);
     }
-    finally { detail.pending = undefined; detail.fetched = composerNow(client); await wakeShell(native); }
+    finally { detail.pending = undefined; detail.fetched = composerNow(client); value.presentationRevision++; await wakeShell(native); }
   })();
   await wakeShell(native);
   return detail.pending;
@@ -127,3 +133,6 @@ export function turnItemDetailsNeeded(client: T3Client, now = composerNow(client
 export function turnItemIsOpen(client: T3Client, id: string): boolean {
   return cache(client).open.has(identity(client.environmentId, client.threadId, id));
 }
+
+/** Changes that affect the visible disclosure/output without changing the thread revision. */
+export function turnItemPresentationRevision(client: T3Client): number { return cache(client).presentationRevision; }
