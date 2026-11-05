@@ -82,7 +82,7 @@ test('Home keeps menus outside the virtualized feed at one bounded resident pair
 test('Home keeps its native scroll owner through filtered empty results', () => {
   const app = appText('mobile/app.contract');
   const home = appText('mobile/home.contract');
-  expect(app).toContain('entry.name == "home" ? (home.fullPageEmpty ? "" : "home-list")');
+  expect(app).toContain('entry.name == "home" ? "home-list"');
 
   const filteredStart = home.indexOf('else if items.length == 0 and not fullPageEmpty');
   const fullPageStart = home.indexOf('else if items.length == 0\n', filteredStart + 1);
@@ -98,5 +98,5 @@ test('New Task virtualizes project rows while empty chooser content has no stale
   const app = appText('mobile/app.contract'), task = appText('mobile/new-task.contract');
   expect(task).toContain('list id="new-task-projects-scroll" virtualized=true estimated-item-height=49');
   expect(task).toContain('for project in data.projects key=project.id');
-  expect(app).toContain('entry.name == "newTask" ? (newTaskData.projects.length > 0 ? "new-task-projects-scroll" : "")');
+  expect(app).toContain('entry.name == "newTask" ? "new-task-projects-scroll"');
 });

@@ -147,6 +147,8 @@ private final class T3SystemTabController: UITabBarController {
     override func loadView() {
         super.loadView()
         let nativeView = view!
+        nativeView.backgroundColor = .clear
+        nativeView.isOpaque = false
         let overlay = T3TabControllerOverlay()
         overlay.backgroundColor = .clear
         overlay.addSubview(nativeView)
@@ -265,6 +267,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         root.layoutChanged = { [weak self] in
             self?.updateWidth()
             if let controller = self?.systemTabController {
+                controller.view.superview?.bringSubviewToFront(controller.view)
                 controller.view.setNeedsLayout()
                 controller.view.layoutIfNeeded()
                 controller.refreshBarLayout()
@@ -294,6 +297,12 @@ private final class T3HomeChromeView: ExactNativeInstance {
     }
     fileprivate func attach(_ route: ExactRoute) {
         if self.route !== route { detach(); self.route = route }
+        // A Home visit owns the compact tab bar. Returning from an archive,
+        // usage, or settings route must restore the authored Chats selection
+        // before UIKit paints the route again.
+        if config?.layout == "compact" {
+            systemTabController?.selectedIndex = 0
+        }
         refresh()
     }
     private var isAttached: Bool {
@@ -500,25 +509,40 @@ private final class T3HomeChromeView: ExactNativeInstance {
         controller.delegate = delegate
         controller.view.translatesAutoresizingMaskIntoConstraints = false
         route.controller.addChild(controller)
-        root.addSubview(controller.view)
+        // Keep UIKit's system tab bar outside Exact's route viewport. The
+        // route node is mounted inside that viewport, so placing the tab
+        // controller under `root` makes the bar scroll with the page when the
+        // route has no authored list (for example while Home is loading).
+        let routeView = route.controller.view!
+        routeView.addSubview(controller.view)
         NSLayoutConstraint.activate([
-            controller.view.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            controller.view.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            controller.view.topAnchor.constraint(equalTo: root.topAnchor),
-            controller.view.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            controller.view.leadingAnchor.constraint(equalTo: routeView.leadingAnchor),
+            controller.view.trailingAnchor.constraint(equalTo: routeView.trailingAnchor),
+            controller.view.topAnchor.constraint(equalTo: routeView.topAnchor),
+            controller.view.bottomAnchor.constraint(equalTo: routeView.bottomAnchor),
         ])
+        controller.view.layer.zPosition = 1000
         controller.didMove(toParent: route.controller)
         systemTabController = controller
         systemTabDelegate = delegate
         DispatchQueue.main.async { [weak controller] in
             guard let controller else { return }
+            controller.view.superview?.bringSubviewToFront(controller.view)
             controller.view.setNeedsLayout()
             controller.view.layoutIfNeeded()
             controller.view.setNeedsLayout()
             controller.view.layoutIfNeeded()
             controller.refreshBarLayout()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak controller] in controller?.refreshBarLayout() }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak controller] in controller?.refreshBarLayout() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak controller] in
+                guard let controller else { return }
+                controller.view.superview?.bringSubviewToFront(controller.view)
+                controller.refreshBarLayout()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak controller] in
+                guard let controller else { return }
+                controller.view.superview?.bringSubviewToFront(controller.view)
+                controller.refreshBarLayout()
+            }
         }
     }
     private var acceptsSearch: Bool {
