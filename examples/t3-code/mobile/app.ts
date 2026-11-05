@@ -1,4 +1,4 @@
-import { mobileContentGeometry } from './content-geometry';
+import { mobileContentGeometry, mobileContentGeometryWithFallback } from './content-geometry';
 import { mobileNewTaskEditorRouteFor, mobileNewTaskEditorAction } from './new-task-editor';
 import { mobileHtmlRenderContext, mobileHtmlRenderEvent, mobileHtmlRenderCanOpen,
   mobileHtmlRenderDocumentSource, mobileHtmlRenderSelection } from './html-render-owner';
@@ -615,7 +615,9 @@ const sources: Sources = {
     const native = sourceNative('environmentDetailCommand', args, nativeInput);
     return mobileEnvironmentDetailCommand(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), native, storage);
   },
-  contentGeometry: args => mobileContentGeometry(String(args[0]), String(args[1]), Number(args[2]), Number(args[3]), String(args[4])),
+  contentGeometry: args => args.length >= 9
+    ? mobileContentGeometryWithFallback(String(args[0]), String(args[1]), Number(args[2]), Number(args[3]), String(args[4]), String(args[5]), Number(args[6]), Number(args[7]), String(args[8]))
+    : mobileContentGeometry(String(args[0]), String(args[1]), Number(args[2]), Number(args[3]), String(args[4])),
   layoutFacts: (args, _store, storage, nativeInput) => {
     const native = sourceNative('layoutFacts', args, nativeInput);
     return mobileLayoutFacts(String(args[0] ?? ''));

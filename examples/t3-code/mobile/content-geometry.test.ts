@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { appText } from '../tests/support/app-files';
 import { contractComponent } from '../tests/support/contract-action-fixture';
 import { contractFns } from '../tests/support/contract-fn-fixture';
-import { mobileContentGeometry } from './content-geometry';
+import { mobileContentGeometry, mobileContentGeometryWithFallback } from './content-geometry';
 
 const owner = 'visit-1:home';
 const metrics = () => ({ state: 'ready', owner, generation: 10, serial: 1, coordinateSpace: 'content-observer',
@@ -75,7 +75,9 @@ test('geometry parser refuses malformed identity, dimensions, insets, traits and
 });
 
 const fns = contractFns('mobile/content-geometry.contract', [], { floor: Math.floor,
-  parseNumber: (value: string) => value.trim() && Number.isFinite(Number(value)) ? Number(value) : null });
+  parseNumber: (value: string) => value.trim() && Number.isFinite(Number(value)) ? Number(value) : null,
+  contentGeometry: mobileContentGeometry, first: (values: unknown[]) => values[0] });
+fns.contentGeometry = mobileContentGeometry as never;
 const root = contractComponent('mobile/content-geometry-root.contract', 'App');
 
 test('root geometry action rejects stale owners and counter envelopes before replacing current geometry', () => {
@@ -84,7 +86,8 @@ test('root geometry action rejects stale owners and counter envelopes before rep
   const deliver = (value: string, from = owner) => root.call('contentGeometryEvent', state, scope, [from, value]);
   deliver(packet(metrics()));
   expect(state).toEqual({ layoutJSON: '', contentGeometryOwner: owner, contentGeometryGeneration: 10,
-    contentGeometrySerial: 1, contentGeometryPacket: packet(metrics()) });
+    contentGeometrySerial: 1, contentGeometryPacket: packet(metrics()), contentGeometryReadyOwner: owner,
+    contentGeometryReadyGeneration: 10, contentGeometryReadySerial: 1, contentGeometryReadyPacket: packet(metrics()) });
   const before = { ...state };
   for (const [generation, serial] of [['9', '99'], ['10', '1'], ['', '2'], ['Infinity', '2'],
     ['NaN', '2'], ['10.5', '2'], ['010', '2'], ['1e1', '2'], ['9007199254740992', '2'], ['11', '-1'], ['11', '2.5']]) {
@@ -116,6 +119,35 @@ test('root geometry action rejects stale owners and counter envelopes before rep
   deliver(packet({ ...metrics(), generation: 14 }, 14, 1));
   expect(state.contentGeometryOwner).toBe(owner);
   expect(state.contentGeometryGeneration).toBe(14);
+});
+
+test('same-generation unavailable packets retain the last ready rail reservation', () => {
+  const state = root.state();
+  const scope = { ...fns, nav: [{ id: 'visit-1', name: 'home' }], top: (nav: unknown[]) => nav.at(-1) };
+  const deliver = (value: string) => root.call('contentGeometryEvent', state, scope, [owner, value]);
+  deliver(packet(metrics(), 10, 1));
+  const unavailable = { state: 'unavailable', owner, generation: 10, serial: 2, coordinateSpace: 'content-observer', hinge: 'unknown' };
+  deliver(packet(unavailable, 10, 2));
+  const resolved = mobileContentGeometryWithFallback(owner, String(state.contentGeometryOwner), Number(state.contentGeometryGeneration),
+    Number(state.contentGeometrySerial), String(state.contentGeometryPacket), String(state.contentGeometryReadyOwner),
+    Number(state.contentGeometryReadyGeneration), Number(state.contentGeometryReadySerial), String(state.contentGeometryReadyPacket));
+  expect(resolved.state).toBe('ready');
+  expect(fns.contentGeometryTrailingReservation(resolved)).toBe(26);
+  expect(state.contentGeometryReadyGeneration).toBe(10);
+  expect(state.contentGeometryReadySerial).toBe(1);
+});
+
+test('a new geometry generation does not reuse the previous route reservation', () => {
+  const state = root.state();
+  const scope = { ...fns, nav: [{ id: 'visit-1', name: 'home' }], top: (nav: unknown[]) => nav.at(-1) };
+  const deliver = (value: string) => root.call('contentGeometryEvent', state, scope, [owner, value]);
+  deliver(packet(metrics(), 10, 1));
+  const unavailable = { state: 'unavailable', owner, generation: 11, serial: 1, coordinateSpace: 'content-observer', hinge: 'unknown' };
+  deliver(packet(unavailable, 11, 1));
+  const resolved = mobileContentGeometryWithFallback(owner, String(state.contentGeometryOwner), Number(state.contentGeometryGeneration),
+    Number(state.contentGeometrySerial), String(state.contentGeometryPacket), String(state.contentGeometryReadyOwner),
+    Number(state.contentGeometryReadyGeneration), Number(state.contentGeometryReadySerial), String(state.contentGeometryReadyPacket));
+  expect(resolved.state).toBe('unavailable');
 });
 
 test('route geometry observer mounts only for an active route and cannot capture input', () => {
