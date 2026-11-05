@@ -140,6 +140,9 @@ test('Home uses a ready route-local height and safe top for its transparent empt
   expect(home.attribute('padding-top=(fullPageFrame ?', 'padding-top', home.state(), scope)).toBe(72);
   expect(home.attribute('height=(fullPageFrame ?', 'height', home.state(), { ...scope, contentGeometry: { ...metrics(), state: 'unavailable' } })).toBe(900);
   expect(home.attribute('padding-right=(listId == "sidebar-list"', 'padding-right', home.state(), scope)).toBe(26);
+  expect(home.attribute('padding-right=(listId == "sidebar-list"', 'padding-right', home.state(), {
+    ...scope, contentGeometry: { ...metrics(), reservedRegions: [{ kind: 'occlusion', x: 300, y: 10, width: 176, height: 60 }] },
+  })).toBe(176);
 });
 
 test('route geometry exposes only a right-edge occlusion reservation', () => {
