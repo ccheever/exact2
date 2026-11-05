@@ -8,7 +8,7 @@ import { focusedDiffFind } from '../diff/diff-find';
 // chord has one button; the rest are dispatched from here, and sidebar.toggle
 // too while Settings or Usage leaves its button inert (sidebarRow).
 import { settingsForward } from './navigation-forward';
-import { arr, obj, str, type Obj } from '../client/domain';
+import { arr, obj, str, type Obj, type Shell } from '../client/domain';
 import { modelCatalog } from '../client/presentation';
 import { adjacentPickerProvider } from '../composer/model-catalog';
 import type { T3Client } from '../client/client';
@@ -23,6 +23,7 @@ import { terminalRows, terminalOpen } from '../terminal/terminal-drawer-view';
 import { terminalFocused } from '../terminal/terminal-focus'; // ⌘J
 import { previewToggleRow } from '../browser/browser-navigation'; // ⇧⌘J
 import { scratchTarget } from '../composer/scratch-project'; // ⌥⌘N
+import { fleet, fleetThreadId, parseFleetThreadId } from '../connections/settings-b-fleet';
 
 export type DispatchContext = { composerFocus: boolean; editableFocus: boolean; turnRunning: boolean; modelPickerOpen: boolean; draftThreadRoute: boolean; modalOpen: boolean; settingsOpen: boolean; diffOpen: boolean;
   terminalFocus?: boolean; terminalOpen?: boolean; paletteOpen?: boolean; paletteMode?: string; prNumber?: string; undoShown?: boolean; settingsRoute?: string; page?: string;
@@ -80,13 +81,15 @@ export function chordWinners(bindings: Obj[], context: DispatchContext): Map<str
 // new-thread draft, or a page over them (Usage, Pull Requests;
 // the reference's history covers every route). Arriving at the entry beside the cursor moves the cursor
 // (that is what Back and Forward do); anywhere else is a new visit. Each visit has its own number, for the router's
-// location of it (visitHref).
+// location of it (visitHref). A thread or draft is named with its environment (`fleet:<environmentId>:<id>`), since
+// the window moves to another machine's (a thread without a project on the primary) and Back must return to it there.
 type History = { entries: string[]; visits: number[]; cursor: number; next: number };
 const histories = new WeakMap<T3Client, History>();
 export function visit(client: T3Client, page = ''): History {
   const history = histories.get(client) ?? { entries: [], visits: [], cursor: -1, next: 0 };
   histories.set(client, history);
-  const here = page ? `page:${page}` : client.threadId ? `thread:${client.threadId}` : client.projectId ? `draft:${client.projectId}` : '';
+  const at = (id: string) => client.environmentId ? fleetThreadId(client.environmentId, id) : id;
+  const here = page ? `page:${page}` : client.threadId ? `thread:${at(client.threadId)}` : client.projectId ? `draft:${at(client.projectId)}` : '';
   if (!here || history.entries[history.cursor] === here) return history;
   if (history.entries[history.cursor - 1] === here) history.cursor--;
   else if (history.entries[history.cursor + 1] === here) history.cursor++;
@@ -106,11 +109,19 @@ export function visitHref(history: History, index: number): string {
 }
 /** The current visit's location, recording nothing (Settings, open over it, is no visit of this history). */
 export const visitHere = (client: T3Client) => { const history = histories.get(client); return history ? visitHref(history, history.cursor) : '/'; };
+/** A visited thread or draft's own id, and the target that opens it from the focused environment (the fleet form off it). */
+function visitTarget(client: T3Client, named: string): { id: string; target: string; shell: Shell | undefined } {
+  const ref = parseFleetThreadId(named);
+  if (!ref || ref.environmentId === client.environmentId) return { id: ref?.threadId ?? named, target: ref?.threadId ?? named, shell: client.shell };
+  const entry = [...fleet.entries.values()].find(candidate => candidate.environmentId === ref.environmentId && candidate.phase === 'connected');
+  return { id: ref.threadId, target: named, shell: entry?.shell };
+}
 function liveEntry(client: T3Client, entry: string | undefined): boolean {
   if (!entry) return false;
-  const [kind, id] = [entry.slice(0, entry.indexOf(':')), entry.slice(entry.indexOf(':') + 1)];
+  const [kind, named] = [entry.slice(0, entry.indexOf(':')), entry.slice(entry.indexOf(':') + 1)];
   if (kind === 'page') return true;
-  return kind === 'thread' ? (client.shell?.threads ?? []).some(thread => thread.id === id && !thread.archivedAt) : (client.shell?.projects ?? []).some(project => project.id === id);
+  const { id, shell } = visitTarget(client, named);
+  return kind === 'thread' ? (shell?.threads ?? []).some(thread => thread.id === id && !thread.archivedAt) : (shell?.projects ?? []).some(project => project.id === id);
 }
 
 // ── editor.openFavorite ────────────────────────────────────────────────────
@@ -283,8 +294,8 @@ export function historySteps(client: T3Client, page: string): { back: HistorySte
   // Back and Forward between the visited threads and drafts.
   const history = visit(client, page);
   const back = history.entries[history.cursor - 1], forward = history.entries[history.cursor + 1];
-  const route = (entry: string): HistoryStep => entry.startsWith('thread:') ? { kind: 'thread', target: entry.slice(7), extra: '' }
-    : entry.startsWith('page:') ? { kind: 'palette-run', target: entry.slice(5), extra: '' } : { kind: 'new-thread-in', target: entry.slice(6), extra: '' };
+  const route = (entry: string): HistoryStep => entry.startsWith('thread:') ? { kind: 'thread', target: visitTarget(client, entry.slice(7)).target, extra: '' }
+    : entry.startsWith('page:') ? { kind: 'palette-run', target: entry.slice(5), extra: '' } : { kind: 'new-thread-in', target: visitTarget(client, entry.slice(6)).target, extra: '' };
   const settingsRoute = settingsForward(client, false); // Settings left by Back is Forward's target
   return { back: back && liveEntry(client, back) ? route(back) : null,
     forward: settingsRoute ? { kind: 'palette-run', target: 'settings', extra: settingsRoute } : forward && liveEntry(client, forward) ? route(forward) : null,
