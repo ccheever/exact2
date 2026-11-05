@@ -10,7 +10,7 @@ import { mobileClient } from './client';
 import { mobileNewTaskDraftList, mobileNewTaskDraftPresentation } from './mobile-new-task-drafts';
 import type { T3Client } from './shared/client';
 import { liveEnvironments } from './shared/live-streams';
-import { threadSearchPending } from './shared/sidebar-presentation';
+import { mobileHomeSearchPending } from './mobile-home-search';
 import { fleet, type EnvironmentFleet } from './shared/settings-b-fleet';
 import { mobileHomeActionsObserve, mobileHomeRowProjection } from './home-actions';
 
@@ -79,7 +79,7 @@ export function mobileHomeView(args: unknown[], client: T3Client = mobileClient,
   // ThreadNavigationSidebar has a plain list label, separate from HomeScreen's card.
   const sidebar = surface === 'sidebar', needle = String(query ?? '').trim();
   const project = result.projects.find(project => project.key === projectKey || project.projectKeys.includes(String(projectKey ?? '')));
-  const searching = needle === client.query.trim() && threadSearchPending(client)
+  const searching = needle === client.query.trim() && mobileHomeSearchPending(client)
     && live.some(environment => environment.connected && (!environmentId || environment.environmentId === environmentId));
   const sidebarEmpty = result.items.length ? '' : catalogLoaded === false ? 'Loading threads…'
     : needle ? searching ? 'Searching thread messages…' : 'No matching threads'
