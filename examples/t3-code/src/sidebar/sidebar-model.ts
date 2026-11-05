@@ -107,12 +107,12 @@ export function raisedHand(thread: Obj): boolean {
   const failedAt = failureEdgeAt(thread), snoozedAt = thread.snoozedAt == null ? null : str(thread.snoozedAt);
   return failedAt !== undefined && (snoozedAt == null || (failedAt != null && parse(failedAt) > parse(snoozedAt)));
 }
-/** threadSettled.ts failureEdgeAt: the failed run's completion, since the runtime's updatedAt moves on metadata writes. */
+/** threadSettled.ts failureEdgeAt (322f6544df): the failed run's completion (none until it has one), since the runtime's updatedAt moves on metadata writes. */
 function failureEdgeAt(thread: Obj): string | null | undefined {
   const runtime = shellRuntime(thread);
   if (runtime?.status !== 'error' && runtime?.status !== 'failed') return undefined;
   const run = latestRun(thread);
-  if (run?.status === 'failed' && run.completedAt != null) return run.completedAt;
+  if (run?.status === 'failed') return run.completedAt ?? null;
   return runtime.updatedAt || null;
 }
 export function effectiveSnoozed(thread: Obj, now: number): boolean {

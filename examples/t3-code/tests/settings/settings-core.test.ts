@@ -146,7 +146,7 @@ describe('general rows', () => {
     expect([row('default-permissions').label, row('default-permissions').icon, row('default-permissions').inheritance]).toEqual(['Full access', 'shield-off', 'default']);
     expect([row('snooze-limited-threads').checked, row('snooze-limited-threads').inheritance, row('snooze-limited-threads').resettable]).toEqual([true, 'environment', false]);
     expect([row('new-threads').label, row('worktree-submodules').label, row('days-before-auto-settle').value]).toEqual(['Current checkout', 'Recursive', '3']);
-    expect(row('version').value).toBe('0.1.6'); // this app's own release, not the server's
+    expect(row('version').value).toBe('0.1.7'); // this app's own release, not the server's
   });
   test('Fallback model: None until set, the picked model once saved with its traits, and absent in a project scope', async () => {
     const client = fake();

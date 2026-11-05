@@ -19,7 +19,7 @@ describe('about: updates over the delivery facts', () => {
     const client = fakeClient();
     rememberDelivery(as(client), 'embedded', false);
     const [version, track] = aboutRows(client);
-    expect(version).toMatchObject({ id: 'version', value: '0.1.6', label: 'Check for Updates', value2: 'check', disabled: true, description: 'Current version of the application.' });
+    expect(version).toMatchObject({ id: 'version', value: '0.1.7', label: 'Check for Updates', value2: 'check', disabled: true, description: 'Current version of the application.' });
     // desktopUpdateChannelOf: this client is a stable release, so with nothing saved the track is Stable.
     expect(track).toMatchObject({ id: 'update-track', title: 'Update track', description: 'Switches this app and every connected machine whose database the target release supports.', label: 'Stable', label2: '', value: 'latest', disabled: false });
     expect(track!.options.map(option => [option.label, option.selected])).toEqual([['Stable', true], ['Nightly', false]]);
@@ -123,7 +123,7 @@ describe('about: Copy version', () => {
     const native = { available: true, watch() {}, async later(request: unknown) { sent.push(request as Obj); return { ok: true, generation: 0, value: {} }; } } as unknown as Native;
     expect(aboutRows(client)[0]).toMatchObject({ id: 'version', amount: 0 });
     expect(await applyCoreSetting(as(client), native, 'version:copy|||', '')).toBe('');
-    expect(sent.map(request => [request.op, request.text])).toEqual([['copyText', '0.1.6']]);
+    expect(sent.map(request => [request.op, request.text])).toEqual([['copyText', '0.1.7']]);
     expect(aboutRows(client)[0]!.amount).toBe(1);
     await applyCoreSetting(as(client), native, 'version:copy|||', '');
     expect(aboutRows(client)[0]!.amount).toBe(2);
