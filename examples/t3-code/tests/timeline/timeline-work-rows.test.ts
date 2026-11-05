@@ -285,12 +285,15 @@ describe('the timeline clock and the work rows in Contract', () => {
 // the nearest node that takes one and no node above it (docs/contract-grammar.md, "`press` is DOM's `click` stopped at
 // its handler"), so a nested button's activation is its own.
 describe('keys inside an expanded tool row (#18831)', () => {
-  test('the row toggle hears no keys of its own; the nested Open subagent and Open diff buttons press themselves', async () => {
-    const lines = (await source('timeline-work.contract')).split('\n');
+  test('the row toggle hears Enter only while it holds the focus itself; the nested Open subagent and Open diff buttons press themselves', async () => {
+    const text = await source('timeline-work.contract');
+    const lines = text.split('\n');
     const at = lines.findIndex(line => line.includes('testId=`work-detail-${entry.id}`'));
     expect(at).toBeGreaterThan(0);
     expect(lines[at]).toContain('button press=command("chatlocal:item-detail"');
-    expect(lines[at]).not.toMatch(/\skey(capture)?=/);
+    expect(lines[at]).not.toMatch(/\skeycapture=/);
+    expect(lines[at]).toContain(' key=rowKey ');
+    expect(text).toMatch(/action rowKey\(k: string, e: KeyboardEvent\)\n    if rowFocused and entry\.expandable and k == "Enter"/);
     const indent = lines[at]!.search(/\S/);
     const block = lines.slice(at + 1, at + 1 + lines.slice(at + 1).findIndex(line => line.trim() && line.search(/\S/) <= indent));
     expect(block.some(line => /button press=command\("open-related-thread", entry\.targetId/.test(line))).toBe(true);

@@ -236,7 +236,7 @@ component ThreadReadLine
           TimelineIcon(name=entry.icon, size=16, color=(entry.failed ? "light-dark(#971a2066, #fca5a566)" : "light-dark(#44444a, #a1a1a1)"))
       row flex=1 min-width=0 align-items="center"
         text `${entry.linkPrefix} “` flex-shrink=0 font-size="0.875rem" line-height="1.421875rem" white-space="pre" color="light-dark(#71717b, #a1a1a1)"
-        button press=command("open-related-thread", entry.linkThreadId, "", 0) hover=setHover testId=`thread-read-${entry.id}` aria-label=`Open thread ${entry.linkTitle}` min-width=0 padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row"
+        button press=command("open-related-thread", entry.linkThreadId, "", 0) hover=setHover testId=`thread-read-${entry.id}` aria-label=`Open thread ${entry.linkTitle}` min-width=0 padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" tabindex=0
           text entry.linkTitle min-width=0 font-size="0.875rem" line-height="1.421875rem" line-clamp=1 text-align="left" color="light-dark(#18181b, #f5f5f5)" text-decoration-line=(hovering ? "underline" : "none")
         text "”" flex-shrink=0 font-size="0.875rem" line-height="1.421875rem" color="light-dark(#71717b, #a1a1a1)"
         box flex=1
@@ -318,6 +318,13 @@ component WorkEntry
   state rowFocused = false
   action focusRow(value: bool)
     rowFocused = value
+  // rowToggleProps' onKeyDown: Enter toggles the row as Space does, only while the row itself holds the focus (its
+  // `e.target === e.currentTarget`), so a nested Open subagent keeps its own Return. The Mac presses a focused button
+  // with Space alone, as AppKit does.
+  action rowKey(k: string, e: KeyboardEvent)
+    if rowFocused and entry.expandable and k == "Enter" and not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and not e.isComposing
+      preventDefault()
+      command("chatlocal:item-detail", entry.id, expanded ? "close" : "open", 0)
   action setHover(over: bool)
     hovering = over
   action rowSized(width: number, height: number)
@@ -340,7 +347,7 @@ component WorkEntry
         if entry.retryRunId != ""
           RetryPreparation(runId=entry.retryRunId, command=command)
       else
-        button press=command("chatlocal:item-detail", entry.id, expanded ? "close" : "open", 0) focus=focusRow(true) blur=focusRow(false) disabled=(not entry.expandable) testId=`work-detail-${entry.id}` aria-label=(entry.failed ? `${entry.answer != "" ? entry.label + ": " + entry.answer : entry.label}, tool call failed` : entry.answer != "" ? `${entry.label}: ${entry.answer}` : entry.label) aria-expanded=expanded width="100%" min-height="1.5rem" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.375rem"
+        button press=command("chatlocal:item-detail", entry.id, expanded ? "close" : "open", 0) focus=focusRow(true) blur=focusRow(false) key=rowKey disabled=(not entry.expandable) testId=`work-detail-${entry.id}` aria-label=(entry.failed ? `${entry.answer != "" ? entry.label + ": " + entry.answer : entry.label}, tool call failed` : entry.answer != "" ? `${entry.label}: ${entry.answer}` : entry.label) aria-expanded=expanded width="100%" min-height="1.5rem" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.375rem" tabindex=0
           // Separate lines for the two labels: a one-line text reused for a new string can keep drawing the old one.
           if entry.reasoning and expanded
             WorkLine(icon=entry.icon, label=entry.status, failed=entry.failed, highlighted=false, tone=(entry.tone == "warning" or entry.tone == "error" ? entry.tone : ""), answer="", strong=false, iconLight=entry.iconLight, iconDark=entry.iconDark)
@@ -350,7 +357,7 @@ component WorkEntry
             else
               WorkLine(icon=entry.icon, label=entry.label, failed=entry.failed, highlighted=false, tone=(entry.tone == "warning" or entry.tone == "error" ? entry.tone : ""), answer=entry.answer, strong=(not expanded), iconLight=entry.iconLight, iconDark=entry.iconDark)
           if entry.targetId != ""
-            button press=command("open-related-thread", entry.targetId, "", 0) aria-label=(entry.targetLabel == "Open subagent" ? "Open subagent thread" : "Open created thread") padding=0 border-width=0 background-color="#00000000" flex-shrink=0
+            button press=command("open-related-thread", entry.targetId, "", 0) aria-label=(entry.targetLabel == "Open subagent" ? "Open subagent thread" : "Open created thread") padding=0 border-width=0 background-color="#00000000" flex-shrink=0 tabindex=0
               text entry.targetLabel font-size="0.875rem" line-height="1.421875rem" color="light-dark(#1447e6, #50a2ff)"
           TimelineTimestamp(id=entry.id, label=entry.timeTip, timestamp=entry.timestamp, visible=(hovering or expanded or rowFocused))
           row width="1rem" height="1rem" flex-shrink=0 align-items="center" justify-content="center" opacity=(entry.expandable ? 0.7 : 0) rotate=(expanded ? 90 : 0)
@@ -375,7 +382,7 @@ component WorkEntry
                   row gap="0.25rem" align-items="center" aria-label=`${entry.additions} additions, ${entry.deletions} deletions`
                     text `+${entry.additions}` font-size="0.75rem" line-height="1rem" color=(diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#007a55, #00d492)")
                     text `-${entry.deletions}` font-size="0.75rem" line-height="1rem" color=(diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#c10007, #ff6467)")
-                button press=command("tool-diff", entry.id, "", 0) testId=`work-open-diff-${entry.id}` aria-label="Open diff" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" flex-shrink=0
+                button press=command("tool-diff", entry.id, "", 0) testId=`work-open-diff-${entry.id}` aria-label="Open diff" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" flex-shrink=0 tabindex=0
                   text "Open diff" font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
             for argument in entry.replArguments key=argument.id
               row width="100%" align-items="start" gap="0.5rem"
@@ -403,7 +410,7 @@ component WorkEntry
             for picture in entry.toolImages key=picture.id
               MediaActions(source=picture.source, tip=picture.name, local=mediaLocal, testId=`tool-media-${picture.id}`, elementId="", full=false, showTooltip=true)
                 for url in urls.filter((url) => url.id == picture.id) key=url.id
-                  button press=previewTool(picture.id) testId=`tool-image-${picture.id}` id=`tool-image-${picture.id}` aria-label="Preview tool output image" title="" padding=0 border-width=0 background-color="#00000000" max-width="100%" display="block"
+                  button press=previewTool(picture.id) testId=`tool-image-${picture.id}` id=`tool-image-${picture.id}` aria-label="Preview tool output image" title="" padding=0 border-width=0 background-color="#00000000" max-width="100%" display="block" tabindex=0
                     image url.url aria-label="Tool output image" max-width="100%" max-height="16rem" object-fit="contain" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff06)"
                 if urls.filter((url) => url.id == picture.id).length == 0
                   text (urls.filter((url) => url.id == `failed:${picture.id}`).length > 0 ? "Image unavailable" : "Loading image…") font-size=codeSize color="light-dark(#71717b, #a1a1a1)"
@@ -592,7 +599,7 @@ component SubagentRow
   view
     box position="relative" width="100%" min-width=0
       if agent.targetId != ""
-        button hover=hovered press=command("open-related-thread", agent.targetId, "", 0) aria-label=`Open ${agent.label}` aria-description=agent.result width="100%" min-width=0 padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.625rem"
+        button hover=hovered press=command("open-related-thread", agent.targetId, "", 0) aria-label=`Open ${agent.label}` aria-description=agent.result width="100%" min-width=0 padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.625rem" tabindex=0
           SubagentRowContent(agent=agent, now=now)
       else
         row hover=hovered aria-description=agent.result width="100%" min-width=0 padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" align-items="center" gap="0.625rem" testId=`subagent-${agent.id}`
@@ -669,7 +676,7 @@ component SubagentGroup
   view
     column width="100%" min-width=0
       // Its 0.8125rem end padding is the open panel's border, padding and row inset, so the times line up.
-      button hover=hovered press=local("group", message.groupId, "") aria-label=message.title aria-description=message.detail aria-expanded=message.expanded testId=`subagent-group-${message.id}` width="100%" min-width=0 padding-left=0 padding-right="0.8125rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.625rem" opacity=(message.expanded or message.live or over ? 1 : 0.55) transition="opacity 150ms ease"
+      button hover=hovered press=local("group", message.groupId, "") aria-label=message.title aria-description=message.detail aria-expanded=message.expanded testId=`subagent-group-${message.id}` width="100%" min-width=0 padding-left=0 padding-right="0.8125rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.625rem" opacity=(message.expanded or message.live or over ? 1 : 0.55) transition="opacity 150ms ease" tabindex=0
         row flex-shrink=0 align-items="center" aria-hidden=true
           for agent, index in message.activities.slice(0, 3) key=agent.id
             box position="relative" width="1.5rem" height="1.5rem" flex-shrink=0 margin-left=(index == 0 ? "0px" : "-0.375rem") border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#f4f4f5, #1c1c1c)" box-shadow="0 0 0 2px light-dark(#fcfcfc, #000000)" box-sizing="border-box" display="flex" align-items="center" justify-content="center"

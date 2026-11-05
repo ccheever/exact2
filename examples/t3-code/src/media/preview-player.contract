@@ -174,7 +174,7 @@ component PlayerButton
     elementId: string
     testId: string
   view
-    button id=elementId press=press aria-label=label title="" width="3rem" height="2.25rem" flex-shrink=0 padding=0 border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" testId=testId
+    button id=elementId press=press aria-label=label title="" width="3rem" height="2.25rem" flex-shrink=0 padding=0 border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" testId=testId tabindex=0
       svg width="1.25rem" height="1.25rem" viewBox="0 0 24 24" fill="#ffffff" aria-hidden=true
         path d=icon
 

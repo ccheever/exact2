@@ -183,7 +183,7 @@ component UserRow
       if foldable
         column position="relative" width=(open ? "100%" : "auto") max-width="80%" min-width=0 border-radius="1rem" background-color=bubble box-sizing="border-box" testId=`folded-${message.id}`
           MessageHeading(label=message.title)
-          button press=local("message", message.id, "") aria-expanded=open testId=`fold-${message.id}` width="100%" min-width=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="1rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.375rem"
+          button press=local("message", message.id, "") aria-expanded=open testId=`fold-${message.id}` width="100%" min-width=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="1rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.375rem" tabindex=0
             :focus-visible
               box-shadow="inset 0 0 0 2px light-dark(#1b4ed8b3, #346bf1b3)"
             TimelineIcon(name=(message.attribution == "automation" ? "calendar-clock" : "messages-square"), size=16, color="light-dark(#71717b, #a1a1a1)")
@@ -303,7 +303,7 @@ component FoldLink
   action hover(over: bool)
     hovered = over
   view
-    button press=press hover=hover testId=testId padding=0 border-width=0 border-radius="0.375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0 title=""
+    button press=press hover=hover testId=testId padding=0 border-width=0 border-radius="0.375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0 title="" tabindex=0
       text label font-size="0.75rem" font-weight=(strong ? 500 : 400) line-height="1rem" white-space="nowrap" color=(strong and hovered ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)") text-decoration-line=(hovered ? "underline" : "none")
 
 // TimelineSystemDivider's action pill: a pointer, the accent fill and foreground ink on hover.
@@ -317,7 +317,7 @@ component DividerPill
   derive live = message.targetId != ""
   derive ink = (hovered and live ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
   view
-    button press=command("open-related-thread", message.targetId, "", 0) hover=hover disabled=(not live) aria-label=message.actionLabel testId=`source-${message.id}` cursor=(live ? "pointer" : "default") height=(live ? "1.625rem" : "1.5rem") padding-left=(live ? "0.625rem" : "0.5rem") padding-right=(live ? "0.625rem" : "0.5rem") box-sizing="border-box" border-radius="0.8125rem" border-width=(live ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0e)" background-color=(hovered and live ? "light-dark(#f4f4f5, #ffffff0a)" : (live ? "light-dark(#fcfcfc, #000000)" : "#00000000")) display="flex" flex-direction="row" align-items="center" gap="0.375rem" min-width=0
+    button press=command("open-related-thread", message.targetId, "", 0) hover=hover disabled=(not live) aria-label=message.actionLabel testId=`source-${message.id}` cursor=(live ? "pointer" : "default") height=(live ? "1.625rem" : "1.5rem") padding-left=(live ? "0.625rem" : "0.5rem") padding-right=(live ? "0.625rem" : "0.5rem") box-sizing="border-box" border-radius="0.8125rem" border-width=(live ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0e)" background-color=(hovered and live ? "light-dark(#f4f4f5, #ffffff0a)" : (live ? "light-dark(#fcfcfc, #000000)" : "#00000000")) display="flex" flex-direction="row" align-items="center" gap="0.375rem" min-width=0 tabindex=0
       :focus-visible
         box-shadow="inset 0 0 0 2px light-dark(#1b4ed8b3, #346bf1b3)"
       TimelineIcon(name=(message.icon == "bot" or message.icon == "messages-square" ? message.icon : "fork"), size=12, color=ink)
@@ -336,7 +336,7 @@ component ShowMoreButton
   action hover(over: bool)
     hovered = over
   view
-    button press=press hover=hover aria-expanded=expanded testId=testId height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#18181b0d, #ffffff0d)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button press=press hover=hover aria-expanded=expanded testId=testId height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#18181b0d, #ffffff0d)" : "#00000000") display="flex" flex-direction="row" align-items="center" tabindex=0
       text (expanded ? "Show less" : "Show full message") font-size="0.75rem" font-weight=500 line-height="1rem" color=(hovered ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
 
 // Copy, fork and the answer's wall-clock time; under the answer itself hidden until the row is hovered
@@ -565,14 +565,14 @@ component TimelineContent
                   // After a failed tool the row stands in for the run's tool calls and discloses them; while an approval
                   // waits nothing is thinking, so it holds still (`live`).
                   if message.groupId != ""
-                    button press=local("group", message.groupId, "") testId=`thinking-${message.groupId}` aria-label="Thinking" aria-expanded=message.expanded width="100%" min-height="1.5rem" padding=0 padding-left="0.125rem" padding-right="0.125rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+                    button press=local("group", message.groupId, "") testId=`thinking-${message.groupId}` aria-label="Thinking" aria-expanded=message.expanded width="100%" min-height="1.5rem" padding=0 padding-left="0.125rem" padding-right="0.125rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" tabindex=0
                       LiveActivity(label="Thinking", icon="brain", failed=false, active=message.live, shimmer=message.live, iconLight="", iconDark="")
                   else
                     row width="100%" padding-left="0.125rem" padding-right="0.125rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box" align-items="center"
                       LiveActivity(label="Thinking", icon="brain", failed=false, active=message.live, shimmer=message.live, iconLight="", iconDark="")
               else
                 if message.kind == "live"
-                  button press=local("group", message.groupId, "") testId=`live-${message.id}` aria-label=(message.failed ? `${message.detail != "" ? message.detail + " " : ""}${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height="1.5rem" padding=0 padding-left="0.125rem" padding-right="0.125rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction=(message.detail != "" ? "column" : "row") align-items=(message.detail != "" ? "flex-start" : "center") title=""
+                  button press=local("group", message.groupId, "") testId=`live-${message.id}` aria-label=(message.failed ? `${message.detail != "" ? message.detail + " " : ""}${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height="1.5rem" padding=0 padding-left="0.125rem" padding-right="0.125rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction=(message.detail != "" ? "column" : "row") align-items=(message.detail != "" ? "flex-start" : "center") title="" tabindex=0
                     // The latest thought above the status line, an ordinary work-log row that wraps beside its icon.
                     // Keyed by its text, like the status line below.
                     for thought in (message.detail != "" ? [message.detail] : []) key=thought
@@ -591,7 +591,7 @@ component TimelineContent
                       WorkEntries(message=message, command=command, urls=attachments, diffScheme=diffScheme)
                     else
                       if message.kind == "attempt"
-                        button press=local("attempt", message.groupId, "") testId=`attempt-${message.groupId}` aria-expanded=message.expanded width="100%" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" background-color="light-dark(#fafafa33, #ffffff02)" display="flex" flex-direction="row" align-items="center" gap="0.5rem"
+                        button press=local("attempt", message.groupId, "") testId=`attempt-${message.groupId}` aria-expanded=message.expanded width="100%" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" background-color="light-dark(#fafafa33, #ffffff02)" display="flex" flex-direction="row" align-items="center" gap="0.5rem" tabindex=0
                           Icon(name=(message.expanded ? "chevron" : "right"), size=14, color="light-dark(#71717b, #a1a1a1)")
                           text message.title font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#18181bcc, #f5f5f5cc)"
                           text message.detail font-size="0.6875rem" line-height="0.9375rem" color="light-dark(#71717b, #a1a1a1)"
@@ -667,7 +667,7 @@ component ThreadStatusLine
       TimelineIcon(name=message.icon, size=14, color="light-dark(#71717b, #a1a1a1)")
       text message.title min-width=0 line-clamp=1 font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
       text "·" flex-shrink=0 font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" aria-hidden=true
-      button press=command(message.detail, message.targetId, "", 0) hover=hover testId="thread-status-action" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0
+      button press=command(message.detail, message.targetId, "", 0) hover=hover testId="thread-status-action" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0 tabindex=0
         text message.actionLabel font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color="light-dark(#18181b, #f5f5f5)" text-decoration-line=(over ? "underline" : "none")
 
 // WorkGroupHeader: the group's icon (its tools' image, else the summary glyph) and sentence, hover time.
@@ -692,7 +692,7 @@ component WorkGroupHeader
     focused = value
   derive hovering = over != "" or focused or windowPresses <= pressedAt + 1
   view
-    button hover=hover("row") pointerdown=down focus=focusChanged(true) blur=focusChanged(false) press=local("group", message.groupId, "") testId=`group-${message.id}` aria-label=(message.failed ? `${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height="1.75rem" padding="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+    button hover=hover("row") pointerdown=down focus=focusChanged(true) blur=focusChanged(false) press=local("group", message.groupId, "") testId=`group-${message.id}` aria-label=(message.failed ? `${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height="1.75rem" padding="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" tabindex=0
       for keyed in message.activities key=keyed.id
         WorkLine(icon=message.icon, label=keyed.label, failed=false, highlighted=false, tone="", answer="", strong=false, iconLight=keyed.iconLight, iconDark=keyed.iconDark)
       // TimelineRowTimestamp: the full date in a tooltip once the time shows. Hidden, it takes no pointer
@@ -716,6 +716,7 @@ shape EntryExtra
 component WorkEntries
   inject
     rem: number
+    keyboardLast: bool
   props
     message: Message
     command: action
@@ -723,13 +724,17 @@ component WorkEntries
     diffScheme: string
   state extras = [EntryExtra(id="", extra=0)].filter((e) => e.id != "")
   state opened = 0
+  // ExpandedWorkGroupEntries' list is a Tab stop, `focus-visible:ring-2 ring-inset ring-ring/70` on its rounded-md box.
+  state ringed = false
+  action ring(on: bool)
+    ringed = on and keyboardLast
   action entrySized(id: string, extra: number)
     let previous = match first(extras.filter((e) => e.id == id)) { case some(e) => e.extra, case none => 0 }
     opened = max(0, opened - previous + extra)
     extras = extras.filter((e) => e.id != id).concat([EntryExtra(id=id, extra=extra)])
   view
     if message.kind == "details"
-      scroll width="100%" max-height=`calc(min(${18 * rem}px, 50dvh) + ${opened}px)` overflow-x="hidden" aria-label="Tool calls" testId=`tool-calls-${message.id}`
+      scroll width="100%" max-height=`calc(min(${18 * rem}px, 50dvh) + ${opened}px)` overflow-x="hidden" tabindex=0 focus=ring(true) blur=ring(false) outline="none" border-radius="0.375rem" box-shadow=(ringed ? "inset 0 0 0 2px light-dark(#1b4ed8b3, #346bf1b3)" : "none") aria-label="Tool calls" testId=`tool-calls-${message.id}`
         column width="100%"
           for entry in message.activities key=`${entry.id}\t${entry.label}`
             WorkEntry(entry=entry, grouped=true, command=command, code=message.code, codeSize=message.md.codeSize, md=message.md, sized=entrySized, urls=urls, diffScheme=diffScheme)
@@ -758,7 +763,7 @@ component HistoryControl
     column width="100%" max-width=lane padding-bottom="0.5rem" gap="0.375rem" box-sizing="border-box"
       if hasMore
         // The label between two hairlines (h-px flex-1 bg-border/70, gap-3), text-muted-foreground.
-        button hover=setHover press=load disabled=(busy or loading) aria-label="Load earlier turns" testId="load-earlier" width="100%" padding-top="0.375rem" padding-bottom="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.75rem"
+        button hover=setHover press=load disabled=(busy or loading) aria-label="Load earlier turns" testId="load-earlier" width="100%" padding-top="0.375rem" padding-bottom="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.75rem" tabindex=0
           box flex=1 height=1 aria-hidden=true background-color="light-dark(#e4e4e7b3, #ffffff0e)"
           text (loading ? "Loading earlier turns…" : "Load earlier turns") flex-shrink=0 font-size="0.75rem" line-height="1rem" color=(hovering and not loading ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
           box flex=1 height=1 aria-hidden=true background-color="light-dark(#e4e4e7b3, #ffffff0e)"
@@ -792,11 +797,11 @@ component RevertDialog
           text "Edit from here?" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2
           text "Rewind chat to before this message. Your prompt and attachments return to the composer. “Revert files too” also undoes your own edits." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" id="revert-description"
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
-          button id="revert-cancel" press=answer("cancel") disabled=busy aria-keyshortcuts="Escape" testId="revert-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" data-focus-stop=(busy ? "" : "enabled")
+          button id="revert-cancel" press=answer("cancel") disabled=busy aria-keyshortcuts="Escape" testId="revert-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" data-focus-stop=(busy ? "" : "enabled") tabindex=0
             text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
           // Button variant="destructive-outline": the outline button's surface with destructive text.
-          button press=answer("files") disabled=busy testId="revert-files" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" opacity=(busy ? 0.64 : 1) background-color="light-dark(#ffffff, #ffffff07)"
+          button press=answer("files") disabled=busy testId="revert-files" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" opacity=(busy ? 0.64 : 1) background-color="light-dark(#ffffff, #ffffff07)" tabindex=0
             text "Revert files too" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#e7000b, #ff6467)"
-          button id="revert-keep" press=answer("keep") disabled=busy testId="revert-keep" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 opacity=(busy ? 0.64 : 1) background-color="light-dark(#1b4ed8, #346bf1)" data-focus-stop=(busy ? "" : "enabled")
+          button id="revert-keep" press=answer("keep") disabled=busy testId="revert-keep" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 opacity=(busy ? 0.64 : 1) background-color="light-dark(#1b4ed8, #346bf1)" data-focus-stop=(busy ? "" : "enabled") tabindex=0
             text "Revert and keep changes" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
         FocusGuard(guardId="revert-guard-end", targets=dialogTargets, popup="revert-dialog")

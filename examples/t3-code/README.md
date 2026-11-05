@@ -734,12 +734,8 @@ Differences that belong to the app:
 - A reply's web link shows no tooltip with its URL when the pointer rests on it, where the reference's anchor has one
   (its Tooltip, side top): each word of a link is a node of its own (`FlowRuns`), so no one box holds the link to
   place it by. An image inside a link shows its URL on a keyboard focus, as the reference's does.
-- Some timeline controls are no Tab stops with Keyboard Navigation off, where the reference tabs to each: a tool row
-  and its Open diff, a plan's Plan actions, and an approval's Decline, Approve and More, its "File change" code and its
-  file. The clone stops once on an approval's group and draws no ring there. The clone's Mac buttons are Tab stops only
-  with `tabindex=0`, which #1483 gave the changed-files card ("Checked with real input (2026-11-05, second)").
-- ⇧Tab from a thread's first timeline stop goes to the sidebar's footer buttons, where the reference's goes to the chat
-  header (Thread actions, New thread in the project, Toggle right panel).
+- A focused timeline button shows AppKit's focus ring outside it, where the reference's tool rows ring inside their
+  box (`ring-2 ring-inset`) and its inline buttons draw Chromium's outline.
 - After a press on a work group's "Worked for …", the clone keeps the group's time shown once the pointer has left;
   the reference shows none.
 - Appearance has no Environment identification row. The clone is the stable app only, and it does
