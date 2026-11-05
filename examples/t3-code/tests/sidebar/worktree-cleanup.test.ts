@@ -132,7 +132,7 @@ describe('getFallbackThreadIdAfterDelete', () => {
       thread({ id: 'thread-active', projectId: 'project-1', createdAt: '2026-03-09T10:05:00.000Z' }),
       thread({ id: 'thread-newest', projectId: 'project-1', createdAt: '2026-03-09T10:10:00.000Z' }),
       thread({ id: 'thread-other-project', projectId: 'project-2', createdAt: '2026-03-09T10:20:00.000Z' }),
-    ], deletedThreadId: 'thread-active', sortOrder: 'created_at' });
+    ], deletedThreadId: 'thread-active', sortOrder: 'created_at', now: Date.parse('2026-03-09T10:10:00.000Z') });
     expect(fallbackThreadId).toBe('thread-newest');
   });
   test('skips other threads being deleted in the same action', () => {
@@ -140,9 +140,20 @@ describe('getFallbackThreadIdAfterDelete', () => {
       thread({ id: 'thread-active', projectId: 'project-1', createdAt: '2026-03-09T10:05:00.000Z' }),
       thread({ id: 'thread-newest', projectId: 'project-1', createdAt: '2026-03-09T10:10:00.000Z' }),
       thread({ id: 'thread-next', projectId: 'project-1', createdAt: '2026-03-09T10:07:00.000Z' }),
-    ], deletedThreadId: 'thread-active', deletedThreadIds: new Set(['thread-active', 'thread-newest']), sortOrder: 'created_at' });
+    ], deletedThreadId: 'thread-active', deletedThreadIds: new Set(['thread-active', 'thread-newest']), sortOrder: 'created_at', now: Date.parse('2026-03-09T10:10:00.000Z') });
     expect(fallbackThreadId).toBe('thread-next');
   });
+  for (const [state, parked] of [['snoozed', { snoozedUntil: '2099-01-01T00:00:00.000Z', snoozedAt: '2026-03-09T10:06:00.000Z' }],
+    ['settled', { settledOverride: 'settled', settledAt: '2026-03-09T10:06:00.000Z' }]] as const) {
+    test(`skips a ${state} thread parked on its shelf`, () => {
+      const fallbackThreadId = getFallbackThreadIdAfterDelete({ threads: [
+        thread({ id: 'thread-visible', projectId: 'project-1', createdAt: '2026-03-09T10:01:00.000Z', updatedAt: '2026-03-09T10:01:00.000Z' }),
+        thread({ id: 'thread-parked', projectId: 'project-1', createdAt: '2026-03-09T10:02:00.000Z', updatedAt: '2026-03-09T10:06:00.000Z', ...parked }),
+        thread({ id: 'thread-active', projectId: 'project-1', createdAt: '2026-03-09T10:03:00.000Z', updatedAt: '2026-03-09T10:03:00.000Z' }),
+      ], deletedThreadId: 'thread-active', sortOrder: 'created_at', now: Date.parse('2026-03-09T10:10:00.000Z') });
+      expect(fallbackThreadId).toBe('thread-visible');
+    });
+  }
 });
 
 describe('resolveThreadReferenceCopyTarget', () => {

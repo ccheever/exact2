@@ -2,7 +2,7 @@
 // (BranchToolbar, BranchToolbarBranchSelector, BranchToolbar.logic).
 import { describe, expect, test } from 'bun:test';
 import { obj, str, type Obj } from '../../src/client/domain';
-import { composerBranches, patchDraftContext, sanitizeNewRefName, previousWorktree, stripShortcuts } from '../../src/composer/composer-controls-branch';
+import { composerBranches, isProjectCheckout, patchDraftContext, sanitizeNewRefName, previousWorktree, stripShortcuts } from '../../src/composer/composer-controls-branch';
 import { branchLocal, cardBranchView } from '../../src/details/git-branch';
 import { keyboardDispatch } from '../../src/shell/keyboard-dispatch';
 import { connected, thread } from '../support/composer-controls-fixture';
@@ -282,5 +282,19 @@ describe('one Run on and Workspace keyboard order', () => {
     expect(workspace).not.toContain('close(');
     const app = await appText('app.contract');
     expect(app).toContain('action menuCommand(op: string, id: string, value: string, n: number)\n    optionsOpen = ""\n    focus(composerTarget == "" ? "composer" : "side-chat-composer")\n    if not commandPending\n      commandPending = true\n      send changed = command(composerTarget == "" ? op : `scope:${composerTarget}|${op}`, id, value, n)');
+  });
+});
+
+// BranchToolbar.logic.test.ts resolveBranchSelectionTarget (reference 322f6544df): a branch checked out at the repository
+// root keeps a subfolder project's thread in the project folder, and another checkout is reused as a worktree.
+describe('resolveBranchSelectionTarget', () => {
+  test("reuses another checkout that merely contains the project's own checkout", () => {
+    expect(isProjectCheckout('/repo/nested-checkout/packages/app', '/repo', '/repo/nested-checkout')).toBe(false);
+  });
+  test("treats a subdirectory project's own checkout, reported at the repository root, as the project's", () => {
+    // The checkout root is undefined until the project's status loads.
+    for (const [projectCwd, checkoutRoot] of [['/repo', '/repo'], ['/repo/packages/app', '/repo'], ['/repo/packages/app', undefined]] as const) {
+      expect(isProjectCheckout(projectCwd, '/repo', checkoutRoot)).toBe(true);
+    }
   });
 });

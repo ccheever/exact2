@@ -5,7 +5,7 @@ import { sourceControlHost } from '../shared/source-control-hosts';
 // stay, or move to another page with a new query. Failures are toasts, as in the reference.
 import type { T3Client } from '../client/client';
 import { composerPromptLink, copyPromptLink } from '../prompt-links/copy-prompt-link';
-import { applyShell, arr, initialShell, obj, str, type Obj } from '../client/domain';
+import { applyShell, arr, initialShell, isListedThreadLineage, obj, str, type Obj } from '../client/domain';
 import type { Files, Native } from '../client/protocol';
 import { dismissToast, pushToast } from '../shell/toast';
 import { openFileSurface, openSurface } from '../panel/panel-surfaces';
@@ -42,9 +42,9 @@ const done = (client: T3Client, project = '', thread = ''): PaletteResult => ({ 
 async function refreshShell(client: T3Client, native: Native): Promise<void> {
   client.shell = applyShell(initialShell(), await client.restAccess(native).http('/api/orchestration/shell'));
 }
-/** Where an existing project opens: its latest active thread, else a new thread. */
+/** Where an existing project opens: its latest active thread, else a new thread. Side chats and subagents open inside their parent, so it never lands on one. */
 function openProject(client: T3Client, projectId: string): PaletteResult {
-  const latest = sortedThreads(client.shell.threads.filter(thread => thread.projectId === projectId))[0];
+  const latest = sortedThreads(client.shell.threads.filter(thread => thread.projectId === projectId && isListedThreadLineage(thread.lineage)))[0];
   return latest && latest.settledOverride !== 'settled' ? done(client, '', str(latest.id)) : done(client, projectId);
 }
 async function unarchive(client: T3Client, native: Native, target: AddEnvironment, projectId: string, source: EnvironmentFleet): Promise<void> {

@@ -192,4 +192,12 @@ describe('No project and removal copy', () => {
     expect(projectsPage(client, 'env-remote:/srv/solo', '', true).confirm).toContain('Those threads and any archived threads are deleted from T3 Code. Provider sessions are kept.');
     expect(projectsPage(client, 'github.com/acme/app', '', true).confirm).toContain('Any archived threads are deleted from T3 Code. Provider sessions are kept.');
   });
+  test("limits a checkout's thread count to its listed threads: side chats and subagents are not counted", () => {
+    const client = focused(), entry = studio();
+    const child = { rootThreadId: 't1', parentThreadId: 't1' };
+    entry.shell.threads.push({ id: 't2', projectId: 'r1', title: 'Subagent', createdAt: at, updatedAt: at, lineage: { ...child, relationshipToParent: 'subagent' } },
+      { id: 't3', projectId: 'r1', title: 'Side chat', createdAt: at, updatedAt: at, lineage: { ...child, relationshipToParent: 'fork', sideChat: true } });
+    const page = projectsPage(client, 'env-remote:/srv/solo', '', true);
+    expect([page.threads, page.confirm.split('\n')[0]]).toEqual([1, 'Remove project "solo" and delete its 1 thread?']);
+  });
 });

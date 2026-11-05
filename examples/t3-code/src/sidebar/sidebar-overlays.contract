@@ -52,6 +52,7 @@ component SidebarOverlays
     shell: ShellView
     pullRequests: bool
     viewportHeight: number
+    viewportWidth: number
     hoverH: number
     resize: action
     finishResize: action
@@ -99,7 +100,7 @@ component SidebarOverlays
       SidebarEdgeTips(width=width, hoverId=hoverId, historyLeft=(data.controlsLeft + 1 + 2.4375 * rem + navigationHistory.brandWidth + 0.25 * rem), goBack=(navigationHistory.backKind == "" ? "" : navigationHistory.backTip), goForward=(navigationHistory.forwardKind == "" ? "" : navigationHistory.forwardTip), newThread=`New thread${shell.keyNewThread == "" ? "" : ` (${shell.keyNewThread})`}`, newThreadDetail=(data.sidebar.newThreadPicks ? `New thread in current project: Shift+click${shell.keyNewThreadLocal == "" ? "" : ` (${shell.keyNewThreadLocal})`}` : ""), pullRequests=pullRequests, updatesDenial=data.sidebar.updatesDenial)
     if open and data.sidebar.scopeOpen
       button press=local("scope-open", "", "close") position="absolute" left=0 top=0 width="100%" height="100%" z-index=30 background-color="#00000000" border-width=0 aria-label="Close project filter" testId="scope-backdrop" title=""
-      SidebarScopeMenu(data=data, width=width, local=local, run=run)
+      SidebarScopeMenu(data=data, width=width, viewportWidth=viewportWidth, local=local, run=run)
     if data.sidebar.dialog == "archive" or data.sidebar.dialog == "unpin"
       SettingsConfirm(title=data.sidebar.dialogTitle, description=data.sidebar.dialogDescription, confirmLabel="Confirm", destructive=false, busy=busy, error="", dialogId=`sidebar-${data.sidebar.dialog}`, cancel=dismissDialog, confirm=run("dialog-confirm", "", ""))
     if data.sidebar.dialog == "delete" or data.sidebar.dialog == "delete-many"
@@ -114,8 +115,8 @@ component SidebarOverlays
     if data.sidebar.updateDialog.open
       UpdateEverythingDialog(d=data.sidebar.updateDialog, busy=busy, run=run)
 
-// ComboboxPopup under the search field (align start, 4pt gap), at least as
-// wide as the field and growing to fit names up to 18rem: the search row,
+// ComboboxPopup under the filter trigger (align start, 4pt gap), min(18rem, the
+// window's width) wide and shifted left to stay 5pt inside the window: the search row,
 // "All projects", then each project with its settings button. A pick shows that
 // project alone; Shift+click or Shift+Enter adds or removes it and keeps the menu
 // open. A badge on the icon marks each chosen project.
@@ -126,6 +127,7 @@ component SidebarScopeMenu
   props
     data: Snapshot
     width: number
+    viewportWidth: number
     local: action
     run: action
   action pick(key: string, e: MouseEvent)
@@ -188,8 +190,10 @@ component SidebarScopeMenu
     cleared = over ? false : (hovered == key ? true : cleared)
   action pinHover(key: string, over: bool)
     pinOver = over ? key : (pinOver == key ? "" : pinOver)
+  // The trigger is the header row's third button from the right (sidebar.contract: 0.5rem padding, New thread, a
+  // 0.25rem gap, Add project, then the filter, each 1.75rem), 1.75rem tall, centred in the 2rem row under 5.5rem.
   view
-    column position="absolute" left="0.5rem" top="6rem" z-index=31 min-width=(width - 6.5 * rem) max-width="18rem" max-height="23rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" backdrop-filter=(scheme == "dark" ? "blur(16px)" : "blur(12px)") box-shadow="0 17px 42px -18px light-dark(#0000008c, #000000cc)" overflow="hidden" role="dialog" testId="scope-menu"
+    column position="absolute" left=max(5, min(width - 6 * rem, viewportWidth - 5 - min(18 * rem, viewportWidth - 10))) top="5.875rem" z-index=31 width=min(18 * rem, viewportWidth - 10) max-height="23rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" backdrop-filter=(scheme == "dark" ? "blur(16px)" : "blur(12px)") box-shadow="0 17px 42px -18px light-dark(#0000008c, #000000cc)" overflow="hidden" role="dialog" testId="scope-menu"
       column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" box-sizing="border-box"
         row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" align-items="flex-start" position="relative" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#1b4ed8, #346bf1)"
           box position="absolute" left=0 top="0.375rem" width="1rem" height="1rem" pointer-events="none"

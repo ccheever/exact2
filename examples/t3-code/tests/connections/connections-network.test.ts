@@ -1,5 +1,5 @@
 // Network access in Settings › Connections: the This machine rows, the Authorized clients fold
-// and their commands, against ConnectionsSettings.tsx (MIT, see LICENSE-T3; reference 74541bab17):
+// and their commands, against ConnectionsSettings.tsx (MIT, see LICENSE-T3; reference 322f6544df):
 // every state the rows draw (loading, local-only, reachable, Tailscale, empty, error), the pairing and
 // client rows, the dialogs' serials (closing on success, or on any outcome for network access), the
 // persisted relaunch request, and the copy / reveal path.
@@ -296,6 +296,16 @@ describe('pairing links and client commands', () => {
     expect(requests).toEqual([{ op: 'localAccess', method: 'POST', path: '/api/auth/pairing-token', body: { label: 'Living room iPad', scopes: ['orchestration:read', 'terminal:operate'] } }]);
     expect([createdCredentials.get('link-9'), networkUi.createSerial]).toEqual(['SECRET', 1]);
     expect(JSON.stringify(client.local)).not.toContain('SECRET');
+  });
+
+  it('shows the link just created under the folded header with its Share panel open, and only while it is listed', async () => {
+    const client = new T3Client();
+    const { native } = fakeNative(request => request.op === 'localAccess' ? { ok: true, generation: 1, value: { id: 'link-9', credential: 'SECRET', expiresAt: '2036-04-07T00:05:00.000Z' } } : undefined);
+    await runNetworkOp(client, native, 'pairing-create', 'Living room iPad', 'orchestration:read');
+    const listed = networkProjection(input({ credentials: createdCredentials, access: { loaded: true, error: '', pairingLinks: [link('link-1'), link('link-9')], clientSessions: [session('phone')] } }));
+    expect([listed.newestId, listed.newest.map(row => row.id), listed.newest[0]?.share]).toEqual(['link-9', ['link-9'], true]);
+    expect(networkProjection(input({ access: { loaded: true, error: '', pairingLinks: [link('link-1')], clientSessions: [] } })).newest).toEqual([]);
+    expect(networkProjection(input({ access: { loaded: true, error: '', pairingLinks: [link('link-9', { expiresAt: '2036-04-06T00:00:00.000Z' })], clientSessions: [] } })).newest).toEqual([]);
   });
 
   it('keeps the create dialog open with the reference toast when the server refuses', async () => {

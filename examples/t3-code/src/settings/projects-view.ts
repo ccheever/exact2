@@ -1,9 +1,9 @@
 // Settings → Project view model (reference ProjectsSettings.tsx and
-// ProjectSettingsPanel.tsx, its Pin and Archive rows at 2359643cff and its Checkouts at 5d3d78ab93): the selected project group's name, icon, pin,
+// ProjectSettingsPanel.tsx, its Pin and Archive rows at 2359643cff, its Checkouts at 5d3d78ab93 and its removal count at 322f6544df): the selected project group's name, icon, pin,
 // archive, new-thread defaults, checkouts and removal copy, over every environment's project groups
 // (projects-fleet.ts). Group key and checkout come from the settings scope
 // (settings-core's resolveScope), so this never guesses a target.
-import { arr, obj, projectGroupOrganization, str, type Obj } from '../client/domain';
+import { arr, isListedThreadLineage, obj, projectGroupOrganization, str, type Obj } from '../client/domain';
 import { canPinProjectGroup } from '../sidebar/project-pin';
 import type { T3Client } from '../client/client';
 import { projectIdentity } from '../client/presentation';
@@ -81,7 +81,8 @@ export function projectsPage(client: T3Client, projectKey: string, checkout: str
   const members = group.members.filter(member => !checkout || member.id === checkout);
   if (!members.length) return { ...empty, ready: true, message: '' };
   const representative = members[0], hasOther = members.length < group.members.length;
-  const threads = members.reduce((count, member) => count + memberThreads(client, str(member.id)).length, 0);
+  // planProjectRemoval: side chats and subagents go with their parent but never show in thread lists, so they are not counted.
+  const threads = members.reduce((count, member) => count + memberThreads(client, str(member.id)).filter(thread => isListedThreadLineage(thread.lineage)).length, 0);
   // The representative's own environment holds its settings and takes its writes.
   const ref = memberRef(client, str(representative.id)), home = environmentClient(client, ref.environmentId);
   const settings = obj(home.config.settings), projectId = ref.projectId;

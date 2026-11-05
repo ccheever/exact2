@@ -242,7 +242,7 @@ export async function remove(client: T3Client, native: Native, storage: Files, i
   await detachThreadSessions(client, native, thread);
   await closeThreadTerminals(client, native, id);
   const wasOpen = client.threadId === id;
-  const fallback = getFallbackThreadIdAfterDelete({ threads: client.shell.threads.filter(entry => !entry.archivedAt), deletedThreadId: id, deletedThreadIds: deleted, sortOrder: threadSortOrder(client) });
+  const fallback = getFallbackThreadIdAfterDelete({ threads: client.shell.threads.filter(entry => !entry.archivedAt), deletedThreadId: id, deletedThreadIds: deleted, sortOrder: threadSortOrder(client), now: wall(client) });
   await dispatch(client, native, { type: 'thread.delete', threadId: id });
   forget(client, id);
   clearDeletedThreadPanelState(client, client.environmentId, id);

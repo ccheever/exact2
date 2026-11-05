@@ -31,6 +31,9 @@ describe('Exit failures as Cause.squash reports them', () => {
       .toEqual(['The tool this host is read through is not installed or set up.', 'This host has no working credentials.']);
     expect(failure({ name: 'Error', message: 'plain' }).message).toBe('plain');
     expect(failure({ _tag: 'Fail', error: { _tag: 'DeviceEasAccountError', reason: 'Expo rejected the credential (HTTP 401).' } }).message).toBe('Expo rejected the credential (HTTP 401).');
+    // useHostConnectionChecks reports a failed check by this sentence, without a stack trace.
+    expect(failure({ _tag: 'Fail', error: { _tag: 'DeviceHostUnavailableError', hostId: 'mac', hostLabel: 'Mac mini', reason: 'SSH connection refused.' } }).message).toBe('Mac mini is unavailable: SSH connection refused.');
+    expect(failure({ _tag: 'Fail', error: { _tag: 'DeviceHostUnavailableError', hostId: 'mac', reason: 'SSH connection refused.' } }).message).toBe('Device host mac is unavailable: SSH connection refused.');
     expect(failure({ _tag: 'Interrupt' }).kind).toBe('Interrupt');
     expect(failure({ _tag: 'Fail', error: { _tag: 'Mystery' } }).message).toBe('The server refused the request (Mystery).');
   });

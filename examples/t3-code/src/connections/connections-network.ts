@@ -1,6 +1,6 @@
 // Settings → Connections › This machine: Network access, its endpoints, Tailscale HTTPS and the
 // Authorized clients section, after T3 Code (MIT,
-// see LICENSE-T3; reference 74541bab17) ConnectionsSettings.tsx (renderNetworkAccessRow,
+// see LICENSE-T3; reference 322f6544df) ConnectionsSettings.tsx (renderNetworkAccessRow,
 // renderEndpointRows, renderTailscaleRow, AuthorizedClientsHeaderAction, PairingClientsList,
 // PairingLinkListRow, ConnectedClientListRow, the four dialogs), ConnectionsSettings.logic.ts and
 // state/desktopNetworkAccess.ts.
@@ -86,6 +86,8 @@ export type NetworkView = {
   visible: boolean; loading: boolean; networkOn: boolean; switchReady: boolean; summaryUrl: string; fallback: string; hidden: number; error: string;
   endpoints: NetEndpointRow[]; tailscale: boolean; tailscaleOn: boolean; tailscaleDescription: string; tailscaleUrl: string; tailscaleHost: string; servePort: number;
   clientsVisible: boolean; summary: string; accessError: string; accessLoading: boolean; pairings: NetPairingRow[]; clients: NetClientRow[]; empty: boolean;
+  /** The link this client created last, while it is listed: shown under the folded header with its Share panel open. */
+  newest: NetPairingRow[]; newestId: string;
   othersDisabled: boolean; networkSerial: number; tailscaleSerial: number; createSerial: number; settled: number; reveal: NetReveal; ticking: boolean;
   /**
    * Why the managed policy refuses connecting from other devices ('' when it allows it): the way in is managed,
@@ -98,12 +100,12 @@ const closedReveal = (): NetReveal => ({ open: false, linkId: '', title: '', des
 export function emptyNetworkView(): NetworkView {
   return { scopeOptions: pairingScopeOptions(), visible: false, loading: true, networkOn: false, switchReady: false, summaryUrl: '', fallback: '', hidden: 0, error: '', endpoints: [], tailscale: false, tailscaleOn: false,
     tailscaleDescription: 'Start Tailscale to set up HTTPS access through MagicDNS.', tailscaleUrl: '', tailscaleHost: '', servePort: 443, clientsVisible: false, summary: '',
-    accessError: '', accessLoading: true, pairings: [], clients: [], empty: false, othersDisabled: true, networkManaged: '', tailscaleManaged: '', pairingManaged: '', networkSerial: 0, tailscaleSerial: 0, createSerial: 0, settled: 0,
+    accessError: '', accessLoading: true, pairings: [], clients: [], empty: false, newest: [], newestId: '', othersDisabled: true, networkManaged: '', tailscaleManaged: '', pairingManaged: '', networkSerial: 0, tailscaleSerial: 0, createSerial: 0, settled: 0,
     reveal: closedReveal(), ticking: false };
 }
 
 /** What the commands leave for the page: mutation errors, the dialogs' serials, the reveal dialog. */
-export const networkUi = { exposureError: '', accessError: '', networkSerial: 0, tailscaleSerial: 0, createSerial: 0, settled: 0,
+export const networkUi = { exposureError: '', accessError: '', networkSerial: 0, tailscaleSerial: 0, createSerial: 0, settled: 0, newestPairingId: '',
   reveal: null as null | { linkId: string; value: string; kind: 'code' | 'link' } };
 /**
  * The section with nothing to draw (the page closed, or this client cannot manage it), its dialogs' serials kept. A
@@ -178,6 +180,8 @@ export function networkProjection(input: NetworkInput): NetworkView {
   const defaultKey = defaultAll ? endpointDefaultPreferenceKey(defaultAll) : null;
   const links = sortPairingLinks(input.access.pairingLinks).filter(link => new Date(link.expiresAt).getTime() > input.now);
   const sessions = sortClientSessions(input.access.clientSessions);
+  const pairings = links.map(link => pairingRow(link, input, visibleAll, defaultKey));
+  const newestId = networkUi.newestPairingId;
   let tailscaleHost = '';
   try { tailscaleHost = tailscale ? new URL(tailscale.httpBaseUrl).hostname : ''; } catch { tailscaleHost = ''; }
   return {
@@ -198,7 +202,7 @@ export function networkProjection(input: NetworkInput): NetworkView {
     tailscaleUrl: tailscale?.httpBaseUrl ?? '', tailscaleHost, servePort: state?.tailscaleServePort ?? 443,
     clientsVisible: true, summary: summarizeAuthorizedClients(sessions, links),
     accessError: networkUi.accessError || input.access.error, accessLoading: !input.access.loaded,
-    pairings: links.map(link => pairingRow(link, input, visibleAll, defaultKey)), clients: sessions.map(session => clientRow(session, input.now)),
+    pairings, clients: sessions.map(session => clientRow(session, input.now)), newest: pairings.filter(row => row.id === newestId), newestId,
     empty: input.access.loaded && links.length === 0 && sessions.length === 0,
     othersDisabled: sessions.every(session => session.current),
     reveal: revealView(networkUi.reveal, visibleAll),
@@ -291,7 +295,7 @@ const live = { port: 0, snapshot: null as null | { state: DesktopServerExposureS
 export function resetNetwork(): void {
   exposure = makeExposure();
   Object.assign(live, { port: 0, snapshot: null, open: false, error: '', at: 0, now: 0, revalidating: false });
-  Object.assign(networkUi, { exposureError: '', accessError: '', networkSerial: 0, tailscaleSerial: 0, createSerial: 0, settled: 0, reveal: null });
+  Object.assign(networkUi, { exposureError: '', accessError: '', networkSerial: 0, tailscaleSerial: 0, createSerial: 0, settled: 0, newestPairingId: '', reveal: null });
   Object.assign(ctx, { native: null, owner: null, pending: false, refresh: false, facts: null, env: { lanHost: '', httpsEndpoints: [] } });
 }
 
@@ -398,6 +402,7 @@ export async function runNetworkOp(client: T3Client, native: Native, op: string,
       if (!scopes.length) throw new Error('Select at least one permission.');
       const created = await createPairingCredential(native, { label: id, scopes });
       createdCredentials.set(created.id, created.credential);
+      networkUi.newestPairingId = created.id;
       networkUi.createSerial++;
     } catch (error) {
       if (letGo(error)) throw error;

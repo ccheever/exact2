@@ -237,6 +237,10 @@ function typed(value: unknown): TransportFailure {
   if (!message && tag === 'AssetGitHubMediaUrlValidationError') message = 'Only media a source control host keeps behind a credential can be fetched with one.';
   // DeviceEasAccountError's message is its reason, through a getter (contracts device.ts).
   if (!message && tag === 'DeviceEasAccountError') message = field('reason');
+  // So are the device host errors' (contracts device.ts); a failed host check shows this sentence (useHostConnectionChecks).
+  if (!message && tag === 'DeviceHostUnavailableError') message = `${field('hostLabel') || `Device host ${field('hostId')}`} is unavailable: ${field('reason')}`;
+  if (!message && tag === 'DevicePlatformUnavailableError') message = `${field('platform')} devices are unavailable on host ${field('hostId')}: ${field('reason')}`;
+  if (!message && tag === 'DeviceNotFoundError') message = `Device ${field('deviceId')} was not found on host ${field('hostId')}.`;
   // PreviewStopLocalServerError's and ServerPrepareTriageError's messages are getters (contracts preview.ts, server.ts).
   if (!message && tag === 'PreviewStopLocalServerError') message = STOP_LOCAL_SERVER_FAILURE_MESSAGES[field('reason')] ?? '';
   if (!message && tag === 'ServerPrepareTriageError') message = 'Could not write the triage session files.';

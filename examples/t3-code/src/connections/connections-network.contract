@@ -124,6 +124,8 @@ shape NetworkView
   pairings: NetPairingRow[]
   clients: NetClientRow[]
   empty: bool
+  newest: NetPairingRow[]
+  newestId: string
   othersDisabled: bool
   networkSerial: number
   tailscaleSerial: number
@@ -350,6 +352,11 @@ component AuthorizedClients
               box display="flex" margin-left="-0.125rem" margin-right="-0.125rem"
                 CnGlyph(name="plus", size=12, color="#ffffff")
               text "Create link" font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color="#ffffff"
+      // collapsedContent: the link just created, its Share panel open, while the section is folded.
+      if not open and net.newest.length > 0
+        column width="100%" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" testId="authorized-clients-newest"
+          for row in net.newest key=row.id
+            PairingLinkRow(row=row, busy=busy, op=op, settled=net.settled, still=still, share=true)
       if open
         scroll width="100%" max-height="22.5rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" testId="authorized-clients-scroll-area"
           column width="100%"
@@ -357,7 +364,7 @@ component AuthorizedClients
               column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem"
                 text net.accessError font-size="0.75rem" line-height="1rem" color="light-dark(#e7000b, #ff6467)" role="alert" testId="authorized-clients-error"
             for row in net.pairings key=row.id
-              PairingLinkRow(row=row, busy=busy, op=op, settled=net.settled, still=still)
+              PairingLinkRow(row=row, busy=busy, op=op, settled=net.settled, still=still, share=(row.id == net.newestId))
             for client in net.clients key=client.id
               ClientSessionRow(row=client, busy=busy, op=op, settled=net.settled, still=still)
             if net.empty
@@ -377,7 +384,9 @@ component PairingLinkRow
     op: action
     settled: number
     still: bool
-  state shareOpen = false
+    // defaultShareOpen: the link this client just created opens with its Share panel shown.
+    share: bool
+  state shareOpen = share
   state choice = ""
   state revokingAt = -1
   action toggleShare
