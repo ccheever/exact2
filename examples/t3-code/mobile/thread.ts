@@ -16,10 +16,11 @@ import { activeRun, type Files, type Native } from './shared/protocol';
 import { mobileModelSelectionReady, mobileModelSelectionUnavailable } from './model-availability';
 import { letGoAware } from './shared/let-go';
 import { transcriptRows, timelineView } from './shared/timeline-presentation';
+import { turnItemPresentationRevision } from './shared/timeline-item-fetch';
 import { refreshTimelineReads, timelineReadsNeeded } from './shared/timeline-prepare';
 import { attachmentUrls, cachedAttachmentUrl } from './shared/timeline-attachments';
 import { toolImageUrls } from './timeline-tool-images';
-import { syncWorktreeSetup } from './shared/timeline-worktree';
+import { syncWorktreeSetup, threadWorktreeSetup, worktreeDetailsOpen } from './shared/timeline-worktree';
 import { threadPhase } from './shared/composer-presentation';
 import { primaryAction } from './shared/composer-controls-view';
 import { followUpBehavior } from './shared/composer-controls';
@@ -60,6 +61,23 @@ interface ProjectedThreadItemsCache {
 }
 const projectedThreadItemsCache = new WeakMap<T3Client, ProjectedThreadItemsCache>();
 
+interface TranscriptRowsCache {
+  source: unknown;
+  revision: number;
+  threadEpoch: number;
+  threadId: string;
+  setupSource: unknown;
+  setupPreparing: boolean;
+  setupDetailsOpen: boolean;
+  itemPresentationRevision: number;
+  openKey: string;
+  viewNonce: number;
+  revertKey: string;
+  timestampFormat: string;
+  rows: ReturnType<typeof transcriptRows>;
+}
+const transcriptRowsCache = new WeakMap<T3Client, TranscriptRowsCache>();
+
 /**
  * Scroll events re-render the feed without changing the selected projection.
  * Keep the source-index lookup across those renders; client revisions and
@@ -68,7 +86,10 @@ const projectedThreadItemsCache = new WeakMap<T3Client, ProjectedThreadItemsCach
 function projectedThreadItems(client: T3Client): Map<string, ProjectedThreadItem> {
   const source = client.projection.visibleTurnItems;
   const previous = projectedThreadItemsCache.get(client);
-  if (previous && previous.source === source && previous.revision === client.revision
+  // A zero revision is the pre-snapshot construction state used while a
+  // client is being assembled. Do not retain rows there: callers may still be
+  // filling fixture objects in place before the first canonical revision.
+  if (client.revision > 0 && previous && previous.source === source && previous.revision === client.revision
     && previous.threadEpoch === client.threadEpoch && previous.threadId === client.threadId) return previous.map;
   const map = new Map<string, ProjectedThreadItem>();
   if (Array.isArray(source)) {
@@ -80,6 +101,31 @@ function projectedThreadItems(client: T3Client): Map<string, ProjectedThreadItem
   }
   projectedThreadItemsCache.set(client, { source, revision: client.revision, threadEpoch: client.threadEpoch, threadId: client.threadId, map });
   return map;
+}
+
+/**
+ * Fold, copy and revert controls live in timelineView rather than the server
+ * projection. Include their small local keys so an unchanged scroll redraw
+ * reuses the complete row derivation while a local disclosure or action still
+ * presents immediately.
+ */
+export function mobileTranscriptRows(client: T3Client): ReturnType<typeof transcriptRows> {
+  const view = timelineView(client), source = client.projection.visibleTurnItems, setup = threadWorktreeSetup(client);
+  const openKey = [...view.open].sort().join('\u0001'), revertKey = JSON.stringify(view.revert);
+  const timestampFormat = client.local.deviceSettings.timestampFormat;
+  const itemPresentationRevision = turnItemPresentationRevision(client);
+  const previous = transcriptRowsCache.get(client);
+  if (previous && previous.source === source && previous.revision === client.revision
+    && previous.threadEpoch === client.threadEpoch && previous.threadId === client.threadId
+    && previous.setupSource === setup.snapshot && previous.setupPreparing === setup.preparing && previous.setupDetailsOpen === worktreeDetailsOpen(client)
+    && previous.itemPresentationRevision === itemPresentationRevision
+    && previous.openKey === openKey && previous.viewNonce === view.nonce && previous.revertKey === revertKey
+    && previous.timestampFormat === timestampFormat) return previous.rows;
+  const rows = transcriptRows(client, true);
+  if (client.revision > 0) transcriptRowsCache.set(client, { source, revision: client.revision, threadEpoch: client.threadEpoch,
+    threadId: client.threadId, setupSource: setup.snapshot, setupPreparing: setup.preparing, setupDetailsOpen: worktreeDetailsOpen(client),
+    itemPresentationRevision, openKey, viewNonce: view.nonce, revertKey, timestampFormat, rows });
+  return rows;
 }
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
 const legacyAutomationPrefix = /^\[Triggered by schedule task: [^\r\n]+\]\r?\n\r?\n/;
@@ -106,7 +152,7 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false, ro
 function threadRows(client: T3Client, now: number, dark = false, routeKey = '', html?: ThreadHtmlPresentation,
   markdown?: ReturnType<typeof mobileThreadMarkdownCache>): ThreadRow[] {
   mobileThreadForkObserveProjection(client);
-  const source = transcriptRows(client, true), projected = projectedThreadItems(client);
+  const source = mobileTranscriptRows(client), projected = projectedThreadItems(client);
   const view = timelineView(client), rows: ThreadRow[] = [];
   for (const message of source) {
     // Pinned mobile buildThreadFeed omits checkpoints, including populated changes.

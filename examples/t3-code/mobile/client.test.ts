@@ -242,7 +242,7 @@ describe('pinned shared sources', () => {
         : name === 'shell-vcs.ts' ? 'c280acc1806c4e1fea5d4797b1278b99b5ee2ba0' : name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
         : ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
           ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
-      const adapted = ['client.ts', 'client-ops-composer.ts', 'client-ops-sidebar.ts', 'composer-controls.ts', 'domain.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts', 'composer-editor-files.ts', 'timeline-rows.ts', 'timeline-presentation.ts', 'protocol.ts', 'r5-composer-citation.ts', 'media-views.ts', 'timeline-attachments.ts'].includes(name);
+      const adapted = ['client.ts', 'client-ops-composer.ts', 'client-ops-sidebar.ts', 'composer-controls.ts', 'domain.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts', 'composer-editor-files.ts', 'timeline-rows.ts', 'timeline-presentation.ts', 'timeline-item-fetch.ts', 'protocol.ts', 'r5-composer-citation.ts', 'media-views.ts', 'timeline-attachments.ts'].includes(name);
       if (name === 'word-diff.ts') expect(local.slice(0, 3)).toEqual([
         '// GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.',
         '// Unchanged body from examples/t3-code/word-diff.ts; engine/span source extracted from',
@@ -289,6 +289,19 @@ describe('pinned shared sources', () => {
           '  const payload = object(event.payload, "event.payload");\n  if (family === "turnItems" && isUnknownTurnItem(payload)) return { ...state, sequence };\n  if (threadEvents.has(type)) validateEntity(payload, "threads", "event.payload");')
         .replace('  const older = objects(page.items, "history page.items").map((row, index) => validateRow(row, `history page.items[${index}]`));',
           '  const older = objects(page.items, "history page.items").filter(row => !isUnknownTurnItem(row.item))\n    .map((row, index) => validateRow(row, `history page.items[${index}]`));');
+      if (name === 'timeline-item-fetch.ts') expected = '// Mobile parity: expose a presentation revision so redraw caches observe local detail changes.\n' + expected
+        .replace('interface Cache { connection: string; details: Map<string, Detail>; open: Map<string, OpenItem> }',
+          'interface Cache { connection: string; details: Map<string, Detail>; open: Map<string, OpenItem>; presentationRevision: number }')
+        .replace('if (!value || value.connection !== connection) { value = { connection, details: new Map(), open: value?.open ?? new Map() }; caches.set(client, value); }',
+          'if (!value || value.connection !== connection) {\n    value = { connection, details: new Map(), open: value?.open ?? new Map(), presentationRevision: (value?.presentationRevision ?? 0) + 1 };\n    caches.set(client, value);\n  }')
+        .replace('  if (!open) { value.open.delete(scope); return; }\n  const row = rowFor(client, id);',
+          '  if (!open) { if (value.open.delete(scope)) value.presentationRevision++; return; }\n  const row = rowFor(client, id);')
+        .replace('  value.open.set(scope, { environment: client.environmentId, thread: client.threadId, id, sourceThread: str(row.sourceThreadId) || client.threadId });\n}',
+          '  const previous = value.open.get(scope);\n  value.open.set(scope, { environment: client.environmentId, thread: client.threadId, id, sourceThread: str(row.sourceThreadId) || client.threadId });\n  if (!previous || previous.id !== id || previous.sourceThread !== str(row.sourceThreadId) || previous.thread !== client.threadId) value.presentationRevision++;\n}')
+        .replace('finally { detail.pending = undefined; detail.fetched = composerNow(client); await wakeShell(native); }',
+          'finally { detail.pending = undefined; detail.fetched = composerNow(client); value.presentationRevision++; await wakeShell(native); }')
+        .replace('export function turnItemIsOpen(client: T3Client, id: string): boolean {\n  return cache(client).open.has(identity(client.environmentId, client.threadId, id));\n}',
+          'export function turnItemIsOpen(client: T3Client, id: string): boolean {\n  return cache(client).open.has(identity(client.environmentId, client.threadId, id));\n}\n\n/** Changes that affect the visible disclosure/output without changing the thread revision. */\nexport function turnItemPresentationRevision(client: T3Client): number { return cache(client).presentationRevision; }');
       if (name === 'protocol.ts') expected = '// Mobile: release the fully assembled native value and fragment references before JSON decoding.\n'
         + '// @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#complete-transfer-decoding-2026-10-10\n' + expected
           .replace('  const fragments: string[] = [];', "  const fragments: string[] = [];\n  let text = '';")
