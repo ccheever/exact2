@@ -141,9 +141,9 @@ component MobileBrowserAddress
       action("navigate", editing ? address : url)
       editing = false
   view
-    input appearance="none" flex=1 min-width=0 height=35 box-sizing="border-box" border-radius=18 padding-left=14 padding-right=14
+    input type="url" appearance="none" flex=1 min-width=0 height=35 box-sizing="border-box" border-radius=18 padding-left=14 padding-right=14
       background-color=colors.input color=colors.foreground border-width=1 border-style="solid" border-color=colors.inputBorder font-size=addressFontSize line-height=`${addressLineHeight}px`
-      value=(editing ? address : url) readonly=(not canNavigate) aria-label="Address" placeholder="Enter a URL"
+      value=(editing ? address : url) readonly=(not canNavigate) aria-label="Address" placeholder="Enter a URL" autocapitalize="none" autocomplete="off" autocorrect="off" spellcheck=false
       input=edit key=pressedKey blur=blurred
       ::placeholder
         color=colors.placeholder

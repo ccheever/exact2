@@ -13,6 +13,15 @@ test('browser and device fullscreen routes request hidden system bars from the h
   expect(app).toContain('navigationSystemBars=((entry.name == "threadBrowser" or entry.name == "threadDevices") ? "hidden" : "auto")');
 });
 
+test('mobile browser address entry uses URL keyboard and traits', () => {
+  const source = appText('mobile/browser-mobile.contract');
+  const start = source.indexOf('component MobileBrowserAddress');
+  const end = source.indexOf('\ncomponent ', start + 1);
+  const address = source.slice(start, end < 0 ? source.length : end);
+  expect(address).toContain('input type="url"');
+  expect(address).toContain('autocapitalize="none" autocomplete="off" autocorrect="off" spellcheck=false');
+});
+
 function fixture() {
   const client = new T3Client(); client.origin = 'https://preview.test'; client.environmentId = 'env'; client.threadId = 'thread'; client.generation = 4;
   client.connection = 'connected'; client.configLive = client.shellLive = client.threadLive = true;
