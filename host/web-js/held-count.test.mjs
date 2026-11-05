@@ -17,9 +17,12 @@ export class FetchError extends Error {} export const overlaying = { on: false }
 export const fetchWith = (grants, input) => globalThis.heldGates(String(input));\n`);
   writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = {};\n');
   const gates = new Map();
+  const hadRender = Object.hasOwn(globalThis, '__exactRender'), render = globalThis.__exactRender;
+  globalThis.__exactRender = true;
   globalThis.heldGates = input => new Promise(ok => gates.set(input, () => ok(new Response('x'))));
   try {
     const tsf = await import(pathToFileURL(resolve(dir, 'ts-fetch.js')).href);
+    expect(tsf.unfinishedIO()).toBe(false);
     const held = await import(pathToFileURL(resolve(dir, 'held.js')).href);
     Object.assign(tsf.answering, { loose: held.looseFetch, heldReply: held.heldReply });
     const inflight = { n: 0 }, owner = {}, call = {}, t = { id: 1, name: 'item', owner, call, waiting: true };
@@ -29,6 +32,7 @@ export const fetchWith = (grants, input) => globalThis.heldGates(String(input));
     // In the answer's turn: a held fetch and an ordinary piece of work beside it.
     tsf.answering.call = call;
     const poll = tsf.fetch('https://x.test/changes', { exactHeld: true });
+    expect(tsf.unfinishedIO()).toBe(true);
     let finish;
     const work = tsf.ordinary(() => new Promise(ok => { finish = ok; }));
     const digest = tsf.crypto.subtle.digest('SHA-256', new Uint8Array(1));
@@ -50,6 +54,7 @@ export const fetchWith = (grants, input) => globalThis.heldGates(String(input));
     // The held reply lands: one reply counted, and the answer's work after it counts again.
     gates.get('https://x.test/changes')();
     await poll;
+    expect(tsf.unfinishedIO()).toBe(false);
     expect(held.heldReplies()).toEqual({ item: 1 });
     expect(inflight.n).toBe(1);
     expect(held.heldAsks()).toEqual([]);
@@ -58,11 +63,31 @@ export const fetchWith = (grants, input) => globalThis.heldGates(String(input));
     const again = tsf.fetch('https://x.test/changes2', { exactHeld: true });
     tsf.answering.call = null;
     owner.ticket = { id: 2 };
+    call.settled = true;
     expect(held.heldAsks()).toEqual([]);
+    expect(tsf.unfinishedIO()).toBe(true);
     gates.get('https://x.test/changes2')();
     await again;
+    expect(tsf.unfinishedIO()).toBe(false);
     expect(held.heldReplies()).toEqual({ item: 1 });
+    tsf.answering.call = {};
+    const detached = tsf.fetch('https://x.test/detached', { exactHeld: true });
+    tsf.answering.call.settled = true;
+    tsf.answering.call = null;
+    expect(tsf.unfinishedIO()).toBe(true);
+    gates.get('https://x.test/detached')();
+    await detached;
+    expect(tsf.unfinishedIO()).toBe(false);
+    expect(held.heldReplies()).toEqual({ item: 1 });
+    const failure = new Error('I/O failed');
+    const rejected = tsf.ordinary(() => Promise.reject(failure));
+    expect(tsf.unfinishedIO()).toBe(true);
+    await expect(rejected).rejects.toBe(failure);
+    expect(tsf.unfinishedIO()).toBe(false);
+    expect(() => tsf.ordinary(() => { throw failure; })).toThrow(failure);
+    expect(tsf.unfinishedIO()).toBe(false);
   } finally {
+    if (hadRender) globalThis.__exactRender = render; else delete globalThis.__exactRender;
     delete globalThis.heldGates;
     rmSync(dir, { recursive: true, force: true });
   }
