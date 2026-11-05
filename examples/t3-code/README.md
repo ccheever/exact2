@@ -736,6 +736,22 @@ Differences that belong to the app:
   place it by. An image inside a link shows its URL on a keyboard focus, as the reference's does.
 - A focused timeline button shows AppKit's focus ring outside it, where the reference's tool rows ring inside their
   box (`ring-2 ring-inset`) and its inline buttons draw Chromium's outline.
+- With the Diff panel open, Tab from the panel's Add panel surface goes to Search threads, where the reference's stops
+  on the Diff toolbar's four buttons and then on Toggle main sidebar.
+- After Return on Copy message, the clone keeps the focus and its ring on the button, so the reply's row stays shown;
+  the reference's focus drops to the page and the row hides once the pointer leaves.
+- An opened tool row rings its header only, and indents its detail line (the path and Open diff) about 20 pt further
+  than the reference's, which rings the header and the detail together. The clone keeps the open row's time shown with
+  neither the pointer nor the focus on it; the reference shows none.
+- A menu opened from a timeline or header button rings its focused row with AppKit's ring, where the reference
+  highlights it. Plan actions' rows are centred, where the reference's are left-aligned; Thread actions draws an icon
+  beside each row, where the reference's native menu draws one, beside Delete. The Thread actions menu stays open when
+  the window resigns key and gets it back (the composer then holds the focus); the reference's closes.
+- Save plan to workspace opens with the path selected, where the reference puts the caret after it, and sets the
+  workspace path in the description in the body font, where the reference's is monospace.
+- An approval's "File change" code is a group named "File change approval" to accessibility, where the reference's is
+  code named "File change". The chat header's Toggle right panel, focused by Tab, shows no tooltip; the reference's
+  shows "Toggle right panel (⌥⌘B)".
 - Tab from the composer's text goes to the right panel, where the reference's stops first on Attach files and the
   model picker. A panel bar button or a sent message's Edit from here, focused by Tab, shows no tooltip; the
   reference's opens on that focus.
@@ -1662,6 +1678,60 @@ Seen besides the rows, once each unless the item says otherwise:
 - After a press on "Worked for 144ms", the clone keeps the group's time (4:06 PM) shown with the pointer gone; the
   oracle shows none. The 2026-11-04 session saw the clone do the same.
 - In Dark, the link tooltip's fill is rgb(23, 23, 23) in the clone and rgb(17, 17, 17) in the oracle.
+
+**Checked with real input (2026-11-05, third)** (the bundle of `5e1758a30b`, which holds the third fix round's #1492,
+#1494, #1497, #1498, #1501, #1503 and #1506, a lane copy on its own bundle id and `HOME`; `second` seeded with `--turns
+--pull-request --more-turns`, plus "Plan sample" and two approval threads, "Ring approval A" for the clone and "Ring
+approval B" for the oracle, seeded with the fixture's `seed` function; the oracle at `5d3d78ab93` on its own home,
+paired with the same lane server; 1280 × 840 at 2×; macOS in Dark, both apps on System except the Light tooltip row,
+where both were set to Light and back; Keyboard Navigation off. Presses and keys came from the HID event source.
+Results were read from window captures, the clone's focused accessibility element and the oracle's
+`document.activeElement`.) 18 rows: all hold.
+
+| Row | Clone | Oracle | Result |
+|---|---|---|---|
+| ⇧Tab over a tool row and its Open diff ("Turn with file edits", work group open) | … Expand all folders, Changed 1 file, Worked for 79ms; Return on the row opens it, and ⇧Tab then stops on the row's Open diff between Expand all folders and the row | the same | holds |
+| Return on the row's Open diff | the Diff panel on "Tool call", the scope menu focused and ringed | the same | holds |
+| ⇧Tab over a plan ("Plan sample") | Fork, Copy message, plan.md, outline.ts, Plan actions, Worked for 76ms, then the user message's buttons and Thread actions | the same | holds |
+| ⇧Tab over an approval ("Edit awaiting approval") | More approval options, Approve, Decline, the "File change" code, agent-edits/notes/approved.md, each with a ring on the oracle's box | the same | holds |
+| ⇧Tab from the first timeline stop (panel closed and panel open) | Thread actions, New thread, Toggle thread details panel; with the panel open, then Toggle right panel, Toggle terminal drawer, Maximize panel, then the sidebar's footer | the same | holds |
+| "Worked for" after a press | the time shows with the pointer gone; hidden while Finder is key and after the window is key again | the same | holds |
+| The link tooltip in "HTML image layout", Dark | fill (17, 17, 17); side edge 35 | fill (17, 17, 17); side edge 36 | holds |
+| The same, Light | fill 255; side edge 227–228; bottom edge 219–220, then the oracle's shadow ±1 | fill 255; side edge 228; bottom edge 219 | holds |
+| Return on timeline and header buttons | Worked for opens the group, the tool row opens, Open diff opens the Diff panel, Copy message copies "Stand-in reply: Edit the notes", Plan actions and More open their menus, Approve resolves the approval, Thread actions opens its menu, Toggle right panel closes the panel | the same | holds |
+| Return on dialog buttons | Delete thread's dialog opens on Cancel, and Return presses Cancel, not the default Confirm; the focus returns to Thread actions. In Save plan to workspace, Return on a focused Cancel and Save presses them | the same | holds |
+| The composer when the window is key again | after ⇧Tab to Copy message, Finder key, then back: the composer | the same | holds |
+| The copy row after Copy | hidden once the focus and the pointer leave | the same | holds |
+| Return on a reply's skill chip ("Skill in a message") | the popup opens with View instructions focused and ringed; Escape returns to the chip | the same | holds |
+| After Approve by Return ("Ring approval A" / "B") | the "Conversation" region is focused and ringed | `DIV [Conversation]`, ringed | holds |
+| A file chip's name and role ("Plan sample") | `AXLink` plan.md, outline.ts | `A` plan.md, outline.ts | holds |
+| Focus after the plan dialog's Save and Cancel | Save: the composer, and the file is written; Cancel: Plan actions | the same | holds |
+| Return in the plan dialog's path field | nothing; the field keeps the focus and the dialog stays | the same | holds |
+| A sent message's row after Escape from its chip | shown while the pointer is over the message; hidden once it moves away, with the focus still on the chip | the same (the oracle hid the row only after a second pointer move) | holds |
+
+Not checked: the background-setup chip's popup, since no fixture keeps a setup script running.
+
+Seen besides the rows, once each; now in Known differences:
+
+- With the Diff panel open, Tab from Add panel surface goes to Search threads in the clone. The oracle stops on the
+  panel's Diff scope, Stacked diff view, Disable diff line wrapping and Show whitespace changes, then on Toggle main
+  sidebar.
+- After Return on Copy message, the oracle's focus drops to the page (`BODY`) and the reply's row hides once the pointer
+  leaves; the clone keeps the focus and its ring on Copy message, so the row stays shown.
+- An opened tool row: the oracle rings the header and its detail line together; the clone rings the header only and
+  indents the detail line (the path and Open diff) about 20 pt further. The clone also keeps the row's time
+  ("11:02 PM") shown with neither the pointer nor the focus on the row; the oracle shows none.
+- A menu opened from a timeline or header button (Plan actions, More approval options, Thread actions) rings its
+  focused row with AppKit's ring; the oracle highlights it. The Plan actions menu centres its rows' text; the oracle's
+  are left-aligned. Thread actions draws icons beside its rows; the oracle's native menu draws one, beside Delete.
+- With Thread actions' menu open, the window made not key and key again keeps the menu open in the clone, with the
+  composer focused; the oracle's menu closes when the window resigns key.
+- Save plan to workspace opens with the path's text selected in the clone; the oracle puts the caret after it. The
+  oracle sets the workspace path in the description in monospace.
+- The approval's "File change" code is an `AXGroup` named "File change approval" in the clone; the oracle's stop is
+  `CODE` named "File change".
+- The chat header's Toggle right panel, focused by Tab, shows its tooltip "Toggle right panel (⌥⌘B)" in the oracle
+  and none in the clone.
 
 **Fixed, not checked with real input or VoiceOver:**
 
