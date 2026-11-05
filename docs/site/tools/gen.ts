@@ -142,6 +142,12 @@ function target(href: string, from: string, record = true): string {
   return anchor && !(doc.nav.split && SKIPPED_SECTIONS.has(anchor)) && at !== `${doc.nav.path}/${anchor}` ? `${at}#${anchor}` : at;
 }
 
+function linkText(text: string, href: string, from: string): string {
+  const path = href.split('#')[0];
+  if (text !== path || /^[a-z]+:/i.test(href)) return text;
+  return bySource.get(normalize(join(dirname(from), path)))?.title ?? text;
+}
+
 function runs(tokens: Token[] | undefined, from: string, next: () => string, style = { strong: false, em: false, href: '' }): Run[] {
   const out: Run[] = [];
   const push = (text: string, code = false) => {
@@ -152,7 +158,13 @@ function runs(tokens: Token[] | undefined, from: string, next: () => string, sty
       case 'strong': out.push(...runs(t.tokens, from, next, { ...style, strong: true })); break;
       case 'em': out.push(...runs(t.tokens, from, next, { ...style, em: true })); break;
       case 'del': out.push(...runs(t.tokens, from, next, style)); break;
-      case 'link': out.push(...runs(t.tokens, from, next, { ...style, href: target(t.href, from) })); break;
+      case 'link': {
+        const text = plain(t.tokens);
+        const titled = linkText(text, t.href, from);
+        const linked = { ...style, href: target(t.href, from) };
+        out.push(...(titled === text ? runs(t.tokens, from, next, linked) : [{ id: next(), text: titled, code: false, ...linked }]));
+        break;
+      }
       case 'codespan': push(decode(t.text), true); break;
       case 'br': push('\n'); break;
       case 'text': (t as Tokens.Text).tokens ? out.push(...runs((t as Tokens.Text).tokens, from, next, style)) : push(decode(t.text)); break;
@@ -386,7 +398,7 @@ function markdownOf(tokens: Token[], from: string): string {
     const spans: string[] = [];
     return t.raw
       .replace(/(`+)[\s\S]*?\1/g, span => `\u0000${spans.push(span) - 1}\u0000`)
-      .replace(/(!?)\[([^\[\]]*)\]\(([^)\s]+)((?:\s+"[^"]*")?)\)/g, (_, bang: string, text: string, href: string, title: string) => `${bang}[${text}](${markdownHref(href, from, bang === '!')}${title})`)
+      .replace(/(!?)\[([^\[\]]*)\]\(([^)\s]+)((?:\s+"[^"]*")?)\)/g, (_, bang: string, text: string, href: string, title: string) => `${bang}[${bang ? text : linkText(text, href, from)}](${markdownHref(href, from, bang === '!')}${title})`)
       .replace(/\u0000(\d+)\u0000/g, (_, i: string) => spans[Number(i)]);
   }).join('').trim();
 }
