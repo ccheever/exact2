@@ -340,6 +340,17 @@ test('Home separators stop at section boundaries and never become a first-row st
   expect(items.filter(item => item.kind === 'thread').some(item => item.showPendingDivider)).toBe(false);
 });
 
+test('Home search rows announce the visible message excerpt, including queued state', () => {
+  const f = authoredDismissal(), item = f.scope.item as ReturnType<typeof mobileHomeView>['items'][number];
+  const scope: Env = { ...f.scope, item, surface: 'home-list', colors: {} };
+  const label = () => dismissalRow.attribute('aria-label=(item.queued', 'aria-label', f.state, scope);
+  expect(label()).toBe('Original');
+  item.searchExcerpt = 'the needle is here';
+  expect(label()).toBe('Original, the needle is here');
+  item.queued = true;
+  expect(label()).toBe('Original, the needle is here, messages queued to send');
+});
+
 test('authored dismissal reaches the exact 220/180ms phase boundaries with cubic-out geometry', () => {
   const f = authoredDismissal();
   f.scope.dragToken = (f.scope.item as { swipe: { token: string } }).swipe.token; f.scope.dragOffset = -58;

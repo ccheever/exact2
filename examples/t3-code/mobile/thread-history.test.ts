@@ -352,8 +352,9 @@ test('authored paging gates inactive views, preserves prepend anchors and isolat
   expect(calls).toEqual([['chatlocal:history-auto', 'key', ''], ['chatlocal:history-auto', 'key', '']]);
   data.historyError = 'Offline'; feed.call('loadEarlier', {}, scope, []); history.call('loadEarlier', {}, scope, []);
   expect(calls.at(-1)).toEqual(['chatlocal:history-retry', 'key', '']);
+  let activeThread = 'thread';
   const sent: string[] = [], rootScope = { data: { environmentId: 'env', threadId: 'thread' }, nav: {},
-    top: () => ({ id: 7, name: 'thread', params: { threadEnvironment: 'env', threadId: 'thread' } }),
+    top: () => ({ id: 7, name: 'thread', params: { threadEnvironment: 'env', threadId: activeThread } }),
     wallTime: { epochAtZero: 0 }, performanceNow: () => 1, taskGuardOwner: '', taskGuardRoute: '',
     pending: () => true, changed: {}, threadSubmissionChanged: {}, threadHistoryChanged: {},
     threadSubmission: { ordinary: true }, command: (...args: unknown[]) => args,
@@ -361,8 +362,8 @@ test('authored paging gates inactive views, preserves prepend anchors and isolat
   root.call('threadAction', { lastOperation: '' }, rootScope, ['chatlocal:history-auto', 'key', '']);
   root.call('threadAction', { lastOperation: '' }, rootScope, ['stop', '', '']);
   expect(sent).toEqual(['threadHistoryChanged', 'changed']);
-  const anchorCalls: unknown[][] = [], anchorState = { historyAnchorKey: '', historyAnchorOffset: 0, historyAnchorRoute: '', historyAnchorEnvironment: '', historyAnchorThread: '', historyAnchorRevision: 0 };
-  const anchorScope = { ...rootScope, threadData: { historyRevision: 0, environmentId: 'env', threadId: 'thread' }, scrollIntoView: (...args: unknown[]) => anchorCalls.push(args) };
+  const anchorCalls: unknown[][] = [], anchorState = { historyAnchors: [], historyAnchorKey: '', historyAnchorOffset: 0, historyAnchorRoute: '', historyAnchorEnvironment: '', historyAnchorThread: '', historyAnchorRevision: 0, historyAnchorRestorePending: false };
+  const anchorScope = { ...rootScope, ThreadHistoryAnchor: (fields: unknown) => fields, threadData: { historyRevision: 0, environmentId: 'env', threadId: 'thread' }, scrollIntoView: (...args: unknown[]) => anchorCalls.push(args) };
   root.call('threadHistoryScroll', anchorState, anchorScope, [0, 12, { firstVisibleKey: 'turn-03', firstVisibleOffset: 42 }]);
   expect(anchorState).toMatchObject({ historyAnchorKey: 'turn-03', historyAnchorOffset: 42, historyAnchorRoute: '7', historyAnchorEnvironment: 'env', historyAnchorThread: 'thread', historyAnchorRevision: 0 });
   anchorScope.threadData.historyRevision = 1;
@@ -375,24 +376,69 @@ test('authored paging gates inactive views, preserves prepend anchors and isolat
   root.call('threadHistoryScroll', anchorState, anchorScope, [0, 12, { firstVisibleKey: 'turn-04', firstVisibleOffset: 8 }]);
   expect(anchorState).toMatchObject({ historyAnchorKey: 'turn-04', historyAnchorOffset: 8, historyAnchorRoute: '7', historyAnchorEnvironment: 'env', historyAnchorThread: 'thread', historyAnchorRevision: 1 });
   anchorScope.threadData.threadId = 'other-thread';
+  activeThread = 'other-thread';
   anchorScope.threadData.historyRevision = 2;
   root.call('didThreadHistoryChanged', anchorState, anchorScope, []);
   expect(anchorCalls).toHaveLength(1);
 });
 
+test('thread anchors are retained per route and restored when a compact workspace returns', () => {
+  const root = contractComponent('mobile/app.contract', 'App');
+  let thread = 'thread-a';
+  const calls: unknown[][] = [], state = { historyAnchors: [], historyAnchorKey: '', historyAnchorOffset: 0, historyAnchorRoute: '', historyAnchorEnvironment: '', historyAnchorThread: '', historyAnchorRevision: 0, historyAnchorRestorePending: false };
+  const scope = {
+    nav: {}, top: () => ({ id: 7, name: 'thread', params: { threadEnvironment: 'env', threadId: thread } }),
+    threadData: { environmentId: 'env', threadId: thread, historyRevision: 0, rows: [{ id: 'last' }] },
+    ThreadHistoryAnchor: (fields: unknown) => fields, scrollIntoView: (...args: unknown[]) => calls.push(args),
+  };
+  const scroll = (key: string, offset: number, top = 800) => root.call('threadHistoryScroll', state, scope, [0, top, { firstVisibleKey: key, firstVisibleOffset: offset, scrollTop: top, scrollHeight: 2400, clientHeight: 600 }]);
+  scroll('a-03', 31);
+  thread = 'thread-b'; scope.threadData.threadId = thread; scroll('b-02', 17);
+  thread = 'thread-a'; scope.threadData.threadId = thread;
+  root.call('didThreadHistoryChanged', state, scope, []);
+  expect(calls).toEqual([['thread-feed', 'a-03', { offset: 31, behavior: 'instant' }]]);
+  expect(state.historyAnchors).toHaveLength(2);
+  scroll('a-03', 31);
+  const steady = structuredClone(state);
+  scroll('a-03', 31);
+  expect(state).toEqual(steady);
+  scroll('a-last', 0, 1800);
+  expect(state.historyAnchorKey).toBe('');
+  expect(state.historyAnchors).toHaveLength(1);
+});
+
+
+test('a steady empty-key scroll event leaves the captured anchor state unchanged', () => {
+  const root = contractComponent('mobile/app.contract', 'App');
+  const state = { historyAnchors: [], historyAnchorKey: 'turn-03', historyAnchorOffset: 42, historyAnchorRoute: '7', historyAnchorEnvironment: 'env', historyAnchorThread: 'thread', historyAnchorRevision: 0, historyAnchorRestorePending: false };
+  const scope = {
+    nav: {}, top: () => ({ id: 7, name: 'thread', params: { threadEnvironment: 'env', threadId: 'thread' } }),
+    threadData: { environmentId: 'env', threadId: 'thread', historyRevision: 0 },
+    ThreadHistoryAnchor: (fields: unknown) => fields,
+  };
+  root.call('threadHistoryScroll', state, scope, [0, 12, { firstVisibleKey: undefined, firstVisibleOffset: 0, scrollTop: 12, scrollHeight: 2400, clientHeight: 600 }]);
+  expect(state).toMatchObject({ historyAnchorKey: '', historyAnchorOffset: 0, historyAnchorRevision: 0 });
+  const steady = structuredClone(state);
+  root.call('threadHistoryScroll', state, scope, [0, 12, { firstVisibleKey: undefined, firstVisibleOffset: 0, scrollTop: 12, scrollHeight: 2400, clientHeight: 600 }]);
+  expect(state).toEqual(steady);
+});
+
 test('thread follow-end state shows the scroll-to-end control only away from the live edge', () => {
   const root = contractComponent('mobile/app.contract', 'App');
-  const state = { historyAnchorKey: '', historyAnchorOffset: 0, historyAnchorRoute: '', historyAnchorEnvironment: '', historyAnchorThread: '', historyAnchorRevision: 0, threadEndFollowEnabled: true, threadEndFollowOwner: '' };
+  const state = { historyAnchors: [], historyAnchorKey: '', historyAnchorOffset: 0, historyAnchorRoute: '', historyAnchorEnvironment: '', historyAnchorThread: '', historyAnchorRevision: 0, historyAnchorRestorePending: false, threadEndFollowEnabled: true, threadEndFollowOwner: '' };
   const scrollCalls: unknown[][] = [], haptics: string[] = [];
   const scope = {
     ...({ nav: {}, top: () => ({ id: 7, name: 'thread', params: { threadEnvironment: 'env', threadId: 'thread' } }) }),
     threadData: { environmentId: 'env', threadId: 'thread', historyRevision: 0, rows: [{ id: 'first' }, { id: 'last' }] },
-    scrollIntoView: (...args: unknown[]) => scrollCalls.push(args), haptic: (name: string) => haptics.push(name),
+    ThreadHistoryAnchor: (fields: unknown) => fields, scrollIntoView: (...args: unknown[]) => scrollCalls.push(args), haptic: (name: string) => haptics.push(name),
   };
   root.call('threadHistoryScroll', state, scope, [0, 120, { firstVisibleKey: 'first', firstVisibleOffset: 0, scrollTop: 120, scrollHeight: 1800, clientHeight: 600 }]);
   expect(state).toMatchObject({ threadEndFollowOwner: 'env:thread', threadEndFollowEnabled: false });
   root.call('threadHistoryScroll', state, scope, [0, 1200, { firstVisibleKey: 'last', firstVisibleOffset: 0, scrollTop: 1200, scrollHeight: 1800, clientHeight: 600 }]);
   expect(state.threadEndFollowEnabled).toBe(true);
+  const steadyAtEnd = structuredClone(state);
+  root.call('threadHistoryScroll', state, scope, [0, 1200, { firstVisibleKey: 'last', firstVisibleOffset: 0, scrollTop: 1200, scrollHeight: 1800, clientHeight: 600 }]);
+  expect(state).toEqual(steadyAtEnd);
   root.call('threadHistoryScroll', state, scope, [0, 120, { firstVisibleKey: 'first', firstVisibleOffset: 0, scrollTop: 120, scrollHeight: 1800, clientHeight: 600 }]);
   root.call('threadScrollToEnd', state, scope, []);
   expect(state.threadEndFollowEnabled).toBe(true);

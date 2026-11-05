@@ -1,10 +1,35 @@
 # T3 Code clone handoff
 
-Updated November 1, 2026, Toronto time. Finish the one-to-one clone with pstack
+Updated November 5, 2026, Toronto time. Finish the one-to-one clone with pstack
 handling routine execution and review. The legacy scheduled coordinator stays
 disabled. Use this handoff when taking over the work.
 
 ## Active handoff — November 1
+
+The November 5 continuation improves filtered Home search. Results are kept per
+connected environment and published as each answer arrives, so a slow fleet
+member no longer blanks an already matching list. Related query refinements keep
+their prior matches visible until the new answer settles; unrelated queries stay
+empty while pending. The focused search suite covers incremental answers,
+related-query retention and stale unrelated results. A follow-up now includes a
+visible message excerpt in each filtered thread row's accessibility name, while
+keeping queued-state wording. Native filtered-state screenshots and readback
+remain open; these source units make no frame-rate claim.
+
+The next Home-search continuation carries the reference speaker prefix through
+the mobile projection. A user match now reads “You:” and an assistant match
+“Agent:” in the visible excerpt and the row's accessibility name, instead of
+silently dropping the label while retaining the matched text. Focused Home and
+search tests pass; native filtered-state screenshots and VoiceOver readback
+remain open.
+
+The next thread continuation retains up to 100 exact first-visible row anchors
+per route, environment and thread. Returning to a compact workspace thread
+restores the saved row and within-row offset; reaching the live end or using the
+explicit scroll-to-end control clears that saved position. Focused history tests
+cover route switching, prepend restoration, no-key events and end clearing. A
+populated native drive is still needed for pixel and accessibility evidence; this
+source change makes no frame-rate claim.
 
 The coordinator worktree is clean at `fe882b504b` on
 `t3/coordinate-t3-ios-mini`. The branch is pushed to PR216's
@@ -119,8 +144,8 @@ screenshots and accessibility readback. No frame-rate improvement is claimed.
 
 The prior integrated history, table, first-read, rail and Home units remain in
 the commit ancestry. Open parity gaps are native failure-state screenshots and
-accessibility readback, filtered continuation, selection and exact anchor
-preservation, bounded transcript residency, keyboard-visible Send under the
+accessibility readback, selection and exact anchor preservation, bounded
+transcript residency, keyboard-visible Send under the
 Duo rail, fold/rotation, iPad split
 layouts, connected/reference pairing, oversized Markdown/table behavior and
 release qualification. Start the next unit from the clean branch, inspect the
