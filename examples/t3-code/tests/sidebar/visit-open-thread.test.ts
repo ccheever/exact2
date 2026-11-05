@@ -1,6 +1,6 @@
-// The open thread's visit against T3 Code 7c3b3b3605ef (MIT, LICENSE-T3), threadVisits.ts createThreadVisitTracker: it
+// The open thread's visit against T3 Code 322f6544df (MIT, LICENSE-T3), threadVisits.ts createThreadVisitTracker: it
 // runs whenever the open thread's shell changes, sends thread.visit to the thread's own environment at its updatedAt,
-// dedupes per `${routeThreadKey}:${updatedAt}`, and sends at once when a completion is unseen. Showing a thread is its
+// sends no watermark at or before the one it last sent or saw for that thread, and sends at once when a completion is unseen. Showing a thread is its
 // open (claimThreadOpen), and the open rides on the first visit the server hears. A thread opened from a background
 // environment's row arrives by the reconnect to that environment (settings-b-fleet.ts focusFleetThread), so the
 // refresh after it is where the visit is sent.
@@ -151,6 +151,19 @@ describe('showing a thread counts as opening it (claimThreadOpen)', () => {
     claimThreadOpen('env-opens-again', 't-picked', Date.now()); // palette-commands.ts claimPick: a ⌘K query pick claims its open first
     await show('t-picked');
     expect(payloads(dispatched)).toEqual([`t-a:${iso(37_374)}:true`, `t-b:${iso(37_374)}:true`]);
+  });
+
+  // threadVisits.test.ts (reference 322f6544df): a read thread reopened within the open's dedupe window, then marked
+  // unread, stays unread, even across a snapshot that briefly carries an older row.
+  test('keeps a mark-unread on a read thread reopened within the open dedupe window', async () => {
+    const { client, dispatched } = focused('env-unread-reopened', [visited('t-r')], 't-r');
+    claimThreadOpen('env-unread-reopened', 't-r', Date.now());
+    const refresh = async (patch: Obj) => { Object.assign(client.shell.threads[0]!, patch); await sidebarRefreshed(client, native); await settle(); };
+    await refresh({});
+    await refresh({ lastVisitedAt: iso(-2000) });
+    await refresh({ updatedAt: iso(-5000), lastVisitedAt: iso(-5000), latestRunCompletedAt: iso(-6000) });
+    await refresh({ updatedAt: iso(37_374), lastVisitedAt: iso(-2000), latestRunCompletedAt: iso(-1000) });
+    expect(dispatched).toEqual([]);
   });
 
   test('a server that keeps no visits hears no open; a read-only connection sends it once writable', async () => {

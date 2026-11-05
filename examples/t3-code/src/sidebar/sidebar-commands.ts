@@ -386,7 +386,8 @@ async function copy(client: T3Client, nativeHandle: Native, text: string, title:
 // (`wall` moves only with commands), so a visit for another thread than the last one sent goes at once. Dropped, it
 // left the dedupe key on the thread visited before, so that thread, marked unread meanwhile, stayed unread when it
 // was opened again.
-const visits = new WeakMap<T3Client, { key: string; thread: string; at: number }>();
+// `updated` is the watermark last sent (or already seen) for `thread`: one at or past the shell's is not sent again.
+const visits = new WeakMap<T3Client, { thread: string; at: number; updated: number }>();
 const shownThreads = new WeakMap<T3Client, { route: string; openPending: boolean }>();
 export function visitOpenThread(client: T3Client, nativeHandle: Native): void {
   // A view with no thread (a draft, ⌘N) ends the last thread's: showing it again is a new open, as the reference's
@@ -406,19 +407,25 @@ export function visitOpenThread(client: T3Client, nativeHandle: Native): void {
   const prefs = sidebarPrefs(client), tracked = thread.lastVisitedAt !== undefined && capabilities(client.config).visitedTracking;
   const seen = Date.parse(str(tracked ? thread.lastVisitedAt : prefs.visited[str(thread.id)]));
   if (!tracked) { if (!(Number.isFinite(seen) && seen >= updated)) prefs.visited[str(thread.id)] = str(thread.updatedAt); return; }
-  const key = `${route}:${str(thread.updatedAt)}`, last = visits.get(client) ?? { key: '', thread: '', at: 0 };
+  const last = visits.get(client) ?? { thread: '', at: 0, updated: Number.NaN };
+  const sent = last.thread === route && last.updated >= updated;
   if (shown.openPending && client.writable) {
     shown.openPending = false;
-    visits.set(client, { key, thread: route, at: wall(client) });
+    visits.set(client, { thread: route, at: wall(client), updated });
     void dispatch(client, nativeHandle, { type: 'thread.visit', threadId: str(thread.id), visitedAt: str(thread.updatedAt), opened: true }).catch(() => undefined);
     return;
   }
-  if (Number.isFinite(seen) && seen >= updated) return;
-  if (last.key === key || !client.writable) return;
+  if (Number.isFinite(seen) && seen >= updated) {
+    // Already seen, so a later mark-unread stays sticky even when no open was sent (a snapshot that briefly carries an
+    // older row does not move the watermark back).
+    if (!sent) visits.set(client, { thread: route, at: last.thread === route ? last.at : 0, updated });
+    return;
+  }
+  if (sent || !client.writable) return;
   const completed = Date.parse(str(latestRun(thread)?.completedAt));
   const unseen = Number.isFinite(completed) && (!Number.isFinite(seen) || completed > seen);
   if (!unseen && last.thread === route && wall(client) - last.at < 10_000) return;
-  visits.set(client, { key, thread: route, at: wall(client) });
+  visits.set(client, { thread: route, at: wall(client), updated });
   void dispatch(client, nativeHandle, { type: 'thread.visit', threadId: str(thread.id), visitedAt: str(thread.updatedAt) }).catch(() => undefined);
 }
 
