@@ -12,8 +12,8 @@ rendered ahead or per request, sent whole, then a small script for its links and
   beside `main`, `section aria-labelledby`, `h1`–`h6`, `table` (`caption`, `thead`, `tr`,
   `th scope="col"`, `aria-sort`), `dl` (`dt`, `dd`), `select`, `input type="search"`, `link
   href` (an `a`), `image "src" alt=""` (an `img`), `text "…"` (words; `role="heading"
-  aria-level=2` makes them a heading). A list of links or cards is a `column role="list"` of
-  `role="listitem"`s.
+  aria-level=2` makes them a heading). A `list` supplies item roles for links or cards and
+  keeps each link's role.
 - **An attribute is a CSS property**, with CSS's names and values: `padding="8px 16px"`,
   `display="grid" grid-template-columns="repeat(auto-fill, minmax(9rem, 1fr))"`,
   `border-bottom="1px solid var(--line)"`. A bare number is pixels; quote units and
@@ -73,9 +73,9 @@ component App
             head title="Items"
             input type="search" value=q input=search aria-label="Search" testId="q"
             text label(shown.length) testId="count"
-            column role="list"
+            list
               for i in shown key=i.id
-                link href=path("item", i.id) role="listitem"
+                link href=path("item", i.id)
                   text i.name
 ```
 

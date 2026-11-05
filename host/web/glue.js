@@ -1,5 +1,5 @@
 // @ref LLP 1007 §3: the app is the wasm; this is its DOM host.
-import { sheetLeaves, liveById, sourceField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, modalLayers, editMenu, navigation, afterPaintPieces, afterPaint, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, pageStore, routeFlags } from "./navigation.js";
+import { listItem, syncListItemRoles, sheetLeaves, liveById, sourceField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, modalLayers, editMenu, navigation, afterPaintPieces, afterPaint, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, pageStore, routeFlags } from "./navigation.js";
 let guestOutline, guestTap, guestType, reveal, backButton, viewBox, layoutBoxes, scrollRange, selectAll, typeControl, glidesSettled, scrollsSeen, agentInputLoading;
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule, frameModule, frameNavigation; const frameNav = () => frameNavigation ??= loadAfterPaint('./frame-navigation.js', 'frameNavigation'); // frameNavigation: an iframe's navigation records and commands (LLP 1020.002); the file picker (LLP 1069.002) and documents (LLP 1069.010), loaded on first use
@@ -636,7 +636,7 @@ function apply(batch) {
       }
       case "props": {
         const el = viewFor("props", op.id);
-        if (el) { applyProps(el, op.set, op.clear); if (el.hasAttribute("data-time-reservation") || el.exactLiveTime) loadLiveTime(el); }
+        if (el) { applyProps(el, op.set, op.clear); if (op.set?.role !== undefined || op.clear?.includes("role")) syncListItemRoles(el); else if ((op.set?.popover !== undefined || op.clear?.includes("popover")) && el.parentElement?.hasAttribute("data-exact-list-item")) listItem(el); if (el.hasAttribute("data-time-reservation") || el.exactLiveTime) loadLiveTime(el); }
         break;
       }
       case "style": {
@@ -650,7 +650,7 @@ function apply(batch) {
         const want = [];
         for (const id of op.ids) {
           const child = viewFor("children", id);
-          if (child) want.push(child);
+          if (child) want.push(el.hasAttribute("data-exact-list") && !lists.has(el) ? listItem(child, el) : child);
         }
         // Reorder in place: keyed rows keep their elements (and their state).
         // A canvas's surface element is skipped: not a child, never removed.

@@ -1,5 +1,5 @@
 import { afterAll, test, expect } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
 import { webCompiler } from './module.mjs';
@@ -203,15 +203,22 @@ test.each(['tap', 'pan', 'reveal', 'pointer', 'hover', 'wheel', 'check', 'contex
 
 
 test('a dev checkpoint restores modal focus past inert ancestors, but not within inert content', async () => {
+  const client = readFileSync(new URL('./dev.mjs', import.meta.url), 'utf8');
+  const capture = ['children', 'capture'].map(name => client.match(new RegExp(`^const ${name}=.*;$`, 'm'))?.[0]);
+  expect(capture.every(Boolean)).toBe(true);
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === '/rt.js') return new Response('export const clock = {}; export const carryRouter = null, launchLocation = null, res = null, sig = null;', { headers: { 'content-type': 'text/javascript' } });
     if (path === '/navigation.js') return new Response(Bun.file(new URL('../web/navigation.js', import.meta.url)));
     if (['/checkpoint.js', '/focus.js'].includes(path)) return new Response(Bun.file(new URL('.' + path, import.meta.url)));
-    return new Response(`<main id="exact-root" inert><dialog data-carry-type="dialog"><input data-carry-type="input"></dialog></main>
+    return new Response(`<main id="exact-root" inert><dialog data-carry-type="dialog"><div role="listitem" data-exact-list-item style="display:contents"><input data-carry-type="input"></div></dialog></main>
       <script type="application/vnd.exact.dev-checkpoint">{"focus":{"path":[0,0],"type":"input"}}</script>
       <script type="module">
         import { prepareDev } from '/checkpoint.js';
+        const ch = {}, encode = value => value;
+        ${capture.join('\n')}
+        globalThis.exact = { clock: { now: 0 }, state: [[]], resources: [] };
+        window.readFocus = () => capture(false).focus;
         document.querySelector('dialog').showModal();
         window.restore = prepareDev();
       </script>`, { headers: { 'content-type': 'text/html' } });
@@ -223,6 +230,7 @@ test('a dev checkpoint restores modal focus past inert ancestors, but not within
     await page.goto(server.url.href);
     await page.waitForFunction(() => typeof window.restore === 'function');
     expect(await page.evaluate(() => { document.activeElement.blur(); restore(); return document.activeElement.localName; })).toBe('input');
+    expect(await page.evaluate(() => readFocus())).toEqual({ path: [0, 0], type: 'input' });
     expect(await page.evaluate(() => { document.activeElement.blur(); document.querySelector('input').inert = true; restore(); return document.activeElement.localName; })).toBe('body');
     expect(await page.evaluate(() => { document.querySelector('input').inert = false; document.querySelector('dialog').inert = true; restore(); return document.activeElement.localName; })).toBe('body');
   } finally { await browser?.close(); server.stop(true); }

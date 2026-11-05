@@ -34,9 +34,9 @@ Each tag is the HTML element it names, so the landmarks and roles are the browse
 `nav aria-label`, a `header` and `footer` beside `main` (banner, contentinfo), `section
 aria-labelledby` (a region), `h1`–`h6`, `table` with `caption`, `th scope` and `aria-sort`,
 `dl`, `select`, `input type="search"`, `link href` (an `a`), `image "src" alt=""` (an
-`img`). A list of links or cards is a `column role="list"` of `role="listitem"`s; a field's
-label, a `text id=` the field names with `aria-labelledby`. `curl` a page `serve` renders
-to read it.
+`img`). Use `list` for links or cards: it supplies the item roles and keeps each link's
+role. A field's label is a `text id=` the field names with `aria-labelledby`.
+`curl` a page `serve` renders to read it.
 
 ## A setting
 
