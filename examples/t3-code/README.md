@@ -847,17 +847,11 @@ above.
   reference draws those tabs natively and zooms nothing. After the press the focus is on the right panel's region, not
   on the stream's key field (`server-browser.contract`), so the chord reaches View ▸ Zoom In. A desktop tab's page,
   which holds the focus itself, zooms nothing, as in the reference (2026-11-05).
-- A Browser tab floated by closing the right panel draws its page at full size in the card, where the reference
-  scales the page down to fit the card (real input, 2026-11-05).
-- ⇧Tab skips a reply's changed-files card (its folder and file rows, Open diff, Expand all folders), which the
-  reference reaches after Copy message (real input, 2026-11-05).
 - At a View zoom other than Actual Size (seen at 120%), a click on a sidebar row leaves that row's project name
   undrawn until the page next lays out again (another zoom step, Settings opened and closed); the reference keeps it.
   Hover and a selection by ⇧⌘] keep it, so a mouse press under a page zoom triggers it. Its cause in the Mac host is
   not found: in `PressWashMacTests`' fixture, a 12 px translucent label at 120% and 125% stays drawn after a press, a
   release, a fill change and a move (real input, 2026-11-05).
-- A linked picture's link tooltip sits 11 device px higher than the reference's, and the picture's stop shows no ring
-  where the reference draws a thin one (real input, 2026-11-05).
 
 **Not failures:**
 

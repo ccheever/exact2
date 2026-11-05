@@ -343,6 +343,8 @@ extension NodeView {
     package func applyTransform() {
         // A backdrop mirrors its box as the transform moves and scales it.
         defer { if !backdropOperations.isEmpty { applyBackdrop() } }
+        // A frame's web view takes its scale by geometry (`FrameScaleMac.swift`).
+        defer { if web != nil { placeWeb() } }
         // Flying scaled whole in its clip (LLP 1013.000 D4.4): the flight's
         // scale only, about the layer's origin, the clip's top left.
         if let s = flightLook?.scale {
@@ -363,7 +365,7 @@ extension NodeView {
         }
         // The layer turns about its own origin: move `transform-origin`
         // there, turn, move it back. A press folds into the scale.
-        let o = transformOriginPoint, s = scale * pressFactor
+        let o = transformOriginPoint, s = scale / frameGeometryScale * pressFactor
         if let space = spaceTransform(origin: o, scale: s, shift: lift) {
             // A 3D rotation or a z translation (LLP 1077 D8).
             layer?.transform = CATransform3DConcat(space, CATransform3DMakeTranslation(layoutOffset.x, layoutOffset.y, 0))

@@ -11,7 +11,7 @@ use CodeTip from "../timeline/code-tips.contract"
 use LinkMenuRow, FileLinkButton from "../timeline/link-menus.contract"
 use ChipInk, inkOf, docKind from "../timeline/markdown-chip-inks.contract"
 use FileTypeIcon from "../shared/timeline-files.contract"
-use hoverTipAtFrame from "../shell/hover-layer.contract" // a linked image's focus tooltips, in the window's hover layer
+use HoverTip, hoverTipAtFrame from "../shell/hover-layer.contract" // a linked image's focus tooltips, in the window's hover layer
 
 // ChatMarkdownMediaUnavailableLabel inside its muted chip (ChatMarkdownImageFallback); `kind` image, video or audio. The chip
 // is an inline-block whose line is 18.5px: its inline-flex row stands on the icon's bottom, 2.5px above the text strut's
@@ -194,12 +194,25 @@ component MarkdownMediaBody
   // reference's two nested triggers leave both closed. The ContextMenu key on the anchor shows a web link's menu at its
   // centre (its `contextPopover`); on the picture, as a right click there, the media menu (MediaActions' handlers on the
   // `<img>` stop it before the `<a>`). Enter on the picture follows nothing.
+  // The anchor's tooltip stands on its inline box, not on the picture: 16.5px of 14px text on the line's baseline, whose
+  // top is 9.8125px above the middle of the picture (`vertical-align: middle`), as the `<a>`'s getBoundingClientRect is.
   action linkTip(on: bool)
+    ringAt("link", on)
     if keyboardLast or not on
-      hoverTipAt(hoverTipAtFrame(`${nodeId}-link`, "tip", link, [], "top", "center", frame(`${nodeId}-link`), 1.65625 * rem, "markdown-link-tooltip"), "trigger", on)
+      let box = frame(`${nodeId}-link`)
+      let picture = frame(nodeId)
+      hoverTipAt(HoverTip(key=`${nodeId}-link`, kind="tip", text=link, lines=[], side="top", align="center", x=box.x, y=picture.y + picture.height / 2 - 9.8125, width=box.width, height=16.5, estimate=1.65625 * rem, wide=0, testId="markdown-link-tooltip"), "trigger", on)
   action pictureTip(on: bool)
+    ringAt("picture", on)
     if tip != "" and (keyboardLast or not on)
       hoverTipAt(hoverTipAtFrame(nodeId, "code-focus", tip, [], "top", "center", frame(nodeId), (floor(tip.length / 68) + 1) * 1.1171875 * rem + 0.625 * rem, "media-tooltip"), "trigger", on)
+  // Which of the two stops shows Chromium's focus ring (FocusRing), for a keyboard's focus as `:focus-visible` does.
+  state ring = ""
+  action ringAt(stop: string, on: bool)
+    if on and keyboardLast
+      ring = stop
+    if not on and ring == stop
+      ring = ""
   action linkedMenu
     focus(nodeId)
     local("media-menu", source, "pointer")
@@ -237,19 +250,23 @@ component MarkdownMediaBody
     // The settled image is the button "Preview <alt>" (ChatMarkdownImage's <img> with expandableMarkdownImageProps), or
     // inside a link its picture (LinkedPicture), which does not expand.
     if kind != "video" and not (brokenUrl != "" and brokenUrl == url) and link != "" and httpLink(link)
-      link id=`${nodeId}-link` href=link press=linkOpen("link", link) contextmenu=linkMenu(link) contextPopover="chat-link-menu" focus=linkTip(true) blur=linkTip(false) tabindex=0 aria-label=linkLabel title="" cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=1 min-width=0 max-width="100%" align-items="flex-start" testId="markdown-linked-image"
+      link id=`${nodeId}-link` href=link press=linkOpen("link", link) contextmenu=linkMenu(link) contextPopover="chat-link-menu" focus=linkTip(true) blur=linkTip(false) tabindex=0 aria-label=linkLabel title="" cursor="pointer" text-decoration-line="none" outline="none" position="relative" display="flex" flex-direction="row" flex-shrink=1 min-width=0 max-width="100%" align-items="flex-start" testId="markdown-linked-image"
         if favicon
           box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
             // Lucide's globe, as the link's first word draws it (TimelineIcon "globe").
             svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color="light-dark(#1447e6, #50a2ff)" fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
               path d="M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"
-        LinkedPicture(nodeId=nodeId, alt=alt, tip=pictureTip, menu=linkedMenu, menuKey=linkedMenuKey)
+        LinkedPicture(nodeId=nodeId, alt=alt, ringed=(ring == "picture"), tip=pictureTip, menu=linkedMenu, menuKey=linkedMenuKey)
           image url aria-label=alt error=imageBroke width=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth}px` : known ? knownWidth : "auto") height="auto" aspect-ratio=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth} / ${imageHeight}` : known ? knownRatio : "auto") max-width=(imageWidth > 0 ? (imageHeight > 0 ? `min(100%, 30rem, ${30 * imageWidth / imageHeight}rem)` : `min(100%, 30rem, ${imageWidth}px)`) : known ? knownMaxWidth : "100%") max-height=(imageHeight > 0 and imageWidth == 0 ? `min(30rem, ${imageHeight}px)` : "30rem") object-fit="contain" border-radius="0.5rem" box-sizing="border-box" border-width=(framed ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" testId="markdown-media-image"
+        if ring == "link"
+          FocusRing(inset=0, radius=4)
     // A mailto, irc, xmpp or fragment link has no menu or tooltip of its own (the anchor's handlers return for it).
     if kind != "video" and not (brokenUrl != "" and brokenUrl == url) and link != "" and not httpLink(link)
-      link id=`${nodeId}-link` href=link press=linkOpen("link", link) tabindex=0 aria-label=linkLabel title="" cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=1 min-width=0 max-width="100%" align-items="flex-start" testId="markdown-linked-image"
-        LinkedPicture(nodeId=nodeId, alt=alt, tip=pictureTip, menu=linkedMenu, menuKey=linkedMenuKey)
+      link id=`${nodeId}-link` href=link press=linkOpen("link", link) focus=ringAt("link", true) blur=ringAt("link", false) tabindex=0 aria-label=linkLabel title="" cursor="pointer" text-decoration-line="none" outline="none" position="relative" display="flex" flex-direction="row" flex-shrink=1 min-width=0 max-width="100%" align-items="flex-start" testId="markdown-linked-image"
+        LinkedPicture(nodeId=nodeId, alt=alt, ringed=(ring == "picture"), tip=pictureTip, menu=linkedMenu, menuKey=linkedMenuKey)
           image url aria-label=alt error=imageBroke width=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth}px` : known ? knownWidth : "auto") height="auto" aspect-ratio=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth} / ${imageHeight}` : known ? knownRatio : "auto") max-width=(imageWidth > 0 ? (imageHeight > 0 ? `min(100%, 30rem, ${30 * imageWidth / imageHeight}rem)` : `min(100%, 30rem, ${imageWidth}px)`) : known ? knownMaxWidth : "100%") max-height=(imageHeight > 0 and imageWidth == 0 ? `min(30rem, ${imageHeight}px)` : "30rem") object-fit="contain" border-radius="0.5rem" box-sizing="border-box" border-width=(framed ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" testId="markdown-media-image"
+        if ring == "link"
+          FocusRing(inset=0, radius=4)
     if kind != "video" and not (brokenUrl != "" and brokenUrl == url) and link == ""
       MediaPreviewActions(source=source, tip=tip, label=`Preview ${alt.trim() != "" ? alt.trim() : "image"}`, open=open, local=local, testId="markdown-image-actions", nodeId=nodeId, fit=standalone)
         image url aria-label=alt error=imageBroke width=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth}px` : known ? knownWidth : "auto") height="auto" aspect-ratio=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth} / ${imageHeight}` : known ? knownRatio : "auto") max-width=(imageWidth > 0 ? (imageHeight > 0 ? `min(100%, 30rem, ${30 * imageWidth / imageHeight}rem)` : `min(100%, 30rem, ${imageWidth}px)`) : known ? knownMaxWidth : "100%") max-height=(imageHeight > 0 and imageWidth == 0 ? `min(30rem, ${imageHeight}px)` : "30rem") object-fit="contain" border-radius="0.5rem" box-sizing="border-box" border-width=(framed ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" testId="markdown-media-image"
@@ -260,13 +277,28 @@ component LinkedPicture
   props
     nodeId: string
     alt: string
+    ringed: bool
     tip: action
     menu: action
     menuKey: action
   slot
   view
-    box id=nodeId tabindex=0 focus=tip(true) blur=tip(false) contextmenu=menu key=menuKey aria-label=alt title="" hatch="t3-media" data-media-kind="actions" display="flex" flex-direction="row" flex-shrink=1 min-width=0 max-width="100%" testId="markdown-linked-picture"
+    box id=nodeId tabindex=0 focus=tip(true) blur=tip(false) contextmenu=menu key=menuKey aria-label=alt title="" hatch="t3-media" data-media-kind="actions" outline="none" position="relative" display="flex" flex-direction="row" flex-shrink=1 min-width=0 max-width="100%" testId="markdown-linked-picture"
       children
+      if ringed
+        FocusRing(inset=1, radius=6)
+
+// Chromium's focus ring (`outline: auto` in `--ring` at 50%, as the reference's `outline-ring/50` sets it): a 2px ring
+// with `radius` as its outer radius and, outside it, a 1px ring in white (#101010 in the dark), `inset` px inside the
+// box it rings. The 2px ring starts 2px inside a picture (`outline-offset: -2px`), with its 8px corners less that, and
+// 1px inside a link's `<a>`, with 4px corners.
+component FocusRing
+  props
+    inset: number
+    radius: number
+  view
+    box position="absolute" top=inset left=inset right=inset bottom=inset border-width=1 border-style="solid" border-color="light-dark(#ffffff, #101010)" border-radius=`${radius + 1}px` pointer-events="none"
+      box position="absolute" top=0 left=0 right=0 bottom=0 border-width=2 border-style="solid" border-color="light-dark(#1b4ed880, #346bf180)" border-radius=`${radius}px`
 
 // Whether a link is an http(s) one: only such an anchor has the app's menu and its URL as a tooltip (ChatMarkdown's
 // faviconHost).
