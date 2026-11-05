@@ -36,9 +36,9 @@ const wasmApp = await settingApp(wasmRoot);
 const freePort = () => { const free = Bun.serve({ port: 0, fetch: () => new Response() }), { port } = free; free.stop(true); return port; };
 
 /** `serve.mjs` on `dist` under `env`, until it listens or ends: the child, what it said, whether it listens. */
-async function served(dist, port, env) {
+async function served(dist, port, env, flags = []) {
   let log = '';
-  const child = spawn(process.execPath, [serve, '--port', String(port), '--loopback', '--origin', dist], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, [serve, '--port', String(port), '--loopback', '--origin', dist, ...flags], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   for (const stream of [child.stdout, child.stderr]) stream.on('data', (b) => { log += b; });
   const listening = await new Promise((done) => {
     const end = Date.now() + 900_000;
@@ -59,6 +59,16 @@ test('serve builds a changed setting again beside its sources, and refuses a cop
     expect(built.status, built.stderr).toBe(0);
     const dist = join(app, 'target/web-dist'), copy = join(root, 'copy'), port = freePort();
     cpSync(dist, copy, { recursive: true });
+    // completed-build preview refuses changed settings without replacing postbuild output.
+    const marker = readFileSync(join(dist, '.exact-build.json'));
+    writeFileSync(join(dist, 'llms.txt'), '# completed index\n');
+    const previewRefused = spawnSync(process.execPath, [serve, dist, '--no-rebuild', '--port', String(port), '--loopback'], { env: { ...env, API_BASE_URL: 'http://b.example' }, encoding: 'utf8', timeout: 60_000 });
+    expect(previewRefused.status).toBe(2);
+    expect(previewRefused.stderr).toContain(changed);
+    expect(previewRefused.stderr).toContain('--no-rebuild disables automatic rebuilding');
+    expect(previewRefused.stdout).not.toContain('http://127.0.0.1:');
+    expect(readFileSync(join(dist, '.exact-build.json')).equals(marker)).toBe(true);
+    expect(readFileSync(join(dist, 'llms.txt'), 'utf8')).toBe('# completed index\n');
     // Copied away from its sources: refused before it listens.
     const refused = spawnSync(process.execPath, [serve, '--port', String(port), '--loopback', '--origin', copy], { env: { ...env, API_BASE_URL: 'http://b.example' }, encoding: 'utf8', timeout: 60_000 });
     expect(refused.status).toBe(2);
@@ -83,6 +93,53 @@ test('serve builds a changed setting again beside its sources, and refuses a cop
     expect((await fetch(`http://127.0.0.1:${port}/`, { headers: { accept: 'text/html' } })).status).toBe(200);
     expect(server.log()).toContain('the build has other settings than this server (API_BASE_URL): building it again');
     expect(await (await fetch(`http://127.0.0.1:${port}/app.js`)).text()).toContain('http://b.example');
+    cpSync(dist, copy, { recursive: true });
+    // replacing a running preview with different settings is refused too, without rebuilding.
+    await stop(server.child);
+    server = await served(dist, port, { ...env, API_BASE_URL: 'http://b.example' }, ['--no-rebuild']);
+    expect(server.listening, server.log()).toBe(true);
+    const replaced = spawnSync(process.execPath, [build, app], { env: { ...env, API_BASE_URL: 'http://a.example' }, encoding: 'utf8' });
+    expect(replaced.status, replaced.stderr).toBe(0);
+    const replacementMarker = readFileSync(join(dist, '.exact-build.json'));
+    writeFileSync(join(dist, 'llms.txt'), '# replacement index\n');
+    const mismatch = await fetch(`http://127.0.0.1:${port}/`, { headers: { accept: 'text/html' } });
+    expect(mismatch.status).toBe(500);
+    expect((await fetch(`http://127.0.0.1:${port}/`, { headers: { accept: 'text/html' } })).status).toBe(500);
+    const message = await mismatch.text();
+    for (const part of ['--no-rebuild', 'API_BASE_URL', 'http://a.example', 'http://b.example']) expect(message).toContain(part);
+    expect(readFileSync(join(dist, '.exact-build.json')).equals(replacementMarker)).toBe(true);
+    expect(readFileSync(join(dist, 'llms.txt'), 'utf8')).toBe('# replacement index\n');
+    // copied previews must check replacement settings even without the app's sources.
+    await stop(server.child);
+    server = await served(copy, port, { ...env, API_BASE_URL: 'http://b.example' }, ['--no-rebuild']);
+    expect(server.listening, server.log()).toBe(true);
+    expect((await fetch(`http://127.0.0.1:${port}/`, { headers: { accept: 'text/html' } })).status).toBe(200);
+    cpSync(dist, copy, { recursive: true });
+    for (let request = 0; request < 2; request++) {
+      const response = await fetch(`http://127.0.0.1:${port}/`, { headers: { accept: 'text/html' } });
+      expect(response.status).toBe(500);
+      const diagnostic = await response.text();
+      for (const part of ['--no-rebuild', 'API_BASE_URL', 'http://a.example', 'http://b.example']) expect(diagnostic).toContain(part);
+    }
+    expect(readFileSync(join(copy, '.exact-build.json')).equals(replacementMarker)).toBe(true);
+    expect(readFileSync(join(copy, 'llms.txt'), 'utf8')).toBe('# replacement index\n');
+    // settings files can change while the cached build receipt stays the same.
+    await stop(server.child);
+    writeFileSync(join(app, '.env'), 'API_BASE_URL=http://a.example\n');
+    server = await served(dist, port, env, ['--no-rebuild']);
+    expect(server.listening, server.log()).toBe(true);
+    expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(200);
+    writeFileSync(join(app, '.env'), 'API_BASE_URL=http://b.example\n');
+    for (let request = 0; request < 2; request++) {
+      const response = await fetch(`http://127.0.0.1:${port}/`);
+      expect(response.status).toBe(500);
+      const diagnostic = await response.text();
+      for (const part of ['--no-rebuild', 'API_BASE_URL', 'http://a.example', 'http://b.example']) expect(diagnostic).toContain(part);
+    }
+    writeFileSync(join(app, '.env'), 'API_BASE_URL=http://a.example\n');
+    expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(200);
+    expect(readFileSync(join(dist, '.exact-build.json')).equals(replacementMarker)).toBe(true);
+    expect(readFileSync(join(dist, 'llms.txt'), 'utf8')).toBe('# replacement index\n');
   } finally {
     await stop(server?.child);
     rmSync(root, { recursive: true, force: true });

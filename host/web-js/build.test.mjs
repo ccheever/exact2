@@ -304,6 +304,64 @@ test('web-build --out writes a site that serve.mjs serves by the hosting rule, r
   }
 }, 90000);
 
+test('serve --no-rebuild preserves completed output after edits and picks up an explicit full build', async () => {
+  if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(resolve(tmpdir(), 'exact-preview-'));
+  const app = resolve(dir, 'site'), out = resolve(app, 'dist');
+  const source = 'shape Note\n  text: string\nroutes nav\n  home "/" render=build\n  live "/live" render=request\n  notfound render=build\ncomponent App\n  resource note = note("rendered") as shape Note\n  view\n    column\n      text note.text\n';
+  let preview;
+  try {
+    site(app, source);
+    const build = () => spawnSync(process.execPath, ['host/web/build.mjs', app, '--out', out], { cwd: root, env: { ...process.env, EXACT_APP_DIR: app }, encoding: 'utf8' });
+    const built = build();
+    expect(built.status, built.stdout + built.stderr).toBe(0);
+    const postbuild = label => {
+      const artifacts = new Map([
+        ['index.md', `# ${label}\n`], ['llms.txt', '# docs index\n'],
+        ['_headers', '/*.md\n  Content-Type: text/markdown\n'],
+        ['robots.txt', 'User-agent: *\nAllow: /\n'], ['sitemap.xml', '<urlset/>\n'],
+      ]);
+      for (const [name, body] of artifacts) writeFileSync(resolve(out, name), body);
+      const html = readFileSync(resolve(out, 'index.html'), 'utf8').replace('<base href="/">', '<base href="/"><link rel="alternate" type="text/markdown" href="/index.md">');
+      expect(html).toContain('type="text/markdown"');
+      writeFileSync(resolve(out, 'index.html'), html);
+      artifacts.set('index.html', html);
+      artifacts.set('.exact-build.json', readFileSync(resolve(out, '.exact-build.json'), 'utf8'));
+      return artifacts;
+    };
+    const artifacts = postbuild('completed docs');
+    writeFileSync(resolve(app, 'app.contract'), 'invalid contract before startup');
+    preview = await serving(root, out, { noRebuild: true });
+    await preview.heard(text => text.includes('automatic rebuilding disabled'));
+    writeFileSync(resolve(app, 'app.contract'), source.replace('text note.text', 'text "not built yet"'));
+    const unchanged = await preview.get('/');
+    expect(unchanged.status).toBe(200);
+    expect(unchanged.body).toContain('The note, rendered.');
+    expect(unchanged.body).toContain('type="text/markdown"');
+    expect(unchanged.body).not.toContain('not built yet');
+    for (const name of ['index.md', 'llms.txt', 'robots.txt', 'sitemap.xml']) {
+      const response = await preview.get('/' + name);
+      expect([response.status, response.body]).toEqual([200, artifacts.get(name)]);
+    }
+    // cross the server's 300 ms freshness window before the second edit/request.
+    writeFileSync(resolve(app, 'app.contract'), 'invalid contract');
+    await new Promise(resolve => setTimeout(resolve, 350));
+    expect((await preview.get('/')).status).toBe(200);
+    expect((await preview.get('/live')).body).toContain('The note, rendered.');
+    for (const [name, body] of artifacts) expect(readFileSync(resolve(out, name), 'utf8')).toBe(body);
+    writeFileSync(resolve(app, 'app.contract'), source.replace('text note.text', 'text "explicitly rebuilt"'));
+    const rebuilt = build();
+    expect(rebuilt.status, rebuilt.stdout + rebuilt.stderr).toBe(0);
+    postbuild('next completed docs');
+    expect((await preview.get('/')).body).toContain('explicitly rebuilt');
+    expect((await preview.get('/index.md')).body).toBe('# next completed docs\n');
+    expect((await preview.get('/llms.txt')).body).toBe('# docs index\n');
+  } finally {
+    await preview?.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 90000);
+
 // LLP 1153 D3.4: a home route rendered on a server is rendered by `serve`, though every build writes an index.html
 // (the shell, which a static host serves), and so is a notfound route declared so, with 404.
 test.each(['request', 'cached'])('serve renders home "/" render=%s and a notfound route rendered so', async (policy) => {
@@ -343,13 +401,13 @@ const generationIn = (body) => /<base href="\/\.exact\/gen\/([0-9a-f]{32})\/">/.
 
 /** serve.mjs on `out` as the `serve` verb runs it (`--loopback`), on a free port: `get(path)` a navigation's answer,
  * `renders(path)` how many pages of it serve said it rendered, `heard(done)` once what it said satisfies `done`. */
-async function serving(root, out, { fromEnv = false } = {}) {
+async function serving(root, out, { fromEnv = false, noRebuild = false } = {}) {
   const probe = createServer();
   await new Promise(ok => probe.listen(0, '127.0.0.1', ok));
   const port = probe.address().port;
   await new Promise(ok => probe.close(ok));
   // `fromEnv`: the port as a host gives `npm start` one, in `PORT` (LLP 1153.001 D3).
-  const child = spawnOwned(process.execPath, ['host/web/serve.mjs', out, ...(fromEnv ? [] : ['--port', String(port)]), '--loopback'],
+  const child = spawnOwned(process.execPath, ['host/web/serve.mjs', out, ...(fromEnv ? [] : ['--port', String(port)]), '--loopback', ...(noRebuild ? ['--no-rebuild'] : [])],
     { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PORT: fromEnv ? String(port) : '' } });
   let said = '';
   child.stdout.on('data', (data) => { said += data; });
