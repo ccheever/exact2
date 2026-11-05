@@ -653,3 +653,16 @@ layer leave WebKit's white page background (macOS 27.2). Without it every
 such frame turns opaque. **Ruled (Daehyeon Mun, 2026-11-03):** the arm
 keeps `drawsBackground`, a named exception to that day's no-private-API
 ruling, as Web Inspector's private calls are (LLP 1020.002 D11).
+
+A scaled frame hears pointer events where it is drawn, as Chromium's
+does. AppKit's geometry ignores a layer's transform, and WKWebView converts
+each event's window point by that geometry, so a page under a layer that
+scales it would hear every press, hover and wheel where the unscaled box
+is. On macOS an iframe's 2D `scale` therefore goes into view geometry: the
+web view lies in a holder whose bounds are the box and whose frame is the
+box scaled about `transform-origin`, and AppKit scales the page's drawing
+and its events alike (`FrameScaleMac.swift`,
+`IframeScaleTests`). The node's layer draws the rest of its transform. A
+frame that is also rotated or in space keeps the layer's scale. The
+iframe's own box, a background or border on the element, is drawn
+unscaled.
