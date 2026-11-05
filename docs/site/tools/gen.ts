@@ -2,7 +2,7 @@ import { marked, type Token, type Tokens } from 'marked';
 import { createHighlighter } from 'shiki';
 import { execSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, normalize, relative, resolve } from 'node:path';
+import { basename, dirname, join, normalize, relative, resolve } from 'node:path';
 import { agentRows, sections, type NavPage } from '../constants/navigation.ts';
 import { redirects } from '../constants/redirects.ts';
 import { site } from '../constants/site.ts';
@@ -144,8 +144,11 @@ function target(href: string, from: string, record = true): string {
 
 function linkText(text: string, href: string, from: string): string {
   const path = href.split('#')[0];
-  if (text !== path || /^[a-z]+:/i.test(href)) return text;
-  return bySource.get(normalize(join(dirname(from), path)))?.title ?? text;
+  const names = [path, basename(path)].flatMap(n => [n, n.replace(/\.md$/, '')]);
+  if (!path.endsWith('.md') || !names.includes(text) || /^[a-z]+:/i.test(href)) return text;
+  const source = normalize(join(dirname(from), path));
+  const file = resolve(DOCS, source);
+  return bySource.get(source)?.title ?? (existsSync(file) ? /^# (.+)$/m.exec(readFileSync(file, 'utf8'))?.[1] : undefined) ?? text;
 }
 
 function runs(tokens: Token[] | undefined, from: string, next: () => string, style = { strong: false, em: false, href: '' }): Run[] {
