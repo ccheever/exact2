@@ -38,7 +38,7 @@ members App
       if threadEndFollowOwner != followOwner
         threadEndFollowOwner = followOwner
       threadEndFollowEnabled = atEnd
-      if atEnd and e.scrollHeight > 0
+      if atEnd and e.scrollHeight > 0 and (historyAnchorKey != "" or historyAnchorOffset != 0 or historyAnchorRevision != threadData.historyRevision or historyAnchorRestorePending)
         historyAnchorKey = ""
         historyAnchorOffset = 0
         historyAnchorRevision = threadData.historyRevision
@@ -57,7 +57,7 @@ members App
               historyAnchorRestorePending = false
               historyAnchors = historyAnchors.filter((saved) => not (saved.route == historyAnchorRoute and saved.environment == historyAnchorEnvironment and saved.thread == historyAnchorThread)).concat([ThreadHistoryAnchor(route=historyAnchorRoute, environment=historyAnchorEnvironment, thread=historyAnchorThread, key=historyAnchorKey, offset=historyAnchorOffset, revision=historyAnchorRevision)]).slice(-100)
         case none
-          if not (historyAnchorKey != "" and threadData.historyRevision > historyAnchorRevision)
+          if not (historyAnchorKey != "" and threadData.historyRevision > historyAnchorRevision) and (historyAnchorKey != "" or historyAnchorOffset != 0 or historyAnchorRevision != threadData.historyRevision or historyAnchorRestorePending)
             historyAnchorKey = ""
             historyAnchorOffset = 0
             historyAnchorRestorePending = false

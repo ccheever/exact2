@@ -407,6 +407,22 @@ test('thread anchors are retained per route and restored when a compact workspac
   expect(state.historyAnchors).toHaveLength(1);
 });
 
+
+test('a steady empty-key scroll event leaves the captured anchor state unchanged', () => {
+  const root = contractComponent('mobile/app.contract', 'App');
+  const state = { historyAnchors: [], historyAnchorKey: 'turn-03', historyAnchorOffset: 42, historyAnchorRoute: '7', historyAnchorEnvironment: 'env', historyAnchorThread: 'thread', historyAnchorRevision: 0, historyAnchorRestorePending: false };
+  const scope = {
+    nav: {}, top: () => ({ id: 7, name: 'thread', params: { threadEnvironment: 'env', threadId: 'thread' } }),
+    threadData: { environmentId: 'env', threadId: 'thread', historyRevision: 0 },
+    ThreadHistoryAnchor: (fields: unknown) => fields,
+  };
+  root.call('threadHistoryScroll', state, scope, [0, 12, { firstVisibleKey: undefined, firstVisibleOffset: 0, scrollTop: 12, scrollHeight: 2400, clientHeight: 600 }]);
+  expect(state).toMatchObject({ historyAnchorKey: '', historyAnchorOffset: 0, historyAnchorRevision: 0 });
+  const steady = structuredClone(state);
+  root.call('threadHistoryScroll', state, scope, [0, 12, { firstVisibleKey: undefined, firstVisibleOffset: 0, scrollTop: 12, scrollHeight: 2400, clientHeight: 600 }]);
+  expect(state).toEqual(steady);
+});
+
 test('thread follow-end state shows the scroll-to-end control only away from the live edge', () => {
   const root = contractComponent('mobile/app.contract', 'App');
   const state = { historyAnchors: [], historyAnchorKey: '', historyAnchorOffset: 0, historyAnchorRoute: '', historyAnchorEnvironment: '', historyAnchorThread: '', historyAnchorRevision: 0, historyAnchorRestorePending: false, threadEndFollowEnabled: true, threadEndFollowOwner: '' };
@@ -420,6 +436,9 @@ test('thread follow-end state shows the scroll-to-end control only away from the
   expect(state).toMatchObject({ threadEndFollowOwner: 'env:thread', threadEndFollowEnabled: false });
   root.call('threadHistoryScroll', state, scope, [0, 1200, { firstVisibleKey: 'last', firstVisibleOffset: 0, scrollTop: 1200, scrollHeight: 1800, clientHeight: 600 }]);
   expect(state.threadEndFollowEnabled).toBe(true);
+  const steadyAtEnd = structuredClone(state);
+  root.call('threadHistoryScroll', state, scope, [0, 1200, { firstVisibleKey: 'last', firstVisibleOffset: 0, scrollTop: 1200, scrollHeight: 1800, clientHeight: 600 }]);
+  expect(state).toEqual(steadyAtEnd);
   root.call('threadHistoryScroll', state, scope, [0, 120, { firstVisibleKey: 'first', firstVisibleOffset: 0, scrollTop: 120, scrollHeight: 1800, clientHeight: 600 }]);
   root.call('threadScrollToEnd', state, scope, []);
   expect(state.threadEndFollowEnabled).toBe(true);
