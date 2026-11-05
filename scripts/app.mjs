@@ -35,7 +35,7 @@ import { bakeOutside, linkable, recordRustBake } from './linked-plan.mjs';
 import { throwContractErrors } from './contract-diagnosis.mjs';
 import { filesystem, installedModules, removePrivateTree, withHostDeployment } from './filesystem.mjs';
 import { startSweep } from './sweep.mjs';
-import { authoredWorkspace, knownWorkspace, rememberWorkspace, shellsDir } from './cargo-check.mjs';
+import { appleCargo, authoredWorkspace, knownWorkspace, rememberWorkspace, shellsDir } from './cargo-check.mjs';
 import { ensureShells } from './app-shells.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameDefaults, lintGame, prepareGame } from '../game/app/shells.mjs';
@@ -893,14 +893,14 @@ const under = (root, path) => {
 const orderedBuild = (rows) => rows.sort((a, b) => Buffer.compare(Buffer.from(canonicalBuild(a)), Buffer.from(canonicalBuild(b))));
 function buildCommand(command, args, app, env, stderr = 'pipe') {
   if (command === 'cargo') env = cargoEnvironment(env);
-  let result = spawnSync(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
+  let result = spawnSync(...appleCargo(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 }));
   // An offline Cargo that lacks a source it needs (a new workspace, a new
   // lock entry) fetches the lock's sources once and tries again, instead of
   // failing on the first missing crate (LLP 1054 O2).
   if (command === 'cargo' && result.status !== 0 && /--offline was specified|attempting to make an HTTP request|in the offline mode|offline mode \(via `--offline`\)/.test(result.stderr ?? '')) {
     console.error(`${app.name}: Cargo's sources are not all fetched; fetching the locked ones (cargo fetch --locked) and trying again`);
     const fetched = spawnSync('cargo', ['fetch', '--locked'], { cwd: app.workspace, env, stdio: ['ignore', 'inherit', 'inherit'] });
-    if (fetched.status === 0) result = spawnSync(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
+    if (fetched.status === 0) result = spawnSync(...appleCargo(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 }));
   }
   if (result.error || result.status !== 0) {
     if (command === 'cargo') throwContractErrors(app, args, result, ROOT);
@@ -1164,7 +1164,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const launchImage = platform === 'ios' ? launchImageInventory(app) : null;
   if (launchImage) add(resolve(app.dir, launchImage.src));
   const metadata={...(appleAssetCatalogs.length ? {appleAssetCatalogs} : {}),...(launchImage ? {launchImage} : {}),...(nativeResources.length ? {nativeResources} : {}),...nativeManifestMetadata(app.manifest, platform),delivery:compat.delivery,store:compat.inputs.store,keys:compat.inputs.keys};
-  const configuration={target,units:orderedBuild([...new Map(units.map(u=>[canonicalBuild(u),u])).values()]),builders:orderedBuild([...new Map(builders.map(u=>[canonicalBuild(u),u])).values()]),rustc:buildCommand('rustc',['-vV'],app,env).stdout,flags:{...Object.fromEntries(['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','MACOSX_DEPLOYMENT_TARGET','IPHONEOS_DEPLOYMENT_TARGET'].map((k)=>[k,env[k]??null])),...(env.EXACT_WEB_LINK?{EXACT_WEB_LINK:env.EXACT_WEB_LINK}:{}),...(env.EXACT_WEB_SIZE?{EXACT_WEB_SIZE:env.EXACT_WEB_SIZE}:{})}};
+  const configuration={target,units:orderedBuild([...new Map(units.map(u=>[canonicalBuild(u),u])).values()]),builders:orderedBuild([...new Map(builders.map(u=>[canonicalBuild(u),u])).values()]),rustc:buildCommand('rustc',['-vV'],app,env).stdout,flags:{...Object.fromEntries(['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','MACOSX_DEPLOYMENT_TARGET','IPHONEOS_DEPLOYMENT_TARGET','TVOS_DEPLOYMENT_TARGET','WATCHOS_DEPLOYMENT_TARGET'].map((k)=>[k,env[k]??null])),...(env.EXACT_WEB_LINK?{EXACT_WEB_LINK:env.EXACT_WEB_LINK}:{}),...(env.EXACT_WEB_SIZE?{EXACT_WEB_SIZE:env.EXACT_WEB_SIZE}:{})}};
   const files=[...inputs.values()].sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
   const fingerprint={files:files.map(({name,sha256})=>({name,sha256})),absent:[...absent.keys()].sort(),configuration,metadata};
   const products=roots.flatMap((r)=>messages.filter((m)=>m.reason==='compiler-artifact'&&m.package_id===r.package&&m.target.name===r.name).flatMap((m)=>m.filenames)).filter((p)=>!p.endsWith('.d')&&!p.endsWith('.dSYM')).map((path)=>prepared.get(path)??path).map((path)=>{const info=statSync(path);return {path,bytes:info.size,sha256:hashes.of(path,info)};});

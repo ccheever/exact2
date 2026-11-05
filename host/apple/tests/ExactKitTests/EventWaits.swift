@@ -12,9 +12,11 @@ extension XCTestCase {
     /// and the slowest, and `facts` (what the wait itself saw); a pass that took
     /// longer than `late` is kept as a LATE-PASS attachment and log line saying the same, so
     /// lateness is evidence without failing. It answers how long it took.
+    /// An optional prerequisite can report a miss through `onFailure` and let
+    /// its caller decide whether the test skips or fails.
     @discardableResult
     func waitFor(_ what: String, late: TimeInterval = 2, cap: TimeInterval = 30, giveUp: () -> Bool = { false },
-                 facts: () -> String = { "" }, _ done: () -> Bool) -> TimeInterval {
+                 facts: () -> String = { "" }, onFailure: (String) -> Void = { XCTFail($0) }, _ done: () -> Bool) -> TimeInterval {
         let began = Date(), until = began.addingTimeInterval(cap)
         var turns = 0, slowest = 0.0
         while !done(), Date() < until, !giveUp() {
@@ -27,7 +29,7 @@ extension XCTestCase {
         let seen = facts()
         let said = "took \(String(format: "%.3f", took)) s over \(turns) turns, the slowest \(String(format: "%.3f", slowest)) s" + (seen.isEmpty ? "" : ", \(seen)")
         guard done() else {
-            XCTFail("\(what): \(said)")
+            onFailure("\(what): \(said)")
             return took
         }
         if took > late { latePass(what, said) }

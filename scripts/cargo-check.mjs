@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSyn
 import { homedir } from 'node:os';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import process from 'node:process';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -114,4 +115,68 @@ export function authoredWorkspace(dir) {
     if (workspace && [dir, ...crates].some(path => owns(at, workspace, path))) return at;
   }
   return dir;
+}
+
+/** Make Apple's deployment environment part of every target unit's Cargo hash. Add to each existing flags source
+ * so Cargo keeps choosing and merging flags itself; introducing a target table would hide `build.rustflags`. */
+export function appleCargo(command, arguments_, options = {}) {
+  const targets = arguments_.filter((value, index) => arguments_[index - 1] === '--target' || value.startsWith('--target='));
+  const apple = command === 'cargo' && (targets.some(value => value.includes('-apple-')) ||
+    !targets.length && process.platform === 'darwin' && ['build', 'rustc', 'check', 'test', 'clippy'].includes(arguments_[0]));
+  if (!apple) return [command, arguments_, options];
+  const environment = { ...(options.env ?? process.env) }, directories = [];
+  for (let at = resolve(options.cwd ?? process.cwd()); ; at = dirname(at)) {
+    directories.push(at);
+    if (at === dirname(at)) break;
+  }
+  const home = environment.CARGO_HOME ?? resolve(homedir(), '.cargo');
+  const configurations = new Set([home, ...directories.reverse().map(at => resolve(at, '.cargo'))]);
+  const sources = new Map(), configuredEnvironment = new Map();
+  for (const directory of configurations) {
+    const path = ['config', 'config.toml'].map(name => resolve(directory, name)).find(existsSync);
+    if (!path) continue;
+    let configuration;
+    try { configuration = Bun.TOML.parse(readFileSync(path, 'utf8')); }
+    catch { throw new Error(`Cannot track Apple deployment targets because Cargo configuration ${path} is unreadable or invalid. Fix its TOML before building.`); }
+    if (configuration.build?.rustflags !== undefined) sources.set('build.rustflags', configuration.build.rustflags);
+    for (const [selector, target] of Object.entries(configuration.target ?? {})) {
+      if (target.rustflags !== undefined) sources.set(`target.${JSON.stringify(selector)}.rustflags`, target.rustflags);
+    }
+    for (const [name, value] of Object.entries(configuration.env ?? {})) {
+      const previous = configuredEnvironment.get(name);
+      configuredEnvironment.set(name, typeof value === 'string' ? { value, path, table: false } : { ...previous, ...value, path, table: true });
+    }
+  }
+  const minimums = ['MACOSX_DEPLOYMENT_TARGET', 'IPHONEOS_DEPLOYMENT_TARGET', 'TVOS_DEPLOYMENT_TARGET', 'WATCHOS_DEPLOYMENT_TARGET'];
+  const values = minimums.map(name => {
+    const setting = configuredEnvironment.get(name);
+    if (!setting || environment[name] !== undefined && !setting.force) return environment[name] ?? '';
+    return setting.relative ? resolve(dirname(dirname(setting.path)), setting.value) : setting.value;
+  });
+  const prefix = '--cfg=exact_apple_deployment_targets=';
+  const flag = prefix + JSON.stringify(values.join(':'));
+  const flagVariable = name => ['RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'CARGO_BUILD_RUSTFLAGS'].includes(name) || /^CARGO_TARGET_.+_RUSTFLAGS$/.test(name);
+  const append = (value, name) => {
+    const separator = name === 'CARGO_ENCODED_RUSTFLAGS' ? '\x1f' : ' ';
+    const flags = (separator === ' ' ? value.trim().split(/\s+/) : value.split(separator)).filter(value => value && !value.startsWith(prefix));
+    return [...flags, flag].join(separator);
+  };
+  const configurationArgs = [];
+  const set = (key, value) => configurationArgs.push('--config', `${key}=${JSON.stringify(value)}`);
+  for (const name of Object.keys(environment).filter(flagVariable)) environment[name] = append(environment[name], name);
+  for (const [name, setting] of configuredEnvironment) {
+    if (flagVariable(name)) set(`env.${name}${setting.table ? '.value' : ''}`, append(setting.value, name));
+  }
+  if (!sources.has('build.rustflags')) sources.set('build.rustflags', []);
+  for (const [key, flags] of sources) {
+    const selector = key.startsWith('target.') ? JSON.parse(key.slice(7, -10)) : null;
+    const variable = selector === null ? 'CARGO_BUILD_RUSTFLAGS' : /^[\w-]+$/.test(selector) ? `CARGO_TARGET_${selector.toUpperCase().replaceAll('-', '_')}_RUSTFLAGS` : null;
+    // Keep the config source for variables in [env]: Cargo exports them after resolving its own flags
+    if (variable && environment[variable] !== undefined) continue;
+    if (typeof flags === 'string') set(key, append(flags, 'RUSTFLAGS'));
+    else if (Array.isArray(flags) && flags.every(value => typeof value === 'string')) set(key, [flag]);
+    else throw new Error(`Cannot track Apple deployment targets because Cargo ${key} is not a string or string array. Fix its configuration before building.`);
+  }
+  const separator = arguments_.indexOf('--'), at = separator < 0 ? arguments_.length : separator;
+  return [command, [...arguments_.slice(0, at), ...configurationArgs, ...arguments_.slice(at)], { ...options, env: environment }];
 }
