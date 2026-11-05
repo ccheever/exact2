@@ -10,6 +10,8 @@ import { obj, str, type Obj } from '../client/domain';
 import { EDITOR_DEFINITIONS } from './editors';
 import type { MenuItem } from '../sidebar/sidebar-menu';
 import { resolvePathLinkTarget } from '../terminal/terminal-links';
+import { workspaceRelativeFilePath } from '../timeline/workspace-file-lookup';
+import { isAbsolutePath } from './project-paths';
 
 const EDITOR_LABEL_BY_ID = new Map(EDITOR_DEFINITIONS.map(editor => [editor.id, editor.label]));
 
@@ -79,6 +81,12 @@ function repositoryRelativeWorkspaceSegments(workspaceRoot: string | undefined, 
 }
 /** diffFileActions.ts resolveDiffPathForWorkspace. */
 export function resolveDiffPathForWorkspace(input: { filePath: string; workspaceRoot: string | undefined; repositoryRoot: string | undefined }): string | null {
+  // Claude and ACP tool-call diffs name files by absolute path.
+  if (isAbsolutePath(input.filePath)) {
+    const relativePath = workspaceRelativeFilePath(input.filePath, input.workspaceRoot);
+    const segments = relativePath === null ? null : normalizedRelativePathSegments(relativePath);
+    return segments ? segments.join('/') : null;
+  }
   const fileSegments = normalizedRelativePathSegments(input.filePath);
   if (!fileSegments) return null;
   const workspaceSegments = repositoryRelativeWorkspaceSegments(input.workspaceRoot, input.repositoryRoot);

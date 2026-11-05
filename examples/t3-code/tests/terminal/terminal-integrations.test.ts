@@ -25,6 +25,10 @@ describe('terminal context reference ports', () => {
     expect(isTerminalContextExpired({ text: ' ' })).toBe(false);
     expect(terminalContextRecord(selection)).toMatchObject({ contextId: 'terminal_selected-1', kind: 'terminal', text: 'hello\nworld', lineStart: 3 });
   });
+  test('an oversized terminal selection is clamped without splitting a surrogate pair', () => {
+    const terminal = terminalContextRecord({ ...selection, id: 'term-big', lineStart: 1, lineEnd: 2_000, text: `${'t'.repeat(63_985)}${'😀'.repeat(8)}` });
+    expect(terminal.text).toBe(`${'t'.repeat(63_985)}\n… truncated …`);
+  });
   test('legacy ordinal placeholders migrate in order and extra placeholders disappear', () => {
     expect(migrateLegacyTerminalContextPlaceholders('a \uFFFC b \uFFFC', [selection])).toBe(`a ${formatTerminalContextReference(selection)} b `);
   });

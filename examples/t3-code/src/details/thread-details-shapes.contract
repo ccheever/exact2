@@ -36,6 +36,8 @@ shape ThreadServerRow
 
 shape ThreadServersView
   show: bool
+  // The thread the rows belong to: a longer list's "Show more" pages start again on another thread.
+  thread: string
   canOpen: bool
   busy: bool
   rows: ThreadServerRow[]

@@ -74,7 +74,7 @@ members T3Code
   action openOptions(name: string)
     composerTarget = "" // the window's composer
     measureOptionsTrigger(name, false)
-    focus(optionsOpen == name ? "composer" : name == "runtime" ? `composer-menu-item-${data.composer.runtimeSelected}` : name == "branch" ? "branch-search" : name == "workspace" or name == "environment" ? "composer-menu" : "composer-menu-item-0")
+    focus(optionsOpen == name ? "composer" : name == "runtime" or name == "strip" ? `composer-menu-item-${data.composer.runtimeSelected}` : name == "branch" ? "branch-search" : name == "workspace" or name == "environment" ? "composer-menu" : "composer-menu-item-0")
     optionsOpen = optionsOpen == name ? "" : name
     branchQuery = ""
     modelsOpen = false

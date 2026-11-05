@@ -18,6 +18,7 @@ import { renderCodexInlineDirectivesAsMarkdown } from '../highlight/codex-direct
 import { markdownThreadGlyphs } from './markdown-thread-glyphs';
 import { shellCommand } from '../highlight/shell-command';
 import { openPullRequest } from '../pull-requests/pr-chip-open';
+import { refreshProviderBanner } from '../providers/provider-banner-refresh';
 import { runnableShellCommands } from '../terminal/terminal-integrations';
 import { runTerminalCommand } from '../terminal/terminal-drawer-view';
 import { toolActivityIconSources } from './timeline-tool-icons';
@@ -207,6 +208,8 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op === 'copy-prompt-link') { await copyPromptLink(client, native, promptLinkFor(copyText(client, id))); return ''; }
   // The header's rename field: its text as typed (`id` its thread; none once the field closes), for its direction.
   if (op === 'rename-input') { view.renameDraft = id ? { threadId: id, text: value } : null; return ''; }
+  // ProviderStatusBanner's Refresh: the banner's instance, with its models.
+  if (op === 'provider-banner-refresh') { await refreshProviderBanner(client, native); return ''; }
   // ThreadErrorBanner's Copy request for admin, for a ChatGPT Business workspace limit.
   if (op === 'admin-request') {
     try { await client.restAccess(native).call({ op: 'copyText', text: CHATGPT_WORKSPACE_ADMIN_REQUEST }); }

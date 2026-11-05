@@ -55,12 +55,13 @@ export function getProviderStatusMessage(status: Obj): string {
 
 /**
  * The ProviderStatusBanner the chat overlays for the composer's instance: its key
- * (dismissal), title, message, severity, role, the dismiss label and the instance
- * "Open provider setup" opens ('' when the provider has no in-app setup).
+ * (dismissal), title, message, severity, role, the dismiss label, the instance
+ * "Open provider setup" opens ('' when the provider has no in-app setup) and the Refresh
+ * button's label (v0.1.7's "Refresh <provider> provider status").
  */
 export function providerBanner(provider: Obj | undefined) {
   const empty = { providerBannerKey: '', providerBannerTitle: '', providerBannerMessage: '', providerBannerWarning: false, providerBannerAlert: false,
-    providerBannerDismiss: '', providerBannerSetup: '' };
+    providerBannerDismiss: '', providerBannerSetup: '', providerBannerRefresh: '' };
   const key = getProviderStatusBannerKey(provider);
   if (!provider || key === null) return empty;
   const providerName = str(provider.displayName).trim() || formatProviderDriverKindLabel(str(provider.driver));
@@ -75,5 +76,6 @@ export function providerBanner(provider: Obj | undefined) {
     providerBannerAlert: !(incompatible && incompatible.status !== 'broken'),
     providerBannerDismiss: `Dismiss ${providerName} provider ${str(provider.status)}`,
     providerBannerSetup: hasProviderSetup(provider) ? str(provider.instanceId) : '',
+    providerBannerRefresh: `Refresh ${providerName} provider status`,
   };
 }

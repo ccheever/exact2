@@ -10,7 +10,11 @@ members App
   state contentGeometryGeneration = 0
   state contentGeometrySerial = 0
   state contentGeometryPacket = ""
-  resource contentGeometry = contentGeometry(`${top(nav).id}:${top(nav).name}`, contentGeometryOwner, contentGeometryGeneration, contentGeometrySerial, contentGeometryPacket) as shape ContentGeometry
+  state contentGeometryReadyOwner = ""
+  state contentGeometryReadyGeneration = 0
+  state contentGeometryReadySerial = 0
+  state contentGeometryReadyPacket = ""
+  resource contentGeometry = contentGeometry(`${top(nav).id}:${top(nav).name}`, contentGeometryOwner, contentGeometryGeneration, contentGeometrySerial, contentGeometryPacket, contentGeometryReadyOwner, contentGeometryReadyGeneration, contentGeometryReadySerial, contentGeometryReadyPacket) as shape ContentGeometry
   action contentGeometryEvent(owner: string, packet: string)
     if owner == `${top(nav).id}:${top(nav).name}` and packet.split("\n").length == 3 and contentGeometryCounterValid(packet, 0) and contentGeometryCounterValid(packet, 1)
       let generation = contentGeometryCounter(packet, 0)
@@ -20,3 +24,8 @@ members App
         contentGeometryGeneration = generation
         contentGeometrySerial = serial
         contentGeometryPacket = packet
+        if packet.includes("\"state\":\"ready\"")
+          contentGeometryReadyOwner = owner
+          contentGeometryReadyGeneration = generation
+          contentGeometryReadySerial = serial
+          contentGeometryReadyPacket = packet

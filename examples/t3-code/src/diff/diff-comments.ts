@@ -133,9 +133,16 @@ export function buildDiffReviewComment(input: { id: string; sectionId: string; s
 
 // composerContextRecords.ts
 const REVIEW_TEXT_MAX = 16_000, REVIEW_DIFF_MAX = 32_000, TRUNCATION_MARKER = '\n… truncated …';
-function clamp(value: string, max: number): string {
-  return value.length <= max ? value : `${value.slice(0, Math.max(0, max - TRUNCATION_MARKER.length))}${TRUNCATION_MARKER}`;
+export const TERMINAL_CONTEXT_TEXT_MAX = 64_000;
+export function clampContextText(value: string, max: number): string {
+  if (value.length <= max) return value;
+  let end = Math.max(0, max - TRUNCATION_MARKER.length);
+  // Never end on a lone high surrogate.
+  const last = value.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+  return `${value.slice(0, end)}${TRUNCATION_MARKER}`;
 }
+const clamp = clampContextText;
 const basename = (filePath: string) => { const parts = filePath.split(/[\\/]/); return parts[parts.length - 1] ?? filePath; };
 export function reviewCommentContextLabel(comment: ReviewCommentContext): string {
   if (comment.pullRequest !== undefined || (comment.sectionId.startsWith('pull-request:') && comment.diff.trim() === '' && /^PR #\d+$/u.test(comment.filePath))) {

@@ -5,4 +5,4 @@ fn halfPoint(value: number): number = floor(value * 2 + 0.5) / 2
 fn layoutFrame(name: string, box: Geometry): string = box.unavailable ? "" : `${name}:${halfPoint(box.x)},${halfPoint(box.y)},${halfPoint(box.width)},${halfPoint(box.height)}`
 // The trigger a composer menu opens from (app.contract openOptions): the strip's machine and workspace controls, the
 // runtime and overflow triggers, the context meter, the implement pill.
-fn optionsTriggerId(name: string): string = name == "workspace" or name == "environment" ? `composer-strip-${name}` : name == "runtime" ? "composer-runtime-trigger" : name == "more" ? "composer-more-trigger" : name == "context" ? "context-window-meter" : "implement-actions"
+fn optionsTriggerId(name: string): string = name == "workspace" or name == "environment" ? `composer-strip-${name}` : name == "runtime" ? "composer-runtime-trigger" : name == "strip" ? "strip-permissions" : name == "more" ? "composer-more-trigger" : name == "context" ? "context-window-meter" : "implement-actions"
