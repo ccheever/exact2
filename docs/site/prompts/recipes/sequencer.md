@@ -7,7 +7,7 @@ Add a step sequencer to the Exact app in this folder: lanes of steps that play s
 4. Put the tracks in a `derive` and play them with one `sequence ... when playing`, `play(tracks, bpm=..., from=at)`. Pause saves the beat in `at` from the `exactTransport()` resource. Use a key for a mode, not a second `sequence`.
 5. If the app runs on iOS and does not play in the background, add a task on `transport.reason == "background"` that sets `playing` to false.
 6. Add a test in app.test.contract that taps Play, moves the clock, and uses `expect sound has "<file>" at <ms>` for each lane, then changes a lane and expects the new sound.
-7. Run `bun exact.mjs test web`, then `bun exact.mjs verify` until it passes. Fix the app, not the test. If a finding stays after three rounds of fixes, or the app had it before you changed anything, record it (step 8) and report it; do not keep trying.
-8. When a doc was wrong or missing, or a step needed a workaround, record it: `bun exact.mjs feedback note "<what happened>"`. Do not send the notes; tell me how many you recorded.
-9. Tell me the lanes, the tempo and the sound files, what the tests and verify reported, and the command that opens the app: `bun exact.mjs web`.
+7. Follow the platform checks in docs/start-here.md (`bun exact.mjs docs platform checks`) for the targets in the app's AGENTS.md and app.json until they pass. Read the reports, including counted findings; a zero exit code alone does not mean clean. Fix the app, not the test. If a finding stays after three rounds of fixes, or the app had it before you changed anything, record it (step 8) and report it; do not keep trying.
+8. When a doc was wrong or missing, or a step needed a workaround, read `bun exact.mjs feedback status`. Under `never`, keep no note. Otherwise record it locally: `EXACT_FEEDBACK=0 bun exact.mjs feedback note "<what happened>"` (use your shell's environment syntax). Do not change the saved policy or send notes, even under `always`; tell me how many you kept.
+9. Tell me the lanes, the tempo and the sound files, what the tests and verify reported, and the launch command for each target platform.
 ```

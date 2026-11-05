@@ -7,7 +7,7 @@ Make a timer in the Exact app in this folder keep running, and keep its time, wh
 4. Derive the elapsed time from `banked`, `startedAt` and `now`, and run a `task` with `every(250, step)` only while the timer runs. Read `performanceNow()` in the start and stop action itself, not the `now` the task wrote.
 5. Show the readout with `font-variant-numeric="tabular-nums"` and its size in `rem`.
 6. Add the recipe's two tests in app.test.contract: with `epoch` set, start, `clock +5000`, `reload`, and expect the same time and start mark; then stop, `reload`, expect the banked time, and reset.
-7. Run `bun exact.mjs test web`, then `bun exact.mjs verify` until it passes. Fix the app, not the test. If a finding stays after three rounds of fixes, or the app had it before you changed anything, record it (step 8) and report it; do not keep trying.
-8. When a doc was wrong or missing, or a step needed a workaround, record it: `bun exact.mjs feedback note "<what happened>"`. Do not send the notes; tell me how many you recorded.
-9. Tell me which timer now survives a relaunch, what the tests and verify reported, and the command that opens the app: `bun exact.mjs web`.
+7. Follow the platform checks in docs/start-here.md (`bun exact.mjs docs platform checks`) for the targets in the app's AGENTS.md and app.json until they pass. Read the reports, including counted findings; a zero exit code alone does not mean clean. Fix the app, not the test. If a finding stays after three rounds of fixes, or the app had it before you changed anything, record it (step 8) and report it; do not keep trying.
+8. When a doc was wrong or missing, or a step needed a workaround, read `bun exact.mjs feedback status`. Under `never`, keep no note. Otherwise record it locally: `EXACT_FEEDBACK=0 bun exact.mjs feedback note "<what happened>"` (use your shell's environment syntax). Do not change the saved policy or send notes, even under `always`; tell me how many you kept.
+9. Tell me which timer now survives a relaunch, what the tests and verify reported, and the launch command for each target platform.
 ```

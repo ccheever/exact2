@@ -8,7 +8,7 @@ Add in-app purchases (a subscription or a tip) to the Exact app in this folder. 
 5. In app.ts, deliver from `unfinishedPurchases()` only, once per `purchaseToken`: keep the credit and the token together, then `consume` a consumable and `acknowledge` the rest. Finish every purchase.
 6. Put Restore behind a button. Never put `requestReview()` behind a button.
 7. Add tests in app.test.contract with the agent's `purchase` ticket: a purchase (`buy`), a cancelled one (`cancel`) and a pending one (`pending`), and that a delivered tip counts once.
-8. Run `bun exact.mjs test web`, then `bun exact.mjs verify` until it passes. Fix the app, not the test. If a finding stays after three rounds of fixes, or the app had it before you changed anything, record it (step 9) and report it; do not keep trying.
-9. When a doc was wrong or missing, or a step needed a workaround, record it: `bun exact.mjs feedback note "<what happened>"`. Do not send the notes; tell me how many you recorded.
+8. Follow the platform checks in docs/start-here.md (`bun exact.mjs docs platform checks`) for the targets in the app's AGENTS.md and app.json until they pass. Read the reports, including counted findings; a zero exit code alone does not mean clean. Fix the app, not the test. If a finding stays after three rounds of fixes, or the app had it before you changed anything, record it (step 9) and report it; do not keep trying.
+9. When a doc was wrong or missing, or a step needed a workaround, read `bun exact.mjs feedback status`. Under `never`, keep no note. Otherwise record it locally: `EXACT_FEEDBACK=0 bun exact.mjs feedback note "<what happened>"` (use your shell's environment syntax). Do not change the saved policy or send notes, even under `always`; tell me how many you kept.
 10. Tell me what you changed, what the tests and verify reported, and what I must still set up in each store before a real purchase works. `apps/weatherlight` in the exact2 checkout is the whole app.
 ```
