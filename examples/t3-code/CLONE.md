@@ -81,6 +81,13 @@ crosses the window midpoint. The focused geometry regression covers the
 midpoint-crossing case; native keyboard-visible Duo reachability remains open.
 The diary is `examples/t3-code/mobile/diary/2026-11-05-home-rail-reservation.md`.
 
+The same continuation keeps a captured thread anchor when a native scroll event
+temporarily reports no first-visible row during an older-history prepend. The
+anchor still clears for ordinary empty or detached scroll states, and the
+existing revision and route guards remain in force. The focused Contract test
+covers the no-key event before restoration. Exact native pixel preservation
+still needs a populated-thread drive.
+
 The prior integrated history, table, first-read, rail and Home units remain in
 the commit ancestry. Open parity gaps are live history errors/Retry, filtered
 continuation, selection and exact anchor preservation, bounded transcript
