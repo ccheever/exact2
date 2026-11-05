@@ -2,6 +2,8 @@
 use ReviewColors from "./review-shapes.contract"
 use ThreadCodeToken from "./thread-shapes.contract"
 
+fn markdownSource(text: string, tokens: ThreadCodeToken[]): string = text + tokens.filter(token => token.slant == "reference-context").map(token => token.text).join("")
+
 shape FileTableRun
   id: string
   kind: string
@@ -225,6 +227,6 @@ component MobileFileMarkdown
                             else
                               text run.text font-family=(run.kind == "code" ? "monospace" : "DM Sans") font-size=(run.kind == "code" ? max(12, bodySize - 2) : bodySize) color=(run.kind == "code" ? colors.codeForeground : item.header ? colors.markdownStrong : colors.markdownBody)
           else
-            text block.text markup="markdown" font-size=bodySize line-height=`${bodyLine}px` color=colors.markdownBody user-select="text"
+            text markdownSource(block.text, block.tokens) markup="markdown" font-size=bodySize line-height=`${bodyLine}px` color=colors.markdownBody user-select="text"
 
 fn fileMarkdownHeadingSize(level: number, bodySize: number): number = max(level == 1 ? 16 : level == 2 ? 14 : level == 3 ? 13 : 12, round((level == 1 ? 21 : level == 2 ? 19 : level == 3 ? 17 : 15) * bodySize / 16))
