@@ -61,6 +61,18 @@ describe('bounded transcript Markdown reuse', () => {
     expect(source).toContain('background-color=colors.borderSubtle');
   });
 
+  test('working lifecycle rows keep the source bordered elapsed-time header', () => {
+    const client = fixture([user('Keep working.')], {
+      runs: [{ id: 'r1', status: 'running', startedAt: at(0), completedAt: null }],
+    });
+    const row = mobileThreadRows(client, now + 3_000).find(value => value.kind === 'working');
+    expect(row?.title).toBe('Working for 3s');
+    const source = appText('mobile/thread.contract');
+    expect(source).toContain('row min-height=44 align-items="center" border-bottom-width=1');
+    expect(source).toContain('font-variant-numeric="tabular-nums"');
+    expect(source).toContain('border-bottom-color=colors.border');
+  });
+
   test('thread Markdown keeps prose and code selectable like the reference reader', () => {
     const source = appText('mobile/thread-markdown.contract');
     expect(source).toContain('text token.text user-select="text"');
