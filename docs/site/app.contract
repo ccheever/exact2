@@ -196,8 +196,8 @@ component App
     active = ""
     let next = go(nav, url)
     nav = next
-    // The sidebar scrolls to the page's own item when the navigation leaves it out of view, and only then.
-    if inSidebar(site, top(next).name)
+    // sidebar scrolling must not cancel the router's pending fragment scroll.
+    if fragment(top(next)) == "" and inSidebar(site, top(next).name)
       scrollIntoView(`nav-${top(next).name}`, block="nearest", behavior="smooth")
   task revealing mount
     after(300, revealAtLoad)
@@ -247,7 +247,7 @@ component App
     view navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%" background-color="var(--color-background-screen)" font-family="var(--font-sans)" color="var(--color-text-default)"
       for e in stack(nav).slice(-1) key=e.id
         column navigationKey=`${e.id}` navigationScroll=`page-${e.id}` navigationBar="none" position="absolute" inset=0
-          padding-top="clamp(0px, (960px - 100vw) * 1000, 57px)" padding-left=(sidebar ? "clamp(0px, (100vw - 960px) * 1000, 234px)" : "clamp(0px, (100vw - 960px) * 1000, 48px)") -exact-layout-transition="220ms ease"
+          padding-top="clamp(0px, (960px - 100vw) * 1000, 57px)" padding-left=(sidebar ? "calc(234px - clamp(0px, (960px - 100vw) * 1000, 234px))" : "calc(48px - clamp(0px, (960px - 100vw) * 1000, 48px))") -exact-layout-transition="220ms ease"
           if e.name == "notfound"
             head title=page.title description=page.description status=404
             if destination != ""
@@ -255,7 +255,7 @@ component App
           else
             head title=page.title description=page.description
           scroll id=`page-${e.id}` flex=1 min-width=0 -exact-layout-transition="220ms ease" background-color="var(--color-background-default)"
-            margin="clamp(-1px, (100vw - 960px) * 1000, 8px)" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-xl)"
+            margin="calc(8px - clamp(0px, (960px - 100vw) * 1000, 9px))" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-xl)"
             Article(page=page, nav=site, missing=(e.name == "notfound"), url=top(nav).url, moved=moved.to, suggestions=moved.suggestions, from=from, opened=opened, toggle=toggle, pick=pick, seen=seen, active=active, copyMarkdown=copyMarkdown, copied=copied, voted=voted, vote=vote, roomy=roomy, year=site.year, theme=theme, chooseTheme=chooseTheme)
       header appearance="none" inert=wide display="flex" align-items="center" justify-content="space-between" flex-shrink=0 overflow="hidden" position="absolute" top=0 left=0 right=0
         height="clamp(0px, (960px - 100vw) * 1000, 57px)" padding="0 16px" border-bottom="1px solid var(--color-border-secondary)" background-color="var(--color-background-default)"
@@ -267,7 +267,7 @@ component App
           row gap=6 align-items="center"
             image (menu ? "symbol:close" : "symbol:menu") aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
             text (menu ? "Close" : "Menu") font-size="var(--text-sm)"
-      column width=(sidebar ? "clamp(0px, (100vw - 960px) * 1000, 234px)" : "0px") -exact-layout-transition="220ms ease" flex-shrink=0 overflow="hidden" inert=(not wide or not sidebar) testId=(sidebar ? "sidebar-shown" : "sidebar-hidden") position="absolute" top=0 bottom=0 left=0
+      column width=(sidebar ? "calc(234px - clamp(0px, (960px - 100vw) * 1000, 234px))" : "0px") -exact-layout-transition="220ms ease" flex-shrink=0 overflow="hidden" inert=(not wide or not sidebar) testId=(sidebar ? "sidebar-shown" : "sidebar-hidden") position="absolute" top=0 bottom=0 left=0
         row align-items="center" justify-content="space-between" padding="12px 12px 0 20px" min-width=234 box-sizing="border-box"
           link href="/" class=Hit testId="home"
             row align-items="center" gap=8
@@ -277,7 +277,7 @@ component App
             image "symbol:icon.panelclose" aria-hidden=true font-size="var(--text-base)" color="var(--color-icon-default)"
         scroll flex=1 min-height=0 min-width=234
           Sidebar(nav=site, current=top(nav).name, toggled=navToggled, toggle=toggleNav, prefix="")
-      column width=(sidebar ? "0px" : "clamp(0px, (100vw - 960px) * 1000, 48px)") -exact-layout-transition="220ms ease" flex-shrink=0 overflow="hidden" inert=(not wide or sidebar) padding-top=12 align-items="center" testId=(sidebar ? "sidebar-rail" : "sidebar-rail-shown") position="absolute" top=0 bottom=0 left=0
+      column width=(sidebar ? "0px" : "calc(48px - clamp(0px, (960px - 100vw) * 1000, 48px))") -exact-layout-transition="220ms ease" flex-shrink=0 overflow="hidden" inert=(not wide or sidebar) padding-top=12 align-items="center" testId=(sidebar ? "sidebar-rail" : "sidebar-rail-shown") position="absolute" top=0 bottom=0 left=0
         button press=toggleSidebar appearance="none" aria-label="Show the sidebar" title="Show the sidebar" padding=6 border-radius="var(--radius-lg)" testId="sidebar-show"
           image "symbol:icon.panelopen" aria-hidden=true font-size="var(--text-base)" color="var(--color-icon-default)"
       if menu
