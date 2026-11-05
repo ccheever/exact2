@@ -179,16 +179,19 @@ enum FrameHealthReaders {
         return true
     }
     static func release() { open -= 1 }
+    /// Whether a reader can take a place now
+    static var hasRoom: Bool { open < 4 }
 }
 
 extension FrameHealth {
     var liveCapture: Bool { agentCaptureUntil > CACurrentMediaTime() && !virtual }
     var reportSource: FrameHealth {
         guard let nativeHealth else { return self }
-        let own = historyStatus(), native = nativeHealth.historyStatus()
-        let ownTime = own.retained == 0 ? 0 : hitch(UInt32(own.retained - 1)).at_ns
-        let nativeTime = native.retained == 0 ? 0 : nativeHealth.hitch(UInt32(native.retained - 1)).at_ns
-        return nativeTime > ownTime ? nativeHealth : self
+        // The newest event, which need not be the last recorded (`FrameHealthReport.snapshot`)
+        func newest(_ health: FrameHealth) -> UInt64 {
+            (0..<UInt32(health.historyStatus().retained)).reduce(0) { max($0, health.hitch($1).at_ns) }
+        }
+        return newest(nativeHealth) > newest(self) ? nativeHealth : self
     }
     func metrics(cursor: [String: Any]? = nil) -> [String: Any] {
         expireCapture(at: CACurrentMediaTime())

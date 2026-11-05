@@ -257,7 +257,11 @@ impl History {
             0
         };
         let duration = finished - arrival;
-        for index in self.pending.iter_mut().filter_map(Option::take) {
+        for slot in &mut self.pending {
+            // Skip an apply this callback ran: the callback began before the apply finished, so it does not follow it
+            let Some(index) = slot.take_if(|index| self.entries[*index].at_ns <= arrival) else {
+                continue;
+            };
             let event = &mut self.entries[index];
             let mut pack = Packer::default();
             event.after_at_us = pack.offset(arrival, event.at_ns);

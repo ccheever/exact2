@@ -9,22 +9,33 @@ final class FrameHealthCardReader {
     /// Whether this card holds one of `FrameHealthReaders`' places, and reads
     private(set) var reading = false
 
-    /// Take a place, starting from no samples; false when four other readers hold them. A card's second reader takes
-    /// none, as its first holds the card's.
-    func start(claim: Bool = true) -> Bool {
+    /// Take a place, starting from no samples; false when four readers hold them. A card measuring the screen holds
+    /// two, its readers of the screen's frames and of Exact's.
+    func start() -> Bool {
         guard !reading else { return true }
-        guard !claim || FrameHealthReaders.claim() else { return false }
-        claimed = claim
+        guard FrameHealthReaders.claim() else { return false }
         reading = true
         reset()
-        samples.reserveCapacity(60)
+        samples.reserveCapacity(capacity)
         return true
     }
+
+    /// Keep `seconds` of samples from now on: 30, the face's longest window, or 5, Details', for a reader of Exact's
+    /// frames beside one of the screen's.
+    func keep(_ seconds: Double) {
+        self.seconds = seconds
+        samples = []
+        samples.reserveCapacity(capacity)
+    }
+
+    /// Seconds of samples it keeps, and as many as reads twice a second take
+    private var seconds = 30.0
+    private var capacity: Int { Int(seconds * 2) }
 
     /// Give the place back and free the samples' storage, which the limit counts.
     func stop() {
         guard reading else { return }
-        if claimed { FrameHealthReaders.release() }
+        FrameHealthReaders.release()
         reading = false
         samples = []
         previous = nil
@@ -32,16 +43,7 @@ final class FrameHealthCardReader {
         stale = false
     }
 
-    deinit { if reading, claimed { FrameHealthReaders.release() } }
-
-    private var claimed = false
-
-    /// A copy of what it has read, which reads nothing more and holds no place: what a paused card shows.
-    func copy() -> FrameHealthCardReader {
-        let copy = FrameHealthCardReader()
-        (copy.samples, copy.overdue, copy.stale) = (samples, overdue, stale)
-        return copy
-    }
+    deinit { if reading { FrameHealthReaders.release() } }
 
     /// What changed between two reads, `from` and `read`, with the exact maxima taken at the second.
     /// A half second holds a few hundred frames at most, so its bins keep 16 bits.
@@ -147,8 +149,8 @@ final class FrameHealthCardReader {
                 index += 1
             }
         }
-        // Room first, so the storage stays the 60 samples `start` reserved
-        while let first = samples.first, samples.count >= 60 || now - first.read > 30 { samples.removeFirst() }
+        // Room first, so the storage stays what `start` or `keep` reserved
+        while let first = samples.first, samples.count >= capacity || now - first.read > seconds { samples.removeFirst() }
         samples.append(s)
         return true
     }
@@ -385,7 +387,7 @@ enum FrameHealthCardText {
     }
 
     /// A row of Details: a result with its reason, or a count.
-    struct Detail { var name: String, value: String, reason: String? = nil }
+    struct Detail: Equatable { var name: String, value: String, reason: String? = nil }
 
     /// Details: the collector's three results over the last 5s, each with its reason, by the
     /// collector's own rules (`FrameHealthAssessment`), then the counts behind them.
@@ -453,12 +455,12 @@ enum FrameHealthCardText {
         ("Frame rate (FPS)", "Frames of this app per second over the last 0.5s and the last 5s, or the time each window actually covers. Each frame is one UI update, Exact's or UIKit's, such as a step of a scroll; with nothing changing there are none. Core Animation's own animations run outside the app and make no frames of its."),
         ("Exact's clock", "What Exact's own frame clock does beside these frames: idle, at the default rate, or at the rate it asks for, with any system limit. Details gives its frames."),
         ("Displays", "Fixed refresh redraws the screen at one rate. Adaptive refresh, which ProMotion uses, has the system choose the rate from a set to suit the content; frames still land on the display's refreshes."),
-        ("Late frames", "Frames whose changes reached the render server after UIKit's completion deadline, so they appear at least one refresh later than UIKit expected: commit hitches, in Apple's words. Hitches the render server causes are not seen from the app."),
-        ("Work time", "The main thread's time in a frame's update, from its start until its changes reached the render server, less any wait between. The work chart has a gridline at each whole refresh at the display's highest rate, 8.3ms, 16.7ms, 25ms and 33.3ms at 120 Hz, the first dotted: to keep that rate, a frame's work must stay under one refresh, though UIKit's deadline for each frame comes later, as the render server draws it after. The card records work time in 0.5ms steps below 24ms, and the table rounds the median up to its step."),
-        ("Late by", "How far past UIKit's deadline the median late frame's changes reached the render server."),
+        ("Late frames", "Frames whose last Core Animation commit, as the card sees it just after, came after UIKit's completion deadline, which UIKit says delays their presentation: commit hitches, in Apple's words. Seen just after, a commit that ended just before the deadline can count as late, and an update whose commit the card does not see is timed to its end. Hitches the render server causes are not seen from the app."),
+        ("Work time", "The main thread's time in a frame's update, from its start until its last Core Animation commit as the card sees it, less any wait between. The work chart has a gridline at each whole refresh at the display's highest rate, 8.3ms, 16.7ms, 25ms and 33.3ms at 120 Hz, the first dotted: to keep that rate, a frame's work must stay under one refresh, though UIKit's deadline for each frame comes later, as the render server draws it after. The card records work time in 0.5ms steps below 24ms, and the table rounds the median up to its step."),
+        ("Late by", "How far past UIKit's deadline the card saw the median late frame's last commit."),
         ("Main thread", "The main thread's longest spell of work without waiting, and the spells longer than one refresh at the display's highest rate, which would hold up a frame due then, whether or not anything moves. The work chart plots each long spell against that refresh. The card's own work is not counted."),
         ("No frame times", "The card does not give the time between frames: it observes updates without asking for any, and cannot tell a refresh the app had nothing to draw for, such as between two taps, from one it missed. Frames held up by work show as the main thread's long spells."),
-        ("Not measured", "When a picture actually appeared on screen, compositor and GPU time, Core Animation's own animations and input latency. The card's own changes go out with the app's frames, or in updates it does not count; dragging the card makes frames of the app's."),
+        ("Not measured", "When a picture actually appeared on screen, compositor and GPU time, Core Animation's own animations and input latency. The card's own changes go out with the app's frames, or in transactions of its own that take no update; dragging the card makes frames of the app's."),
     ]
 
     static let definitions: [(String, String)] = [
@@ -581,8 +583,8 @@ enum FrameHealthShare: CaseIterable {
 }
 
 extension FrameHealthCardText {
-    /// The shared image, from the same readers the card shows (copies while paused): the summary's
-    /// context, both charts, every figure and the results.
+    /// The shared image, from the same readers and charts the card shows: the summary's context,
+    /// both charts, every figure and the results.
     static func picture(reader: FrameHealthCardReader, clock: FrameHealthCardReader? = nil, chart: FrameHealthChart, rates: Rates,
                         display: Display, source: Source = .exact, paused: Bool, health: FrameHealth,
                         palette: FrameHealthCardDrawing.Palette) -> Data? {

@@ -5,6 +5,14 @@ import XCTest
 import ExactCore
 @testable import ExactKit
 
+/// Runs `change` at each display link callback, counting them.
+private final class Ticker: NSObject {
+    private let change: () -> Void
+    private(set) var ticks = 0
+    init(_ change: @escaping () -> Void) { self.change = change }
+    @objc func tick() { ticks += 1; change() }
+}
+
 final class FrameHealthIOSTests: XCTestCase {
     /// A window for an overlay: the card reads only while it can be seen.
     private func hosted(_ overlay: FrameHealthOverlay, in scene: UIWindowScene, size: CGSize) -> UIWindow {
@@ -131,6 +139,22 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertNil(root.presentedViewController, "and opens no sheet")
         if #available(iOS 26.0, *) { XCTAssertTrue(overlay.card.detailsScroll.topEdgeEffect.isHidden, "no edge effect blends the rows") }
         XCTAssertEqual(overlay.card.detailsScroll.contentInsetAdjustmentBehavior, .never)
+        // Details draws as the face does, a picture its update commits, timed as the card's work, and only when it
+        // changes
+        let rows = try XCTUnwrap(overlay.card.detailsScroll.subviews.first { $0 is FrameHealthCardView.DetailsView })
+        XCTAssertTrue(rows.layer is FrameHealthCardView.Pictured.Picture)
+        rows.layer.displayIfNeeded()
+        XCTAssertNotNil(rows.layer.contents)
+        let timing = overlay.card.drawing
+        var drawn = 0
+        overlay.card.drawing = { drawn += 1; $0() }
+        overlay.card.update(overlay.card.presentation)
+        rows.layer.displayIfNeeded()
+        XCTAssertEqual(drawn, 0, "the same rows draw nothing")
+        rows.layer.setNeedsDisplay()
+        rows.layer.displayIfNeeded()
+        XCTAssertEqual(drawn, 1)
+        overlay.card.drawing = timing
         let details = XCTAttachment(image: UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         })
@@ -292,16 +316,18 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertEqual(overlay.card.state.status, .live)
         XCTAssertEqual(overlay.card.state.rows[0].1, "120")
         XCTAssertEqual(overlay.card.state.pacing.0, "Uneven", "the hitch is in the last 5 seconds")
-        // A pause keeps the figures while the card goes on reading: later frames change nothing until it resumes
+        // A pause keeps the figures and the charts' picture, and the card reads nothing until it resumes, while the
+        // collector takes each frame
         overlay.card.activate?(.status)
         XCTAssertEqual(overlay.card.state.status, .paused)
-        XCTAssertTrue(health.chart === overlay.card.chart, "the charts still take each frame")
+        XCTAssertTrue(overlay.card.chart.held)
         health.record(arrival: time, target: time + 0.1, period: 0.1, finished: time + 0.001)
         overlay.refresh(now: start + 6)
         XCTAssertEqual(overlay.card.state.rows[0].1, "120")
         overlay.card.activate?(.status)
         XCTAssertEqual(overlay.card.state.status, .live)
-        XCTAssertEqual(overlay.card.state.rows[0].0, "Last 1.0s", "resumed, the face shows the read taken while it was paused")
+        overlay.refresh(now: start + 6.5)
+        XCTAssertEqual(overlay.card.state.rows[0].0, "Last 1.5s", "resumed, its first read covers the paused span")
         // Hidden and shown again, the card starts unpaused
         overlay.card.activate?(.status)
         overlay.setVisible(false)
@@ -360,25 +386,77 @@ final class FrameHealthIOSTests: XCTestCase {
         window.layer.addSublayer(dot)
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         overlay.setVisible(true)
-        // The card reads twice a second, changes of its own; none of them is the app's frame, nor do they make UIKit run
-        // updates that would be
+        // The card reads twice a second and sends its changes alone, which take no UI update
         RunLoop.main.run(until: Date().addingTimeInterval(3))
         XCTAssertEqual(overlay.screenFrames, 0, "\(overlay.card.state.rows)")
         XCTAssertEqual(overlay.card.state.rows.map(\.1), ["—", "—"])
-        // While the charts move with the time, the app's own changes are its frames: only one falling in the same refresh
-        // as a change of the card's, twice a second, is taken for the card's
+        // While the charts move with the time, each of the app's own changes is one of its frames, and the card's are
+        // none
         for x in 1...6 {
             dot.position.x = CGFloat(x)
             RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         }
-        XCTAssertGreaterThanOrEqual(overlay.screenFrames, 4)
-        XCTAssertLessThanOrEqual(overlay.screenFrames, 6, "the card's own changes are not counted")
+        XCTAssertEqual(overlay.screenFrames, 6)
+        // Under the app's sustained updates, the card's reads and Details' changing rows go out with them, adding none
+        func sustained() -> (ticks: Int, frames: Int) {
+            let ticker = Ticker {
+                dot.position.x += 1
+                let t = CACurrentMediaTime()
+                health.record(arrival: t, target: t + 1 / 60, period: 1 / 60, finished: t + 0.001)
+            }
+            let link = CADisplayLink(target: ticker, selector: #selector(Ticker.tick)), before = overlay.screenFrames
+            link.add(to: .main, forMode: .common)
+            RunLoop.main.run(until: Date().addingTimeInterval(1.5))
+            link.invalidate()
+            // The frames while the link ran: after it stops, UIKit can run a few updates of its own
+            let frames = Int(overlay.screenFrames - before)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            return (ticker.ticks, frames)
+        }
+        let closed = sustained()
+        XCTAssertGreaterThan(closed.ticks, 10)
+        XCTAssertEqual(closed.frames, closed.ticks, "one frame for each display link callback's change")
+        overlay.card.activate?(.details)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let open = sustained()
+        XCTAssertEqual(open.frames, open.ticks, "Details open, its rows changing with each read")
+        overlay.card.activate?(.details)
         // The charts glide with the time, Core Animation moving them; a pause stops them, and resuming starts them again
         XCTAssertTrue(overlay.card.chart.gliding)
         overlay.card.activate?(.status)
         XCTAssertFalse(overlay.card.chart.gliding)
         overlay.card.activate?(.status)
         XCTAssertTrue(overlay.card.chart.gliding)
+        // Hidden with no change of its own, as under a hidden ancestor, it stops measuring within half a second, paused
+        // too
+        overlay.card.activate?(.status)
+        overlay.superview?.isHidden = true
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        XCTAssertFalse(health.hudEffectiveVisible)
+        XCTAssertFalse(overlay.observing)
+        overlay.setVisible(false)
+    }
+
+    /// A card measuring the screen holds two readers' places; with one free, it shows Exact's frames until a second is
+    func testACardWithOnePlaceFreeShowsExactsFramesUntilASecondIs() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("UIUpdateLink is available from iOS 18") }
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window for the frame-health card")
+        }
+        let others = (0..<3).map { _ in FrameHealthCardReader() }
+        XCTAssertEqual(others.map { $0.start() }, [true, true, true])
+        defer { others.forEach { $0.stop() } }
+        let health = FrameHealth(enabled: true)
+        defer { health.destroy() }
+        let overlay = FrameHealthOverlay(health: health)
+        _ = hosted(overlay, in: scene, size: CGSize(width: 393, height: 852))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        overlay.setVisible(true)
+        XCTAssertFalse(overlay.observing, "one place is free")
+        others[0].stop()
+        overlay.refresh()
+        XCTAssertTrue(overlay.observing, "with two places free, at its next read")
+        XCTAssertFalse(FrameHealthCardReader().start(), "which it holds, with the two others")
         overlay.setVisible(false)
     }
 
@@ -419,6 +497,7 @@ final class FrameHealthIOSTests: XCTestCase {
         let flags = try XCTUnwrap(asked(), "the stalled frame was late, and a live SVG filter asked for it")
         XCTAssertEqual(flags & (1 << 23 | 1 << 19), 1 << 23 | 1 << 19, "with the session's workload")
         XCTAssertEqual(flags & (1 << 40), 0, "and no other user of the frame clock")
+        XCTAssertEqual(flags & (1 << 35 | 1 << 36), 1 << 35, "while the card shows, not dragged")
         // Its work split: the stall in Exact's phases, and the card's own work within the update
         let report = FrameHealthReport.snapshot(health: screen.health, session: nil)
         let columns = try XCTUnwrap(report["columns"] as? [String])
@@ -453,31 +532,75 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertEqual(value("waited_us") as? Int, 5_000)
         XCTAssertEqual(Int(value("callback_us") as? UInt32 ?? 0), 4_000, "the 9 ms update less its 5 ms wait")
         XCTAssertEqual(value("target_offset_us") as? Int, -1_000, "the deadline, from the work's start, which it ran past")
-        // The collector counts it, though its work began after its deadline
+        // The collector counts it, though its effective start came after its deadline
         let snapshot = screen.health.snapshot()
         XCTAssertEqual(snapshot.worked, 1)
         XCTAssertEqual(snapshot.late, 1)
     }
 
-    /// A change of the card's own whose update spans a wait is the card's in the spell after it too: the app's long
-    /// spells leave it out
-    func testACardOnlyUpdateAcrossAWaitIsTheCardsInTheNextSpell() throws {
+    /// A card measuring the screen holds the screen's reader, Exact's over 5 seconds for Details, the charts and the
+    /// screen's work splits, in two readers' places
+    func testACardMeasuringTheScreenHoldsItsReadersChartsAndSplits() {
+        func heap<T>(_ array: [T]) -> Int { malloc_good_size(32 + array.capacity * MemoryLayout<T>.stride) }
+        let health = FrameHealth(enabled: true), screen = FrameHealth(policy: .always, source: FrameHealth.screenSource)
+        defer { health.destroy(); screen.destroy() }
+        let face = FrameHealthCardReader(), clock = FrameHealthCardReader(), chart = FrameHealthChart(in: CALayer())
+        XCTAssertTrue(clock.start())
+        XCTAssertTrue(face.start())
+        defer { clock.stop(); face.stop() }
+        clock.keep(5)
+        chart.start()
+        for index in 0..<4000 {
+            let time = 1 + Double(index) / 120
+            health.record(arrival: time, target: time + 1 / 120, period: 1 / 120, finished: time + 0.003)
+            screen.record(arrival: time, target: time + 1 / 120, period: 0, finished: time + 0.003)
+            screen.split(at: time, waited: 0.001, exact: 0.001, card: 0, layouts: 1)
+            chart.screenFrame(at: time, work: 0.003, budget: 1 / 120)
+            if index % 60 == 59 {
+                face.sample(screen, now: time + 0.001, force: true, main: { (0.003, 0) })
+                clock.sample(health, now: time + 0.001, force: true)
+            }
+        }
+        XCTAssertEqual(face.samples.count, 60)
+        XCTAssertEqual(clock.samples.count, 10)
+        let read = FrameHealthMetrics.read(health)
+        let samples = { (reader: FrameHealthCardReader) in heap(reader.samples) + reader.samples.reduce(0) { $0 + heap($1.bins) } }
+        let previous = heap(read.intervals) + heap(read.work) + heap(read.refreshes) + heap(read.lateBy)
+        let charts = heap(chart.columns) + heap(chart.times)
+        let splits = heap(screen.splits)
+        let objects = [face, clock].reduce(0) { $0 + malloc_size(Unmanaged.passUnretained($1).toOpaque()) }
+            + malloc_size(Unmanaged.passUnretained(chart).toOpaque())
+        let card = samples(face) + samples(clock) + 2 * previous + charts + splits + objects
+        XCTAssertLessThan(card, 60 * 1024, "face \(samples(face)), clock \(samples(clock)), charts \(charts), splits \(splits)")
+        XCTAssertLessThan(card, 2 * 51 * 1024, "within the two places it holds, each a card's of Exact's frames")
+    }
+
+    /// A frame's work, and its split, end at its last commit: Exact's host phases after it are none of its work
+    func testAFramesSplitEndsAtItsCommit() throws {
         guard #available(iOS 18.0, *) else { throw XCTSkip("UIUpdateLink is available from iOS 18") }
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
             throw missing("scene", "a real host window for the screen's frames")
         }
         let screen = startedScreen(in: scene)
         defer { screen.stop() }
-        _ = screen.takeMainThread()
-        screen.ownChange()
-        let t = CACurrentMediaTime()
-        screen.scheduled(presented: t + 0.2, deadline: t + 0.03, now: t)
-        screen.wait(at: t + 0.001)
-        screen.wake(at: t + 0.005)
-        screen.completed(presented: t + 0.2, now: t + 0.045)
-        screen.wait(at: t + 0.046)
-        XCTAssertEqual(screen.takeMainThread().long, 0, "1 ms of the spell's 41 is not the card's")
-        XCTAssertEqual(screen.health.snapshot().callbacks, 0, "and it is not one of the app's frames")
+        screen.health.setHUDVisible(true)
+        defer { screen.health.setHUDVisible(false) }
+        // Times are given, the host phases' clock too
+        let t = CACurrentMediaTime(), phases = HostPhases.shared, clock = phases.clock
+        var now = t
+        phases.clock = { now }
+        defer { phases.clock = clock }
+        screen.scheduled(presented: t + 0.05, deadline: t + 0.001, now: t)
+        phases.measure(.apply) { now = t + 0.002 }
+        screen.committed(at: t + 0.002)
+        phases.measure(.apply) { now = t + 0.012 }
+        screen.completed(presented: t + 0.05, now: t + 0.012)
+        let report = FrameHealthReport.snapshot(health: screen.health, session: nil, now: t + 0.013)
+        let columns = try XCTUnwrap(report["columns"] as? [String])
+        let row = try XCTUnwrap((report["hitches"] as? [[Any]])?.last)
+        let value = { (name: String) in row[columns.firstIndex(of: name)!] }
+        XCTAssertEqual(Int(value("callback_us") as? UInt32 ?? 0), 2_000, "the work ends at the commit")
+        XCTAssertEqual(value("exact_us") as? Int, 2_000, "and the 10 ms after it are none of its host phases")
     }
 
     /// A screen observer started on `scene`, after a window's first frames there.
@@ -527,13 +650,6 @@ final class FrameHealthIOSTests: XCTestCase {
         spell = screen.takeMainThread()
         XCTAssertEqual(spell.longest, 0, accuracy: 1e-9)
         XCTAssertEqual(spell.long, 0)
-        // The card's changes of its own, while the app draws nothing, are not the app's frames
-        for x in 1...4 {
-            screen.card { dot.position.x = CGFloat(x) }
-            screen.ownChange()
-            run(0.12)
-        }
-        XCTAssertEqual(screen.health.snapshot().callbacks, 0)
         // Scrolling, each update is a frame with its work, and the frames of the last half second give the rate; a frame
         // of the screen's bounds no frame time
         scroll.setContentOffset(CGPoint(x: 0, y: 3000), animated: true)

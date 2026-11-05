@@ -57,15 +57,14 @@ extension FrameHealth {
     }
 
     /// While a capture runs, the conditions a frame met it under, such as thermal state and Low Power Mode
-    /// The capture's conditions: thermal state and Low Power Mode
     var environmentFlags: UInt64 { captureID != 0 ? FrameHealthEnvironment.flags : 0 }
+
+    /// The card's state: bit 35 while it shows, and bit 36 while it is dragged
+    var cardFlags: UInt64 { (hudVisible ? 1 << 35 : 0) | (hudDragging ? 1 << 36 : 0) }
 
     func frameFlags(_ frames: Frames, session: ExactSession) -> UInt64 {
         guard captureID != 0 else { return 0 }
-        var bits = environmentFlags | Self.workload(frames, session: session)
-        if hudVisible { bits |= 1 << 35 }
-        if hudDragging { bits |= 1 << 36 }
-        return bits
+        return environmentFlags | Self.workload(frames, session: session) | cardFlags
     }
 
     /// What `session` had in flight, and bit 23, which says these bits are known.
@@ -100,7 +99,7 @@ extension FrameHealth {
             work.owner_finished_ns = Self.nanoseconds(owner.finished)
             work.landed_ns = Self.nanoseconds(owner.landed)
         }
-        exact_frame_health_applied(handle, work, flags | FrameHealthEnvironment.flags | (hudVisible ? 1 << 35 : 0) | (hudDragging ? 1 << 36 : 0))
+        exact_frame_health_applied(handle, work, flags | FrameHealthEnvironment.flags | cardFlags)
         if nativeScrollActive, let native = nativeHealth, native.enabled {
             var context = work
             context.capture = native.captureID
