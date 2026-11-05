@@ -9,9 +9,24 @@
 // generated module calls, kept keys, storage, openAuthSession), or in `inflight` itself (the storage queue). The
 // runner hosts get this for free: an answer with more than one operation out is a continuation, never held.
 const HeldAsks = new Set(), Candidates = new Set(), loose = { n: 0 }, Replies = new Map();
+// SSR status must include continuations that can still write the store after their resource lets go.
+const Answers = new Set();
+export function unfinishedAnswers() {
+  for (const t of Answers) {
+    const c = t.call;
+    // A discarded timer cannot resume its answer. I/O is counted separately by ts-fetch.js.
+    if (!current(t) && c && (c.settled || c.timers > 0) && !c.held && !c.plain && !c.firing) Answers.delete(t);
+  }
+  return Answers.size > 0;
+}
+export function trackAnswer(ticket) {
+  Answers.add(ticket);
+  const ended = () => Answers.delete(ticket);
+  ticket.promise.then(ended, ended);
+}
 /** The tickets `inflight` counts now: a wake owns those that were not counted at its delivery (wakes.js). */
 export const Counting = new Set();
-const current = t => t?.owner?.ticket === t && !t.owner.gone;
+const current = t => !!t && t.owner?.ticket === t && !t.owner.gone;
 export const heldAsks = () => [...HeldAsks].filter(current).map(t => ({ name: t.name, ticket: t.id }));
 /** The held tickets themselves (wakes.js tells a stream's from an answer's). */
 export const heldTickets = () => [...HeldAsks].filter(current);

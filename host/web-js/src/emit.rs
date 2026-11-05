@@ -244,7 +244,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     let mut em = Em {
         plan,
         sites: &sites,
-        answers: answers::Answers::new(plan),
+        answers: answers::Answers::new(plan, &sites),
         parts,
         uses: Uses::default(),
         out: String::new(),

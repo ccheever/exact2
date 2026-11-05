@@ -14,6 +14,7 @@ impl Em<'_> {
         let subject = self
             .f(row.subject, scope)
             .map_err(|x| format!("region {r}: {x}"))?;
+        let subject = self.status_subject(r, parent, subject);
         let arms: Vec<u32> = row.arms.iter().map(|a| a.0).collect();
         match row.kind {
             RegionKind::When | RegionKind::Match => {
@@ -70,6 +71,15 @@ impl Em<'_> {
             RegionKind::Each => self.each(r, parent, scope, None)?,
         }
         Ok(())
+    }
+
+    fn status_subject(&mut self, region: u32, parent: &str, subject: String) -> String {
+        let Some(owners) = self.answers.status_region(region) else {
+            return subject;
+        };
+        let owners = super::answers::status_owners(owners);
+        let guard = self.uses.rt("statusSubject");
+        format!("(globalThis.__exactRender?{guard}({parent},{subject},{owners}):{subject})")
     }
 
     /// The declaration of arm `arm`'s own slots, as `name` (the enclosing
@@ -130,6 +140,7 @@ impl Em<'_> {
         let subject = self
             .f(row.subject, scope)
             .map_err(|x| format!("region {r}: {x}"))?;
+        let subject = self.status_subject(r, parent, subject);
         let arms: Vec<u32> = row.arms.iter().map(|a| a.0).collect();
         let (item, index) = (format!("i{r}"), format!("x{r}"));
         let mut inner = scope.clone();

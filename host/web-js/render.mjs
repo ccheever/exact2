@@ -51,7 +51,7 @@ const utcIntl = new vm.Script(`{
 function infer(out) {
   const { waits: kinds, kept } = out.activation;
   const on = [...out.root.matchAll(/ data-exact-on="([^"]*)"/g)].flatMap(m => m[1].split(' '));
-  const waits = !kept && !out.pending.length && !out.due && !out.zoned && on.every(k => kinds.includes(k));
+  const waits = !kept && !out.pending.length && !out.outstanding && !out.continuing && !out.due && !out.zoned && on.every(k => kinds.includes(k));
   return waits ? 'interaction' : 'eager';
 }
 
@@ -179,8 +179,7 @@ export function renderer(dist) {
     making = true;
     setImmediate(() => { making = false; if (!ahead && render.ahead !== false) ahead = realm(); });
   };
-  /** A render begun: its route's policy and the page's head, known before
-   * any data is asked; `finish` settles it and composes the rest. */
+  /** Begin at the page's boot state; `finish` settles its data and composes the document. */
   async function begin(location, viewport = PAGE) {
     const url = new URL(location, 'http://render.invalid');
     const made = ahead ?? realm();
@@ -198,13 +197,14 @@ export function renderer(dist) {
     const head = headOf(info.activate !== 'interaction' && info.activate !== 'inferred');
     return { ...info, location, head, dispose: made.dispose, async finish(deadline = DEADLINE) {
       try {
-        const out = await ctx.__render(deadline);
+        const out = await ctx.__render(deadline, info.canSetStatus !== false);
         const hero = heroImage(out);
         const activate = info.activate === 'inferred' ? infer(out) : info.activate;
         const late = info.activate === 'inferred' && activate !== 'interaction' ? preloads : '';
         const wake = activate === 'interaction' && out.wake.length ? ` data-wake="${esc(JSON.stringify(out.wake))}"` : '';
         const fields = `<title>${esc(out.title || name)}</title><meta name="viewport" content="${viewportMeta}">${crawled(out, url.pathname + url.search)}`;
-        const checkpoint = `{"location":${JSON.stringify(url.pathname + url.search)},"time":${JSON.stringify(out.time)},"logic":null,"answers":${out.answers},"pending":${JSON.stringify(out.pending)}}`;
+        const revalidate = info.activate !== 'never' && (out.outstanding || out.continuing);
+        const checkpoint = `{"location":${JSON.stringify(url.pathname + url.search)},"time":${JSON.stringify(out.time)},"logic":null,"answers":${out.answers},"pending":${JSON.stringify(out.pending)}${revalidate ? ',"revalidate":true' : ''}}`;
         const digest = createHash('sha256').update(out.root).digest('hex').slice(0, 16);
         const style = rules ? `<style data-exact-page>${select(rules, tokens(out.root + shell.slice(root)))}</style>\n` : '';
         // A page made per request that waits for the reader names its answers past 1 KB rather than holding them: they
@@ -221,13 +221,14 @@ export function renderer(dist) {
         makeAhead();
         // The HTTP status, as the render host gives it (lib.rs `Rendered::status`, LLP 1048.000 D11): a location the router
         // sends to its notfound route is 404, or 410 if its head says so; a render at its deadline 503; else the head's own.
-        const status = info.notfound ? (out.status === 410 ? 410 : 404) : out.pending.length ? 503 : out.status ?? 200;
+        const settled = !out.pending.length && !out.outstanding;
+        const status = info.notfound ? (out.status === 410 ? 410 : 404) : !settled ? 503 : out.status ?? 200;
         // A page made only of answers any reader may still be given (one at least), by a render that drew nothing at
         // random and read no clock or reader's device (the plan's `kept`), from TypeScript sources alone, is the page
         // another render would make until the first of those answers goes stale: it may be given again until then, for
         // at most 60 s (LLP 1048.007 D8).
-        const keep = status === 200 && !out.pending.length && !out.failed?.length && out.activation?.kept === false && !out.rust && !read.random && read.fresh > 0 && read.fresh < Infinity ? Math.min(read.fresh, 60000) : 0;
-        return { html: markedHead + body(''), rest: mark + body(late), status, settled: !out.pending.length, failed: out.failed ?? [], render: out.render, location, policy: info.policy, activate, keep };
+        const keep = status === 200 && settled && !out.failed?.length && out.activation?.kept === false && !out.rust && !read.random && read.fresh > 0 && read.fresh < Infinity ? Math.min(read.fresh, 60000) : 0;
+        return { html: markedHead + body(''), rest: mark + body(late), status, settled, failed: out.failed ?? [], render: out.render, location, policy: info.policy, activate, keep };
       } finally { made.dispose(); }
     } };
   }
@@ -267,8 +268,8 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'applic
 /** A page per request for one built dist, as the Rust render server sends it (host/render/src/serve.rs, stream.rs):
  * `page(location, header)`, where `header(name)` reads a request header, answers `{ status, headers, body }`, the body
  * a string, bytes, or a ReadableStream of bytes. A `cached` route's page is kept at the origin for its public lifetime
- * (60 s, 64 locations); brotli (quality 5) when the reader takes it; a browser's navigation gets the head at once and
- * the rest after the render. `render.mjs --serve` and `host/web/serve.mjs` (`serve`, LLP 1153 D3.4) answer with it. */
+ * (60 s, 64 locations); brotli (quality 5) when the reader takes it. A navigation whose page can declare a status waits
+ * for the render; others get the head at once. `render.mjs --serve` and `host/web/serve.mjs` answer with it. */
 // runner/src/viewport.rs's page viewport, and a desktop's that sends no width (host/render/src/viewport.rs `DESKTOP`).
 const PAGE = { width: 390, height: 844 }, DESKTOP = { width: 1280, height: 800 };
 /** The viewport a request is rendered at, as the render host chooses it (LLP 1048.006 D2, viewport.rs `Hints`): its client
@@ -293,7 +294,7 @@ export function pageServer(dist, render = renderer(dist), log = console.log) {
   const brotli = header => /\bbr\b/.test(header('accept-encoding') ?? '');
   const varies = extra => ({ vary: `Accept-Encoding${reads ? `, ${HINTS}, Sec-CH-UA-Mobile, User-Agent` : ''}`, ...(reads ? { 'accept-ch': HINTS } : {}), ...extra });
   const send = (header, html, status, cacheControl) => {
-    const headers = varies({ 'content-type': 'text/html; charset=utf-8', 'cache-control': cacheControl });
+    const headers = varies({ 'content-type': 'text/html; charset=utf-8', 'cache-control': cacheControl, ...(status === 503 ? { 'retry-after': '1' } : {}) });
     if (!brotli(header)) return { status, headers, body: html };
     headers['content-encoding'] = 'br';
     return { status, headers, body: brotliCompressSync(html, { params: { [constants.BROTLI_PARAM_QUALITY]: 5 } }) };
@@ -315,8 +316,8 @@ export function pageServer(dist, render = renderer(dist), log = console.log) {
     };
     // A browser's navigation gets the head now and the rest after the
     // render (host/render/src/stream.rs): a 200, `private, no-cache`; the
-    // not-found page waits for its 404.
-    if (header('sec-fetch-dest') === 'document' && !begun.notfound) {
+    // not-found page and a page that can declare a status wait for the render.
+    if (header('sec-fetch-dest') === 'document' && !begun.notfound && begun.canSetStatus === false) {
       const br = brotli(header);
       let z;
       const body = new ReadableStream({ async start(out) {
@@ -337,7 +338,7 @@ export function pageServer(dist, render = renderer(dist), log = console.log) {
     }
     const page = await begun.finish();
     keep(page);
-    return send(header, page.html, page.status, page.policy === 'cached' ? 'public, max-age=0, s-maxage=60' : 'no-store');
+    return send(header, page.html, page.status, page.policy === 'cached' && page.status === 200 ? 'public, max-age=0, s-maxage=60' : 'no-store');
   };
 }
 
