@@ -16,6 +16,18 @@ test('file preview projects isolated plain headings and preserves fenced code id
   expect(mobileMarkdownBlocks('# Title', false)[0]?.kind).toBe('markdown');
 });
 
+test('unfinished and nested fences stay code through the end of a preview', () => {
+  const cases = [
+    ['```ts\nconst value = 1', 'ts', 'const value = 1'],
+    ['~~~text\ninside\n```\nstill inside', 'text', 'inside\n```\nstill inside'],
+    ['````md\n```\ninside\n```', 'md', '```\ninside\n```'],
+    ['```ts', 'ts', ''],
+  ] as const;
+  for (const [source, language, text] of cases) {
+    expect(mobileFileMarkdownBlocks(source, false)).toMatchObject([{ kind: 'code', language, text }]);
+  }
+});
+
 test('all six heading levels normalize preview newlines without changing the input', () => {
   const body = [1, 2, 3, 4, 5, 6].map(level => `${'#'.repeat(level)} Heading ${level}`).join('\r\n\r\n');
   const headings = mobileFileMarkdownBlocks(body, true);
@@ -33,7 +45,6 @@ test.each([
   'Paragraph\n# Adjacent', '# Adjacent\nParagraph', '  # Indented', '# Title\n\n    code',
   '# Title\n\n- item', '# Title\n\n1. item', '# Title\n\n> quote', '# Title\n\n<div>html</div>',
   '[link][target]\n\n# Title\n\n[target]: https://example.test',
-  '# Title\n\n```ts\n# Inside an unfinished fence', '# Title\n\n~~~\n# Inside an unfinished fence',
 ])('unsupported heading context keeps the existing complete prose projection: %s', body => {
   expect(mobileFileMarkdownBlocks(body, false)).toEqual(mobileMarkdownBlocks(body, false).map(block => ({ ...block, level: 0, columns: 0, rows: [] })));
 });
@@ -80,7 +91,7 @@ test.each([
   '[^note]: first\nsecond', 'An <em>HTML</em>\nparagraph', '<!--\nPlain\nwrapped\n-->',
   'A ~~strike~~\nparagraph', 'A [link](https://example.test)\nparagraph',
   'A &amp; entity\nparagraph', 'Visit https://example.test\ntoday', 'Math $x$\ncontinues',
-  'One\u2028line\ncontinues', '```ts\nPlain\nwrapped', '~~~\nPlain\nwrapped',
+  'One\u2028line\ncontinues',
 ])('unsupported prose keeps the existing complete Markdown input: %s', body => {
   expect(mobileFileMarkdownBlocks(body, false))
     .toEqual(mobileMarkdownBlocks(body, false).map(block => ({ ...block, level: 0, columns: 0, rows: [] })));
