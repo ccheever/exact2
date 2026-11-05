@@ -76,7 +76,7 @@ describe('bounded transcript Markdown reuse', () => {
   test('thread Markdown keeps prose and code selectable like the reference reader', () => {
     const source = appText('mobile/thread-markdown.contract');
     expect(source).toContain('text token.text user-select="text"');
-    expect(source).toContain('text block.text markup="markdown" user-select="text"');
+    expect(source).toContain('text markdownSource(block.text, block.tokens) markup="markdown" user-select="text"');
   });
 
   test('thread Markdown tables expose table roles and stable row and column indices', () => {
@@ -100,7 +100,7 @@ describe('bounded transcript Markdown reuse', () => {
 
   test('thread Markdown prose breaks oversized tokens inside the transcript width', () => {
     const source = appText('mobile/thread-markdown.contract');
-    expect(source).toContain('text block.text markup="markdown" user-select="text" max-width="100%" overflow-wrap="anywhere"');
+    expect(source).toContain('text markdownSource(block.text, block.tokens) markup="markdown" user-select="text" max-width="100%" overflow-wrap="anywhere"');
   });
 
   test('assistant image attachments keep the pinned separation and backing', () => {
@@ -188,6 +188,15 @@ describe('bounded transcript Markdown reuse', () => {
     expect(mobileThreadMarkdownBlocks('Name\n:---\nValue', false)[0]).toMatchObject({ kind: 'table', columns: 1, alignments: ['left'] });
     const crlf = mobileThreadMarkdownBlocks(source.replaceAll('\n', '\r\n'), false);
     expect(crlf).toEqual(blocks);
+  });
+
+  test('reference definitions crossing transcript Markdown blocks resolve in the earlier block', () => {
+    const source = '[label][ref]\n\n~~~\nbarrier\n~~~\n\nAfter.\n\n[ref]: /docs\n';
+    const blocks = mobileThreadMarkdownBlocks(source, false);
+    expect(blocks.map(block => block.kind)).toEqual(['markdown', 'code', 'markdown']);
+    expect(blocks[0]?.tokens.at(-1)).toMatchObject({ slant: 'reference-context', text: '[ref]: /docs' });
+    expect(blocks.at(-1)?.tokens).toEqual([]);
+    expect(blocks[0]?.text).toBe('[label][ref]\n\n');
   });
 
   test('table row cell and run budgets keep dense content complete without evicting small reusable blocks', () => {

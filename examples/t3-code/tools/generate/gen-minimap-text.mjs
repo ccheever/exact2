@@ -20,6 +20,7 @@ export type FileMarkdownPart =
   | { readonly kind: 'heading'; readonly blockIndex: number; readonly idSuffix: string; readonly text: string; readonly level: 1 | 2 | 3 | 4 | 5 | 6 }
   | { readonly kind: 'table'; readonly blockIndex: number; readonly idSuffix: string; readonly columns: number; readonly rows: FileTableRow[] };
 export function fileMarkdownPlan(source: string, blocks: readonly FileMarkdownInput[]): readonly FileMarkdownPart[];
+export function fileMarkdownReferenceContexts(source: string, blocks: readonly FileMarkdownInput[]): readonly string[];
 ` },
   ];
 }

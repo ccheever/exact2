@@ -229,6 +229,16 @@ test('full-document definitions and references veto their chunks while a later o
     .toEqual(mobileMarkdownBlocks(source, false).filter(block => block.kind === 'code').map(block => ({ ...block, level: 0, columns: 0, rows: [] })));
 });
 
+test('reference definitions crossing preview chunks stay available to each native Markdown node', () => {
+  const source = '[label][ref]\n\n~~~\nbarrier\n~~~\n\nAfter.\n\n[ref]: /docs\n';
+  const blocks = mobileFileMarkdownBlocks(source, false), first = blocks[0]!;
+  expect(first).toMatchObject({ kind: 'markdown', text: '[label][ref]\n\n' });
+  expect(first.tokens.at(-1)).toMatchObject({ slant: 'reference-context', text: '[ref]: /docs' });
+  expect(contractFns('mobile/file-view.contract').markdownSource(first.text, first.tokens))
+    .toBe('[label][ref]\n\n[ref]: /docs');
+  expect(blocks.at(-1)?.tokens).toEqual([]);
+});
+
 test('original UTF-16 cuts and repeated content retain every ID and complete highlighted code object', () => {
   const prose = '😀 **ready**\n世界 👋', table = '| **Header** | Value |\n| --- | --- |\n| `item` | **42** |';
   const chunk = `# Heading 👋\n\n${prose}\n\n${table}\n\n${prose}\n\n`;

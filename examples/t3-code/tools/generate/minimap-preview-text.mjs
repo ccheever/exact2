@@ -145,6 +145,33 @@ function matchingProsePlans(source, blocks) {
   return source.slice(end).trim() ? new Map() : matched;
 }
 
+function referenceDefinitionRanges(source) {
+  const document = markdownPreviewParser.parse(source), ranges = [];
+  for (const node of document.children) {
+    if (node.type !== 'definition' && node.type !== 'footnoteDefinition') continue;
+    const range = fileNodeRange(node, 0, source.length);
+    if (range && source.slice(range.start, range.end).trim()) ranges.push(range);
+  }
+  return ranges;
+}
+
+/**
+ * Definitions that live in another Markdown block must be present in each
+ * native text node's parser input. The source text remains untouched; the
+ * caller carries this string as render-only context.
+ */
+export function fileMarkdownReferenceContexts(source, blocks) {
+  if (source.includes('\r') || !source.includes(']:')) return blocks.map(() => '');
+  const plans = matchingProsePlans(source, blocks), ranges = referenceDefinitionRanges(source);
+  if (!ranges.length || plans.size === 0) return blocks.map(() => '');
+  return blocks.map((block, index) => {
+    const segment = plans.get(index);
+    if (!segment || segment.kind !== 'prose') return '';
+    return ranges.filter(range => range.start < segment.start || range.end > segment.end)
+      .map(range => source.slice(range.start, range.end)).join('\n\n');
+  });
+}
+
 function admitsPlainFold(text) {
   for (const line of text.split('\n')) {
     if (/^[ \t]*$/.test(line)) continue;
