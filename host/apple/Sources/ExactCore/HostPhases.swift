@@ -76,11 +76,11 @@ package final class HostPhases: @unchecked Sendable {
     /// Segments the sampler keeps: about a second of a busy fling's.
     package static let capacity = 2048
     /// Whether anything records: a frame sampler, which the host runs where
-    /// one may (not a production bake) and which keeps each phase's segments,
-    /// or a measurement that holds them (`hold`), as the card's measure of the
-    /// screen does in any build, which takes the phases' `total` and the
-    /// operations' counts. Setting it sets the sampler's part. Main thread
-    /// only, as every phase is.
+    /// one may (not a production bake), or a measurement that holds them
+    /// (`hold`), as the card's measure of the screen does in any build. Either
+    /// adds up the phases' `total` and counts operations; only the sampler
+    /// keeps each phase's segments. Setting it sets the sampler's part. Main
+    /// thread only, as every phase is.
     package var on: Bool {
         get { sampling || holds > 0 }
         set {
@@ -97,7 +97,7 @@ package final class HostPhases: @unchecked Sendable {
         holds = max(0, holds + (keep ? 1 : -1))
         noteStart(wasOn: was)
     }
-    /// Counts cover the time from the first start.
+    /// The counts cover the time from when recording first started.
     private func noteStart(wasOn: Bool) { if on, !wasOn, countSince == nil { countSince = clock() } }
     /// Seconds the phases have taken while recording, since launch
     package private(set) var total = 0.0
@@ -144,7 +144,6 @@ package final class HostPhases: @unchecked Sendable {
             next = (next + 1) % Self.capacity
         }
     }
-
 
     /// The phases' time inside `(from, to]`, seconds on the media clock:
     /// `phases` (each one's ms and segments), `unattributed` (the window's

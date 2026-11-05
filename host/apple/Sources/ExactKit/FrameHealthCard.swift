@@ -149,7 +149,7 @@ final class FrameHealthCardReader {
                 index += 1
             }
         }
-        // Room first, so the storage stays what `start` reserved
+        // Room first, so the storage stays what `start` or `keep` reserved
         while let first = samples.first, samples.count >= capacity || now - first.read > seconds { samples.removeFirst() }
         samples.append(s)
         return true
@@ -455,12 +455,12 @@ enum FrameHealthCardText {
         ("Frame rate (FPS)", "Frames of this app per second over the last 0.5s and the last 5s, or the time each window actually covers. Each frame is one UI update, Exact's or UIKit's, such as a step of a scroll; with nothing changing there are none. Core Animation's own animations run outside the app and make no frames of its."),
         ("Exact's clock", "What Exact's own frame clock does beside these frames: idle, at the default rate, or at the rate it asks for, with any system limit. Details gives its frames."),
         ("Displays", "Fixed refresh redraws the screen at one rate. Adaptive refresh, which ProMotion uses, has the system choose the rate from a set to suit the content; frames still land on the display's refreshes."),
-        ("Late frames", "Frames whose last Core Animation commit, as the card sees it just after, came after UIKit's completion deadline, which UIKit says delays their presentation: commit hitches, in Apple's words. Seen just after, a commit that ended just before the deadline can count as late, and an update with no commit seen ends at its completion. Hitches the render server causes are not seen from the app."),
+        ("Late frames", "Frames whose last Core Animation commit, as the card sees it just after, came after UIKit's completion deadline, which UIKit says delays their presentation: commit hitches, in Apple's words. Seen just after, a commit that ended just before the deadline can count as late, and an update whose commit the card does not see is timed to its end. Hitches the render server causes are not seen from the app."),
         ("Work time", "The main thread's time in a frame's update, from its start until its last Core Animation commit as the card sees it, less any wait between. The work chart has a gridline at each whole refresh at the display's highest rate, 8.3ms, 16.7ms, 25ms and 33.3ms at 120 Hz, the first dotted: to keep that rate, a frame's work must stay under one refresh, though UIKit's deadline for each frame comes later, as the render server draws it after. The card records work time in 0.5ms steps below 24ms, and the table rounds the median up to its step."),
         ("Late by", "How far past UIKit's deadline the card saw the median late frame's last commit."),
         ("Main thread", "The main thread's longest spell of work without waiting, and the spells longer than one refresh at the display's highest rate, which would hold up a frame due then, whether or not anything moves. The work chart plots each long spell against that refresh. The card's own work is not counted."),
         ("No frame times", "The card does not give the time between frames: it observes updates without asking for any, and cannot tell a refresh the app had nothing to draw for, such as between two taps, from one it missed. Frames held up by work show as the main thread's long spells."),
-        ("Not measured", "When a picture actually appeared on screen, compositor and GPU time, Core Animation's own animations and input latency. The card's own changes go out with the app's frames, or in updates it does not count; dragging the card makes frames of the app's."),
+        ("Not measured", "When a picture actually appeared on screen, compositor and GPU time, Core Animation's own animations and input latency. The card's own changes go out with the app's frames, or in transactions of its own that take no update; dragging the card makes frames of the app's."),
     ]
 
     static let definitions: [(String, String)] = [

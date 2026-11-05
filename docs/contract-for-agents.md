@@ -3285,10 +3285,10 @@ of frames the lines reach across tenths of a second without frames; an idle app,
 and a reset leave gaps. The charts start no display link and store no file. Measuring
 Exact's frames, they take the frames the app's clock already runs and move with the time
 on a tenth-of-a-second timer of their own, which stops once their newest mark has left
-them, and the figures update every half second, and at once when the source stops, on
-the existing bounded publication pass in common run-loop modes, so touch tracking does
-not suspend them. Measuring the screen, the charts take every UI update and glide on
-Core Animation, and the card reads on a half-second timer of its own in place of
+them. Their figures update every half second, and at once when the source stops, on the
+existing bounded publication pass in common run-loop modes, so touch tracking does not
+suspend them. Measuring the screen, the charts take every UI update and glide on Core
+Animation, and the card reads on a half-second timer of its own in place of
 publications, which stops as it hides. The reader creates no display link, reads nothing
 while the card is hidden, paused or detached, and keeps at most 60 half-second samples;
 the first read after a pause covers the paused span. During native scrolling, a card

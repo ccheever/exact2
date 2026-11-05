@@ -36,7 +36,7 @@ final class FrameHealthOverlay: UIView {
     /// A change waits for the app's next frame, to go out with it
     private var needsShow = false
     /// While the card measures the screen, it reads twice a second in place of the collectors' publications, so its
-    /// figures follow the time while the app is idle, and paused or not, stops once it cannot be seen
+    /// figures follow the time while the app is idle; paused or not, it stops reading once the card cannot be seen
     private var reading: Timer?
     private var keyboard: CGRect?
     private var availableFrame = CGRect.zero
@@ -203,7 +203,7 @@ final class FrameHealthOverlay: UIView {
         guard on, observing else { return }
         let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self else { return }
-            // Hidden with no change of its own, as under a hidden ancestor, the card stops reading
+            // Hidden though nothing of its own changed, as under a hidden ancestor, the card stops reading
             guard self.canBeSeen else { self.refresh(); return }
             guard !self.paused else { return }
             asCard {
@@ -932,8 +932,12 @@ final class FrameHealthCardView: UIView {
 extension FrameHealthCardView {
     /// Details' rows and caption on one opaque surface, at the card's scale.
     final class DetailsView: Pictured {
-        private var rows: [FrameHealthCardText.Detail] = [], caption = "", width: CGFloat = 0, scale: CGFloat = 1
-        private var palette: FrameHealthCardDrawing.Palette?
+        /// What it shows, at the card's width and scale
+        private struct Shown: Equatable {
+            var rows: [FrameHealthCardText.Detail], caption: String, width: CGFloat, scale: CGFloat
+            var palette: FrameHealthCardDrawing.Palette
+        }
+        private var shown: Shown?
         override init(frame: CGRect) {
             super.init(frame: frame)
             isOpaque = true
@@ -943,16 +947,16 @@ extension FrameHealthCardView {
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
         /// Show these rows; only a change draws them again.
         func set(rows: [FrameHealthCardText.Detail], caption: String, width: CGFloat, scale: CGFloat, palette: FrameHealthCardDrawing.Palette) {
-            guard rows != self.rows || caption != self.caption || width != self.width || scale != self.scale || palette != self.palette
-            else { return }
+            let next = Shown(rows: rows, caption: caption, width: width, scale: scale, palette: palette)
+            guard next != shown else { return }
+            shown = next
             backgroundColor = UIColor(cgColor: palette.background)
-            (self.rows, self.caption, self.width, self.scale, self.palette) = (rows, caption, width, scale, palette)
             layer.setNeedsDisplay()
         }
         override func paint() {
-            guard let ctx = UIGraphicsGetCurrentContext(), let palette else { return }
-            ctx.scaleBy(x: scale, y: scale)
-            FrameHealthCardFace.details(ctx, width: width, rows: rows, caption: caption, palette: palette)
+            guard let ctx = UIGraphicsGetCurrentContext(), let shown else { return }
+            ctx.scaleBy(x: shown.scale, y: shown.scale)
+            FrameHealthCardFace.details(ctx, width: shown.width, rows: shown.rows, caption: shown.caption, palette: shown.palette)
         }
     }
 }

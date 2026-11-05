@@ -158,19 +158,18 @@ final class FrameHealthScreen {
 
     /// The update completed at `now`, and UIKit expects it on screen at `presented`.
     func completed(presented: Double, now: Double = CACurrentMediaTime()) {
-        guard let update else { return }
-        self.update = nil
-        let phases = HostPhases.shared
         // Its work ends at its last commit, or with none seen, at its completion
-        let end = update.committed ?? (now, phases.total, phases.counted(.nodeLayouts), update.card)
+        if update?.committed == nil { committed(at: now) }
+        guard let update, let end = update.committed else { return }
+        self.update = nil
         let finished = end.at
         // Its work is the main thread's time in it, less its waits, taken to begin that much after the update was
         // scheduled and to end at the commit
         let start = min(finished, update.start + update.waited)
         // Its work split, for a late frame the capture keeps
         if health.captureID != 0, finished > update.deadline {
-            health.split(at: start, waited: update.waited, exact: phases.on ? end.phases - update.phases : nil,
-                card: end.card, layouts: phases.on ? end.layouts - update.layouts : nil)
+            health.split(at: start, waited: update.waited, exact: end.phases - update.phases, card: end.card,
+                layouts: end.layouts - update.layouts)
         }
         health.record(arrival: start, target: update.deadline, period: 0, finished: finished,
             flags: health.captureID == 0 ? 0 : health.environmentFlags | update.flags)
