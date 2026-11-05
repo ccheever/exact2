@@ -18,6 +18,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { spawn } from 'node:child_process';
 import { relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import process from 'node:process';
 
 const KEEP = 7 * 86_400_000, EVERY = 3_600_000;
 const RESET = 86_400; // 1970-01-02, in seconds: older than any real mtime
@@ -36,8 +37,10 @@ export function startSweep(target, now = Date.now()) {
   const ledger = resolve(target, LEDGER);
   if (existsSync(ledger) && now - JSON.parse(readFileSync(ledger, 'utf8')).at < EVERY) return;
   const err = openSync(log, 'a');
-  spawn(process.execPath, [fileURLToPath(import.meta.url), target], { detached: true, stdio: ['ignore', 'ignore', err] }).unref();
+  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), resolve(target)], { cwd: import.meta.dirname, detached: true, stdio: ['ignore', 'ignore', err] });
+  child.unref();
   closeSync(err);
+  return child;
 }
 
 async function locker() {

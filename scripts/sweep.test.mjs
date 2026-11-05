@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import process from 'node:process';
 import { startSweep, sweep } from './sweep.mjs';
 
 const DAY = 86_400_000;
@@ -23,6 +24,28 @@ function target() {
   return t;
 }
 const has = (t, ...p) => existsSync(resolve(t, 'debug', ...p));
+
+test.skipIf(process.platform === 'win32')('a detached sweep ignores the caller’s TypeScript config and resolves its target there', async () => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'exact-sweep-caller-'));
+  const cache = resolve(directory, 'target');
+  mkdirSync(cache);
+  writeFileSync(resolve(directory, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleSuffixes: ['.ios', ''] } }));
+  const previous = process.cwd();
+  let child;
+  try {
+    process.chdir(directory);
+    child = startSweep('./target');
+  } finally { process.chdir(previous); }
+  try {
+    const status = await new Promise((ok, fail) => {
+      child.once('error', fail);
+      child.once('close', ok);
+    });
+    assert.equal(status, 0, readFileSync(resolve(cache, '.exact-sweep.log'), 'utf8'));
+    assert.ok(existsSync(resolve(cache, '.exact-sweep.json')));
+    assert.equal(readFileSync(resolve(cache, '.exact-sweep.log'), 'utf8'), '');
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+}, 30_000);
 
 test.skipIf(process.platform === 'win32')('a unit no build has read for a week goes; one read since the last sweep stays', async () => {
   const t = target(), now = Date.now();
