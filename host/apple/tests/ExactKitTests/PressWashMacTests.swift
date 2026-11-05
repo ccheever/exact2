@@ -19,12 +19,13 @@ final class PressWashMacTests: XCTestCase {
     /// A pressable button (1): rounded, bordered, filled, with a label (2)
     /// in black on white, 18 pt in a 20 pt line so its ink overflows the
     /// line box and AppKit draws it on a content layer of its own.
-    private func fixture() -> Presenter {
+    private func fixture(zoom: Double = 1) -> Presenter {
         _ = NSApplication.shared
         // A session's presenter, whose text engine lays out and draws the label.
         let session = ExactApp.shared.makeSession(label: "press-wash")
         self.session = session
         let p = session.presenter
+        if zoom != 1 { session.pageZoom = zoom }
         window = NSWindow(contentRect: NSRect(x: 40, y: 40, width: 240, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.backgroundColor = .white
@@ -219,6 +220,57 @@ final class PressWashMacTests: XCTestCase {
         settle()
         let after = try XCTUnwrap(onScreen())
         XCTAssertGreaterThan(ink(after, in: moved), 40, "the label shows after the press and the move")
+    }
+
+    /// The copy the wash's picture is drawn from shares none of AppKit's
+    /// backing stores either, and draws the label's ink where the window
+    /// shows it, at Actual Size and under a page zoom (a 2.4 device scale).
+    /// At 120% a sidebar row's project name went blank after a press once a
+    /// copy shared its backing store, until the row was laid out again.
+    func testTheWashCopyDrawsWhatAppKitDrewAgain() throws {
+        for zoom in [1, 1.2] {
+            session?.destroy(); window?.orderOut(nil)
+            let p = fixture(zoom: zoom)
+            // Small enough that AppKit draws it at both scales, not a raster (`textIsSmall`).
+            p.apply(wireBatch([["op": "frame", "id": 2, "x": 10.0, "y": 10.0, "w": 100.0, "h": 20.0]]))
+            window.orderFrontRegardless()
+            settle()
+            let button = try XCTUnwrap(p.views[1]), layer = try XCTUnwrap(button.layer)
+            let text = try XCTUnwrap(p.views[2]), textLayer = try XCTUnwrap(text.layer)
+            XCTAssertTrue(Capture.borrowsBackingStore(textLayer) || textLayer.sublayers?.contains(where: Capture.borrowsBackingStore) == true,
+                          "AppKit draws the label: the case this covers")
+            let scale = try XCTUnwrap(button.pixelScale)
+            let tree = Capture.paintOrderLayer(of: button, root: layer, redraw: scale)
+            defer { Capture.releasePaintCopy(tree) }
+            XCTAssertTrue(Set(contents(tree)).isDisjoint(with: Set(stores(layer))), "at \(zoom), the copy shares a view's backing store")
+            // The label's ink rows in the copy's picture and on screen, in device pixels of the button's box.
+            let picture = try XCTUnwrap(Capture.picture(of: tree, size: layer.bounds.size, scale: scale))
+            guard let shown = onScreen() else { throw XCTSkip("no window server picture") }
+            let box = button.convert(button.bounds, to: nil)
+            let onScreenBox = CGRect(x: box.minX, y: window.frame.height - box.maxY, width: box.width, height: box.height)
+            XCTAssertEqual(inkRows(picture, in: CGRect(origin: .zero, size: layer.bounds.size), scale: scale),
+                           inkRows(shown, in: onScreenBox, scale: CGFloat(shown.width) / window.frame.width), "at \(zoom)")
+        }
+    }
+
+    /// Every backing store AppKit drew into in a layer tree.
+    private func stores(_ layer: CALayer) -> [ObjectIdentifier] {
+        (Capture.borrowsBackingStore(layer) ? [ObjectIdentifier(layer.contents! as AnyObject)] : []) + (layer.sublayers ?? []).flatMap(stores)
+    }
+
+    /// The first and last rows of near-black ink in a rectangle of an image
+    /// (points, top-left origin), counted from the rectangle's top.
+    private func inkRows(_ image: CGImage, in rect: CGRect, scale: CGFloat) -> ClosedRange<Int>? {
+        let box = CGRect(x: rect.minX * scale, y: rect.minY * scale, width: rect.width * scale, height: rect.height * scale).integral
+        guard let crop = image.cropping(to: box) else { return nil }
+        let w = crop.width, h = crop.height
+        var pixels = [UInt8](repeating: 0, count: w * h * 4)
+        let ctx = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.draw(crop, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let rows = (0..<h).filter { y in (0..<w).contains { x in let i = (y * w + x) * 4; return pixels[i + 3] > 200 && pixels[i] < 96 && pixels[i + 1] < 96 && pixels[i + 2] < 96 } }
+        guard let first = rows.first, let last = rows.last else { return nil }
+        return first...last
     }
 }
 #endif
