@@ -81,10 +81,11 @@ unpacks it into `<T3 home>/runtime/versions/<version>` and starts `t3 --bootstra
 desktop envelope; it restarts the server with T3 Code's backoff, keeps its failure log in
 `<T3 home>/userdata/logs/server-child.log`, and stops it when the app quits. While the server fails
 to start, T3 Code opens a "T3 Code could not start" window with the server's output, Copy details and
-an update or releases offer (DesktopStartupRecovery.ts); the clone has no such window. Its window shows
-the reconnecting state with the last exit; when the managed policy refused the start (exit code 77),
-that state and Settings › Connections › This machine say so at the first refusal, as the reference's
-window does, and the restarts go on until a run is ready. Closing the window
+an update or releases offer (DesktopStartupRecovery.ts); the clone has no such window, and its main
+window shows the home with no server. When the managed policy refused the start (exit code 77),
+Settings › Environments › Local server says so from the first refusal, as the reference's window does
+("Connection failed: Your organization's managed policy stopped T3 Code from starting."), and the
+restarts go on until a run is ready. Closing the window
 (File › Close Window, the red button) does not quit: `app.json` sets
 `host.macos.window.keepRunning`, so the window hides and the app, its session and the server keep
 running, as the reference's (`DesktopLifecycle.ts`: `window-all-closed` quits only off macOS). The
