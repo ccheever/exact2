@@ -45,18 +45,17 @@ func requireFront(_ window: UIWindow?) throws {
     if let refusal = Agent.frontRefusal(window) { throw missing("foreground", refusal) }
 }
 
-/// Wait for the hosted test app's scene to connect before checking its prerequisites.
-func hostedWindowScene() -> UIWindowScene? {
-    MainActor.assumeIsolated {
-        func connected() -> UIWindowScene? {
-            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+extension XCTestCase {
+    /// Wait for the hosted test app's scene to connect before checking its prerequisites.
+    func hostedWindowScene() -> UIWindowScene? {
+        MainActor.assumeIsolated {
+            func connected() -> UIWindowScene? {
+                UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+            }
+            guard Bundle.main.object(forInfoDictionaryKey: "UIApplicationSceneManifest") != nil else { return connected() }
+            waitFor("the hosted test app's scene to connect", cap: 5, onFailure: { print($0) }) { connected() != nil }
+            return connected()
         }
-        guard Bundle.main.object(forInfoDictionaryKey: "UIApplicationSceneManifest") != nil else { return connected() }
-        let deadline = Date().addingTimeInterval(5)
-        while connected() == nil, Date() < deadline {
-            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
-        }
-        return connected()
     }
 }
 #endif
