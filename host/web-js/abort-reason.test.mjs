@@ -36,10 +36,10 @@ test('an aborted fetch rejects with its signal\'s reason; an exactTimeout is sti
     const set = createGrantSet(JSON.parse(run.stdout));
     // The rejection of a fetch made with `init`. With `abort`, it is called once the request has arrived (or the fetch
     // has already settled, which the assertions then catch), within a bound; a timeout's fetch is simply awaited.
-    const rejection = async (init, abort, decided = false) => {
+    const rejection = async (init, abort, decided = false, expires = null) => {
       const before = arrived.length;
       let settled = false;
-      const fetched = fetchWith(set, `${server.url.origin}/held`, init, null, undefined, undefined, 'app', decided).then(() => null, e => e).finally(() => { settled = true; });
+      const fetched = fetchWith(set, `${server.url.origin}/held`, init, expires, undefined, undefined, 'app', decided).then(() => null, e => e).finally(() => { settled = true; });
       if (abort) {
         const bound = performance.now() + 10_000;
         while (arrived.length === before && !settled) {
@@ -63,6 +63,9 @@ test('an aborted fetch rejects with its signal\'s reason; an exactTimeout is sti
     const deadline = await rejection({ exactTimeout: 30 });
     expect(deadline).toBeInstanceOf(FetchError);
     expect([deadline.kind, deadline.message]).toEqual(['Timeout', 'the request timed out after 30 ms']);
+    // File work spends part of the timeout before sending; the error names the timeout the caller set
+    const remaining = await rejection({ exactTimeout: 30 }, undefined, true, { at: performance.now() + 30, ms: 300 });
+    expect([remaining.kind, remaining.message]).toEqual(['Timeout', 'the request timed out after 300 ms']);
     // With the app's own signal too, a deadline that ends it first is still the Timeout.
     const beside = new AbortController();
     const first = await rejection({ signal: beside.signal, exactTimeout: 30 });
