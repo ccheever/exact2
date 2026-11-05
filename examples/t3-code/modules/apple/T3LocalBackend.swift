@@ -784,6 +784,7 @@ final class T3LocalBackend: @unchecked Sendable {
         status["nextRestartMs"] = manager.nextRestartMs.map { Int($0.rounded()) } ?? NSNull()
         status["pid"] = snapshot.activePid.map { Int($0) } ?? NSNull()
         status["lastExit"] = manager.lastExit ?? NSNull()
+        status["managedPolicy"] = manager.managedPolicyRefused
         status["bearerReady"] = auth.cached != nil
         if manager.stateDirOwned { status["failure"] = "\(T3LocalFatal.homeUnavailableTitle). \(T3LocalFatal.homeUnavailableMessage)" }
     }

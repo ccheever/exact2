@@ -85,3 +85,24 @@ describe('the clone\'s banner projection', () => {
     expect(formatProviderDriverKindLabel('acp_registry')).toBe('Acp Registry');
   });
 });
+
+// ProviderStatusBanner's Refresh at T3 Code v0.1.7 (#24861).
+describe('the banner\'s Refresh', () => {
+  test('names its provider and asks for the banner\'s instance with its models, one request at a time', async () => {
+    const { refreshProviderBanner, providerBannerRefreshState } = await import('../../src/providers/provider-banner-refresh');
+    expect(providerBanner(warningProvider()).providerBannerRefresh).toBe('Refresh Codex provider status');
+    const calls: unknown[][] = [];
+    let release = () => {};
+    const client = { providerId: 'codex', ready: true, scopes: ['orchestration:read'],
+      rpc: (_native: unknown, method: string, payload: unknown) => { calls.push([method, payload]); return new Promise<void>(resolve => { release = resolve; }); } };
+    const native = { later: async () => ({}) };
+    const first = refreshProviderBanner(client as never, native as never);
+    await Promise.resolve(); await Promise.resolve();
+    expect(providerBannerRefreshState(client as never)).toEqual({ providerBannerCanRefresh: true, providerBannerRefreshing: true });
+    await refreshProviderBanner(client as never, native as never);
+    release(); await first;
+    expect(calls).toEqual([['server.refreshProviders', { instanceId: 'codex', refreshModels: true }]]);
+    expect(providerBannerRefreshState(client as never).providerBannerRefreshing).toBe(false);
+    expect(providerBannerRefreshState({ ...client, scopes: [] } as never).providerBannerCanRefresh).toBe(false);
+  });
+});

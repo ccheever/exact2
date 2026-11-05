@@ -98,12 +98,13 @@ test('the list is no tree: Tab visits each row, a button, and its actions; the a
   }
 });
 
-test("Copy › Thread's chip is the composer's own link for that thread, which a paste reads back as a thread chip", async () => {
+test("Copy › Thread is the thread's hosted link, which a paste reads back as a thread chip", async () => {
   const { threadChipCopyTarget } = await import('../../src/sidebar/thread-reference');
-  const { contextId, contextLink, contextReferences } = await import('../../src/composer/composer-editor-menu');
-  const id = '0b7c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d';
-  expect(threadChipCopyTarget(id, '  A  [title] ').value).toBe(contextLink('thread', contextId('thread', id), 'A title'));
-  expect(contextReferences(threadChipCopyTarget(id, 'Notes').value)).toEqual([{ kind: 'thread', id: `thread_${id}`, label: 'Notes' }]);
+  const { pastedThreadLinkChips } = await import('../../src/timeline/thread-links');
+  const { contextReferences } = await import('../../src/composer/composer-editor-menu');
+  const id = '0b7c1d2e-3f40-4a5b-8c6d-7e8f9a0b1c2d', target = threadChipCopyTarget({ environmentId: 'env', threadId: id }, '  A  [title] ');
+  expect(target).toMatchObject({ value: `https://app.t3.codes/threads/env/${id}`, description: 'A title' });
+  expect(contextReferences(pastedThreadLinkChips(target.value, [{ id, title: 'Notes' }], 'env'))).toEqual([{ kind: 'thread', id: `thread_${id}`, label: 'Notes' }]);
 });
 
 test('Turn into project: a No project thread with its own folder, on a server that offers it; the toasts name the outcome', async () => {

@@ -50,6 +50,8 @@ export const DETAILS_FRAMES = {
   fullTop: 'details-full-top', fullTail: 'details-full-tail', fullGit: 'details-full-git',
   /** The Automations, Lineage and Side chats sections (inside `fullTail`), which the density does not count. */
   automations: 'details-automations', lineage: 'details-lineage', sideChats: 'details-side-chats',
+  /** The Servers rows past the first four, shown by "Show more", which the density does not count either. */
+  serverOverflow: 'details-server-overflow',
   /** The expanded list of the thread's other pull requests (ThreadDetailsPrRows), which the density does not count either. */
   prList: 'details-pr-list',
   /** The Version Control section, whose hairline only `full` draws. */
@@ -66,7 +68,7 @@ const frameHeight = (value: unknown): number | null =>
 
 /**
  * ThreadDetailsCard's measure (`element.offsetHeight` plus the card's 1 pt borders) for the density the frames were
- * laid out in. Automations, Lineage, Side chats and the expanded pull request list scroll as they grow, so the height a density must fit
+ * laid out in. Servers past four, Automations, Lineage, Side chats and the expanded pull request list grow on request, so the height a density must fit
  * leaves them out: counting them would fold away the section and workspace rows when the user asks to see more of
  * them. A full layout gives both fitting heights
  * (the compact one is the content without the parts only `full` shows, where the reference lays the compact rows out
@@ -84,7 +86,7 @@ export function measureThreadDetailsCard(frames: Record<string, unknown>): Parti
     const folded = top + (frameHeight(frames[DETAILS_FRAMES.fullTail]) ?? 0) + (frameHeight(frames[DETAILS_FRAMES.fullGit]) ?? 0)
       + (frameHeight(frames[DETAILS_FRAMES.vcs]) === null ? 0 : 1);
     const scrolling = (frameHeight(frames[DETAILS_FRAMES.automations]) ?? 0) + (frameHeight(frames[DETAILS_FRAMES.lineage]) ?? 0)
-      + (frameHeight(frames[DETAILS_FRAMES.sideChats]) ?? 0);
+      + (frameHeight(frames[DETAILS_FRAMES.sideChats]) ?? 0) + (frameHeight(frames[DETAILS_FRAMES.serverOverflow]) ?? 0);
     return { full: full - scrolling - prList, compact: Math.max(0, full - folded - prList), content: full };
   }
   return frameHeight(frames[DETAILS_FRAMES.compact]) === null ? {} : { compact: full - prList };

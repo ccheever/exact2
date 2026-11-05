@@ -230,6 +230,18 @@ final class LocalShellEnvironmentTests: XCTestCase {
         XCTAssertFalse(output.contains("noise"))
     }
 
+    /// A shell stuck in the kernel survives SIGTERM and SIGKILL; the probe gives up on it instead of waiting for
+    /// its exit. Here the signals are swallowed, so `sleep` plays that shell.
+    func testTheProbeGivesUpOnAShellThatSurvivesTheKill() {
+        var signalled: [Int32] = [], pid: pid_t = 0
+        let started = Date()
+        let output = T3LocalShellEnvironment.runCommand("/bin/sleep", ["30"], 0.2, signal: { child, signal in pid = child; signalled.append(signal); return 0 })
+        XCTAssertEqual(output, "")
+        XCTAssertEqual(signalled, [SIGTERM, SIGKILL])
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5, "it returns soon after the timeout")
+        if pid > 0 { kill(pid, SIGKILL) }
+    }
+
     func testTheRealLoginShellIsAskedWithTheReferenceMarkers() {
         let command = T3LocalShellEnvironment.captureCommand("/bin/zsh", ["PATH"])
         XCTAssertEqual(command, "printf '%s\\n' '__T3CODE_ENV_PATH_START__'; printenv PATH || true; printf '%s\\n' '__T3CODE_ENV_PATH_END__'")

@@ -1,6 +1,6 @@
 // The workspace / branch context strip under the draft composer,
 // adapted from T3 Code (MIT); see LICENSE-T3. Sources at 9c161462c9 (the two selectors'
-// tooltip shortcuts at 74541bab17, resolveBranchSelectionTarget at 322f6544df): components/BranchToolbar.tsx, BranchToolbarEnvModeSelector.tsx,
+// tooltip shortcuts at 74541bab17): components/BranchToolbar.tsx, BranchToolbarEnvModeSelector.tsx,
 // BranchToolbarBranchSelector.tsx, BranchPicker.tsx, BranchToolbar.logic.ts
 // (shouldShowComposerContextStrip, resolveBranchTriggerLabel) and
 // packages/client-runtime/src/operations/commands.ts (launch workspaceStrategy).
@@ -118,13 +118,6 @@ export function serverThreadWorkspace(client: T3Client): Obj | null {
   const base = serverEnvBranch(client) || defaultRefName(client) || (entry?.refName ?? '');
   if (!base) throw new ClientError('Select a base branch before sending in New worktree mode.');
   return { type: 'worktree', baseRef: base, ...(serverOrigin(client) ? { startFromOrigin: true } : {}) };
-}
-/**
- * resolveBranchSelectionTarget's test for a ref's worktree: the checkout `checkoutRoot` names (the project status's
- * working-tree root), or until that status loads, any checkout that contains the project.
- */
-export function isProjectCheckout(projectCwd: string, worktreePath: string, checkoutRoot: string | undefined): boolean {
-  return checkoutRoot === undefined ? workspaceRelativeFilePath(projectCwd, worktreePath) !== null : workspaceRelativeFilePath(checkoutRoot, worktreePath) === '.';
 }
 /** The thread's (or draft's) worktree, else null: the strip's activeWorktreePath. */
 function activeWorktree(client: T3Client): string {
@@ -327,6 +320,13 @@ async function setThreadBranch(client: T3Client, native: Native, storage: Files,
     branch: branch || null, worktreePath: worktreePath || null }, 'Change branch');
 }
 
+/**
+ * resolveBranchSelectionTarget's project checkout (T3 Code v0.1.7 #29908): a ref's worktree is the project's own when
+ * it is the checkout root of the project folder; until that root loads, a checkout containing the project counts.
+ */
+export function isProjectCheckout(projectCwd: string, checkoutRoot: string | undefined, worktreePath: string): boolean {
+  return checkoutRoot === undefined ? workspaceRelativeFilePath(projectCwd, worktreePath) !== null : workspaceRelativeFilePath(checkoutRoot, worktreePath) === '.';
+}
 /** BranchToolbarBranchSelector.selectBranch / createRef. */
 export async function selectBranch(client: T3Client, native: Native, storage: Files, name: string, create = false, known?: Obj): Promise<string> {
   const root = projectRoot(client), cwd = cwdFor(client);
@@ -339,11 +339,11 @@ export async function selectBranch(client: T3Client, native: Native, storage: Fi
     contexts(client)[client.draftKey] = { envMode: 'worktree', branch: name, worktreePath: '' };
     return '';
   }
-  // resolveBranchSelectionTarget: a ref checked out in a worktree is reused there; the project's own checkout (a
-  // subfolder project's sits at the repository root) keeps the thread in the project folder.
+  // resolveBranchSelectionTarget: a ref checked out in a worktree is reused there; the project's own checkout keeps
+  // the thread in the project folder, a subfolder project's included.
   if (!create && str(ref?.worktreePath)) {
-    const path = str(ref!.worktreePath);
-    await setThreadBranch(client, native, storage, name, isProjectCheckout(root, path, workingTreeRoot(peekVcsStatus(client, root)) || undefined) ? '' : path);
+    const path = str(ref!.worktreePath), checkoutRoot = workingTreeRoot(peekVcsStatus(client, root)) || undefined;
+    await setThreadBranch(client, native, storage, name, isProjectCheckout(root, checkoutRoot, path) ? '' : path);
     return '';
   }
   const nextWorktree = !create && worktreePath && ref?.isDefault === true ? '' : worktreePath;

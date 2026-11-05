@@ -11,8 +11,8 @@
 // and one key of the wrong type makes the whole document invalid (the schema decode fails). A write keeps
 // only the values that differ from the defaults (sparse), in the schema's key order, as compact JSON and a
 // newline, through `<target>.<pid>.<uuid>.tmp` and a rename onto the symlink chain's target; a failed write
-// leaves the settings in memory as they were. Keys this app never changes (window bounds, the Linux password
-// store, WSL) are carried through as the reference normalizes them. The update channel is General › About's
+// leaves the settings in memory as they were and removes its temporary file (reference 322f6544dfad). Keys
+// this app never changes (window bounds, the Linux password store, WSL) are carried through as the reference normalizes them. The update channel is General › About's
 // Update track: saved as the reference's no-feed select saves it (`setUpdateChannel`), read by no feed.
 //
 // One-time carry-over: before this file, the clone kept the four keys at the top level of its own
@@ -296,6 +296,8 @@ final class T3DesktopSettingsStore: @unchecked Sendable {
         let encoded = T3DesktopSettings.encode(settings, defaults: defaults)
         do { guard failStep != "create-directory" else { throw CocoaError(.fileWriteUnknown) }
              try fileManager.createDirectory(atPath: directory, withIntermediateDirectories: true) } catch { throw fail("create-directory", directory) }
+        // A failed write or rename leaves no temporary file behind; after a rename there is none to remove.
+        defer { unlink(tempPath) }
         do { guard failStep != "write-temporary-file" else { throw CocoaError(.fileWriteUnknown) }
              try Data("\(encoded)\n".utf8).write(to: URL(fileURLWithPath: tempPath)) } catch { throw fail("write-temporary-file", tempPath) }
         guard failStep != "replace-settings-file", rename(tempPath, target) == 0 else { throw fail("replace-settings-file", settingsPath.path) }

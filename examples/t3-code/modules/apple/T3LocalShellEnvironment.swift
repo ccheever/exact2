@@ -199,8 +199,14 @@ enum T3LocalShellEnvironment {
     /// The production runner (`readEnvironmentFromLoginShell`'s `detached: true, stdio: ["ignore", "pipe",
     /// "ignore"]`): a new session, so job control in an interactive shell finds no controlling terminal to
     /// stop it on; stdin from /dev/null, stdout read, stderr discarded; SIGTERM at the timeout (then SIGKILL
-    /// after 1 s). "" on failure.
+    /// after 1 s). "" on failure. A shell stuck in the kernel survives SIGKILL, so the probe does not wait
+    /// for its exit (DesktopShellEnvironment.ts `runCommandOutput`, reference 322f6544dfad).
     static func runCommand(_ command: String, _ args: [String], _ timeout: TimeInterval) -> String {
+        runCommand(command, args, timeout, signal: { kill($0, $1) })
+    }
+
+    /// `runCommand` with the signal sender a test replaces.
+    static func runCommand(_ command: String, _ args: [String], _ timeout: TimeInterval, signal: (pid_t, Int32) -> Int32) -> String {
         var fds: [Int32] = [-1, -1]
         guard pipe(&fds) == 0 else { return "" }
         var actions: posix_spawn_file_actions_t?
@@ -240,8 +246,8 @@ enum T3LocalShellEnvironment {
             done.signal()
         }
         if done.wait(timeout: .now() + timeout) == .timedOut {
-            kill(pid, SIGTERM)
-            if done.wait(timeout: .now() + 1) == .timedOut { kill(pid, SIGKILL); done.wait() }
+            _ = signal(pid, SIGTERM)
+            if done.wait(timeout: .now() + 1) == .timedOut { _ = signal(pid, SIGKILL) }
             _ = drained.wait(timeout: .now() + 1)
             return ""
         }

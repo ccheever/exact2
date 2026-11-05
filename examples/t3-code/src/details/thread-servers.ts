@@ -1,4 +1,4 @@
-// The thread details card's Servers section (T3 Code 6d450a4284, MIT, see LICENSE-T3: components/chat/ThreadServersPanel.tsx,
+// The thread details card's Servers section (T3 Code 6d450a4284 and v0.1.7's paging, MIT, see LICENSE-T3: components/chat/ThreadServersPanel.tsx,
 // portDiscoveryState.ts useThreadDiscoveredPorts, components/preview/openDiscoveredPort.ts): the web servers this thread's
 // terminals and agent started, from the focused environment's `subscribeDiscoveredLocalServers` (no configured URLs),
 // hidden while none run. A press opens the server in a Browser tab beside the thread, ⌘-press in the system browser;
@@ -19,8 +19,8 @@ import { DETAILS_DISCOVERED_SERVERS_KEY, discoveredServers, preparedConnection, 
   type DiscoveredLocalServer } from '../browser/browser-targets';
 
 export type ThreadServerRow = { key: string; port: number; label: string; source: string; stoppable: boolean; stopping: boolean };
-export type ThreadServersView = { show: boolean; canOpen: boolean; busy: boolean; rows: ThreadServerRow[] };
-export const NO_SERVERS: ThreadServersView = { show: false, canOpen: false, busy: false, rows: [] };
+export type ThreadServersView = { show: boolean; thread: string; canOpen: boolean; busy: boolean; rows: ThreadServerRow[] };
+export const NO_SERVERS: ThreadServersView = { show: false, thread: '', canOpen: false, busy: false, rows: [] };
 
 const serverKey = (server: DiscoveredLocalServer) => `${server.pid}:${server.port}`;
 /** The server being stopped, by client: one at a time, as the reference's `stoppingKey`. */
@@ -43,7 +43,7 @@ export function threadServersView(client: T3Client, threadId: string): ThreadSer
   const canStop = can(client, 'terminal:operate'), supportsStop = obj(obj(client.config.environment).capabilities).localServerStop === true;
   const busy = stopping.get(client) ?? '';
   return {
-    show: true, canOpen: can(client, 'preview:operate'), busy: busy !== '',
+    show: true, thread: threadId, canOpen: can(client, 'preview:operate'), busy: busy !== '',
     rows: servers.map(server => ({
       key: serverKey(server), port: server.port, label: `localhost:${server.port}`,
       source: [server.terminal === null ? 'Agent' : 'Terminal', server.processName].filter(Boolean).join(' · '),

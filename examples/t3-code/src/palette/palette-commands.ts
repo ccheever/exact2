@@ -42,8 +42,11 @@ const done = (client: T3Client, project = '', thread = ''): PaletteResult => ({ 
 async function refreshShell(client: T3Client, native: Native): Promise<void> {
   client.shell = applyShell(initialShell(), await client.restAccess(native).http('/api/orchestration/shell'));
 }
-/** Where an existing project opens: its latest active thread, else a new thread. Side chats and subagents open inside their parent, so it never lands on one. */
-function openProject(client: T3Client, projectId: string): PaletteResult {
+/**
+ * Where an existing project opens: its latest active listed thread, else a new thread. Side chats and subagents open
+ * inside their parent, so opening a project never lands on one (T3 Code v0.1.7 #29891).
+ */
+export function openProject(client: T3Client, projectId: string): PaletteResult {
   const latest = sortedThreads(client.shell.threads.filter(thread => thread.projectId === projectId && isListedThreadLineage(thread.lineage)))[0];
   return latest && latest.settledOverride !== 'settled' ? done(client, '', str(latest.id)) : done(client, projectId);
 }

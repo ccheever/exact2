@@ -98,7 +98,7 @@ export function previewKeys(client: T3Client): string {
 /** A View chord the window's menu took while the panel shows a Browser page (settings-shortcuts.contract ViewReload and
  *  ViewZoom: `chord`, its ARIA name; `step`, the window zoom step it would set). A partitioned frame reports no focus
  *  (clone/issues/browser-frame-focus-chords.md), so the page is asked, `document.hasFocus()` as a read. While it holds the
- *  focus, ⌘R reloads it (Manager.ts isPreviewRefreshShortcut), Focus URL asks the address bar to take the focus, and a
+ *  focus, ⌘R reloads it and ⌃R stays the page's (Manager.ts isPreviewRefreshShortcut, which on macOS takes ⌘R only), Focus URL asks the address bar to take the focus, and a
  *  zoom chord zooms nothing, neither the page nor the window, as in v0.1.6 (measured with real keys on 2026-11-05,
  *  though Manager.ts forwardedShortcuts would run preview.zoomIn); otherwise the window does what the chord does there,
  *  through the root's `window` frame command, and ⌘L, which the window binds to nothing, does nothing. */

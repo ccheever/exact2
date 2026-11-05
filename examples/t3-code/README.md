@@ -95,7 +95,13 @@ beside the pin (`--offline` uses only the cache). The bundle carries that folder
 `Contents/Resources/t3-runtime` (`app.json` `host.macos.resources`). At the first launch the app
 unpacks it into `<T3 home>/runtime/versions/<version>` and starts `t3 --bootstrap-fd 0` with the
 desktop envelope; it restarts the server with T3 Code's backoff, keeps its failure log in
-`<T3 home>/userdata/logs/server-child.log`, and stops it when the app quits. Closing the window
+`<T3 home>/userdata/logs/server-child.log`, and stops it when the app quits. While the server fails
+to start, T3 Code opens a "T3 Code could not start" window with the server's output, Copy details and
+an update or releases offer (DesktopStartupRecovery.ts); the clone has no such window, and its main
+window shows the home with no server. When the managed policy refused the start (exit code 77),
+Settings › Environments › Local server says so from the first refusal, as the reference's window does
+("Connection failed: Your organization's managed policy stopped T3 Code from starting."), and the
+restarts go on until a run is ready. Closing the window
 (File › Close Window, the red button) does not quit: `app.json` sets
 `host.macos.window.keepRunning`, so the window hides and the app, its session and the server keep
 running, as the reference's (`DesktopLifecycle.ts`: `window-all-closed` quits only off macOS). The
@@ -714,7 +720,7 @@ Differences that belong to the app:
   store, so a site that keeps its sign-in there asks again once. A hidden tab is not displayed: WebKit runs its timers
   about once a second and draws no animation frames, where the reference's tabs keep running (LLP 1020.002 §9); one
   that is recorded or shown in its separate window stays laid out, transparent, and keeps drawing. With
-  the page focused, ⌘R reloads it, the zoom chords zoom nothing, neither the page nor the window, as in v0.1.6 (the
+  the page focused, ⌘R reloads it and ⌃R reaches the page, the zoom chords zoom nothing, neither the page nor the window, as in v0.1.6 (the
   page is asked `document.hasFocus()`, since a frame reports no focus), and ⌘L puts the focus in the address bar,
   selecting the address; ⇧⌘R reloads the window, as the
   reference's menu does. A page's dialog while

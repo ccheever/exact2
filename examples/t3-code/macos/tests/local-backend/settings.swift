@@ -86,6 +86,8 @@ final class LocalDesktopSettingsTests: XCTestCase {
             XCTAssertEqual(failure?.message, "Desktop settings write failed during replace-settings-file at \(path.path).")
         }
         XCTAssertEqual(settings.settings.serverExposureMode, "local-only", "a failed write changes nothing in memory")
+        let left = (try? FileManager.default.contentsOfDirectory(atPath: path.deletingLastPathComponent().path)) ?? []
+        XCTAssertEqual(left.filter { $0.hasSuffix(".tmp") }, [], "a failed replace removes its temporary file")
     }
 
     func testDoesNotPersistNoOpSemanticUpdates() throws {

@@ -68,6 +68,22 @@ final class LocalBackendManagerTests: XCTestCase {
         XCTAssertEqual(refused, 1)
     }
 
+    func test_reports_a_managed_policy_refusal_at_once_and_keeps_retrying_until_a_run_is_ready() {
+        let t = TestInstance()
+        t.prober.fallback = nil
+        t.spawner.onSpawn = { $0.finish(T3LocalExit(code: T3LocalBackendManager.managedPolicyExitCode)) }
+        t.start()
+        XCTAssertTrue(t.manager.managedPolicyRefused, "reported at the first refusal, not after the third")
+        XCTAssertTrue(t.manager.snapshot.restartScheduled)
+        XCTAssertEqual(t.manager.lastExit, "code=77")
+        t.prober.fallback = 200
+        t.spawner.onSpawn = { _ in }
+        t.clock.adjust(500)
+        XCTAssertEqual(t.spawner.starts, 2)
+        XCTAssertTrue(t.snapshot.ready)
+        XCTAssertFalse(t.manager.managedPolicyRefused, "a ready run clears it")
+    }
+
     func test_starts_the_configured_backend_and_closes_the_scoped_process_on_stop() {
         let t = TestInstance()
         var teardownStarted = false

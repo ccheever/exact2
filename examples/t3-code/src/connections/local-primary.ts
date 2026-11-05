@@ -71,15 +71,22 @@ export function resolvePrimaryEnvironmentHttpUrl(pathname: string, source: Local
   return url.toString();
 }
 
+/** The first sentence of DesktopStartupRecovery.ts `describeOffer`'s ManagedPolicy text (its second points at the
+ *  recovery window's server output, which the clone has no window for). */
+export const MANAGED_POLICY_STARTUP_FAILURE = "Your organization's managed policy stopped T3 Code from starting.";
+
 export type PrimaryPhase = 'available' | 'connecting' | 'reconnecting' | 'connected' | 'error' | 'unsupported';
 /**
  * The primary's connection phase, from the backend's state and its socket's: `installing` and
- * `starting` connect, `restarting` reconnects with the last exit, `failed` (and a missing runtime)
- * failed with the reason, `ready` follows the socket.
+ * `starting` connect, `restarting` reconnects with the last exit (or the managed policy that refused the start),
+ * `failed` (and a missing runtime) failed with the reason, `ready` follows the socket.
  */
 export function primaryPhase(status: LocalBackendStatus, socket: { phase: PrimaryPhase; message: string }): { phase: PrimaryPhase; message: string } {
   if (status.state === 'installing' || status.state === 'starting') return { phase: 'connecting', message: '' };
-  if (status.state === 'restarting') return { phase: 'reconnecting', message: status.lastExit ? `The local server exited (${status.lastExit}).` : '' };
+  if (status.state === 'restarting') {
+    const exited = status.lastExit ? `The local server exited (${status.lastExit}).` : '';
+    return { phase: 'reconnecting', message: status.managedPolicy ? [exited, MANAGED_POLICY_STARTUP_FAILURE].filter(Boolean).join(' ') : exited };
+  }
   if (status.state === 'failed' || status.state === 'runtime-missing') return { phase: 'error', message: status.failure || status.install?.reason || '' };
   if (status.state === 'ready') return socket.phase === 'available' ? { phase: 'connecting', message: '' } : socket;
   return { phase: 'available', message: '' };

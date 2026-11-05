@@ -1,4 +1,4 @@
-// T3 Code 1e2ecbd975 terminalContext.ts, composerContextRecords.ts and
+// T3 Code 1e2ecbd975 terminalContext.ts (composerContextRecords.ts at 322f6544df), composerContextRecords.ts and
 // ThreadTerminalDrawer.tsx (MIT, LICENSE-T3). Shell eligibility is extracted
 // from ChatMarkdown's CodeBlockActions; links honor the configured browser target.
 import { obj, str, type Obj } from '../client/domain';
@@ -16,6 +16,7 @@ import { openTerminalLinkInPreview, openUrlInPreview, resolveLinkTargetPreferenc
 import { resolveBrowserOpenDefaults } from '../browser/browser-defaults';
 import { openExternal } from '../client/external-open';
 import { terminalFrameId, terminalFrameSystemMessage } from './terminal-frames';
+import { clampContextText, TERMINAL_CONTEXT_TEXT_MAX } from '../diff/diff-comments';
 
 
 export interface TerminalContextSelection { terminalId: string; terminalLabel: string; lineStart: number; lineEnd: number; text: string }
@@ -33,7 +34,8 @@ export function formatTerminalContextReference(context: Pick<TerminalContextDraf
 }
 export function terminalContextRecord(context: TerminalContextDraft): Obj {
   return { version: 1, ...terminalContextReference(context), label: contextLabel(formatTerminalContextLabel(context), 'terminal'),
-    terminalId: context.terminalId, terminalLabel: context.terminalLabel, lineStart: context.lineStart, lineEnd: context.lineEnd, text: normalizeTerminalContextText(context.text) };
+    terminalId: context.terminalId, terminalLabel: context.terminalLabel, lineStart: context.lineStart, lineEnd: context.lineEnd,
+    text: clampContextText(normalizeTerminalContextText(context.text), TERMINAL_CONTEXT_TEXT_MAX) };
 }
 export function migrateLegacyTerminalContextPlaceholders(prompt: string, contexts: ReadonlyArray<Pick<TerminalContextDraft, 'id' | 'terminalLabel' | 'lineStart' | 'lineEnd'>>): string {
   let index = 0; return prompt.replaceAll('\uFFFC', () => { const context = contexts[index++]; return context ? formatTerminalContextReference(context) : ''; });

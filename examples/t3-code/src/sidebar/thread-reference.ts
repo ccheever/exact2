@@ -5,9 +5,9 @@
 // (resolveThreadCurrentPullRequest / resolveThreadCurrentPullRequestLink, over
 // linked-prs.ts resolveChains), apps/web/src/lib/copyThreadReference.ts and ChatView.tsx copyActiveThreadReference
 // (the success toast names what was copied; a failure is a stacked error toast).
-// A thread is copied as its chip: the reference link (composerContextReferences.ts formatComposerContextReference),
-// which pastes back into a composer as the chip. Exact's clipboard carries text only, so the reference's
-// composer-context fragment beside it is not written.
+// A thread is copied as its hosted link (shared/threadLinks.ts hostedThreadLink, T3 Code v0.1.7), which pastes back
+// into a composer as the thread's chip. Exact's clipboard carries text only, so the reference's composer-context
+// fragment beside it is not written; the paste names the chip from the thread's title here.
 import { num, obj, str, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
@@ -16,6 +16,7 @@ import { visiblePullRequests } from '../panel/shell-pr';
 import { layersFromTop, resolveChains } from '../panel/linked-prs';
 import { panelState } from '../panel/panel-surfaces';
 import { letGo } from '../client/let-go';
+import { hostedThreadLink } from '../shared/hosted-thread-link';
 
 export interface ThreadReferenceCopyTarget {
   readonly kind: 'pull-request' | 'thread';
@@ -48,26 +49,25 @@ export function resolveThreadCurrentPullRequestLink(links: unknown): Obj | null 
 }
 
 /**
- * threadChipCopyTarget: a thread chip, which pastes into a composer as that thread's reference. The link is
- * composer-editor-menu.ts contextLink('thread', contextId('thread', id), title), written here so that this module,
- * which the sidebar's worktree cleanup reaches, does not load the composer: a thread id is a context id as it stands.
+ * threadChipCopyTarget: a link that opens the thread from anywhere, through the hosted app (hostedThreadLink). A paste
+ * into a composer whose agent reads that thread's machine turns it back into the thread's chip.
  */
-export function threadChipCopyTarget(threadId: string, title: string): ThreadReferenceCopyTarget {
+export function threadChipCopyTarget(ref: { environmentId: string; threadId: string }, title: string): ThreadReferenceCopyTarget {
   // The 200-unit cap steps back rather than split a surrogate pair (an emoji).
   const normalized = title.replace(/[[\]\\\r\n]/g, ' ').replace(/\s+/g, ' ').trim(), before = normalized.charCodeAt(199), after = normalized.charCodeAt(200);
   const label = normalized.slice(0, before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff ? 199 : 200) || 'thread';
-  return { kind: 'thread', value: `[${label}](t3-context://v1/thread/thread_${threadId})`, description: label, clipboardTarget: 'thread',
+  return { kind: 'thread', value: hostedThreadLink(ref), description: label, clipboardTarget: 'thread',
     successTitle: 'Thread copied', failureTitle: 'Failed to copy thread' };
 }
 
 /** resolveThreadReferenceCopyTarget: the open panel's PR, the thread's current PR, the linked PR, else the thread's chip; null while the panel URL loads. */
-export function resolveThreadReferenceCopyTarget(input: { threadId: string; title: string; openPanelPullRequestUrl?: string | null; pullRequests?: unknown; linkedPullRequestUrl?: string | null }): ThreadReferenceCopyTarget | null {
+export function resolveThreadReferenceCopyTarget(input: { environmentId: string; threadId: string; title: string; openPanelPullRequestUrl?: string | null; pullRequests?: unknown; linkedPullRequestUrl?: string | null }): ThreadReferenceCopyTarget | null {
   if (input.openPanelPullRequestUrl === null) return null;
   const current = resolveThreadCurrentPullRequestLink(input.pullRequests ?? []);
   const pullRequestUrl = input.openPanelPullRequestUrl ?? (current ? str(current.url) : undefined) ?? input.linkedPullRequestUrl;
   return pullRequestUrl
     ? { kind: 'pull-request', value: pullRequestUrl, description: pullRequestUrl, clipboardTarget: 'pull request link', successTitle: 'PR link copied', failureTitle: 'Failed to copy PR link' }
-    : threadChipCopyTarget(input.threadId, input.title);
+    : threadChipCopyTarget(input, input.title);
 }
 
 /** useOpenPanelPullRequestUrl: the active right-panel surface's pull request URL; null while it has none yet, undefined without a PR surface. */
@@ -83,7 +83,7 @@ export function threadReferenceTarget(client: T3Client, panelUrl?: string | null
   const thread = client.threadId ? client.shell.threads.find(entry => entry.id === client.threadId) : undefined;
   if (!thread) return null;
   const linked = thread.linkedPullRequest && typeof thread.linkedPullRequest === 'object' ? obj(thread.linkedPullRequest) : null;
-  return resolveThreadReferenceCopyTarget({ threadId: str(thread.id), title: str(thread.title), openPanelPullRequestUrl: panelUrl, pullRequests: thread.pullRequests,
+  return resolveThreadReferenceCopyTarget({ environmentId: client.environmentId, threadId: str(thread.id), title: str(thread.title), openPanelPullRequestUrl: panelUrl, pullRequests: thread.pullRequests,
     linkedPullRequestUrl: linked && num(linked.number) > 0 ? str(linked.url) || null : null });
 }
 

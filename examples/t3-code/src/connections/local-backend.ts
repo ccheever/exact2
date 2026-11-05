@@ -52,6 +52,8 @@ export interface LocalBackendStatus {
   nextRestartMs: number | null;
   /** The last exit of a server run: `code=<n>` or `killed by <SIGNAME>`. */
   lastExit: string;
+  /** The machine's managed policy refused the server's start, and no run has been ready since (it keeps retrying). */
+  managedPolicy: boolean;
   /** While installing: the phase and its fraction; when missing or failed: the reason. */
   install: { phase: string; fraction: number; reason: string } | null;
   /** Why a development build starts nothing. */
@@ -72,7 +74,7 @@ export interface LocalBackendStatus {
 
 export const unknownLocalBackend = (): LocalBackendStatus => ({
   state: 'stopped', port: null, httpBaseUrl: '', wsBaseUrl: '', bearerReady: false, restartAttempt: 0,
-  nextRestartMs: null, lastExit: '', install: null, refused: '', failure: '', version: '', pid: null,
+  nextRestartMs: null, lastExit: '', managedPolicy: false, install: null, refused: '', failure: '', version: '', pid: null,
   enabled: true, settings: defaultDesktopSettings(), environmentId: '', label: '', serverVersion: '',
 });
 
@@ -91,6 +93,7 @@ export function parseLocalBackendStatus(value: unknown): LocalBackendStatus {
     restartAttempt: num(raw.restartAttempt) || 0,
     nextRestartMs: numberOrNull(raw.nextRestartMs),
     lastExit: str(raw.lastExit),
+    managedPolicy: raw.managedPolicy === true,
     install: install ? { phase: str(install.phase), fraction: num(install.fraction) || 0, reason: str(install.reason) } : null,
     refused: str(raw.refused),
     failure: str(raw.failure),

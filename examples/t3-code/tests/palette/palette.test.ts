@@ -52,16 +52,6 @@ test('a new project picks its ready publish host beside the publish toggle', asy
   expect(changed.rows.find(row => row.arg === 'toggle-publish')).toMatchObject({ publishHost: 'gitcafe', publishHostLabel: 'GitCafe', checked: false });
 });
 
-// CommandPalette.browser.test.tsx (reference 322f6544df): opening a project from the palette lands on its latest listed
-// thread, never on a newer subagent or side chat.
-test('opening a project skips its side chats and subagents', async () => {
-  const c = client();
-  c.shell.threads.push({ id: 't5', projectId: 'p1', title: 'Subagent', updatedAt: '2026-10-03T06:00:00.000Z', lineage: { rootThreadId: 't2', parentThreadId: 't2', relationshipToParent: 'subagent' } },
-    { id: 't6', projectId: 'p1', title: 'Side chat', updatedAt: '2026-10-03T07:00:00.000Z', lineage: { rootThreadId: 't2', parentThreadId: 't2', relationshipToParent: 'fork', sideChat: true } });
-  const result = await paletteCommand(c, { available: true } as unknown as Native, files(), 'open-project', 'p1', '');
-  expect([result.thread, result.project]).toEqual(['t2', '']);
-});
-
 describe('command palette root', () => {
   test('actions follow the reference order with shortcut labels, then recent threads', () => {
     const view = commandView(client(), { page: '', query: '', now: NOW, scheme: 'dark', matches: new Map(), matchQuery: '', searching: false });
