@@ -106,6 +106,13 @@ test('gone and host-setup close codes stop retrying with the server instruction'
   expect(stream.frame.gone).toBe(true);
 });
 
+test('a dropped socket withdraws the open file chooser, which the server offers again on reattach', () => {
+  const { stream, socket, message } = fixture();
+  message({ type: 'fileChooser', id: 'one', multiple: false, accept: '' }); expect(stream.frame.chooserId).toBe('one');
+  stream.event('ws://fixture/one', { type: 'close', code: 1006 }, socket, 200);
+  expect(stream.frame.chooserId).toBe('');
+});
+
 test('file chooser close messages are matched to the current chooser; notices are bounded', () => {
   const { stream, message } = fixture();
   message({ type: 'fileChooser', id: 'one', multiple: true, accept: 'image/*' });

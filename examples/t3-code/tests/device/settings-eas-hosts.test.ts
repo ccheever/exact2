@@ -4,7 +4,7 @@ import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
-import { easAccountCheck, easEditorView, easHostProblem, easHostsCommand, easSessionLimits, newEasDeviceHost, updateEasDeviceHosts } from '../../src/device/settings-eas-hosts';
+import { easAccountCheck, easDraft, easEditorView, easHostProblem, easHostsCommand, easHostsOf, easSessionLimits, newEasDeviceHost, updateEasDeviceHosts } from '../../src/device/settings-eas-hosts';
 import { toasts } from '../../src/shell/toast';
 import { contractComponent, contractFns } from '../support/contract-action-fixture';
 import { appPath } from '../support/app-files';
@@ -26,6 +26,13 @@ describe('EAS device host settings', () => {
     expect(updateEasDeviceHosts([held], redacted, false, true)).toEqual([{ ...redacted, accessToken: 'secret' }]);
     expect(updateEasDeviceHosts([], redacted, false, true)).toEqual([{ ...redacted, accessToken: '' }]);
     expect(updateEasDeviceHosts([held], redacted, false)).toEqual([redacted]);
+  });
+
+  test('a token read from a secret provider stays its reference, and Save keeps it', () => {
+    const reference = { provider: 'onepassword', reference: 'op://Team/Expo/token' };
+    const [host] = easHostsOf({ easDeviceHosts: [{ id: 'cloud', label: 'Cloud', accessToken: reference }] });
+    expect(host!.accessToken).toEqual(reference);
+    expect(easDraft({ host: host! }, { tokenKind: 'saved', label: 'Cloud' }).accessToken).toEqual(reference);
   });
 
   test('rejects limits EAS does not allow', () => {

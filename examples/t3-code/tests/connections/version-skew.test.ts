@@ -40,10 +40,10 @@ describe('versionSkew', () => {
     expect(resolve(APP_VERSION)).toBeNull();
   });
 
-  it('this client is the stable 0.1.6, so a 0.1.5 server reads as out of date and its update targets 0.1.6', () => {
-    expect(CLIENT_VERSION).toBe('0.1.6');
-    expect(resolveVersionMismatch('0.1.5')).toEqual({ clientVersion: CLIENT_VERSION, serverVersion: '0.1.5', hint: MISMATCH_HINT });
-    expect(resolveVersionMismatch('0.1.6-nightly.20261031.4100')).toBeNull();
+  it('this client is the Beta 0.1.7, so a 0.1.6 server reads as out of date and its update targets 0.1.7', () => {
+    expect(CLIENT_VERSION).toBe('0.1.7');
+    expect(resolveVersionMismatch('0.1.6')).toEqual({ clientVersion: CLIENT_VERSION, serverVersion: '0.1.6', hint: MISMATCH_HINT });
+    expect(resolveVersionMismatch('0.1.7-nightly.20261105.4200')).toBeNull();
     expect(resolveVersionMismatch(CLIENT_VERSION)).toBeNull();
   });
 

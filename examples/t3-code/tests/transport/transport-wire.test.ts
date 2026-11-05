@@ -79,8 +79,10 @@ describe('addresses', () => {
   });
   test('the socket URL carries the ticket, the protocol gate and this client', () => {
     const url = new URL(socketURL('https://h.test:8443', 't', true));
-    expect([url.protocol, url.pathname, url.searchParams.get('wsTicket'), url.searchParams.get('orchestrationProtocol'), url.searchParams.get('clientOs')]).toEqual(['wss:', '/ws', 't', '2', 'macos']);
-    expect(new URL(socketURL('http://h:1', 't', false)).searchParams.has('orchestrationProtocol')).toBe(false);
+    expect([url.protocol, url.pathname, url.searchParams.get('wsTicket'), url.searchParams.get('orchestrationProtocol'), url.searchParams.get('clientCapabilities'), url.searchParams.get('clientOs')])
+      .toEqual(['wss:', '/ws', 't', '2', 'settingsSecretReferences', 'macos']);
+    const bare = new URL(socketURL('http://h:1', 't', false)).searchParams;
+    expect([bare.has('orchestrationProtocol'), bare.has('clientCapabilities')]).toEqual([false, false]);
   });
 });
 
