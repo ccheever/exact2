@@ -2,9 +2,11 @@ import type { Answer, Result, Sources } from './app.contract.d.ts';
 import { pages } from './content/index.ts';
 import nav from './content/nav.ts';
 import moved from './content/redirects.ts';
+import { search } from './constants/search.ts';
 
 export const appId = 'dev.exact.docs';
-export const grants = '';
+const SEARCH_HOST = 'https://SNB9MIQMWS-dsn.algolia.net';
+export const grants = `net.fetch ${SEARCH_HOST}`;
 
 type Page = Result<'loadPage'>;
 
@@ -61,6 +63,17 @@ const sources: Sources = {
   },
   loadNav: async (): Promise<Result<'loadNav'>> => nav,
   resolveMoved: async ([url]): Promise<Result<'resolveMoved'>> => resolve(url),
+  searchDocs: async ([query]): Promise<Result<'searchDocs'>> => {
+    if (query.trim().length < 2) return [];
+    const response = await fetch(`${SEARCH_HOST}/1/indexes/${search.index}/query`, {
+      method: 'POST',
+      headers: { 'X-Algolia-Application-Id': search.appId, 'X-Algolia-API-Key': search.searchKey },
+      body: JSON.stringify({ query, hitsPerPage: 8, attributesToSnippet: ['content:24'], highlightPreTag: '', highlightPostTag: '' }),
+    });
+    if (!response.ok) throw new Error(`Search answered ${response.status}.`);
+    const { hits } = (await response.json()) as { hits: { objectID: string; url: string; page: string; heading: string; _snippetResult?: { content?: { value?: string } } }[] };
+    return hits.map(h => ({ id: h.objectID, href: h.url, page: h.page, heading: h.heading, snippet: h._snippetResult?.content?.value ?? '' }));
+  },
   fetchMarkdown: async ([route]): Promise<Result<'fetchMarkdown'>> => {
     const response = await fetch(`/assets/markdown/${route}.md`);
     if (!response.ok) throw new Error(`The page's Markdown answered ${response.status}.`);

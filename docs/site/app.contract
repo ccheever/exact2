@@ -2,7 +2,7 @@
 // tools/gen.ts turns ../*.md into content/<route>.ts and content/nav.ts from constants/navigation.ts;
 // app.ts imports one page's module per route, so a reader downloads only the page it reads.
 // Each route waits for the reader before its runtime loads.
-use Page, Nav, Moved, Markdown, Viewport, Hit from "./components/shapes.contract"
+use Page, Nav, Moved, Markdown, Viewport, SearchHit, Hit from "./components/shapes.contract"
 use Sidebar from "./components/sidebar.contract"
 use Article from "./components/article.contract"
 
@@ -176,6 +176,8 @@ component App
   derive roomy = viewport.width >= 1280
   resource moved = resolveMoved(top(nav).name == "notfound" ? top(nav).url : "") as shape Moved else empty()
   mutation markdown as shape Markdown then copyFetched
+  state query = ""
+  resource hits = searchDocs(query) as shape SearchHit[] else empty()
   state menu = false
   state theme = "system" persist
   state sidebar = true persist
@@ -194,6 +196,7 @@ component App
     voted = ""
     visible = []
     active = ""
+    close("search")
     let next = go(nav, url)
     nav = next
     // sidebar scrolling must not cancel the router's pending fragment scroll.
@@ -236,6 +239,11 @@ component App
     setScheme(value)
   action toggleNav(route: string)
     navToggled = navToggled.includes(route) ? navToggled.filter(x => x != route) : navToggled.concat([route])
+  action openSearch
+    showModal("search")
+    focus("search-input")
+  action ask(v: string)
+    query = v
   action toggleSidebar
     sidebar = not sidebar
   action toggleMenu
@@ -263,10 +271,13 @@ component App
           row align-items="center" gap=8
             image "symbol:icon.exactmark" aria-hidden=true width="1.625rem" height="1rem" color="var(--color-text-default)"
             text "Exact Docs" font-size="var(--text-base)" font-weight=600 color="var(--color-text-default)"
-        button press=toggleMenu appearance="none" aria-expanded=menu aria-controls="site-menu" padding="6px 12px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" testId="menu"
-          row gap=6 align-items="center"
-            image (menu ? "symbol:close" : "symbol:menu") aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
-            text (menu ? "Close" : "Menu") font-size="var(--text-sm)"
+        row gap=8 align-items="center"
+          button press=openSearch appearance="none" aria-label="Search the docs" padding=6 border-radius="var(--radius-lg)" testId="search-bar"
+            image "symbol:search" aria-hidden=true font-size="var(--text-base)" color="var(--color-icon-default)"
+          button press=toggleMenu appearance="none" aria-expanded=menu aria-controls="site-menu" padding="6px 12px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" testId="menu"
+            row gap=6 align-items="center"
+              image (menu ? "symbol:close" : "symbol:menu") aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
+              text (menu ? "Close" : "Menu") font-size="var(--text-sm)"
       column width=(sidebar ? "calc(234px - clamp(0px, (960px - 100vw) * 1000, 234px))" : "0px") -exact-layout-transition="220ms ease" flex-shrink=0 overflow="hidden" inert=(not wide or not sidebar) testId=(sidebar ? "sidebar-shown" : "sidebar-hidden") position="absolute" top=0 bottom=0 left=0
         row align-items="center" justify-content="space-between" padding="12px 12px 0 20px" min-width=234 box-sizing="border-box"
           link href="/" class=Hit testId="home"
@@ -275,11 +286,44 @@ component App
               text "Exact Docs" font-size="var(--text-base)" font-weight=600 color="var(--color-text-default)"
           button press=toggleSidebar appearance="none" aria-label="Hide the sidebar" title="Hide the sidebar" padding=6 border-radius="var(--radius-lg)" testId="sidebar-hide"
             image "symbol:icon.panelclose" aria-hidden=true font-size="var(--text-base)" color="var(--color-icon-default)"
+        row padding="12px 12px 4px 12px" min-width=234 box-sizing="border-box"
+          button press=openSearch appearance="none" aria-keyshortcuts="Meta+K Control+K" aria-label="Search the docs" testId="search-open"
+            flex=1 display="flex" align-items="center" gap=8 padding="6px 10px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" background-color="var(--color-background-default)"
+            image "symbol:search" aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-tertiary)"
+            text "Search" flex=1 text-align="left" font-size="var(--text-sm)" color="var(--color-text-secondary)"
+            text "⌘K" aria-hidden=true font-size="var(--text-xs)" color="var(--color-text-secondary)"
         scroll flex=1 min-height=0 min-width=234
           Sidebar(nav=site, current=top(nav).name, toggled=navToggled, toggle=toggleNav, prefix="")
       column width=(sidebar ? "0px" : "calc(48px - clamp(0px, (960px - 100vw) * 1000, 48px))") -exact-layout-transition="220ms ease" flex-shrink=0 overflow="hidden" inert=(not wide or sidebar) padding-top=12 align-items="center" testId=(sidebar ? "sidebar-rail" : "sidebar-rail-shown") position="absolute" top=0 bottom=0 left=0
         button press=toggleSidebar appearance="none" aria-label="Show the sidebar" title="Show the sidebar" padding=6 border-radius="var(--radius-lg)" testId="sidebar-show"
           image "symbol:icon.panelopen" aria-hidden=true font-size="var(--text-base)" color="var(--color-icon-default)"
+        button press=openSearch appearance="none" aria-label="Search the docs" title="Search" padding=6 margin-top=8 border-radius="var(--radius-lg)" testId="search-rail"
+          image "symbol:search" aria-hidden=true font-size="var(--text-base)" color="var(--color-icon-default)"
       if menu
         scroll id="site-menu" flex=1 min-width=0 background-color="var(--color-background-screen)" testId="site-menu" position="absolute" top="clamp(0px, (960px - 100vw) * 1000, 57px)" left=0 right=0 bottom=0
           Sidebar(nav=site, current=top(nav).name, toggled=navToggled, toggle=toggleNav, prefix="menu-")
+      dialog id="search" aria-label="Search the docs" width="min(640px, calc(100vw - 32px))" max-height="min(560px, calc(100vh - 64px))" padding=0
+        border="1px solid var(--color-border-secondary)" border-radius="var(--radius-xl)" background-color="var(--color-background-default)" color="var(--color-text-default)" font-family="var(--font-sans)"
+        column min-height=0
+          row align-items="center" gap=8 padding="12px 16px" border-bottom="1px solid var(--color-border-secondary)"
+            image "symbol:search" aria-hidden=true font-size="var(--text-base)" color="var(--color-icon-tertiary)"
+            input id="search-input" type="search" value=query input=ask placeholder="Search the docs" aria-label="Search the docs" testId="search-input"
+              flex=1 min-width=0 font-size="var(--text-base)" border="none" outline="none" background-color="transparent" color="var(--color-text-default)"
+            button commandfor="search" command="close" appearance="none" aria-label="Close search" padding="2px 6px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" testId="search-close"
+              text "Esc" font-size="var(--text-xs)" color="var(--color-text-secondary)"
+          scroll flex=1 min-height=0 padding=8
+            if query.trim().length < 2
+              text "Type at least two letters to search every page." padding="16px 8px" font-size="var(--text-sm)" color="var(--color-text-secondary)" testId="search-hint"
+            else if hits.length == 0
+              text `No results for "${query.trim()}".` padding="16px 8px" font-size="var(--text-sm)" color="var(--color-text-secondary)" testId="search-empty"
+            else
+              column role="list" gap=2
+                for h in hits key=h.id
+                  link href=h.href role="listitem" display="block" padding="8px 10px" border-radius="var(--radius-lg)" testId=`search-hit-${h.id}`
+                    column gap=2
+                      text (h.heading != "" ? `${h.page} › ${h.heading}` : h.page) font-size="var(--text-sm)" font-weight=600 color="var(--color-text-default)"
+                      if h.snippet != ""
+                        text h.snippet font-size="var(--text-xs)" color="var(--color-text-secondary)" line-clamp=2
+          row justify-content="flex-end" padding="8px 16px" border-top="1px solid var(--color-border-secondary)"
+            link href="https://www.algolia.com/" testId="search-attribution"
+              text "Search by Algolia" font-size="var(--text-xs)" color="var(--color-text-secondary)"

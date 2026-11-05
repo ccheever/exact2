@@ -195,3 +195,17 @@ test "Start here's prompt copies, and shows its text on request"
   expect tree has "agent-prompt-text"
   tap "agent-prompt-copy"
   expect text "agent-prompt-copy" == "Copied"
+
+test "Search opens from the sidebar and hints until two letters"
+  size 1440x900
+  tap "search-open"
+  clock settle
+  expect tree has "search-input"
+  expect tree has "search-hint"
+  expect tree has "search-attribution"
+
+test "on a phone Search opens from the top bar"
+  size 390x844
+  tap "search-bar"
+  clock settle
+  expect tree has "search-input"

@@ -27,3 +27,10 @@ command confused you, record it: `bun exact.mjs feedback note "<what happened>"`
 exact2's commit and the last exit code, never output or code. `bun exact.mjs feedback status` says
 whether notes are sent and whether to keep a diary; under `never`, skip all of this.
 <!-- exact:end -->
+
+## Search
+
+The search dialog (Cmd+K) asks the Algolia app and index in `constants/search.ts` with its
+search-only key. After a build, `bun run search:index` makes one record per section of each
+page and replaces the index; it needs the app's Write API key in `ALGOLIA_WRITE_KEY`, which
+never goes in the repository. `--dry-run` prints the record count and the first records.
