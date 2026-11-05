@@ -61,3 +61,11 @@ export function mobileContentGeometry(owner: string, storedOwner: string, genera
     verticalBarEdge: value.verticalBarEdge, bottomBarInset: value.bottomBarInset,
     reservedRegions: regions };
 }
+
+export function mobileContentGeometryWithFallback(owner: string, storedOwner: string, generation: number, serial: number, packet: string,
+  readyOwner: string, readyGeneration: number, readySerial: number, readyPacket: string): ContentGeometry {
+  const current = mobileContentGeometry(owner, storedOwner, generation, serial, packet);
+  if (current.state === 'ready' || readyOwner !== owner || readyGeneration !== generation) return current;
+  const ready = mobileContentGeometry(owner, readyOwner, readyGeneration, readySerial, readyPacket);
+  return ready.state === 'ready' ? ready : current;
+}
