@@ -10,7 +10,7 @@ Give your agent one file before it builds an app with Exact. The home page has a
 {{START_PROMPT}}
 ```
 
-For a website (pages served to a browser), the file is [start-here-site.md](../../start-here-site.md) in place of [start-here.md](../../start-here.md). Everything else in the docs is lookup.
+For a website (pages served to a browser), the guide is [Start here: a website with Exact](../../start-here-site.md) in place of [Start here: building an app with Exact](../../start-here.md). Everything else in the docs is lookup.
 
 ## Markdown pages
 

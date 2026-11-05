@@ -32,5 +32,5 @@ The device's embedded `snapback4.engine` section records its identity;
 web drives compare it with the running server before opening the page.
 
 The backend selection `.exact/backend-origin` is a build input; a test-only `seed.json` does not
-make the build stale. Tests against the backend: [snapback-tests](snapback-tests.md); guests,
-personas and password sessions: [snapback-auth](snapback-auth.md).
+make the build stale. Tests against the backend: [testing against a Snapback backend](snapback-tests.md); guests,
+personas and password sessions: [guests, personas and password sessions](snapback-auth.md).

@@ -3,7 +3,7 @@
 `app.test.contract` drives the app by `testId`, the same on the web and iOS (`bun
 exact.mjs test web`, `test ios`; `verify` runs them too). Each
 test is a fresh launch with empty storage, after its first data has landed. Against
-[start-here](../start-here.md)'s Groceries:
+[Start here](../start-here.md)'s Groceries:
 
 ```contract-test
 test "a repeat is refused and keeps its text; the list survives a relaunch"
@@ -28,7 +28,7 @@ test "a repeat is refused and keeps its text; the list survives a relaunch"
 | `clock data` · `clock settle` · `clock +5000` · `reload` | Lands replies · ends transitions · moves the virtual clock · relaunches on the same storage, at the clock's time. |
 | `back` | The platform's Back: cancels a dialog, else dismisses a sheet, else pops the route. |
 | `fail fetch "<prefix>"`, `pass fetch …` | A lost connection there, then none. |
-| `request POST "/items" {…} as grace expect 409` | Writes through the app's server as another person ([rest-backend](rest-backend.md)); a status not 2xx fails, or with `expect 409` any other. |
+| `request POST "/items" {…} as grace expect 409` | Writes through the app's server as another person ([a REST server](rest-backend.md)); a status not 2xx fails, or with `expect 409` any other. |
 | `size 390x844`, `at "/item/7#moves"`, `epoch`, `time-zone`, `locale`, `seed`, `before data` | Launch lines, first in a test or atop the file. |
 
 Every other form (drags, `perf`, `on web`): [the grammar](../contract-grammar.md#authored-tests).

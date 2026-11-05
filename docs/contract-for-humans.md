@@ -964,7 +964,7 @@ including a data module's `secret.keep`.
 **Rust instead.** A data module can be a Rust crate rather than `app.ts`:
 `bun exact.mjs contract rust app.contract -o shapes.rs` generates the shapes as
 structs with their conversions, and [Caltrain's data crate](../apps/caltrain/data/src/lib.rs)
-answers its sources that way. The [reference](reference.md#generate-typescript-data-source-types)
+answers its sources that way. The [Exact developer reference](reference.md#generate-typescript-data-source-types)
 covers placement on a worker, live replacement, and the platform limits.
 
 ## Styling and layout

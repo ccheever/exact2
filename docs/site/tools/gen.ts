@@ -2,7 +2,7 @@ import { marked, type Token, type Tokens } from 'marked';
 import { createHighlighter } from 'shiki';
 import { execSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, normalize, relative, resolve } from 'node:path';
+import { dirname, join, normalize, relative, resolve } from 'node:path';
 import { agentRows, sections, type NavPage } from '../constants/navigation.ts';
 import { redirects } from '../constants/redirects.ts';
 import { site } from '../constants/site.ts';
@@ -142,15 +142,6 @@ function target(href: string, from: string, record = true): string {
   return anchor && !(doc.nav.split && SKIPPED_SECTIONS.has(anchor)) && at !== `${doc.nav.path}/${anchor}` ? `${at}#${anchor}` : at;
 }
 
-function linkText(text: string, href: string, from: string): string {
-  const path = href.split('#')[0];
-  const names = [path, basename(path)].flatMap(n => [n, n.replace(/\.md$/, '')]);
-  if (!path.endsWith('.md') || !names.includes(text) || /^[a-z]+:/i.test(href)) return text;
-  const source = normalize(join(dirname(from), path));
-  const file = resolve(DOCS, source);
-  return bySource.get(source)?.title ?? (existsSync(file) ? /^# (.+)$/m.exec(readFileSync(file, 'utf8'))?.[1] : undefined) ?? text;
-}
-
 function runs(tokens: Token[] | undefined, from: string, next: () => string, style = { strong: false, em: false, href: '' }): Run[] {
   const out: Run[] = [];
   const push = (text: string, code = false) => {
@@ -161,13 +152,7 @@ function runs(tokens: Token[] | undefined, from: string, next: () => string, sty
       case 'strong': out.push(...runs(t.tokens, from, next, { ...style, strong: true })); break;
       case 'em': out.push(...runs(t.tokens, from, next, { ...style, em: true })); break;
       case 'del': out.push(...runs(t.tokens, from, next, style)); break;
-      case 'link': {
-        const text = plain(t.tokens);
-        const titled = linkText(text, t.href, from);
-        const linked = { ...style, href: target(t.href, from) };
-        out.push(...(titled === text ? runs(t.tokens, from, next, linked) : [{ id: next(), text: titled, code: false, ...linked }]));
-        break;
-      }
+      case 'link': out.push(...runs(t.tokens, from, next, { ...style, href: target(t.href, from) })); break;
       case 'codespan': push(decode(t.text), true); break;
       case 'br': push('\n'); break;
       case 'text': (t as Tokens.Text).tokens ? out.push(...runs((t as Tokens.Text).tokens, from, next, style)) : push(decode(t.text)); break;
@@ -401,7 +386,7 @@ function markdownOf(tokens: Token[], from: string): string {
     const spans: string[] = [];
     return t.raw
       .replace(/(`+)[\s\S]*?\1/g, span => `\u0000${spans.push(span) - 1}\u0000`)
-      .replace(/(!?)\[([^\[\]]*)\]\(([^)\s]+)((?:\s+"[^"]*")?)\)/g, (_, bang: string, text: string, href: string, title: string) => `${bang}[${bang ? text : linkText(text, href, from)}](${markdownHref(href, from, bang === '!')}${title})`)
+      .replace(/(!?)\[([^\[\]]*)\]\(([^)\s]+)((?:\s+"[^"]*")?)\)/g, (_, bang: string, text: string, href: string, title: string) => `${bang}[${text}](${markdownHref(href, from, bang === '!')}${title})`)
       .replace(/\u0000(\d+)\u0000/g, (_, i: string) => spans[Number(i)]);
   }).join('').trim();
 }

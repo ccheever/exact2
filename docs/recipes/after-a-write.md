@@ -79,7 +79,7 @@ test "a refused add keeps its text and says why; the next one clears it"
 
 `afterAdd` clears the draft only when its reply has `ok: true`; a request failure runs no
 `then`. The pending guard stops a second Enter replacing the first reply. A `then`
-that closes a form checks the route first ([navigation-stack](navigation-stack.md)).
+that closes a form checks the route first ([a navigation stack](navigation-stack.md)).
 
 The module has no clock or randomness: a write that dates or rolls is sent
 `time.epochAtZero + performanceNow()` and `time.seed` (`exactTime()`), the seed mixed

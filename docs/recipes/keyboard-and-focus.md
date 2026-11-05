@@ -74,4 +74,4 @@ test "Return adds and keeps typing; Done puts the keyboard away"
 - **On scroll,** a drag on a `list` or `scroll` that reaches the keyboard pulls it down (a flick
   that just reaches it ends in a frame, as in UIKit); `keyboardDismissMode="on-drag"` puts it
   away as the drag starts, `"none"` keeps it up and a background tap still dismisses it.
-  Composer: [chat-thread](chat-thread.md).
+  Composer: [chat thread](chat-thread.md).

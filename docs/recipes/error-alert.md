@@ -67,4 +67,4 @@ test "a refused save says why, and OK keeps the draft"
 - The button has no `press`: it only closes. Give it one and the dialog is a
   confirmation, which needs its Cancel ([confirm](../contract-for-agents.md#a-confirmation)).
 - `then` does not run for a request that brought no answer: show `failed(saved)` in place
-  ([fetch-loading-error](fetch-loading-error.md)).
+  ([fetch with loading, error and retry](fetch-loading-error.md)).

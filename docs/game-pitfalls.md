@@ -8,7 +8,7 @@ diagnose it. **Candidate diagnostic** marks one that could become a check cheapl
 > **Lookup reference.** Search it by symptom (`grep -n`); don't read it front to back.
 > Look a name up first (`bun exact.mjs game vocab <name>`), then the
 > [recipes](../game/recipes/README.md). Contract's pitfalls (menus, the HUD, its
-> keys, drags and sounds) are in [agent-pitfalls.md](agent-pitfalls.md).
+> keys, drags and sounds) are in [Pitfalls when writing exact2 apps](agent-pitfalls.md).
 
 ## The world and its saves
 
