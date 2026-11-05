@@ -368,6 +368,8 @@ test('authored paging gates inactive views, preserves prepend anchors and isolat
   anchorScope.threadData.historyRevision = 1;
   root.call('threadHistoryScroll', anchorState, anchorScope, [0, 12, { firstVisibleKey: 'turn-04', firstVisibleOffset: 8 }]);
   expect(anchorState).toMatchObject({ historyAnchorKey: 'turn-03', historyAnchorOffset: 42, historyAnchorRoute: '7', historyAnchorEnvironment: 'env', historyAnchorThread: 'thread', historyAnchorRevision: 0 });
+  root.call('threadHistoryScroll', anchorState, anchorScope, [0, 12, { firstVisibleKey: undefined, firstVisibleOffset: 0 }]);
+  expect(anchorState).toMatchObject({ historyAnchorKey: 'turn-03', historyAnchorOffset: 42, historyAnchorRoute: '7', historyAnchorEnvironment: 'env', historyAnchorThread: 'thread', historyAnchorRevision: 0 });
   root.call('didThreadHistoryChanged', anchorState, anchorScope, []);
   expect(anchorCalls).toEqual([['thread-feed', 'turn-03', { offset: 42, behavior: 'instant' }]]);
   root.call('threadHistoryScroll', anchorState, anchorScope, [0, 12, { firstVisibleKey: 'turn-04', firstVisibleOffset: 8 }]);

@@ -26,7 +26,8 @@ members App
             historyAnchorThread = threadData.threadId
             historyAnchorRevision = threadData.historyRevision
         case none
-          historyAnchorKey = ""
+          if not (historyAnchorKey != "" and historyAnchorRoute == `${top(nav).id}` and historyAnchorEnvironment == threadData.environmentId and historyAnchorThread == threadData.threadId and threadData.historyRevision > historyAnchorRevision)
+            historyAnchorKey = ""
   action threadScrollToEnd
     if top(nav).name.startsWith("thread") and threadData.rows.length > 0
       match threadData.rows.at(-1)
