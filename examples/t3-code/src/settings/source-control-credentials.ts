@@ -6,6 +6,8 @@ import { ClientError, type Native } from '../client/protocol';
 import { redactedValue } from '../shared/redacted-text';
 import { requirePermission } from '../connections/command-permissions';
 
+/** SourceControlTokenSettings hasToken (322f6544df): a literal that is not empty, or a secret reference. */
+const hasToken = (token: unknown) => typeof token === 'string' ? token !== '' : token !== null && typeof token === 'object';
 
 export function groupGitHubAccounts(accounts: Obj[]) {
   return [...new Set(accounts.map(account => str(account.host)))].map(host => {
@@ -36,9 +38,9 @@ export function hostCredentials(settings: Obj, discovered: Obj, environmentId: s
       broken: group.broken.map((account, index) => ({ key: `${index}`, ...redactedValue(str(account.account)), error: str(account.error, 'gh reports this login as invalid.') })) };
   });
   return ['github', 'gitcafe', 'bitbucket'].map(kind => ({ kind, key: `${environmentId}:${kind}:${revision}`, environmentId, disabled: !writable,
-    groups: kind === 'github' ? groups : [], savedHosts: Object.entries(obj(github.tokens)).filter(([, token]) => typeof token === 'string' && token !== '').map(([host]) => ({ host })),
+    groups: kind === 'github' ? groups : [], savedHosts: Object.entries(obj(github.tokens)).filter(([, token]) => hasToken(token)).map(([host]) => ({ host })),
     fields: fields.filter(field => field.kind === kind).map(field => ({ key: field.key, label: field.label, description: field.description, secret: field.secret,
-      value: field.secret ? '' : str(obj(hosts[kind])[field.key]), saved: str(obj(hosts[kind])[field.key]) !== '' })),
+      value: field.secret ? '' : str(obj(hosts[kind])[field.key]), saved: hasToken(obj(hosts[kind])[field.key]) })),
   }));
 }
 export type HostCredentials = ReturnType<typeof hostCredentials>[number];

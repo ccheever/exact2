@@ -11,15 +11,32 @@ The terminal is T3 Code's own page in an `iframe`, with its own server socket. A
 module (`modules/apple/`) adapts type-to-focus, modifier events, the browser web view, menus,
 notifications and window chrome. Provider execution, workspaces, Git and conversation
 history stay on the T3 server.
-The app carries the T3 server built from the reference pin (the CLI archive upstream's release
-workflow makes, built here from that commit, unmodified; `server-runtime/runtime-pin.json`) and runs
-it as its own local server, "This machine". It does not modify T3 Code.
+The app carries the T3 server of the reference release (its official CLI archive, unmodified;
+`server-runtime/runtime-pin.json`) and runs it as its own local server, "This machine". It does not
+modify T3 Code.
 
-The reference is T3 Code `5d3d78ab93`, upstream main after v0.1.6, whose server and Beta app report
-0.1.6 (`referencePin` in `server-runtime/runtime-pin.json`; `CLIENT_VERSION` in `version-skew.ts`). Ported files name
+The reference is T3 Code v0.1.7, the Beta release cut at `322f6544df`, whose server and app report
+0.1.7 (`referencePin` in `server-runtime/runtime-pin.json`; `CLIENT_VERSION` in `version-skew.ts`). Ported files name
 the reference files they follow, and T3 Code's MIT notice is kept in `LICENSE-T3`.
 
 macOS is the only target: there is no web, iOS or Linux build of this app.
+
+## Install to try it
+
+On a Mac with Apple silicon, macOS 14 or later, Xcode, and the tools the
+[root setup instructions](../../README.md#1-install-the-tools) list (the repository's Rust toolchain,
+the Bun version from `package.json`, the native TypeScript Hermes toolchain), from the Exact checkout:
+
+```sh
+git pull
+bun examples/t3-code/tools/install/install.mjs
+```
+
+It builds the app, downloads and verifies the T3 server it embeds, and installs
+`/Applications/T3 Code (Exact).app`, replacing an earlier install (quit it first). Run the same two
+lines to update. The app keeps its server's data in `~/.t3-exact`, apart from T3 Code's own `~/.t3`,
+so it runs beside an installed T3 Code without touching its threads or settings. The build signs
+with the Mac's Apple Development identity when it has one, and ad hoc otherwise.
 
 ## Build and run
 
@@ -69,13 +86,12 @@ outside the root's members: its build script bakes the whole app on one core for
 exact2's six blocking checks leave it out and the async lane (`scripts/async.mjs`'s
 `t3-code` and `t3-code-clippy` steps) builds, tests and lints it.
 
-The embedded server. `tools/stage-runtime/stage-runtime.mjs` takes the archive named by
-`server-runtime/runtime-pin.json`: a release pin's is downloaded and accepted only when its SHA-256,
-the release's `SHA256SUMS` and the pin agree; a build pin's (no release publishes the commit) is
-built as the pin's `build` steps say and copied into `.runtime-cache/`, and accepted when its SHA-256
-is the pin's. Then it checks the signatures of its Mach-O files (ad hoc for a build), runs `t3 --version`,
-starts it once on a scratch home and a lane port, and puts the archive and its manifest beside the pin
-(`--offline` uses only the cache). The bundle carries that folder as
+The embedded server. `tools/stage-runtime/stage-runtime.mjs` downloads the release archive named by
+`server-runtime/runtime-pin.json` into `.runtime-cache/` and accepts it only when its size and SHA-256,
+the release's `SHA256SUMS` and the pin agree. Then it checks every Mach-O file with
+`codesign --verify --strict` and that `t3` carries the release's Developer ID signature, runs
+`t3 --version`, starts it once on a scratch home and a lane port, and puts the archive and its manifest
+beside the pin (`--offline` uses only the cache). The bundle carries that folder as
 `Contents/Resources/t3-runtime` (`app.json` `host.macos.resources`). At the first launch the app
 unpacks it into `<T3 home>/runtime/versions/<version>` and starts `t3 --bootstrap-fd 0` with the
 desktop envelope; it restarts the server with T3 Code's backoff, keeps its failure log in

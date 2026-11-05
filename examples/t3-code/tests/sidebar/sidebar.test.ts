@@ -158,6 +158,10 @@ describe('sidebar model (Sidebar.logic.ts, client-runtime models/threadSettled/t
     // An approval wake keeps the runtime's activity time, which an old failure does not replace.
     const asked = { ...oldFailure, pendingRuntimeRequest: { kind: 'command_approval' } };
     expect(wokeAt(asked, NOW)).toBe(iso(-1_000));
+    // A failed run with no completion yet does not wake it at a metadata write.
+    const unfinished = { ...failed, latestRunCompletedAt: null };
+    expect(effectiveSnoozed(unfinished, NOW)).toBe(true);
+    expect(wokeAt(unfinished, NOW)).toBeNull();
     const timer = shell('a', { snoozedUntil: iso(-120_000), snoozedAt: iso(-600_000) });
     expect(wokeAt(timer, NOW)).toBe(iso(-120_000));
     expect(isWoke(timer, wokeAt(timer, NOW), iso(-300_000))).toBe(true);
