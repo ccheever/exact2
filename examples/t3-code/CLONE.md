@@ -107,10 +107,21 @@ warning set, and the normal iOS simulator build opens on the iPhone Duo. This
 source correction does not claim native keyboard-visible Send reachability; a
 connected thread drive remains required.
 
+The next continuation gives failed older-history reads a distinct Retry control.
+The ordinary Load earlier activity button is hidden while the error is present;
+the status text remains announced and the retry button carries the reference
+label and disabled-state guards. Automatic paging and request ownership remain
+unchanged. The focused history suite passes 34 tests and 232 assertions, the
+full mobile suite passes, Contract and strict TypeScript checks pass, generated
+sources match, and the normal signed iOS simulator build opens on the iPhone
+Duo. A paired-server native failure drive is still needed for the error-state
+screenshots and accessibility readback. No frame-rate improvement is claimed.
+
 The prior integrated history, table, first-read, rail and Home units remain in
-the commit ancestry. Open parity gaps are live history errors/Retry, filtered
-continuation, selection and exact anchor preservation, bounded transcript
-residency, keyboard-visible Send under the Duo rail, fold/rotation, iPad split
+the commit ancestry. Open parity gaps are native failure-state screenshots and
+accessibility readback, filtered continuation, selection and exact anchor
+preservation, bounded transcript residency, keyboard-visible Send under the
+Duo rail, fold/rotation, iPad split
 layouts, connected/reference pairing, oversized Markdown/table behavior and
 release qualification. Start the next unit from the clean branch, inspect the
 relevant decision document, add focused regression coverage, build and drive an

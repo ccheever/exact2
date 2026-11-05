@@ -400,7 +400,7 @@ test('thread follow-end state shows the scroll-to-end control only away from the
   expect(haptics).toEqual(['selection']);
 });
 
-test('history chrome keeps one load control mounted while offline', () => {
+test('history chrome presents a distinct retry control while offline', () => {
   const history = contractComponent('mobile/thread.contract', 'ThreadHistory');
   const data = { hasMore: true, historyRequest: 'key', historyLoading: false, historyError: '' };
   const calls: unknown[][] = [], colors = { foreground: 'foreground', primary: 'primary', historyBorder: 'history-border' };
@@ -417,14 +417,15 @@ test('history chrome keeps one load control mounted while offline', () => {
   expect(history.drawn('t3-archive-spinner', {}, scope)).toBe(false);
   expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(false);
   data.historyRequest = 'key'; data.historyError = 'Offline';
-  expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(true);
+  expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(false);
     expect(history.drawn('testId="history-error"', {}, scope)).toBe(true);
-  expect(history.attribute('testId="thread-history-load-earlier"', 'disabled', {}, scope)).toBe(false);
-  data.historyRequest = 'key';
+  expect(history.drawn('testId="thread-history-retry"', {}, scope)).toBe(true);
+  expect(history.attribute('testId="thread-history-retry"', 'aria-label', {}, scope)).toBe('Retry loading earlier activity');
+  expect(history.attribute('testId="thread-history-retry"', 'disabled', {}, scope)).toBe(false);
   history.call('loadEarlier', {}, scope, []);
   expect(calls.at(-1)).toEqual(['chatlocal:history-retry', 'key', '']);
-  expect(history.attribute('testId="thread-history-load-earlier"', 'disabled', {}, scope)).toBe(false);
   data.historyError = ''; data.historyLoading = true;
+  expect(history.attribute('testId="thread-history-load-earlier"', 'aria-label', {}, scope)).toBe('Load earlier activity');
   expect(history.drawn('t3-archive-spinner', {}, scope)).toBe(true);
   expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(true);
   expect(history.attribute('testId="thread-history-load-earlier"', 'disabled', {}, scope)).toBe(true);
