@@ -851,10 +851,11 @@ above.
   scales the page down to fit the card (real input, 2026-11-05).
 - ⇧Tab skips a reply's changed-files card (its folder and file rows, Open diff, Expand all folders), which the
   reference reaches after Copy message (real input, 2026-11-05).
-- After the hero's "or start without a project", Go back does nothing; the reference returns to the project's hero
-  (real input, 2026-11-05).
-- ⌘N's project picker lists This machine's scratch folder as a project below the "No project ⌥⌘N" row; the
-  reference lists only that row (real input, 2026-11-05).
+- At a View zoom other than Actual Size (seen at 120%), a click on a sidebar row leaves that row's project name
+  undrawn until the page next lays out again (another zoom step, Settings opened and closed); the reference keeps it.
+  Hover and a selection by ⇧⌘] keep it, so a mouse press under a page zoom triggers it. Its cause in the Mac host is
+  not found: in `PressWashMacTests`' fixture, a 12 px translucent label at 120% and 125% stays drawn after a press, a
+  release, a fill change and a move (real input, 2026-11-05).
 - A linked picture's link tooltip sits 11 device px higher than the reference's, and the picture's stop shows no ring
   where the reference draws a thin one (real input, 2026-11-05).
 

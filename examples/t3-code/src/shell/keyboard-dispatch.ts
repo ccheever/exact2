@@ -81,8 +81,8 @@ export function chordWinners(bindings: Obj[], context: DispatchContext): Map<str
 // new-thread draft, or a page over them (Usage, Pull Requests;
 // the reference's history covers every route). Arriving at the entry beside the cursor moves the cursor
 // (that is what Back and Forward do); anywhere else is a new visit. Each visit has its own number, for the router's
-// location of it (visitHref). A thread or draft is named with its environment (`fleet:<environmentId>:<id>`), since
-// the window moves to another machine's (a thread without a project on the primary) and Back must return to it there.
+// location of it (visitHref). A thread or draft is named with its environment (`fleet:<environmentId>:<id>`): a new
+// thread without a project can move the window to another machine, and Back must return to the machine it left.
 type History = { entries: string[]; visits: number[]; cursor: number; next: number };
 const histories = new WeakMap<T3Client, History>();
 export function visit(client: T3Client, page = ''): History {
