@@ -23,6 +23,14 @@ silently dropping the label while retaining the matched text. Focused Home and
 search tests pass; native filtered-state screenshots and VoiceOver readback
 remain open.
 
+The next thread continuation retains up to 100 exact first-visible row anchors
+per route, environment and thread. Returning to a compact workspace thread
+restores the saved row and within-row offset; reaching the live end or using the
+explicit scroll-to-end control clears that saved position. Focused history tests
+cover route switching, prepend restoration, no-key events and end clearing. A
+populated native drive is still needed for pixel and accessibility evidence; this
+source change makes no frame-rate claim.
+
 The coordinator worktree is clean at `fe882b504b` on
 `t3/coordinate-t3-ios-mini`. The branch is pushed to PR216's
 `feat(example)/t3-code-ios` destination. PR216 remains draft, unmerged and

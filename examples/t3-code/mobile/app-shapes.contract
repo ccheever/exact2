@@ -207,3 +207,11 @@ shape HomeActionResult
   nextLocation: string
   archiveChanged: bool
   uncertain: bool
+
+shape ThreadHistoryAnchor
+  route: string
+  environment: string
+  thread: string
+  key: string
+  offset: number
+  revision: number
