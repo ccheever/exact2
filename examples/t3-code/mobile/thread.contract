@@ -173,6 +173,10 @@ component ThreadMessage
                 text "Retry" font-size=13 line-height="17px" color=colors.primary
           if row.kind == "pending" and row.title != ""
             text row.title margin-top=3.5 font-size=13 line-height="17px" color=(row.failed ? colors.dangerForeground : colors.secondary)
+      else if row.kind == "working"
+        column padding-top=4 padding-bottom=4
+          row min-height=44 align-items="center" border-bottom-width=1 border-bottom-style="solid" border-bottom-color=colors.border padding-left=4 padding-right=4
+            text row.title flex=1 min-width=0 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 font-variant-numeric="tabular-nums" color=colors.secondary
       else if row.kind == "compaction" or row.kind == "handoff"
         row align-items="center" gap=12 padding-left=4 padding-right=4 padding-top=4 padding-bottom=4 role="separator" aria-label=(row.body.length > 0 ? `${row.title}: ${row.body}` : row.title)
           view flex=1 min-width=8 height=1 background-color=colors.borderSubtle
