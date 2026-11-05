@@ -113,7 +113,7 @@ test('empty documents and adjacent accepted code retain total rendering plans', 
   ]);
 });
 
-test.each(['    indented', '```js\nopen fence'])('partition disagreement retains original prose: %s', code => {
+test.each(['    indented'])('partition disagreement retains original prose: %s', code => {
   const source = table + '\n\n' + code;
   expect(planFor(source)).toEqual([{ kind: 'markdown', blockIndex: 0, idSuffix: '', text: source }]);
 });
@@ -204,7 +204,7 @@ test.each([
     .toEqual([{ id: '1:0:0', kind, text }]);
 });
 
-test('emphasis validates excess cells before truncation and retains whole-segment fallback', () => {
+test('emphasis validates excess cells before truncation and keeps later code partitions', () => {
   const valid = '| *A* |\n| --- |\n| *kept* | _extra_ |';
   expect(tablesFor(valid).map(values)).toEqual([[['A'], ['kept']]]);
   const refused = valid + '\n\n| A |\n| --- |\n| *kept* | *a **nested** b* |';
@@ -216,5 +216,7 @@ test('emphasis validates excess cells before truncation and retains whole-segmen
     const source = valid + '\n\n' + context;
     expect(tablesFor(source)).toEqual([]);
   }
-  expect(tablesFor(valid + '\n\n```js\nopen')).toEqual([]);
+  const unfinished = planFor(valid + '\n\n```js\nopen');
+  expect(unfinished.filter(part => part.kind === 'table').map(part => part.blockIndex)).toEqual([0]);
+  expect(unfinished.at(-1)).toEqual({ kind: 'code', blockIndex: 1 });
 });

@@ -1416,7 +1416,9 @@ policy changed, and the temporary native probe is removed. A later cross-boundar
 diagnostic build lost its native header and was discarded. That approach reached
 the three-round limit and supplies no acceptance evidence. Its four source files
 are restored, and the normal header returns. Keep this symptom open.
-Unclosed/nested fences and reference links across preview chunks remain open.
+Unclosed and nested fences now retain their code-card partition through the end
+of a preview, including an opening fence at end of input. Reference links that
+cross preview chunks remain open.
 The draft file route shares this projection but has no new native acceptance.
 Files rows now align their labels beside the icons without
 system cell separators. Its Files/project header and bottom search reuse the
