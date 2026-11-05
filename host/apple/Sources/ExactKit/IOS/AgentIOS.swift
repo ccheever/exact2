@@ -14,9 +14,10 @@
 import UIKit
 
 extension Agent {
-    /// Listen on the socket; when the driver connects, `ready` goes out and
-    /// requests are answered until it hangs up (which ends the process).
-    /// `sessions` are what a request's `session` label routes among.
+    /// Listen on the simulator socket, wait for foreground eligibility
+    /// (`awaitFront`), then announce `ready` and serve requests until the driver
+    /// hangs up. On a device, connect to the driver while the app is active.
+    /// Route requests to `sessions` by their `session` label.
     public static func startSocket(ready: [String: Any], sessions: [(String, ExactSession)]) {
         routes = sessions
         _ = KeyboardMotion.shared // a press waits out the keyboard's motion (`settleForPress`)
@@ -91,6 +92,7 @@ extension Agent {
             let client = accept(fd, nil, nil)
             guard client >= 0 else { FileHandle.standardError.write(Data("exact: accept: \(String(cString: strerror(errno)))\n".utf8)); return }
             out = FileHandle(fileDescriptor: client, closeOnDealloc: false)
+            awaitFront { sessions.first?.1.presenter.viewport.window }
             reply(ready)
             DispatchQueue.main.async { watchForeground() }
             serve(fd: client)
@@ -1347,15 +1349,7 @@ extension Agent {
         return r
     }
 
-    /// Whether the display shows this app's window, or why not: an app that
-    /// is not active is behind a system alert, another app or the home
-    /// screen, and a window that is not key is behind another of its scene's.
-    func displayFront() -> Any {
-        if UIApplication.shared.applicationState != .active { return "the app is not active" }
-        if presenter.viewport.window?.windowScene?.activationState != .foregroundActive { return "the app's scene is not in front" }
-        if presenter.viewport.window?.isKeyWindow != true { return "the app's window is not key" }
-        return true
-    }
+    func displayFront() -> Any { Agent.frontRefusal(presenter.viewport.window) ?? true }
 
     /// Points of `window`, in its points, where the display must show what
     /// `drawHierarchy` drew, for the simulator driver's check that nothing of

@@ -52,12 +52,12 @@ final class FrameHealth {
     /// The screen's late frames' work split, by when their work began (nanoseconds): seconds the main thread waited in
     /// their updates, seconds of their work in Exact's host phases and the card's own, and the nodes' views laid out;
     /// nil where unmeasured. The newest 32.
-    private(set) var splits: [(at: UInt64, waited: Double, exact: Double?, card: Double, layouts: Int?)] = []
+    private(set) var splits: [(at: UInt64, waited: Double, exact: Double, card: Double, layouts: Int)] = []
 
     /// A late frame of the screen's, its work begun at `start` (seconds), split.
-    func split(at start: Double, waited: Double, exact: Double?, card: Double, layouts: Int?) {
+    func split(at start: Double, waited: Double, exact: Double, card: Double, layouts: Int) {
+        if splits.count == 32 { splits.removeFirst() }
         splits.append((Self.nanoseconds(start), waited, exact, card, layouts))
-        if splits.count > 32 { splits.removeFirst(splits.count - 32) }
     }
     var agentCaptureUntil: Double = 0
     /// An agent's scroll track (`FrameHealthTrack`), nil unless one is leased.

@@ -220,9 +220,7 @@ extension Agent {
             return ["error": "unsupported: tap #\(v.id) is a native swipe action: a finger swipes its row (`tap <row> drag -<width> 0`; a full swipe performs the first trailing action), and without --touch platform `tap` performs it"]
         }
         let scene = win.windowScene
-        guard UIApplication.shared.applicationState == .active, scene?.activationState == .foregroundActive, win.isKeyWindow else {
-            return ["error": "tap #\(v.id): the app is not the foreground, key window"]
-        }
+        if let refusal = Agent.frontRefusal(win) { return ["error": "tap #\(v.id): \(refusal)"] }
         // A row of a menu UIKit shows (native presentation): the finger
         // aims at UIKit's row, never at the hidden node.
         if let (pop, row) = presenter.menus.nativeRow(v) {

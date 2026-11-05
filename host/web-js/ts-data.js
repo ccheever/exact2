@@ -5,10 +5,12 @@
 // keeps keys as the web host does (LLP 1069.005 D1b: the pair itself in
 // IndexedDB under a handle the store holds; its code is fetched on first
 // use); `openAuthSession` is auth.js.
+// The runtime's bindings load before the app's module and what it imports, so ts-fetch.js takes the page's own
+// functions before any app code runs.
+import { activeCall, answering, dropTimers, files as bodyFiles, SOCKET_AND_FETCH } from './ts-fetch.js';
 import * as source from '__APP_TS__';
 import { createSecretFacade, hasGrant, inOverlay, overlaying, setAppGrantSet } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
-import { activeCall, answering, dropTimers, files as bodyFiles, SOCKET_AND_FETCH } from './ts-fetch.js';
 import { sourceTypes } from './names.js';
 import { checkpoint, clock, commit, drive, inflight, journal, Origin, painted, R, Resources } from './rt.js';
 import { Shaped } from './shape.js';

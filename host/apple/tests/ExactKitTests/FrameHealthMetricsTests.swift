@@ -270,20 +270,23 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertEqual(chart.latest, 140.27)
         chart.tick(at: 140.3)
         XCTAssertEqual(chart.head, 140.27, "not within a column of the spell, which moved them")
-        // Held, the layers keep their picture while frames arrive; let go, they show the present
+        // Held, the layers keep their picture and the charts take no frames, so the paused span is a gap; let go, they
+        // show the present
         chart.present()
         let shown = lines[0].position.x
         chart.hold(true, at: 140.4)
         XCTAssertNil(chart.clock, "a held picture does not follow the time")
         chart.frame(at: 141)
+        chart.busy(start: 141.1, end: 141.2, budget: 1 / 120)
         chart.present()
         XCTAssertEqual(lines[0].position.x, shown)
-        XCTAssertEqual(chart.picture.latest, 140.27, "the picture is the moment it was held")
-        XCTAssertEqual(chart.latest, 141, "frames still arrive")
+        XCTAssertEqual(chart.latest, 140.27, "the picture is the moment it was held")
+        XCTAssertFalse(chart.columns.contains { $0.index >= 1410 })
         chart.hold(false, at: 150)
-        XCTAssertEqual(chart.head, 150, "the present, past what arrived while it was held")
-        XCTAssertEqual(chart.picture.latest, 141)
+        XCTAssertEqual(chart.head, 150, "the present, past the pause")
         XCTAssertEqual(lines[0].position.x, 0, "drawn whole at the present")
+        chart.frame(at: 150.15)
+        XCTAssertEqual(chart.columns.first { $0.index == 1501 }?.joined, false, "the next frame begins a new run")
         chart.follow(false)
         XCTAssertNil(chart.clock)
         // A dotted line's dashes keep their place in time as the plot moves on
@@ -929,11 +932,11 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertEqual(exactCore["frameIntervals"] as? String, "0")
     }
 
-    func testEachReadTakesTheMainThreadsWorkAndAPausedCardsCopyReadsNoMore() {
+    func testEachReadTakesTheMainThreadsWorkAndTheReadAfterAPauseCoversIt() {
         let health = FrameHealth(enabled: true)
         defer { health.destroy() }
         let reader = FrameHealthCardReader()
-        XCTAssertTrue(reader.start(claim: false))
+        XCTAssertTrue(reader.start())
         defer { reader.stop() }
         var taken = 0
         reader.sample(health, now: 1, force: true, main: { taken += 1; return (0.004, 0) })
@@ -942,11 +945,12 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertEqual(taken, 2, "each read takes the main thread's work, the baseline's too, so none carries over")
         XCTAssertEqual(reader.window(5).mainLongest, 61, accuracy: 1e-9)
         XCTAssertEqual(reader.window(5).counts.long, 2)
-        let copy = reader.copy()
-        XCTAssertFalse(copy.reading, "a paused card's copy holds no reader's place")
+        // A paused card reads nothing; its first read after covers the paused span, from the last read before it
         health.record(arrival: 1.7, target: 1.71, period: 0, finished: 1.705)
-        reader.sample(health, now: 2.2, force: true, main: { (0.001, 0) })
-        XCTAssertEqual(copy.samples.count, 1)
+        health.record(arrival: 3.7, target: 3.71, period: 0, finished: 3.705)
+        reader.sample(health, now: 4.6, main: { (0.001, 0) })
+        XCTAssertEqual(reader.window(0.5).from, 1.6, accuracy: 1e-9)
+        XCTAssertEqual(reader.window(0.5).counts.callbacks, 2)
         XCTAssertEqual(reader.samples.count, 2)
     }
 

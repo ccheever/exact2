@@ -143,7 +143,7 @@ final class AgentPresentedIOSTests: XCTestCase {
     /// The aim's reply for a plain real tap on `id`.
     private func aim(_ agent: Agent, _ id: Int) throws -> [String: Any] {
         let reply = agent.aim(["id": id])
-        if (reply["error"] as? String)?.contains("foreground") == true { throw missing("foreground", "the test host is in the background: a real touch's aim refuses it") }
+        try requireFront(window)
         return reply
     }
     /// The `UIAlertAction` whose button a finger at the aim's point presses.

@@ -449,7 +449,7 @@ final class NativeContextsIOSTests: XCTestCase {
         let control = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UISegmentedControl }.first)
         control.layoutIfNeeded()
         let reply = Agent(session: session).aim(["id": 3, "aim": ["press": true]])
-        if (reply["error"] as? String)?.contains("foreground") == true { throw missing("foreground", "the test host is in the background: a real touch's aim refuses it") }
+        try requireFront(window)
         let aim = try XCTUnwrap(reply["aim"] as? [String: Any], "\(reply)")
         let w = try XCTUnwrap(aim["window"] as? [Double])
         let local = control.convert(CGPoint(x: w[0], y: w[1]), from: nil)

@@ -13,7 +13,7 @@ import AppKit
 enum FrameHealthCardDrawing {
     /// Opaque colors: the translucent system roles composited over the card's background ahead of
     /// time, as Exact's roles are on the card's web design.
-    struct Palette {
+    struct Palette: Equatable {
         var background, label, secondary, separator, axis, blue, orange, green, gray: CGColor
         /// The status button's fill, hovered and pressed; an icon button's hovered and pressed fill
         var statusFill, statusHover, statusPressed, iconHover, iconPressed: CGColor
@@ -388,7 +388,7 @@ enum FrameHealthCardDrawing {
         y += 12
         let chartWidth = size.width - 2 * margin
         charts(ctx, CGRect(x: margin, y: y, width: chartWidth, height: 200), input, expanded: nil, palette: palette,
-            lines: chart.picture)
+            lines: (chart.columns, chart.latest))
         y += 80 + 16 + 104 + 16
         for (index, row) in table.enumerated() {
             y += lineHeight
