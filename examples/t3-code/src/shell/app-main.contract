@@ -184,11 +184,18 @@ component ChatColumn
   state conversationRinged = false
   action conversationFocus(on: bool)
     conversationRinged = on and keyboardLast
+  // The pointer's row and the row whose actions hold the focus are apart, as `group-hover` and `focus-within` are in
+  // the reference's reveal: a blur leaves the pointer's hover, and a tooltip part's leave leaves its row's.
   state rowHover = ""
   state partHover = ""
+  state rowFocus = ""
   action hoverPart(row: string, part: string, over: bool)
-    rowHover = over ? row : (rowHover == row ? "" : rowHover)
-    partHover = over ? part : (partHover == part ? "" : partHover)
+    if part == "focus"
+      rowFocus = over ? row : (rowFocus == row ? "" : rowFocus)
+    else
+      if part == "" or over
+        rowHover = over ? row : (rowHover == row ? "" : rowHover)
+      partHover = over ? part : (partHover == part ? "" : partHover)
   // The user turns reported intersecting the transcript (UserRow's `intersect=`), for
   // the owner they were reported under, and the list's first visible row from its last ScrollEvent (timeline-minimap.contract).
   state turnsSeen: string[] = []
@@ -333,7 +340,7 @@ component ChatColumn
           // from the first message to the last.
           list appearance="none" virtualized=true keep-mounted=data.transcriptKeep scrollFollowEnd=(not foldHold and not threadFind.open) reachend=releaseFold scroll=transcriptScrolled scrollend=citeSettled wheel=transcriptWheel keycapture=transcriptKeys scrollTop=listTop id="transcript" testId="transcript" flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
             for message in data.messages key=message.id
-              TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#18181b, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=(((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24) * rem / 16), scheme=scheme, seen=turnSeen)
+              TimelineRow(message=message, hovered=(rowHover == message.hoverKey or rowFocus == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#18181b, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=(((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24) * rem / 16), scheme=scheme, seen=turnSeen)
           if not ((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "")
             TimelineFade(canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas))
           TimelineMinimap(items=data.minimap, current=turnCurrent, visible=turnsShown, wheel=minimapWheel, gutter=((conversationWidth - min(data.look.chatMax, conversationWidth - 6 * rem)) / 2), windowHeight=viewport.height, jump=turnJump)

@@ -702,7 +702,7 @@ component CopyButton
     id: string
     copied: number
     local: action
-    hover: action
+    hover: action // the focus of its row's actions (ChatColumn hoverPart's "focus")
   view
     box position="relative" width="1.5rem" height="1.5rem" flex-shrink=0
       button press=local("copy", id, "") testId=`copy-${id}` aria-label="Copy message" focus=hover(true) blur=hover(false) tabindex=0 width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""

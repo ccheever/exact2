@@ -54,6 +54,7 @@ export function planBody(markdown: string): string {
 
 interface SaveState { threadId: string; rowId: string; path: string; saving: boolean }
 const saves = new WeakMap<T3Client, SaveState | null>();
+const saved = new WeakMap<T3Client, number>(); // plans saved to the workspace, for the focus after the dialog
 function planMarkdown(client: T3Client, rowId: string): string {
   const row = arr(client.projection.visibleTurnItems).find(row => JSON.stringify([row.sourceThreadId, row.sourceItemId]) === rowId);
   const item = obj(row?.item);
@@ -103,6 +104,7 @@ export async function planAction(client: T3Client, native: Native, op: string, i
     try {
       const result = obj(await client.rpc(native, 'projects.writeFile', { cwd, relativePath, contents: planExport(planMarkdown(client, save.rowId)) }, true));
       saves.set(client, null);
+      saved.set(client, (saved.get(client) ?? 0) + 1);
       pushToast(client, { kind: 'success', title: 'Plan saved to workspace', description: str(result.relativePath, relativePath) });
     } catch (error) {
       save.saving = false;
@@ -119,5 +121,6 @@ export function planSaveView(client: T3Client) {
   const save = saves.get(client);
   const open = !!save && save.threadId === client.threadId;
   return { planSaveOpen: open, planSavePath: open ? save!.path : '', planSaveRoot: open ? planRoot(client) : '', planSaving: open && save!.saving,
-    planSaveRow: open ? save!.rowId : '' }; // the plan whose menu opened it, which it gives the focus back to (DialogFinalFocus)
+    planSaveRow: open ? save!.rowId : '', // the plan whose menu opened it, which it gives the focus back to (DialogFinalFocus)
+    planSaved: saved.get(client) ?? 0 };
 }

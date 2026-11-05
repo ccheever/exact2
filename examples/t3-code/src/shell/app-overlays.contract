@@ -42,6 +42,7 @@ use PrActionLayers from "../pull-requests/pages-pr-actions.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 use DialogFinalFocus from "../shared/dialog-trap.contract"
+use PlanSaveFinalFocus from "../shared/dialog-trap.contract"
 
 // The T3Code window's overlays, moved out of app.contract, which keeps the state, resources and
 // actions: each component takes the root names it reads as props of the same names.
@@ -250,7 +251,7 @@ component WindowOverlays
     if shell.composerFile.open
       for file in [shell.composerFile.file.id] key=file
         ComposerFileDialog(preview=shell.composerFile, documents=filesDocuments, scheme=scheme, windowHeight=viewport.height, command=command, chatLocal=chatLocal)
-    DialogFinalFocus(open=data.planSaveOpen, owner="plan-save-dialog")
+    PlanSaveFinalFocus(open=data.planSaveOpen, owner="plan-save-dialog", saved=data.planSaved)
     if data.planSaveOpen
       PlanSaveDialog(path=data.planSavePath, root=data.planSaveRoot, saving=data.planSaving, local=chatLocal)
     DialogFinalFocus(open=shell.panel.deviceSetup, owner="device-setup")

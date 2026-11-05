@@ -1,4 +1,5 @@
 // T3 Code 9c161462c9: rightPanelStore, closedViewStore and reopenClosedView rules over the port.
+import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
@@ -43,11 +44,41 @@ describe('panel layout belongs to the owning thread', () => {
     expect(restored.maximized).toBe(true);
     await surfaceLocal(app, native, 'hide', '', ''); expect(a.maximized).toBe(false);
   });
-  test('Maximize leads the layout controls in either layout; the sheet, which covers the details card, then offers its toggle', () => {
+  test('a sheet leads its own layout controls with Maximize, then the details toggle; inline they are the window\'s', () => {
     const header = contractComponent('panel.contract', 'PanelHeaderBar'), local = header.state();
     const scope = (sheet: boolean) => ({ sheet, min: Math.min, max: Math.max, panel: { tabStrip: { activeLeft: 0, activeRight: 0, view: 0, max: 0, serial: 0, overflow: false } } });
     expect([header.drawn('testId="maximize-right-panel"', local, scope(true)), header.drawn('testId="panel-toggle-details"', local, scope(true))]).toEqual([true, true]);
-    expect([header.drawn('testId="maximize-right-panel"', local, scope(false)), header.drawn('testId="panel-toggle-details"', local, scope(false))]).toEqual([true, false]);
+    expect([header.drawn('testId="maximize-right-panel"', local, scope(false)), header.drawn('testId="panel-toggle-details"', local, scope(false))]).toEqual([false, false]);
+  });
+  test('beside an inline panel, Maximize, the terminal drawer and the toggle are Tab stops before the chat header', () => {
+    const controls = contractComponent('shell-panels.contract', 'PanelTitlebarControls'), local = controls.state();
+    for (const id of ['maximize-right-panel', 'panel-toggle-terminal', 'panel-toggle-right']) {
+      expect(controls.drawn(`testId="${id}"`, local, { shown: true })).toBe(true);
+      expect(controls.drawn(`testId="${id}"`, local, { shown: false })).toBe(false);
+    }
+    const window = readFileSync(new URL('../../src/shell/app-window.contract', import.meta.url), 'utf8');
+    expect(window.indexOf('PanelTitlebarControls(')).toBeGreaterThan(window.indexOf('Sidebar(data=data'));
+    expect(window.indexOf('PanelTitlebarControls(')).toBeLessThan(window.indexOf('ChatColumn('));
+    const shell = readFileSync(new URL('../../src/shell/shell-panels.contract', import.meta.url), 'utf8');
+    const layer = shell.slice(shell.indexOf('component PanelTitlebarControls'));
+    expect(layer.match(/button [^\n]*tabindex=0/g)).toHaveLength(3);
+    const calls: string[] = [], state = controls.state(), scope = { focus: (id: string) => calls.push(id) };
+    controls.call('laidOut', state, scope, [2, 1]); controls.call('entered', state, scope, [{}]); controls.call('laidOut', state, scope, [1, 1]);
+    expect(calls).toEqual(['toggle-right-panel']);
+  });
+  test('the panel bar\'s tabs, their close buttons, "Add panel surface" and the launcher\'s rows are Tab stops, as Chromium\'s buttons', () => {
+    const panel = readFileSync(new URL('../../src/panel/panel.contract', import.meta.url), 'utf8');
+    for (const id of ['id=`panel-tab-close-${tab.id}`', 'id=`panel-tab-title-${tab.id}`', 'aria-label="Add panel surface"']) {
+      const line = panel.split('\n').find(line => line.includes(id))!;
+      expect(line).toContain('tabindex=0');
+    }
+    // RightPanelEmptyState: every row is a stop, an unavailable one too (its tooltip's trigger), and the Browser row's
+    // profile chevron.
+    const shell = readFileSync(new URL('../../src/shell/shell-panels.contract', import.meta.url), 'utf8').split('\n');
+    expect(shell.find(line => line.includes('button press=choose(surface.id) key=rowKey'))).toContain('tabindex=0');
+    expect(shell.find(line => line.includes('row tabindex=0 focus=hover(surface.id, true) blur=hover(surface.id, false)'))).toBeDefined();
+    const browser = readFileSync(new URL('../../src/browser/browser-surface.contract', import.meta.url), 'utf8').split('\n');
+    expect(browser.find(line => line.includes('id="surface-browser-profiles"'))).toContain('tabindex=0');
   });
   test('pointer movement crosses tab midpoints after the drag threshold', () => {
     const header = contractComponent('panel.contract', 'PanelHeaderBar'), local = header.state(), calls: unknown[][] = [];

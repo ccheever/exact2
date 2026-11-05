@@ -452,6 +452,19 @@ describe('every modal dialog takes the focus as it opens (Base UI\'s initialFocu
     expect(trap).toContain('box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none"');
   });
 
+  test('the plan dialog gives the composer the focus after a save, and returns as any dialog otherwise', () => {
+    const lifecycle = contractComponent('dialog-trap.contract', 'PlanSaveFinalFocus');
+    const run = (saved: number) => {
+      const state = { shown: false, heldOwner: '', savedAtOpen: 0 }, calls: string[] = [];
+      const scope = { owner: 'plan-save-dialog', saved: 0, dialogOpened: (id: string) => calls.push(`open ${id}`), dialogClosed: (id: string) => calls.push(`closed ${id}`),
+        dialogForget: (ids: string[]) => calls.push(`forget ${ids.join()}`), focus: (id: string) => calls.push(`focus ${id}`) };
+      lifecycle.call('laidOut', state, scope, [2, 1]);
+      lifecycle.call('laidOut', state, { ...scope, saved }, [1, 1]);
+      return calls;
+    };
+    expect(run(1)).toEqual(['open plan-save-dialog', 'forget plan-save-dialog', 'focus composer']);
+    expect(run(0)).toEqual(['open plan-save-dialog', 'closed plan-save-dialog']);
+  });
   for (const dialog of dialogs.filter(dialog => dialog.key in GUARDED || dialog.key in KEYED)) {
     test(`${dialog.key}: the focus moves into the popup as it opens`, () => {
       const children = block(source(dialog.file).split('\n'), dialog.index).filter(line => line.trim() !== '' && !line.trimStart().startsWith('//'));
@@ -572,7 +585,7 @@ describe('every modal dialog gives focus back through a surviving observer or it
     'settings-appearance-import.contract': ['theme-update'],
   };
   const finals = [...sources].flatMap(([file, text]) => text.split('\n').flatMap((line, index) =>
-    line.trim().startsWith('DialogFinalFocus(') ? [{ file, index, line: line.trim(), owner: /owner="([^"]+)"/.exec(line)![1]! }] : []));
+    /^(DialogFinalFocus|PlanSaveFinalFocus)\(/.test(line.trim()) ? [{ file, index, line: line.trim(), owner: /owner="([^"]+)"/.exec(line)![1]! }] : []));
   const assertObserver = (file: string, owner: string) => expect(finals.filter(use => use.file === file && use.owner === owner)).toHaveLength(1);
   test('every observer survives the popup it watches and snapshots its owner only once', () => {
     const lifecycle = contractComponent('dialog-trap.contract', 'DialogFinalFocus');

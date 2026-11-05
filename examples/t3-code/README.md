@@ -736,6 +736,9 @@ Differences that belong to the app:
   place it by. An image inside a link shows its URL on a keyboard focus, as the reference's does.
 - A focused timeline button shows AppKit's focus ring outside it, where the reference's tool rows ring inside their
   box (`ring-2 ring-inset`) and its inline buttons draw Chromium's outline.
+- Tab from the composer's text goes to the right panel, where the reference's stops first on Attach files and the
+  model picker. A panel bar button or a sent message's Edit from here, focused by Tab, shows no tooltip; the
+  reference's opens on that focus.
 - Appearance has no Environment identification row. The clone is the stable app only, and it does
   not draw the Nightly or Dev artwork. At v0.1.5 the stable app's default also shows no art, but the
   row lets a user opt into Nightly or Dev artwork ("Show Dev or Nightly artwork in the sidebar
@@ -928,7 +931,9 @@ above.
 - ⌘Z with the prompt focused is the prompt's own undo, as in the reference (thread.undo is
   `!terminalFocus && !editableFocus`).
 - The right panel toggle moves from the chat header into the panel when the panel opens, as the
-  reference's does.
+  reference's does. With the panel inline, Maximize panel, Toggle terminal drawer and Toggle right panel
+  are the window's, as the reference's WorkspaceTitlebarControls are: drawn over the panel bar and Tab
+  stops between the sidebar and the chat header.
 - Sessions K and L did not run some rows, for want of fixture data or because the task left them
   out; none is a failure. Since checked (below): H-2's reset-credit confirm, the diff Turn submenu,
   the approval menu (FN5), a diff comment (FN7), the linked pull request's actions menu and Reply,

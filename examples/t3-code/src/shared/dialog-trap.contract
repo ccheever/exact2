@@ -190,3 +190,34 @@ component DialogFinalFocus
       dialogClosed(heldOwner)
   view
     box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=(open ? 2 : 1) height=1 opacity=0 pointer-events="none"
+
+// The plan dialog's DialogFinalFocus. A save disables the focused Save and the path field (`disabled={saving}`), so
+// Chromium drops the focus to the body, and upstream's workspaceFocus `recover` gives it to the content: the composer.
+// Base UI's return then has no focus inside the dialog to restore. Cancel, Escape and the X return as any dialog does.
+component PlanSaveFinalFocus
+  inject
+    dialogOpened: action
+    dialogClosed: action
+    dialogForget: action
+  props
+    open: bool
+    owner: string
+    saved: number // planSaved: it grew while the dialog was open when a save closed it
+  state shown = false
+  state heldOwner = ""
+  state savedAtOpen = 0
+  action laidOut(width: number, height: number)
+    if width >= 2 and not shown
+      shown = true
+      heldOwner = owner
+      savedAtOpen = saved
+      dialogOpened(owner)
+    else if width == 1 and shown
+      shown = false
+      if saved != savedAtOpen
+        dialogForget([heldOwner])
+        focus("composer")
+      else
+        dialogClosed(heldOwner)
+  view
+    box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=(open ? 2 : 1) height=1 opacity=0 pointer-events="none"

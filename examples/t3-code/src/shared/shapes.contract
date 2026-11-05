@@ -609,6 +609,7 @@ shape Snapshot
   planSaveRoot: string
   planSaving: bool
   planSaveRow: string
+  planSaved: number // plans saved so far (timeline-plan.ts); a save that closed the dialog gives the composer the focus
   providers: Provider[]
   models: Model[]
   questions: Question[]

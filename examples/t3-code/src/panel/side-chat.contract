@@ -179,12 +179,18 @@ component SideChatThread
     chooseAttachments
     modelMeasure
     modelOpenTo
-  // The hovered row and its hovered tooltip part (ChatColumn rowHover, partHover).
+  // The hovered row, its hovered tooltip part and the row whose actions hold the focus (ChatColumn rowHover, partHover,
+  // rowFocus).
   state rowHover = ""
   state partHover = ""
+  state rowFocus = ""
   action hoverPart(row: string, part: string, over: bool)
-    rowHover = over ? row : (rowHover == row ? "" : rowHover)
-    partHover = over ? part : (partHover == part ? "" : partHover)
+    if part == "focus"
+      rowFocus = over ? row : (rowFocus == row ? "" : rowFocus)
+    else
+      if part == "" or over
+        rowHover = over ? row : (rowHover == row ? "" : rowHover)
+      partHover = over ? part : (partHover == part ? "" : partHover)
   action seen(id: string, entry: IntersectionObserverEntry)
     rowHover = rowHover
   action earlier
@@ -209,7 +215,7 @@ component SideChatThread
       input type="file" id="side-chat-attach-input" multiple=true display="none" change=sideFilesPicked
       list appearance="none" virtualized=true scrollFollowEnd=true scroll=scrolled testId="side-chat-transcript" flex=1 min-height=0 width="100%" box-sizing="border-box" overflow-x="hidden"
         for message in sideChat.messages key=message.id
-          TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=sideCommand, local=sideLocal, documents=sideMarkdown.documents, lane=sideChat.look.chatMax, bubble=sideChat.look.message, ink=(sideChat.look.themed ? sideChat.look.text : "light-dark(#18181b, #f5f5f5)"), now=sideNow, hasMore=sideChat.hasMore, historyLoading=sideChat.historyLoading, historyError=sideChat.historyError, busy=commandPending, earlier=earlier, attachments=sideAttachmentUrls.items, diffScheme=sideChat.look.diff, tail=0, lead=rem, scheme=scheme, seen=seen)
+          TimelineRow(message=message, hovered=(rowHover == message.hoverKey or rowFocus == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=sideCommand, local=sideLocal, documents=sideMarkdown.documents, lane=sideChat.look.chatMax, bubble=sideChat.look.message, ink=(sideChat.look.themed ? sideChat.look.text : "light-dark(#18181b, #f5f5f5)"), now=sideNow, hasMore=sideChat.hasMore, historyLoading=sideChat.historyLoading, historyError=sideChat.historyError, busy=commandPending, earlier=earlier, attachments=sideAttachmentUrls.items, diffScheme=sideChat.look.diff, tail=0, lead=rem, scheme=scheme, seen=seen)
       // The side chat is a ChatView: its composer keeps the window's lane (chat-composer-lane, 3rem) and 1.25rem below.
       column flex-shrink=0 width="100%" padding-left="3rem" padding-right="3rem" padding-bottom="1.25rem" box-sizing="border-box" align-items="center" role="region" aria-label="Message input" testId="side-chat-composer-overlay" focusin=sideComposerFocusWithin(true) focusout=sideComposerFocusWithin(false)
         column width="100%" max-width=sideChat.look.chatMax position="relative" box-sizing="border-box"
