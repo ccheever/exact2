@@ -398,6 +398,10 @@ test('thread anchors are retained per route and restored when a compact workspac
   root.call('didThreadHistoryChanged', state, scope, []);
   expect(calls).toEqual([['thread-feed', 'a-03', { offset: 31, behavior: 'instant' }]]);
   expect(state.historyAnchors).toHaveLength(2);
+  scroll('a-03', 31);
+  const steady = structuredClone(state);
+  scroll('a-03', 31);
+  expect(state).toEqual(steady);
   scroll('a-last', 0, 1800);
   expect(state.historyAnchorKey).toBe('');
   expect(state.historyAnchors).toHaveLength(1);

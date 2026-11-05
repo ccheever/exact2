@@ -47,14 +47,15 @@ members App
       match e.firstVisibleKey
         case some(key)
           if (not atEnd or e.scrollHeight <= 0) and not (historyAnchorKey != "" and threadData.historyRevision > historyAnchorRevision)
-            historyAnchorKey = key
-            historyAnchorOffset = e.firstVisibleOffset
-            historyAnchorRoute = `${top(nav).id}`
-            historyAnchorEnvironment = threadData.environmentId
-            historyAnchorThread = threadData.threadId
-            historyAnchorRevision = threadData.historyRevision
-            historyAnchorRestorePending = false
-            historyAnchors = historyAnchors.filter((saved) => not (saved.route == historyAnchorRoute and saved.environment == historyAnchorEnvironment and saved.thread == historyAnchorThread)).concat([ThreadHistoryAnchor(route=historyAnchorRoute, environment=historyAnchorEnvironment, thread=historyAnchorThread, key=historyAnchorKey, offset=historyAnchorOffset, revision=historyAnchorRevision)]).slice(-100)
+            if key != historyAnchorKey or e.firstVisibleOffset != historyAnchorOffset or historyAnchorRoute != route or historyAnchorEnvironment != environment or historyAnchorThread != thread or historyAnchorRevision != threadData.historyRevision
+              historyAnchorKey = key
+              historyAnchorOffset = e.firstVisibleOffset
+              historyAnchorRoute = route
+              historyAnchorEnvironment = environment
+              historyAnchorThread = thread
+              historyAnchorRevision = threadData.historyRevision
+              historyAnchorRestorePending = false
+              historyAnchors = historyAnchors.filter((saved) => not (saved.route == historyAnchorRoute and saved.environment == historyAnchorEnvironment and saved.thread == historyAnchorThread)).concat([ThreadHistoryAnchor(route=historyAnchorRoute, environment=historyAnchorEnvironment, thread=historyAnchorThread, key=historyAnchorKey, offset=historyAnchorOffset, revision=historyAnchorRevision)]).slice(-100)
         case none
           if not (historyAnchorKey != "" and threadData.historyRevision > historyAnchorRevision)
             historyAnchorKey = ""
