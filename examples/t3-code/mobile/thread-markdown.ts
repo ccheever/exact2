@@ -1,5 +1,5 @@
 import { mobileMarkdownBlocks, type MarkdownBlock } from './markdown-blocks';
-import { fileMarkdownPlan, type FileMarkdownPart, type FileTableRow } from './shared/file-markdown-parser';
+import { fileMarkdownPlan, fileMarkdownReferenceContexts, type FileMarkdownPart, type FileTableRow } from './shared/file-markdown-parser';
 
 type Alignment = 'left' | 'center' | 'right';
 type TablePart = Extract<FileMarkdownPart, { kind: 'table' }>;
@@ -45,7 +45,13 @@ function tableSlice(block: MarkdownBlock, part: TablePart) {
 
 export function mobileThreadMarkdownBlocks(body: string, dark: boolean): ThreadMarkdownBlock[] {
   const source = body.replace(/\r\n?/g, '\n'), blocks = mobileMarkdownBlocks(source, dark);
-  const plain = (block: MarkdownBlock): ThreadMarkdownBlock => ({ ...block, columns: 0, alignments: [], rows: [] });
+  const references = fileMarkdownReferenceContexts(source, blocks);
+  const plain = (block: MarkdownBlock, index: number): ThreadMarkdownBlock => {
+    const context = references[index] ?? '';
+    const withReferences = context ? { ...block, tokens: [...block.tokens, { id: `${block.id}:reference-context`, text: context,
+      color: '', weight: 0, slant: 'reference-context' }] } : block;
+    return { ...withReferences, columns: 0, alignments: [], rows: [] };
+  };
   if (!source.includes('|') && !/^ {0,3}:?-+:?[ \t]*$/m.test(source)) return blocks.map(plain);
   const tables = new Map<number, TablePart[]>();
   for (const part of fileMarkdownPlan(source, blocks)) {
@@ -55,16 +61,16 @@ export function mobileThreadMarkdownBlocks(body: string, dark: boolean): ThreadM
   }
   return blocks.flatMap<ThreadMarkdownBlock>((block, index) => {
     const parts = tables.get(index);
-    if (!parts) return [plain(block)];
+    if (!parts) return [plain(block, index)];
     const result: ThreadMarkdownBlock[] = [];
     let start = 0;
     const prose = (end: number) => {
       const text = block.text.slice(start, end);
-      if (text.trim()) result.push(plain({ ...block, id: start === 0 ? block.id : `${block.id}:text:${start}`, text }));
+      if (text.trim()) result.push(plain({ ...block, id: start === 0 ? block.id : `${block.id}:text:${start}`, text }, index));
     };
     for (const part of parts) {
       const table = tableSlice(block, part);
-      if (!table || table.start < start || table.end > block.text.length) return [plain(block)];
+      if (!table || table.start < start || table.end > block.text.length) return [plain(block, index)];
       prose(table.start); result.push(table.block); start = table.end;
     }
     prose(block.text.length);
