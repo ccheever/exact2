@@ -124,14 +124,23 @@ shape Markdown
 shape Viewport
   width: number
 
+shape SearchPart
+  id: string
+  text: string
+  mark: bool
+
 shape SearchHit
   id: string
   href: string
-  page: string
-  heading: string
-  snippet: string
+  title: SearchPart[]
+  path: string
+  snippet: SearchPart[]
+  nested: bool
 
 // A small link or button the platform washes on hover: the wash gets room around its contents and the
 // sidebar's radius, and the negative margin keeps the contents where they were.
+style Key
+  font-size="0.8125rem" line-height="19px" font-weight=500 color="var(--color-text-secondary)" padding="0 4px" min-width=22 box-sizing="border-box" text-align="center" border="1px solid var(--color-border-default)" border-radius=4 box-shadow="0 1.6px 0 1px var(--color-border-default)" background-color="var(--color-background-subtle)"
+
 style Hit
   padding="4px 8px" margin="-4px -8px" border-radius="var(--radius-lg)"

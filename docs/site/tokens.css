@@ -7,6 +7,7 @@
   --color-text-tertiary: light-dark(#80838d, #777b84);
   --color-text-quaternary: light-dark(#8b8d98, #696e77);
   --color-text-success: #00824d;
+  --color-text-mark: light-dark(#113264, #c2e6ff);
   --color-icon-default: light-dark(#60646c, #b0b4ba);
   --color-icon-tertiary: light-dark(#8b8d98, #696e77);
   --color-icon-warning: #ad6200;
@@ -17,6 +18,7 @@
   --color-background-screen: light-dark(#fbfcfd, #111113);
   --color-background-success: light-dark(#e6f6eb, #132d21);
   --color-background-danger: light-dark(#feebec, #3b1219);
+  --color-background-mark: light-dark(#d5efff, #104d87);
   --color-border-default: light-dark(#d9d9e0, #363a3f);
   --color-border-secondary: light-dark(#e0e1e6, #2e3135);
   --color-accent: #1e8fff;
