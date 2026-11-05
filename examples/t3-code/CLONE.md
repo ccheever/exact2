@@ -88,6 +88,15 @@ existing revision and route guards remain in force. The focused Contract test
 covers the no-key event before restoration. Exact native pixel preservation
 still needs a populated-thread drive.
 
+The next Markdown continuation preserves document-level link and footnote
+definitions across native preview chunks. A definition used before a fenced
+code card now reaches the earlier Markdown parser as hidden render context,
+while the source block and visible definition placement remain unchanged.
+Focused Markdown and transcript tests, the full mobile suite, generated-source
+verification, strict TypeScript, Contract compilation and the normal iOS
+simulator build pass. A native screenshot of a rendered cross-chunk link is
+still needed before claiming pixel parity for this case.
+
 The prior integrated history, table, first-read, rail and Home units remain in
 the commit ancestry. Open parity gaps are live history errors/Retry, filtered
 continuation, selection and exact anchor preservation, bounded transcript

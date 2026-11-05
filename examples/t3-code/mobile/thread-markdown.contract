@@ -1,6 +1,8 @@
 // ThreadFeed MarkdownCodeBlock, upstream365aa87982. Prose uses Exact's portable Markdown reader.
 // @ref examples/t3-code/mobile/docs/1130.002-design-system-parity.spec.md#typography-and-font-assets
-use ThreadBlock, ThreadColors from "./thread-shapes.contract"
+use ThreadBlock, ThreadCodeToken, ThreadColors from "./thread-shapes.contract"
+
+fn markdownSource(text: string, tokens: ThreadCodeToken[]): string = text + tokens.filter(token => token.slant == "reference-context").map(token => token.text).join("")
 component ThreadMarkdown
   props
     blocks: ThreadBlock[]
@@ -46,5 +48,5 @@ component ThreadMarkdown
                         text run.text font-weight=(run.kind == "strong" ? 700 : item.header ? 700 : 400) font-style=(run.kind == "emphasis" ? "italic" : "normal")
                           font-family=(run.kind == "code" ? "Menlo" : "DM Sans") font-size=(run.kind == "code" ? 14.4 : 16)
         else
-          text block.text markup="markdown" user-select="text" max-width="100%" overflow-wrap="anywhere" font-size=16 line-height="23px"
+          text markdownSource(block.text, block.tokens) markup="markdown" user-select="text" max-width="100%" overflow-wrap="anywhere" font-size=16 line-height="23px"
             color=(user ? colors.userForeground : colors.foreground)
