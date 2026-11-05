@@ -9,6 +9,24 @@ use exact_plan::{BindingKind, EventKind, NodesId, Value};
 use std::fmt::Write as _;
 
 impl Em<'_> {
+    /// A bound exit can need the presence module even when its first value is `none`.
+    pub(super) fn has_bound_exit(&self, i: u32) -> bool {
+        self.plan
+            .node(NodesId(i))
+            .bindings
+            .iter()
+            .map(|b| self.plan.binding(b))
+            .any(|b| {
+                b.kind == BindingKind::Style
+                    && b.id == StyleId::ExitAnimation as u16
+                    && style::literal(self.plan, self.plan.code(b.expr)).is_none()
+                    && crate::presence::exit_animations(self.plan, self.plan.code(b.expr), false)
+                        .held
+                        .values()
+                        .any(Option::is_some)
+            })
+    }
+
     /// Whether the motion engine follows node `i`: one a swipe holds, a
     /// swipe's indicator, or one whose `transition` can be a spring (css.rs
     /// leaves springs to the engine).

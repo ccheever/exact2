@@ -196,13 +196,17 @@ pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, 
         StyleId::WrapFlow => return flag(WRAP, "v===\"both\""),
         StyleId::TintColor if kind == NodeType::Image => return flag(POLICY, "v!=null"),
         StyleId::Isolation => return flag(ISOLATION | STACK, "v===\"isolate\""),
-        // Set where the kernel takes the value (rows.rs, GitHub #809).
-        StyleId::LayoutTransition => {
-            let values = crate::style::layout_transitions(plan, plan.code(b.expr));
+        // Set where the kernel accepts a value named by the binding.
+        row @ (StyleId::LayoutTransition | StyleId::ExitAnimation) => {
+            let values = if row == StyleId::LayoutTransition {
+                crate::presence::layout_transitions(plan, plan.code(b.expr))
+            } else {
+                crate::presence::exit_animations(plan, plan.code(b.expr), false)
+            };
             let table = serde_json::to_string(&values.held.keys().collect::<Vec<_>>()).unwrap();
-            return flag(LAYOUT | POLICY, &format!("typeof v===\"string\"&&{table}.includes(v)"));
+            let bits = if row == StyleId::LayoutTransition { LAYOUT | POLICY } else { POLICY };
+            return flag(bits, &format!("typeof v===\"string\"&&{table}.includes(v)"));
         }
-        StyleId::ExitAnimation => return flag(POLICY, "v!=null"),
         StyleId::Transition => {
             let properties: std::collections::BTreeMap<_, _> = exact_motion::Property::ALL
                 .iter()

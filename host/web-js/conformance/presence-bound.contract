@@ -1,9 +1,10 @@
 // data: svg-gallery
-// Synthetic conformance plan: a state-dependent `-exact-layout-transition`
-// (GitHub #809), the shape reduced motion takes: `none` while calm, a curve
-// or a spring otherwise. Compared after each step settles: the rows where
-// they land, and which declare the row (the presence observation). The
-// motion itself is layout-transition.test.mjs's.
+// Computed exit and layout declarations follow reduced motion. Compare
+// settled layout and presence with the wasm host; layout-transition.test.mjs
+// checks the motion in Chrome and WebKit.
+keyframes leave
+  to opacity=0
+
 component PresenceBound
   state calm = true
   state shown = true
@@ -25,5 +26,6 @@ component PresenceBound
           text "Both"
       if shown
         text "First" testId="first" padding=12 background-color="#e8eef6" margin-bottom=6
+          -exact-exit-animation=(calm ? "none" : "leave 200ms linear both")
       text "Second" testId="second" padding=12 background-color="#e8eef6" margin-bottom=6 -exact-layout-transition=(calm ? "none" : "320ms cubic-bezier(.32,.72,0,1)")
       text "Third" testId="third" padding=10 background-color="#f3e8d8" margin-bottom=6 -exact-layout-transition=(calm ? "none" : "-exact-spring(300, 24, 1)")

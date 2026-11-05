@@ -26,8 +26,6 @@ mod inspect;
 #[cfg(test)]
 mod inspect_tests;
 #[cfg(test)]
-mod layout_transition_tests;
-#[cfg(test)]
 mod lower_tests;
 mod measures;
 #[cfg(test)]
@@ -38,6 +36,9 @@ mod modes_tests;
 mod paint;
 #[cfg(test)]
 mod paint_tests;
+mod presence;
+#[cfg(test)]
+mod presence_tests;
 mod reads;
 mod sized;
 mod style;

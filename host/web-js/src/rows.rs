@@ -480,13 +480,16 @@ impl Em<'_> {
                 "transition",
                 Some(pressed_transition_map()),
             ),
-            // GitHub #809: what the kernel writes for each value the code
-            // can push (style.rs `layout_transitions`); presence follows it
-            // (rt.js `lt`, below). Another value is unset.
+            // Presence maps source literals through the kernel; other values clear the row.
             StyleId::LayoutTransition => {
-                let values = style::layout_transitions(plan, plan.code(b.expr));
+                let values = crate::presence::layout_transitions(plan, plan.code(b.expr));
                 let (say, view) = (self.uses.rt("say"), self.uses.rt("viewId"));
-                one("--exact-layout-transition", Some(style::layout_transition_map(&values, &format!("{view}({e})"), &say)))
+                one("--exact-layout-transition", Some(crate::presence::layout_transition_map(&values, &format!("{view}({e})"), &say)))
+            }
+            StyleId::ExitAnimation => {
+                let values = crate::presence::exit_animations(plan, plan.code(b.expr), press);
+                let (say, view) = (self.uses.rt("say"), self.uses.rt("viewId"));
+                one("--exact-exit-animation", Some(crate::presence::exit_animation_map(&values, &format!("{view}({e})"), &say)))
             }
             // A side is the author's when they wrote it or the other of its
             // pair (css.rs `unsaid_side`): only a side the sheet alone sets mirrors.
@@ -634,10 +637,9 @@ impl Em<'_> {
                 }
             }
         }
-        // The values that declare it, which presence asks of the binding
-        // before each commit's tree update (rt.js `lt`).
+        // Presence asks which values declare the row before each tree update (rt.js `lt`).
         if id == StyleId::LayoutTransition {
-            let values = style::layout_transitions(plan, plan.code(b.expr));
+            let values = crate::presence::layout_transitions(plan, plan.code(b.expr));
             let declaring: Vec<&String> = values
                 .held
                 .iter()

@@ -131,6 +131,70 @@ test('removed motion views leave the registry after their exit and keep identity
   } finally { await browser?.close(); server.stop(true); }
 }, 30000);
 
+test.each(['chromium', 'webkit'].flatMap(engine => ['fixed', 'computed'].map(press => [press, engine])))('computed exit animation follows reduced motion beside %s press scale on %s', async (press, engine) => {
+  const root = resolve(import.meta.dir, '../..'), target = resolve(root, 'target');
+  const dir = mkdtempSync(resolve(target, 'exit-animation-'));
+  const style = withLook(readFileSync(resolve(root, 'host/web/index.html'), 'utf8')).match(/<style>([\s\S]*?)<\/style>/)[1];
+  let server, browser;
+  try {
+    const pressScale = press === 'fixed' ? '0.97' : '(media.prefersReducedMotion ? 1 : 0.97)';
+    writeFileSync(resolve(dir, 'app.contract'), `shape Media
+  prefersReducedMotion: bool
+
+keyframes leave
+  to opacity=0 scale=0.75
+
+component App
+  resource media = exactViewport() as shape Media
+  state shown = true
+  action toggle
+    shown = not shown
+  view
+    column
+      text (media.prefersReducedMotion ? "reduced" : "full") testId="mode"
+      button "Toggle" press=toggle testId="toggle"
+      if shown
+        box testId="card" width=40 height=40 background-color="#334455" press=toggle -exact-press-scale=${pressScale} -exact-exit-animation=(media.prefersReducedMotion ? "none" : "leave 2000ms linear both")
+`);
+    const compiled = spawnSync(resolve(target, 'debug/exact-web-js'), ['js', resolve(dir, 'app.contract'), '-o', dir], { encoding: 'utf8' });
+    expect(compiled.status, compiled.stderr).toBe(0);
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+      const path = new URL(request.url).pathname.slice(1);
+      if (!path) { return new Response(`<style>${style}</style><link rel="stylesheet" href="/app.css"><div id="exact-root"></div><script type="module">import app from '/app.js';app();</script>`, { headers: { 'content-type': 'text/html' } }); }
+      const bases = path.startsWith('web/') ? [resolve(root, 'host')] : [dir, import.meta.dir, resolve(root, 'host/web')];
+      const file = bases.map(base => resolve(base, path)).find(existsSync);
+      return file ? new Response(Bun.file(file)) : new Response(null, { status: 404 });
+    } });
+    browser = await suiteBrowser(engine);
+    const page = await browser.newPage({ reducedMotion: 'reduce' });
+    await page.goto(server.url.href);
+    await page.evaluate(async () => { const { pieces } = await import('/rt.js'); await pieces(); });
+    await page.waitForFunction(() => globalThis.exact?.presenceLive && document.querySelector('[data-testid="mode"]')?.textContent === 'reduced');
+    const drop = () => page.evaluate(async () => {
+      document.querySelector('[data-testid="toggle"]').click();
+      await new Promise(resolve => setTimeout(resolve));
+      const ghosts = [...document.querySelectorAll('[data-exiting]')];
+      const animations = ghosts.flatMap(node => node.getAnimations({ subtree: true }));
+      await Promise.all(animations.map(async animation => { animation.pause(); await animation.ready; animation.currentTime = 1000; }));
+      const scale = ghosts.length ? parseFloat(getComputedStyle(ghosts[0]).scale) : null;
+      const result = { ghosts: ghosts.length, scale, durations: animations.map(animation => animation.effect.getTiming().duration) };
+      await Promise.all(animations.map(animation => (animation.finish(), animation.finished)));
+      return { ...result, remaining: document.querySelectorAll('[data-exiting]').length };
+    });
+    expect(await drop()).toEqual({ ghosts: 0, scale: null, durations: [], remaining: 0 });
+    await page.locator('[data-testid="toggle"]').click();
+    await page.locator('[data-testid="card"]').waitFor();
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.waitForFunction(() => document.querySelector('[data-testid="mode"]')?.textContent === 'full');
+    expect(await drop()).toEqual({ ghosts: 1, scale: 0.875, durations: [2000], remaining: 0 });
+    await page.locator('[data-testid="toggle"]').click();
+    await page.locator('[data-testid="card"]').waitFor();
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.waitForFunction(() => document.querySelector('[data-testid="mode"]')?.textContent === 'reduced');
+    expect(await drop()).toEqual({ ghosts: 0, scale: null, durations: [], remaining: 0 });
+  } finally { await browser?.close(); server?.stop(true); rmSync(dir, { recursive: true, force: true }); }
+}, 60000);
+
 
 test('text selection scopes release removed nodes and the document listener has one owner', async () => {
   const root = resolve(import.meta.dir, '../..');

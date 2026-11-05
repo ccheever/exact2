@@ -1111,7 +1111,7 @@ impl Em<'_> {
             self.out,
             "const {e}={h}({parent},\"{element}\",{class},{attrs_js},{text});"
         );
-        if !presence.is_empty() {
+        if !presence.is_empty() || self.has_bound_exit(i) {
             let pr = self.uses.rt("pr");
             let _ = write!(self.out, "{pr}({e});");
         }
