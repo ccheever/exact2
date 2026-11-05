@@ -4,7 +4,7 @@ Where an app keeps what it keeps, and the line of `app.ts`'s `grants` that reach
 
 | What | Where | Grant |
 | --- | --- | --- |
-| A setting | `state … persist` ([A remembered setting](persisted-setting.md)) | none |
+| A setting | `state … persist` ([a remembered setting](persisted-setting.md)) | none |
 | A small collection | a JSON file, `storage.fs` (start-here's list) | `fs.read app:/data/items.json`, `fs.write …` |
 | A collection that grows, or is queried | SQLite, `storage.sqlite` | `sqlite.open app:/data/journal.db` |
 | A secret: a token | `store.get`, `store.set` | `secret.keep token` |

@@ -2,7 +2,7 @@
 
 `performanceNow()` restarts at 0 on every launch, so a start mark that outlives it is a date,
 `time.epochAtZero + performanceNow()`. It is a small number: a root `state … persist` keeps it, with
-no data module ([A remembered setting](persisted-setting.md)).
+no data module ([a remembered setting](persisted-setting.md)).
 
 ```contract
 shape Time
