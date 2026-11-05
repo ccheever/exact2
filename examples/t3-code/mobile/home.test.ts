@@ -102,9 +102,11 @@ describe('mobile V2 home projection', () => {
     const first = source('one', [thread('same', { title: 'Fix cache', pullRequests: [link(42)] })]);
     const second = source('two', [thread('same', { title: 'Unrelated' })]);
     expect(rows(projectMobileHome([first, second], now, { query: '#42' })).map(row => row.key)).toEqual(['one:same']);
-    const result = projectMobileHome([first, second], now, { query: 'needle', messageMatches: new Map([['two:same', { snippet: 'the needle is here' }]]) });
+    const result = projectMobileHome([first, second], now, { query: 'needle', messageMatches: new Map([['two:same', { snippet: 'the needle is here', source: 'user' }]]) });
     expect(rows(result).map(row => row.key)).toEqual(['two:same']);
-    expect(rows(result)[0]?.searchExcerpt).toBe('the needle is here');
+    expect(rows(result)[0]?.searchExcerpt).toBe('You: the needle is here');
+    const agent = projectMobileHome([first, second], now, { query: 'needle', messageMatches: new Map([['two:same', { snippet: 'the needle is here', source: 'assistant' }]]) });
+    expect(rows(agent)[0]?.searchExcerpt).toBe('Agent: the needle is here');
     const empty = projectMobileHome([first, second], now, { query: 'absent' });
     expect(empty.emptyTitle).toBe('No results'); expect(empty.emptyDetail).toBe('No threads matching "absent".');
   });

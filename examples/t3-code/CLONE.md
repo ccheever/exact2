@@ -16,6 +16,13 @@ visible message excerpt in each filtered thread row's accessibility name, while
 keeping queued-state wording. Native filtered-state screenshots and readback
 remain open; these source units make no frame-rate claim.
 
+The next Home-search continuation carries the reference speaker prefix through
+the mobile projection. A user match now reads “You:” and an assistant match
+“Agent:” in the visible excerpt and the row's accessibility name, instead of
+silently dropping the label while retaining the matched text. Focused Home and
+search tests pass; native filtered-state screenshots and VoiceOver readback
+remain open.
+
 The coordinator worktree is clean at `fe882b504b` on
 `t3/coordinate-t3-ios-mini`. The branch is pushed to PR216's
 `feat(example)/t3-code-ios` destination. PR216 remains draft, unmerged and
@@ -129,8 +136,8 @@ screenshots and accessibility readback. No frame-rate improvement is claimed.
 
 The prior integrated history, table, first-read, rail and Home units remain in
 the commit ancestry. Open parity gaps are native failure-state screenshots and
-accessibility readback, filtered continuation, selection and exact anchor
-preservation, bounded transcript residency, keyboard-visible Send under the
+accessibility readback, selection and exact anchor preservation, bounded
+transcript residency, keyboard-visible Send under the
 Duo rail, fold/rotation, iPad split
 layouts, connected/reference pairing, oversized Markdown/table behavior and
 release qualification. Start the next unit from the clean branch, inspect the

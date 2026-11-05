@@ -187,7 +187,7 @@ test('Home message search includes synchronized background environments with sco
   const view = mobileHomeView([0, now, 'needle', 10, true, false, false, false, false, '', '', '', 'repository', 'visit', true, true], f.client, f.background);
   const rows = view.items.filter(item => item.kind === 'thread');
   expect(rows.map(row => row.key)).toEqual(['two:same']);
-  expect(rows[0]?.searchExcerpt).toBe('Remote needle');
+  expect(rows[0]?.searchExcerpt).toBe('Agent: Remote needle');
 });
 
 test('sidebar empty presentation does not replace visible draft or thread rows', () => {

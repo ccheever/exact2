@@ -186,6 +186,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
     const unread = status === 'ready' && unseenCompletion(thread, lastVisited(thread, undefined));
     const statusLabel = ({ approval: 'Approval', input: 'Input', working: obj(thread.goal).status === 'active' ? 'Goal' : 'Working', failed: 'Failed', limited: 'Limited' } as Record<string, string>)[status] ?? (unread ? 'Done' : '');
     const icon = obj(project?.projectIcon), match = options.messageMatches?.get(key);
+    const search = searchMatch(thread, options.query ?? '', match), excerpt = search.matchParts.map(part => part.text).join('');
     const iconKind = icon.kind === 'lucide' ? 'monogram' : str(icon.kind);
     const iconText = icon.kind === 'lucide' ? projectIdentity(str(project?.title).normalize('NFKC')).monogram : str(icon.emoji ?? icon.text);
     const iconColor = ICON_COLORS.find(color => color.value === icon.color)?.swatch ?? '';
@@ -200,7 +201,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
       error: status === 'failed' || status === 'limited' ? str(thread.lastError) : '', card, provider: card ? mobileHomeProvider(thread, source.config) : blankHomeProvider(), pinned: section === 'pinned',
       queued: options.queuedThreadKeys?.has(key) === true, selected: isSelected(thread),
       iconKind, iconText, iconColor, iconSurface: iconColor ? `${iconColor}26` : '', iconSize: 15 * (glyphCount === 1 ? 0.6 : 0.515625),
-      searchExcerpt: searchMatch(thread, options.query ?? '', match).matchParts.map(part => part.text).join('') });
+      searchExcerpt: search.matchLabel && excerpt ? `${search.matchLabel} ${excerpt}` : excerpt });
   };
   parts.pinned.forEach(thread => append(thread, 'pinned')); parts.active.forEach(thread => append(thread, 'active'));
   const draftProjects = sources.flatMap(source => source.shell.projects.map(project => ({ environmentId: source.environmentId,
