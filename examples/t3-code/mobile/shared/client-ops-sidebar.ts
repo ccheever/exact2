@@ -1,12 +1,12 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/client-ops-sidebar.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Adapted body from examples/t3-code/client-ops-sidebar.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
 // The sidebar's client.command() ops (client-ops.ts): thread search, its open
 // state and width, project grouping, and the project and project-group writes,
 // which re-read the server's projects before and after each change.
 import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
 import { groupingModes, message, projectPath } from './client-shared';
-import { startThreadSearch } from './sidebar-presentation';
+import { startMobileHomeSearch as startThreadSearch } from '../mobile-home-search';
 import { storeSidebarWidth } from './r4-polish-sidebar-width';
 import { str, initialShell, applyShell } from './domain';
 import { ClientError, type Native, type Files } from './protocol';

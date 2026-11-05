@@ -17,7 +17,8 @@ import { fleet, fleetThreadId, type EnvironmentFleet } from './shared/settings-b
 import { visiblePullRequests } from './shared/shell-pr';
 import { machineKind } from './shared/connections';
 import { groupLabel, logicalKey } from './shared/r6-polish-groups';
-import { serverMatches, searchMatch } from './shared/sidebar-presentation';
+import { searchMatch } from './shared/sidebar-presentation';
+import { mobileHomeSearchMatches } from './mobile-home-search';
 import { ICON_COLORS, projectIdentity } from './shared/settings-b-icons';
 import { mobileProjectFaviconTarget, type MobileProjectFaviconTarget } from './mobile-project-favicon';
 import { mobileCacheFleetDisplays } from './mobile-client-cache-fleet';
@@ -307,7 +308,7 @@ export function mobileHome(now: number, options: HomeOptions = {}, client: T3Cli
   options = { ...options, pendingTasks: options.pendingTasks ?? mobileOutboxPendingTasks(client, now),
     pendingEditors: options.pendingEditors ?? mobilePendingTaskEditorsSnapshot(client).markers };
   const sources = mobileHomeSources(client, background);
-  const matches = options.messageMatches ?? new Map((options.query?.trim() === client.query.trim() ? [...serverMatches(client)] : []).map(([id, match]) => [scoped(client.environmentId, id), match]));
+  const matches = options.messageMatches ?? new Map(options.query?.trim() === client.query.trim() ? mobileHomeSearchMatches(client, true) : []);
   const order = options.orderSnapshot ?? mobileHomeOrder(client, sources, now, { ...options, observeReturns: true });
   const projection = projectMobileHome(sources, now, { ...options, returnedAt: order.returnedAt, messageMatches: matches, pendingOrder: order.pending, queuedThreadKeys: order.queuedThreadKeys });
   const entries = [...background.entries.values()], state = client.connection === 'disconnected' ? 'available' : client.connection;

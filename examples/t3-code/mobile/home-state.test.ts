@@ -6,7 +6,7 @@ import { mobileNewTaskDraftList } from './mobile-new-task-drafts';
 import { T3Client } from './shared/client';
 import { EnvironmentFleet, type FleetEntry } from './shared/settings-b-fleet';
 import { initialShell, obj, type Obj } from './shared/domain';
-import { runThreadSearch } from './shared/sidebar-presentation';
+import { runMobileHomeSearch as runThreadSearch } from './mobile-home-search';
 import type { Native } from './shared/protocol';
 
 const now = Date.parse('2026-10-07T12:00:00Z');
@@ -174,6 +174,20 @@ test('sidebar uses the existing pending search only for the displayed query and 
   expect(emptyView(f.client, f.background, { query: 'needle', environment: 'two' }).emptyTitle).toBe('No matching threads');
   finish({ ok: true, generation: f.client.generation, value: { matches: [] } }); await pending;
   expect(emptyView(f.client, f.background, { query: 'needle' }).emptyTitle).toBe('No matching threads');
+});
+
+test('Home message search includes synchronized background environments with scoped excerpts', async () => {
+  const f = fixture(); f.client.query = 'needle';
+  const native: Native = { available: true, watch() {}, async later(input) {
+    const request = obj(input);
+    if (request.fleet === 'remote') return { ok: true, generation: 8, value: { matches: [{ threadId: 'same', snippet: 'Remote needle', source: 'assistant' }] } };
+    return { ok: true, generation: 3, value: { matches: [] } };
+  } };
+  await runThreadSearch(f.client, native, 'needle', f.background);
+  const view = mobileHomeView([0, now, 'needle', 10, true, false, false, false, false, '', '', '', 'repository', 'visit', true, true], f.client, f.background);
+  const rows = view.items.filter(item => item.kind === 'thread');
+  expect(rows.map(row => row.key)).toEqual(['two:same']);
+  expect(rows[0]?.searchExcerpt).toBe('Remote needle');
 });
 
 test('sidebar empty presentation does not replace visible draft or thread rows', () => {

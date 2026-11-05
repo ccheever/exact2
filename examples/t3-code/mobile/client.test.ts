@@ -242,7 +242,7 @@ describe('pinned shared sources', () => {
         : name === 'shell-vcs.ts' ? 'c280acc1806c4e1fea5d4797b1278b99b5ee2ba0' : name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
         : ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
           ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
-      const adapted = ['client.ts', 'client-ops-composer.ts', 'composer-controls.ts', 'domain.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts', 'composer-editor-files.ts', 'timeline-rows.ts', 'timeline-presentation.ts', 'protocol.ts', 'r5-composer-citation.ts', 'media-views.ts', 'timeline-attachments.ts'].includes(name);
+      const adapted = ['client.ts', 'client-ops-composer.ts', 'client-ops-sidebar.ts', 'composer-controls.ts', 'domain.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts', 'composer-editor-files.ts', 'timeline-rows.ts', 'timeline-presentation.ts', 'protocol.ts', 'r5-composer-citation.ts', 'media-views.ts', 'timeline-attachments.ts'].includes(name);
       if (name === 'word-diff.ts') expect(local.slice(0, 3)).toEqual([
         '// GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.',
         '// Unchanged body from examples/t3-code/word-diff.ts; engine/span source extracted from',
@@ -314,6 +314,8 @@ describe('pinned shared sources', () => {
         .replace("  private finishPending(", "  protected finishPending(")
         .replace("      this.error = !this.scopes.includes('orchestration:operate') ? 'This connection is read-only.'\n        : obj(environment.capabilities).serverResolvedCommandContext !== true\n          ? 'Update the T3 server",
           "      this.error = this.scopes.includes('orchestration:operate') && obj(environment.capabilities).serverResolvedCommandContext !== true\n        ? 'Update the T3 server");
+      if (name === 'client-ops-sidebar.ts') expected = expected
+        .replace("import { startThreadSearch } from './sidebar-presentation';", "import { startMobileHomeSearch as startThreadSearch } from '../mobile-home-search';");
       if (name === 'client-ops-composer.ts') expected = "// Mobile 365aa87982: send admission, retained options and independent model-pick ownership differ.\nimport { mobileNewTaskDirectText, mobileNewTaskMessageContext as withMessageContext, mobileNewTaskSendGuard } from '../mobile-new-task-context-send';\nimport { mobileModelSelectionUnavailable } from '../model-availability';\nimport { mobileDispatchSelection as dispatchSelection } from '../model-send-selection';\n" + expected
         .replace("import { dispatchSelection, promptForSend, ultrathinkChoice }", "import { promptForSend, ultrathinkChoice }")
         .replace("if (!arr(provider.models).some(model => model.slug === this.modelId)) throw new ClientError('Choose one of the models advertised by T3.');",
