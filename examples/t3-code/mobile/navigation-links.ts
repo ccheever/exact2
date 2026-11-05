@@ -12,9 +12,10 @@ const aliases: Record<string, string> = {
   '/settings/organization': '/settings/preferences/SettingsOrganization',
   '/settings/scheduled-tasks': '/settings/scheduled',
   '/settings/scheduled-tasks/new': '/settings/scheduled/new',
+  '/new/projects': '/new',
 };
 
-const publicPath = /^(?:\/|\/connections(?:\/new)?|\/connect-onboarding|\/settings(?:\/(?:environments(?:\/[^/]+)?|new-threads|source-control|agent-behavior|provider-accounts|maintenance|notifications|thread-preferences|about|environment-new|archive|appearance|project-grouping|organization|project|keyboard|follow-ups|scheduled-tasks(?:\/new)?|client-storage|diagnostics|open-source-licenses(?:\/[^/]+)?|usage|legal|auth|waitlist))?|\/threads\/[^/]+\/[^/]+(?:\/(?:terminal|devices|browser|review|review-comment|files(?:\/.+)?|attachments\/[^/]+|git(?:\/(?:commit|branches))?|git-confirm))?|\/new(?:\/(?:draft(?:\/(?:environment|branch|files\/.+|attachments\/[^/]+|settings))?|add-project(?:\/(?:repository|destination|local|new))?))?)$/;
+const publicPath = /^(?:\/|\/connections(?:\/new)?|\/connect-onboarding|\/settings(?:\/(?:environments(?:\/[^/]+)?|new-threads|source-control|agent-behavior|provider-accounts|maintenance|notifications|thread-preferences|about|environment-new|archive|appearance|project-grouping|organization|project|keyboard|follow-ups|scheduled-tasks(?:\/new)?|client-storage|diagnostics|open-source-licenses(?:\/[^/]+)?|usage|legal|auth|waitlist))?|\/threads\/[^/]+\/[^/]+(?:\/(?:terminal|devices|browser|review|review-comment|files(?:\/.+)?|attachments\/[^/]+|git(?:\/(?:commit|branches))?|git-confirm))?|\/new(?:\/projects|\/(?:draft(?:\/(?:environment|branch|files\/.+|attachments\/[^/]+|settings))?|add-project(?:\/(?:repository|destination|local|new))?))?)$/;
 
 /** Exact supplies a normalized location. It has already removed the scheme and fragment. */
 export function mobileAppLink(input: string, requestRoute: string, cold = false) {
