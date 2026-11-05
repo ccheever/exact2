@@ -295,8 +295,10 @@ component ChatColumn
   // `z-index` 1: the column paints over the terminal drawer under it (z-index orders siblings only, LLP 1001), so the thread
   // details popover (below), and any other popup that overflows the column's foot, runs over an open drawer as the
   // reference's portaled popups do.
+  // `-exact-return-presses`: every control here is a `<button>` in the reference, which Chromium presses on Enter as
+  // on Space; the Mac presses a focused button with Space alone unless asked (LLP 1115.000 D7.3).
   view
-    column flex=1 min-width=0 min-height=0 height="100%" position="relative" z-index=1 inert=pageCover pointerdown=chatLocal("find-focus", "", "") dragenter=fileDragEntered dragleave=fileDragLeft drop=filesDropped id="frame-chat" resize=frameMoved
+    column flex=1 min-width=0 min-height=0 height="100%" position="relative" z-index=1 -exact-return-presses="descendants" inert=pageCover pointerdown=chatLocal("find-focus", "", "") dragenter=fileDragEntered dragleave=fileDragLeft drop=filesDropped id="frame-chat" resize=frameMoved
       input type="file" id="composer-attach-input" multiple=true display="none" change=filesPicked
       HeroWidthProbe(name=home.projectName)
       // z-index 20 here as on the header inside: z-index orders siblings only (LLP 1001), and the header's menus overhang the transcript.
@@ -462,10 +464,10 @@ component RightPanels
   view
     box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=((data.diffOpen or rightPanel) and not narrowDiff ? 2 : 1) height=1 opacity=0 pointer-events="none"
     if data.diffOpen and not narrowDiff
-      box width=(rightMaximized ? viewport.width - (sidebarInline ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0 focusin=entered focusout=left id="workspace-panel" tabindex=-1 role="region" aria-label="Workspace panel"
+      box width=(rightMaximized ? viewport.width - (sidebarInline ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0 -exact-return-presses="descendants" focusin=entered focusout=left id="workspace-panel" tabindex=-1 role="region" aria-label="Workspace panel"
         DiffPanel(data=data, shell=shell, command=command, close=panelUi("close", ""), ui=panelUi, maximized=rightMaximized, resize=resizeDiff, finishResize=finishDiffResize, scheme=scheme, sheet=false, detailsOpen=detailsOpen, details=detailsAct, local=chatLocal)
     if rightPanel and not data.diffOpen and not narrowDiff
-      box width=(rightMaximized ? viewport.width - (sidebarInline ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0 focusin=entered focusout=left id="workspace-panel" tabindex=-1 role="region" aria-label="Workspace panel"
+      box width=(rightMaximized ? viewport.width - (sidebarInline ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0 -exact-return-presses="descendants" focusin=entered focusout=left id="workspace-panel" tabindex=-1 role="region" aria-label="Workspace panel"
         SurfacePanel(shell=shell, resize=resizeDiff, finishResize=finishDiffResize, sheet=false, maximized=rightMaximized, detailsOpen=detailsOpen, still=viewport.prefersReducedMotion, ui=panelUi, details=detailsAct, local=chatLocal, command=command, paletteShow=paletteShow, scheme=scheme, prDetail=prDetail, prDocuments=prDocuments, filesDocuments=filesDocuments, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, look=data.look, confirm=confirm, closePending=closePending, width=(rightMaximized ? viewport.width - (sidebarInline ? sidebarWidth : 0) : diffWidth))
 
 // The utility pages (Usage, Pull Requests) and the no-environment/no-projects landing over the main view.

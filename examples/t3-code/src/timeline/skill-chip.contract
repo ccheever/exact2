@@ -5,7 +5,6 @@
 // "View instructions" for a skill with a path, which opens that file in the right panel.
 use TimelineIcon from "./timeline-icons-kit.contract"
 use ChipInk, inkOf from "./markdown-chip-inks.contract"
-use kmReturn from "../shared/menu-keys.contract"
 
 component SkillChip
   inject
@@ -22,20 +21,9 @@ component SkillChip
   action hover(over: bool)
     hovered = over
   derive popupId = `skill-chip-${id}`
-  action localOnEnter(p0: string, p1: string, p2: string, k: string, e: KeyboardEvent)
-    if kmReturn(k, e)
-      preventDefault()
-      stopPropagation()
-      local(p0, p1, p2)
-  // A popover trigger: Return opens it as Space does, as Chromium's `<button popovertarget>` takes Enter.
-  action invokerOnEnter(k: string, e: KeyboardEvent)
-    if kmReturn(k, e)
-      preventDefault()
-      stopPropagation()
-      togglePopover(popupId, source=`context-chip-${id}`)
   view
     // ContextChip kind skill: no pill, the skill's ink.
-    button popovertarget=popupId key=invokerOnEnter id=`context-chip-${id}` hover=hover aria-label=`Skill ${label}. Show details` testId=`context-chip-${id}` max-width="15rem" padding=0 gap="0.175rem" border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" title="" tabindex=0
+    button popovertarget=popupId id=`context-chip-${id}` hover=hover aria-label=`Skill ${label}. Show details` testId=`context-chip-${id}` max-width="15rem" padding=0 gap="0.175rem" border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" title="" tabindex=0
       TimelineIcon(name="skill", size=14, color=inkOf(chipInks, "skill"))
       text label min-width=0 line-clamp=1 font-size="0.875rem" font-weight=500 line-height="1.0625rem" white-space="pre" color=inkOf(chipInks, "skill") text-decoration-line=(hovered ? "underline" : "none")
     column id=popupId popover="auto" position-try-fallbacks="flip-block" position="absolute" position-area="top" margin-bottom="0.25rem" width="24rem" max-width="calc(100vw - 32px)" testId="skill-chip-popover"
@@ -44,5 +32,5 @@ component SkillChip
           text label font-size="0.875rem" line-height="1.25rem" font-weight=500
           text (description != "" ? description : "No description is available for this skill.") font-size="0.875rem" line-height="1.25rem" overflow-wrap="anywhere"
           if path != ""
-            button press=local("surface-file", path, "") key=localOnEnter("surface-file", path, "") popovertarget=popupId popovertargetaction="hide" testId="skill-chip-instructions" display="flex" flex-direction="row" align-items="center" justify-content="center" box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" flex-shrink=0 title="" tabindex=0
+            button press=local("surface-file", path, "") popovertarget=popupId popovertargetaction="hide" testId="skill-chip-instructions" display="flex" flex-direction="row" align-items="center" justify-content="center" box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" flex-shrink=0 title="" tabindex=0
               text "View instructions" font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap"

@@ -4,7 +4,6 @@
 // which reads left to right inside a right-to-left message.
 // A source that fails turns the chip destructive ("Unavailable"), its action opening the file instead.
 use TimelineIcon from "./timeline-icons-kit.contract"
-use kmReturn from "../shared/menu-keys.contract"
 
 keyframes tlAudioSpin
   from rotate=0
@@ -81,23 +80,13 @@ component AudioPreview
   derive loading = not down and not ready
   derive verb = down ? "Open" : loading ? "Loading" : playing ? "Pause" : "Play"
   derive ink = down ? "light-dark(#e7000b, #ff6467)" : "light-dark(#2b3d4a, #cadfed)"
-  action pressOnEnter(k: string, e: KeyboardEvent)
-    if kmReturn(k, e)
-      preventDefault()
-      stopPropagation()
-      press()
-  action openOnEnter(k: string, e: KeyboardEvent)
-    if kmReturn(k, e)
-      preventDefault()
-      stopPropagation()
-      open()
   view
     row position="relative" hover=hover width=(bubble ? "16rem" : "auto") height=(bubble ? "auto" : "1.0625rem") max-width="100%" padding-left=(bubble ? "0.75rem" : "0.375rem") padding-right=(bubble ? "0.75rem" : "0.375rem") padding-top=(bubble ? "0.5rem" : "0px") padding-bottom=(bubble ? "0.5rem" : "0px") gap=(bubble ? "0.5rem" : "0.25rem") box-sizing="border-box" align-items="center" overflow="hidden" border-radius=(bubble ? "1rem" : "0.25rem") border-width=1 border-style="solid" border-color=(down ? "light-dark(#e7000b59, #ff646759)" : "light-dark(#a8c8e0, #0090cd61)") background-color=(down ? "light-dark(#e7000b14, #ff646714)" : bubble ? surface : hovered ? "#0090cd2b" : "#0090cd1c") title=(down ? "Audio unavailable. Open the file or retry playback." : name) testId=`audio-chip-${id}`
       box position="absolute" left=0 top=0 bottom=0 width=`${duration > 0 ? min(100, elapsed / duration * 100) : 0}%` background-color="#0090cd2b" pointer-events="none" aria-hidden=true
-      button press=press key=pressOnEnter disabled=loading aria-label=`${down ? "Audio unavailable. " : ""}${verb} ${name}` testId=`audio-play-${id}` width="0.875rem" height="0.875rem" flex-shrink=0 padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" align-items="center" justify-content="center" title="" tabindex=0
+      button press=press disabled=loading aria-label=`${down ? "Audio unavailable. " : ""}${verb} ${name}` testId=`audio-play-${id}` width="0.875rem" height="0.875rem" flex-shrink=0 padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" align-items="center" justify-content="center" title="" tabindex=0
         box width="0.875rem" height="0.875rem" animation=(loading and src != "" ? "tlAudioSpin 1s linear infinite" : "none")
           TimelineIcon(name=(down ? "triangle-alert" : loading ? "loader-circle" : playing ? "pause" : "play"), size=14, color=ink)
-      button press=open key=openOnEnter aria-label=`Preview ${name}` testId=`audio-open-${id}` flex=(bubble ? 1 : 0) min-width=0 max-width=(bubble ? "100%" : "18rem") padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" title="" tabindex=0
+      button press=open aria-label=`Preview ${name}` testId=`audio-open-${id}` flex=(bubble ? 1 : 0) min-width=0 max-width=(bubble ? "100%" : "18rem") padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" title="" tabindex=0
         text audioName(name) min-width=0 line-clamp=1 text-align="left" font-size=(bubble ? "0.875rem" : "0.75rem") font-weight=500 line-height=(bubble ? "1.25rem" : "0.9375rem") white-space="pre" color=ink
       text (down ? "Unavailable" : loading ? "..." : duration > 0 ? (elapsed > 0 or playing ? `${audioClock(elapsed)} / ${audioClock(duration)}` : audioClock(duration)) : audioClock(elapsed)) direction="ltr" flex-shrink=0 font-size="0.625rem" line-height="0.875rem" font-variant-numeric="tabular-nums" color=ink
       if src != "" and not down

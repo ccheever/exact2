@@ -1179,7 +1179,7 @@ component T3Window
         RightSheets(data=data, narrowDiff=panelSheet, modal=(modal or promptLinkPage.show), panelUi=panelUi, viewport=viewport, scheme=scheme, diffWidth=diffWidth, shell=shell, command=command, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, rightPanel=(rightPanel or shell.panel.open), detailsOpen=detailsOpen, detailsAct=detailsAct, chatLocal=chatLocal, paletteShow=paletteShow, prDetail=prDetail, prDocuments=prMarkdown.documents, filesDocuments=filesMarkdown.documents, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, confirm=titleMenuPick, closePending=(confirmOp != ""))
         // A side chat tab's chat view over its pane (side-chat.contract SideChatLayer).
         if not settingsOpen and utilityPage == "" and not welcome.show
-          box position="absolute" left=0 top=0 width=0 height=0 inert=(modal or promptLinkPage.show)
+          box position="absolute" left=0 top=0 width=0 height=0 -exact-return-presses="descendants" inert=(modal or promptLinkPage.show)
             SideChatLayer(still=viewport.prefersReducedMotion)
         // Every live Browser tab's page, over the panels, the sheet and the chat column (the floating player), under the
         // window's overlays (browser-frames.contract).

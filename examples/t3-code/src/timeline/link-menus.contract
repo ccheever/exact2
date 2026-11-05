@@ -4,7 +4,6 @@
 // rows: on macOS an NSMenu at the pointer, or at the focused link for the ContextMenu key; the web and the
 // agent paint it at the link. The rows come from the data module (no row of these menus is destructive),
 // and a row's press names its id to `pick`.
-use kmReturn from "../shared/menu-keys.contract"
 
 // One row of a link's menu.
 shape LinkMenuRow
@@ -84,13 +83,6 @@ component FileLinkButton
       local("file-link-at", `${e.clientX}`, `${e.clientY}`)
     else
       local("surface-file-link", tip, target)
-  // Return opens the file; the menu a press opens at the pointer on a pull request's page stays the pointer's.
-  action pressOnEnter(k: string, e: KeyboardEvent)
-    if kmReturn(k, e) and not fileLinkPressMenu
-      preventDefault()
-      stopPropagation()
-      fileLinkMenu(tip, target, menu)
-      local("surface-file-link", tip, target)
   view
-    button press=press key=pressOnEnter contextmenu=fileLinkMenu(tip, target, menu) contextPopover=fileLinkPopover aria-label=tip tabindex=0 padding=0 border-width=0 background-color="#00000000" testId=testId title=""
+    button press=press contextmenu=fileLinkMenu(tip, target, menu) contextPopover=fileLinkPopover aria-label=tip tabindex=0 padding=0 border-width=0 background-color="#00000000" testId=testId title=""
       children

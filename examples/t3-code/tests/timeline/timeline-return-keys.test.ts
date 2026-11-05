@@ -1,45 +1,31 @@
 // Return presses a focused timeline or header button, as Chromium's `<button>` takes Enter in the reference. The Mac
-// presses a focused button with Space only (LLP 1115.000 D7.3), so each button hears Return in a `key` handler.
+// presses a focused button with Space only unless a container says `-exact-return-presses="descendants"` (LLP 1115.000
+// D7.3), which the surfaces the reference draws as `<button>`s carry.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { appText } from '../support/app-files';
-import { contractComponent, contractFns, type Env } from '../support/contract-action-fixture';
+import { contractComponent, type Env } from '../support/contract-action-fixture';
 
 const files = ['timeline', 'media'].flatMap(dir =>
   readdirSync(join(import.meta.dir, '../../src', dir)).filter(name => name.endsWith('.contract')).map(name => `src/${dir}/${name}`));
-const keys = contractFns('src/shared/menu-keys.contract');
-const key = (k: string, mods: Partial<Record<'metaKey' | 'shiftKey' | 'ctrlKey' | 'altKey' | 'isComposing', boolean>> = {}) =>
-  ({ key: k, metaKey: false, shiftKey: false, ctrlKey: false, altKey: false, isComposing: false, repeat: false, code: '', ...mods });
+const opted = (file: string, marker: string) => appText(file).split('\n')
+  .some(line => line.includes(marker) && line.includes('-exact-return-presses="descendants"'));
 
 describe('Return on a timeline button', () => {
-  test('every Tab stop among the timeline\'s buttons hears keys', () => {
-    const missing = files.flatMap(file => appText(file).split('\n')
-      .filter(line => /^\s*button /.test(line) && line.includes('tabindex=0') && !line.includes('role="menuitem') && !/\bkey=/.test(line))
-      .map(line => `${file}: ${line.trim().slice(0, 80)}`));
-    expect(missing).toEqual([]);
+  test('the chat column, the right panel, the side chat and the diagram preview ask for Chromium\'s Return', () => {
+    expect(opted('src/shell/app-main.contract', 'id="frame-chat"')).toBe(true);
+    expect(appText('src/shell/app-main.contract').split('\n')
+      .filter(line => line.includes('id="workspace-panel"') && line.includes('-exact-return-presses="descendants"')).length).toBe(2);
+    const window = appText('src/shell/app-window.contract').split('\n');
+    expect(window[window.findIndex(line => line.includes('SideChatLayer(')) - 1]).toContain('-exact-return-presses="descendants"');
+    expect(opted('src/timeline/timeline-mermaid.contract', 'role="dialog"')).toBe(true);
   });
 
-  test("Copy message: Return presses it once and goes no further; ⌘Return, ⇧Return and a candidate's Return do not", () => {
-    const copy = contractComponent('timeline-work.contract', 'CopyButton');
-    const calls: unknown[][] = [];
-    const spy = (name: string) => (...args: unknown[]) => { calls.push([name, ...args]); };
-    const scope: Env = { ...keys, local: spy('local'), preventDefault: spy('preventDefault'), stopPropagation: spy('stopPropagation') };
-    for (const event of [key('Enter', { metaKey: true }), key('Enter', { shiftKey: true }), key('Enter', { isComposing: true }), key(' ')])
-      copy.call('localOnEnter', {}, scope, ['copy', 'm1', '', event.key, event]);
-    expect(calls).toEqual([]);
-    copy.call('localOnEnter', {}, scope, ['copy', 'm1', '', 'Enter', key('Enter')]);
-    expect(calls).toEqual([['preventDefault'], ['stopPropagation'], ['local', 'copy', 'm1', '']]);
-  });
-
-  test('a popover trigger chip opens its popover on Return', () => {
-    const chip = contractComponent('skill-chip.contract', 'SkillChip');
-    const calls: unknown[][] = [];
-    const spy = (name: string) => (...args: unknown[]) => { calls.push([name, ...args]); };
-    chip.call('invokerOnEnter', {}, { ...keys, id: 'r1', popupId: 'skill-chip-r1', preventDefault: spy('preventDefault'), stopPropagation: spy('stopPropagation'),
-      togglePopover: spy('togglePopover') }, ['Enter', key('Enter')]);
-    expect(calls.map(call => call[0])).toEqual(['preventDefault', 'stopPropagation', 'togglePopover']);
-    expect(calls[2]![1]).toBe('skill-chip-r1');
+  test('no timeline button presses itself on Return', () => {
+    const twins = files.flatMap(file => appText(file).split('\n')
+      .filter(line => /\bkmReturn\b|OnEnter\b/.test(line)).map(line => `${file}: ${line.trim().slice(0, 80)}`));
+    expect(twins).toEqual([]);
   });
 });
 
