@@ -9,6 +9,7 @@ const SEARCH_HOST = 'https://SNB9MIQMWS-dsn.algolia.net';
 export const grants = `net.fetch ${SEARCH_HOST}`;
 
 type Page = Result<'loadPage'>;
+type DocSearchHit = { objectID: string; url: string; hierarchy: Record<string, string | null>; _snippetResult?: { content?: { value?: string } } };
 
 const none = { title: '', href: '' };
 const missing: Page = {
@@ -71,8 +72,12 @@ const sources: Sources = {
       body: JSON.stringify({ query, hitsPerPage: 8, attributesToSnippet: ['content:24'], highlightPreTag: '', highlightPostTag: '' }),
     });
     if (!response.ok) throw new Error(`Search answered ${response.status}.`);
-    const { hits } = (await response.json()) as { hits: { objectID: string; url: string; page: string; heading: string; _snippetResult?: { content?: { value?: string } } }[] };
-    return hits.map(h => ({ id: h.objectID, href: h.url, page: h.page, heading: h.heading, snippet: h._snippetResult?.content?.value ?? '' }));
+    const { hits } = (await response.json()) as { hits: DocSearchHit[] };
+    return hits.map(hit => {
+      const levels = ['lvl6', 'lvl5', 'lvl4', 'lvl3', 'lvl2', 'lvl1'].map(l => hit.hierarchy[l]).filter((l): l is string => !!l);
+      const url = new URL(hit.url);
+      return { id: hit.objectID, href: `${url.pathname}${url.hash}`, page: hit.hierarchy.lvl0 ?? '', heading: levels[0] ?? '', snippet: hit._snippetResult?.content?.value ?? '' };
+    });
   },
   fetchMarkdown: async ([route]): Promise<Result<'fetchMarkdown'>> => {
     const response = await fetch(`/assets/markdown/${route}.md`);

@@ -31,6 +31,7 @@ whether notes are sent and whether to keep a diary; under `never`, skip all of t
 ## Search
 
 The search dialog (Cmd+K) asks the Algolia app and index in `constants/search.ts` with its
-search-only key. After a build, `bun run search:index` makes one record per section of each
-page and replaces the index; it needs the app's Write API key in `ALGOLIA_WRITE_KEY`, which
-never goes in the repository. `--dry-run` prints the record count and the first records.
+search-only key, so it works the same locally and on the deployed site. As on docs.expo.dev,
+the index is the Algolia Crawler's: it crawls the deployed site from `sitemap.xml` on a schedule
+and writes DocSearch records (`hierarchy.lvl0` to `lvl6`, `content`, `url`), so nothing here
+holds a write key. Its configuration lives in the Algolia dashboard (Data sources, Crawler).
