@@ -24,7 +24,7 @@ component MobileRootHeader
     toggleSidebar: action
   derive modelChoice = routeName == "threadModelOption" or routeName == "newTaskModelOption" or routeName == "threadRuntime" or routeName == "newTaskRuntime"
   view
-    header height=44 flex-shrink=0 align-items="center" justify-content="space-between"
+    header height=44 flex-shrink=0 display="flex" align-items="center" justify-content="space-between"
       if sidebarAvailable and routeName != "threadBrowser" and routeName != "home" and routeName != "threadQueue" and routeName != "thread" and routeName != "newTaskDraft" and routeName != "newTask" and not routeName.startsWith("settings")
         button id="workspace-sidebar-toggle" press=toggleSidebar aria-label=(sidebarVisible ? "Hide sidebar" : "Show sidebar") aria-pressed=sidebarVisible
           t3-symbol symbol-name="sidebar.left" symbol-tint=iconColor width=20 height=20
@@ -35,7 +35,7 @@ component MobileRootHeader
         button id="back" press=back aria-label=(routeName == "settings" ? "Go back" : "Back") testId=`back-${routeName}`
           image "symbol:back" width=20 height=20
       if subtitle != ""
-        view flex-direction="column" align-items="center" min-width=0
+        view display="flex" flex-direction="column" align-items="center" min-width=0
           text title id="route-title" role="heading" aria-level=2 font-size=18 font-weight=800
           text subtitle id="document-subtitle" font-size=12
       else
