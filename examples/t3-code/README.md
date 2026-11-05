@@ -781,6 +781,21 @@ Differences that belong to the app:
   not draw the Nightly or Dev artwork. At v0.1.5 the stable app's default also shows no art, but the
   row lets a user opt into Nightly or Dev artwork ("Show Dev or Nightly artwork in the sidebar
   header."); its version pill is offered only on a Dev or Nightly stage.
+- A new pairing link's "Expires in" moves once a minute, and a five-minute link first reads up to a minute more (5m
+  10s once); the reference's counts every second.
+- A thread chip pasted from a thread link draws a thread glyph, where the reference's draws the project's mark. With
+  only that chip in the draft, the send button is enabled; the reference's is not.
+- A pasted URL that stays text is drawn as a link (blue, underlined) in the composer; the reference's is plain text.
+- With the sidebar's project filter open, the empty Search projects field draws no caret, and the filter button is not
+  drawn pressed; the reference draws both.
+- With a Browser page focused, ⇧⌘J and ⌘K close the panel and open the command palette; the reference sends them to
+  the page.
+- The Create pairing link dialog is about 670 pt tall in a window 840 pt tall, so its permissions scroll sooner; the
+  reference's is about 805 pt.
+- With a sidebar row's context menu open, the row's hover card stays shown beside the menu; the reference shows none.
+- A new pairing link of This machine offers only Copy code and its note: `pairingRow` treats the desktop's origin as
+  loopback. The reference's Share panel offers the `t3code://app/pair#token=…` link (Copy link), Copy code only and a QR
+  code, built by `resolveCurrentOriginPairingUrl`.
 
 Some checks need a person: physical modifier chords, right-click menus, real pointer drags
 and hovers, macOS notification and screen-capture grants, provider installs and logins, and
@@ -1754,6 +1769,54 @@ Seen besides the rows, once each; now in Known differences:
   `CODE` named "File change".
 - The chat header's Toggle right panel, focused by Tab, shows its tooltip "Toggle right panel (⌥⌘B)" in the oracle
   and none in the clone.
+
+**Checked with real input (2026-11-06, v0.1.7)** (the bundle of `fed6e4e0e4`, which is `43f5ee8e15` with #1517, #1519,
+#1520 and #1523 and `origin/main` merged in, a lane copy on its own bundle id and `HOME`; `second` seeded with `--turns
+--pull-request --more-turns`; the oracle, the v0.1.7 Beta app at `322f6544df`, on its own home, paired with the same
+lane server; 1280 × 840 at 2×; macOS in Dark, both apps on System; Keyboard Navigation off; the input source Korean
+2-Set, so typed text was digits and punctuation. Presses and keys came from the HID event source. Results were read from window
+captures, the clipboard, a local test page's own text and the oracle's DOM.) 15 rows: all hold.
+
+| Row | Clone | Oracle | Result |
+|---|---|---|---|
+| The install command, from an empty `.runtime-cache` (#1517) | `install.mjs --to <scratch>/Applications --id <own id> --home <scratch>/t3-exact --port 16258`: downloads `t3-0.1.7-darwin-arm64.tar.gz` from the release and verifies it (pin = `SHA256SUMS` = computed; `t3` signed by T3 Tools' Developer ID; `t3 --version` 0.1.7), builds `--bundle --distribution`, sets `LSEnvironment` `T3CODE_HOME` and `T3CODE_PORT`, re-signs (`codesign --verify --strict --deep` passes) and registers it | — | holds |
+| The installed copy's first launch (#1517) | launched by LaunchServices with its own `HOME`: its server unpacks 0.1.7 into its T3 home and is ready on its port; the welcome wizard lists This machine as Connected | — | holds |
+| A turn's UI in the installed copy (#1517) | paired with the lane server from the wizard, "123" sent in "Prose answer": "Stand-in reply: 123" and the turn's changed files | — | holds |
+| No version-skew warning (#1517) | Settings › Sharing & access: Version "0.1.7", "Up to date"; no warning on any screen seen | the same | holds |
+| The new thread's strip Permissions menu (#1520) | opens above Full access, its right edge on the control's, "Permissions", four modes, "Full access" and its line | 298 × 132 at x 650, right edge 948 = the control's right edge, 4 pt above it; the clone's capture places it the same | holds |
+| The model picker's row (#1520) | "Default", its check after the name, then the star and ⌘1 | the same | holds |
+| The sidebar's project filter menu (#1523) | opens under the filter button, the same width and place; Search projects focused | the same | holds |
+| Create link in Sharing & access, client list folded (#1523) | the link shows under the folded "Authorized clients" header ("1 client · 1 pairing link"), its row open with Copy code and its note | the same place, its Share panel open with the `t3code://app/pair#token=…` link, Copy link, Copy code only and a QR code | holds (the panel differs, below) |
+| Copy › Thread in a row's menu, then ⌘V in another thread's composer (#1520) | the clipboard holds `https://app.t3.codes/threads/<lane environment>/<thread>`; the paste makes the chip "Italic answer" | the same link and chip | holds |
+| A pasted link whose environment is unknown (#1520) | stays text | stays text | holds |
+| Mark unread on a thread opened minutes before, then reopened and left (#1523) | "Done" after Mark unread; read again once reopened and left | the same | holds |
+| Remove project for agent-edits (#1523) | "Remove project "agent-edits" and delete its 10 threads?" with its path and environment | the same | holds |
+| The terminal button (#1520) | a press opens the drawer; the four controls float at its top right | the same | holds |
+| ⌃R and ⌘R in a Browser page (#1519) | ⌃R reaches the page ("keydown r ctrl=true") and does not reload it; ⌘R reloads it | the same; the page reads the key as "ㄱ" under 2-Set (Chromium) | holds |
+| Local server under a managed policy that refuses the start (#1519) | a lane copy whose server exits 77: Settings › Environments › Local server says "Connection failed: Your organization's managed policy stopped T3 Code from starting.", and the restarts go on | not launched with a bad policy (#1519 recorded its recovery window) | holds |
+
+Not checked: the servers' "Show 4 more" and the provider banner's Refresh (no fixture has running servers or a
+provider warning), ⌘K's project open and Delete skipping a snoozed thread (no subagents, side chats or snoozed threads),
+a failed device host check (devices are out of scope), terminal selections over 64,000 characters, the minimap's wheel
+glide (no physical mouse) and secret references (the release build has no secret providers).
+
+Seen besides the rows, once each; now in Known differences:
+
+- A new pairing link's "Expires in" moves once a minute in the clone, and first read 5m 10s for a five-minute link;
+  the oracle's counts every second.
+- The pasted thread chip draws a thread glyph in the clone; the oracle draws the project's mark ("AE"). With only that
+  chip in the draft, the clone's send button is enabled; the oracle's is not.
+- A pasted URL that stays text is drawn as a link (blue, underlined) in the clone's composer; the oracle's is plain.
+- With the project filter open, the empty Search projects field draws no caret in the clone (four captures; typing
+  works); the oracle's does. The oracle also draws the filter button pressed while its menu is open; the clone does not.
+- With a Browser page focused, the oracle sends ⇧⌘J and ⌘K to the page (it read "keydown k meta=true"); the clone
+  closes the panel and opens the command palette.
+- The Create pairing link dialog is about 670 pt tall in the clone and scrolls its permissions sooner; the oracle's is
+  about 805 pt, nearly the window's height.
+- With a sidebar row's context menu open, the clone keeps the row's hover card shown beside the menu; the oracle shows
+  none.
+- A new pairing link offers only Copy code in the clone; the oracle's Share panel offers the `t3code://` link, Copy
+  code only and a QR code (left by #1523).
 
 **Fixed, not checked with real input or VoiceOver:**
 
