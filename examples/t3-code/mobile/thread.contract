@@ -106,7 +106,7 @@ component ThreadHistory
         if active and data.historyRequest != "" and data.historyError == ""
           for key in [data.historyRequest] key=key
             view width=1 height=1 pointer-events="none" aria-hidden=true intersect=observe(key) intersect-margin="100% 0px"
-        if active and data.historyRequest != ""
+        if active and data.historyRequest != "" and data.historyError == ""
           button appearance="none" press=loadEarlier disabled=data.historyLoading opacity=(data.historyLoading ? 0.5 : 1) min-height=31.5 padding-left=14 padding-right=14 padding-top=7 padding-bottom=7 border-radius=9999 border-width=1 border-style="solid" border-color=colors.historyBorder background-color=colors.subtle aria-label="Load earlier activity" testId="thread-history-load-earlier"
             row align-items="center" gap=7
               if data.historyLoading
@@ -116,6 +116,8 @@ component ThreadHistory
               text (data.historyLoading ? "Loading earlier activity…" : "Load earlier activity") font-size=14 line-height="19px" font-weight=500 color=colors.foreground
         if data.historyError != ""
           text data.historyError role="status" testId="history-error" text-align="center" font-size=13 line-height="17px" color=colors.iconSubtle
+          button appearance="none" press=loadEarlier disabled=(not active or data.historyLoading or data.historyRequest == "") min-height=31.5 padding-left=14 padding-right=14 padding-top=7 padding-bottom=7 border-radius=9999 border-width=1 border-style="solid" border-color=colors.historyBorder background-color=colors.subtle aria-label="Retry loading earlier activity" testId="thread-history-retry"
+            text "Retry" font-size=14 line-height="19px" font-weight=500 color=colors.primary
 
 component ThreadMessage
   props
