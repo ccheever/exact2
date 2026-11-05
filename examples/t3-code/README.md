@@ -900,11 +900,6 @@ above.
   lasts, 5 s (`sidebar-commands.ts`); a ⌘Z after that leaves the row snoozed (FN29).
 - A composer pull request chip is named 'Open Open pull request #132: …': the reference's own
   template, `Open ${kindLabel} …` with the kind label 'Open pull request' (contextChipParts.tsx:113).
-- Outside the chat column (its header, timeline and composer), the right panel, the side chat and the diagram preview,
-  Return on a focused button that is not the default one, such as 'Edit Echo test', does nothing and Space presses
-  it, as in any AppKit window (Return presses the default button). In those surfaces every button takes Return as
-  the reference's `<button>`s do: they carry exact2's `-exact-return-presses="descendants"` (LLP 1115.000 D7.3,
-  `tests/timeline/timeline-return-keys.test.ts`).
 - A press outside a chip's popover closes it and still does what it lands on (a press on a
   timeline image opens its preview), as Base UI's outside press lets the press through.
 - Interface fonts: a picked family's bold face draws the bold text (Georgia Bold for the PR title

@@ -24,7 +24,7 @@ component DiagramPreviewDialog
   derive scale = diagramScale(frame.width, frame.height, windowWidth * 0.92 - 96, min(windowHeight * 0.86, windowHeight - 160))
   derive dialogTargets = ["diagram-preview-close", "diagram-preview-close"]
   view
-    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 -exact-return-presses="descendants" align-items="center" justify-content="center" background-color="#000000bf" role="dialog" aria-label="Expanded image preview" testId="diagram-preview" id="diagram-preview" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("diagram-preview") key=dialogFallback("diagram-preview", dialogTargets)
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 align-items="center" justify-content="center" background-color="#000000bf" role="dialog" aria-label="Expanded image preview" testId="diagram-preview" id="diagram-preview" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("diagram-preview") key=dialogFallback("diagram-preview", dialogTargets)
       // The focus trap (dialog-trap.contract): the X is the only Tab stop; the backdrop is none (the reference's popup takes its clicks).
       FocusGuard(guardId="diagram-preview-guard-start", targets=dialogTargets, popup="diagram-preview")
       DialogOpenFocus(target="diagram-preview-close")

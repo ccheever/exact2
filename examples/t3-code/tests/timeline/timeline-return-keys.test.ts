@@ -1,6 +1,6 @@
 // Return presses a focused timeline or header button, as Chromium's `<button>` takes Enter in the reference. The Mac
 // presses a focused button with Space only unless a container says `-exact-return-presses="descendants"` (LLP 1115.000
-// D7.3), which the surfaces the reference draws as `<button>`s carry.
+// D7.3), which the window's root carries: every control of the reference is a `<button>`.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,17 +9,11 @@ import { contractComponent, type Env } from '../support/contract-action-fixture'
 
 const files = ['timeline', 'media'].flatMap(dir =>
   readdirSync(join(import.meta.dir, '../../src', dir)).filter(name => name.endsWith('.contract')).map(name => `src/${dir}/${name}`));
-const opted = (file: string, marker: string) => appText(file).split('\n')
-  .some(line => line.includes(marker) && line.includes('-exact-return-presses="descendants"'));
 
 describe('Return on a timeline button', () => {
-  test('the chat column, the right panel, the side chat and the diagram preview ask for Chromium\'s Return', () => {
-    expect(opted('src/shell/app-main.contract', 'id="frame-chat"')).toBe(true);
-    expect(appText('src/shell/app-main.contract').split('\n')
-      .filter(line => line.includes('id="workspace-panel"') && line.includes('-exact-return-presses="descendants"')).length).toBe(2);
-    const window = appText('src/shell/app-window.contract').split('\n');
-    expect(window[window.findIndex(line => line.includes('SideChatLayer(')) - 1]).toContain('-exact-return-presses="descendants"');
-    expect(opted('src/timeline/timeline-mermaid.contract', 'role="dialog"')).toBe(true);
+  test("the window's root asks for Chromium's Return", () => {
+    expect(appText('src/shell/app-window.contract').split('\n')
+      .some(line => line.trim().startsWith('main navigationKey="t3-code"') && line.includes('-exact-return-presses="descendants"'))).toBe(true);
   });
 
   test('no timeline button presses itself on Return', () => {
