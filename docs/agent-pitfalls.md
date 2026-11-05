@@ -5,7 +5,7 @@ as symptom → cause → what to do, with where it was found. Delete the entry i
 change that fixes the footgun, or that makes the compiler, runtime or driver
 diagnose it. **Candidate diagnostic** marks one that could become a check cheaply.
 
-> **Lookup reference: start at [Start here: building an app with Exact](start-here.md).** It names the pitfalls
+> **Lookup reference: start at [Start here](start-here.md).** It names the pitfalls
 > that cost agents the most, and its [recipes](recipes/) avoid the rest. Search this list by symptom (`grep -n`) when
 > something compiles and misbehaves; don't read it front to back.
 
