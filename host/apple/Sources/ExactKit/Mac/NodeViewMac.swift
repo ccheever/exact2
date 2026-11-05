@@ -176,7 +176,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var content = CGSize.zero
     /// The platform view returned by the dlopened iframe arm (@ref LLP 1020 D3).
     var video: VideoView?
-    var web: NSView?
+    var web: NSView? { didSet { if web !== oldValue { placeWeb() } } }
     /// A canvas node's Metal layer (LLP 1009).
     package var metal: MetalView?
     package var canvasInput: CanvasInput?
