@@ -44,6 +44,7 @@ component TimelineTip
     tipEpoch: number
     tipArm: action
     interacted: action
+    keyboardLast: bool
   props
     label: string
     side: string
@@ -53,6 +54,7 @@ component TimelineTip
   state over = false
   state seen = tipEpoch
   state focused = false
+  state pressed = false
   action setOver(value: bool)
     over = value
     if value
@@ -66,12 +68,16 @@ component TimelineTip
     focused = true
   action focusLeft(e: FocusEvent)
     focused = false
+    pressed = false
     seen = tipEpoch
+  action pressDown(e: PointerEvent)
+    pressed = true
+  // A keyboard's focus on the trigger opens it too, as Tip's does.
   view
-    box position="relative" hover=setOver pointermove=moved focusin=focusEntered focusout=focusLeft flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0
+    box position="relative" hover=setOver pointermove=moved focusin=focusEntered focusout=focusLeft pointerdown=pressDown flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0
       children
       if label != ""
-        TipBubble(label=label, side=side, align=align, offset=offset, inset=0, shown=(over and (focused or seen == tipEpoch)))
+        TipBubble(label=label, side=side, align=align, offset=offset, inset=0, shown=((over and (focused or seen == tipEpoch)) or (focused and not pressed and keyboardLast)))
 
 // TimelineRowTimestamp: a plain span trigger (Base UI's trigger adds no
 // tabIndex), shown while its row is hovered, focused or open. It is never a
