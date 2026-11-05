@@ -61,25 +61,26 @@ import { keptModules } from './modules.mjs';
 import { appleLinkArgs, embedLibrary, prepareLibrary, xcframeworkSlice } from '../../scripts/package-libraries.mjs';
 import { quiet, quietFor } from './quiet.mjs';
 import { keptCrates } from './crates.mjs';
+import { appleCargo } from '../../scripts/cargo-check.mjs';
 import { linkedPlanArgs, placeLinkedPlan } from '../../scripts/linked-plan.mjs';
 import { appleComposition, assertCapabilityFrameworks, assertLinkedSdk, linksByPlan } from './link.mjs';
 export { appIcon, iosAssets, documentTypes, exportedTypes, importedTypes };
 import { IPAD_ORIENTATIONS, orientationKeys, allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, installedBuild, macIdentity, phone, replacedNote, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => {
-  const r = spawnSync(cmd, args, { cwd: root, ...opts,
-    stdio: opts.stdio === 'ignore' ? ['ignore', 'ignore', 'pipe'] : opts.stdio ?? 'inherit' });
+  const r = spawnSync(...appleCargo(cmd, args, { cwd: root, ...opts,
+    stdio: opts.stdio === 'ignore' ? ['ignore', 'ignore', 'pipe'] : opts.stdio ?? 'inherit' }));
   if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})${r.stderr?.length ? ': ' + String(r.stderr).trim() : ''}`);
   return r;
 };
-const read = (cmd, args, opts = {}) => spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts });
+const read = (cmd, args, opts = {}) => spawnSync(...appleCargo(cmd, args, { cwd: root, encoding: 'utf8', ...opts }));
 // Every Apple toolchain invocation goes through here — cargo, swift build, and
 // the webarm swiftc alike: a mixed deployment target or an incompatible sysroot
 // is a warning the toolchain prints and then links anyway, so the build fails on
 // it here instead. @ref LLP 1008
 const runApple = (cmd, args, opts = {}) => {
   const { cargoMessages = false, ...spawnOptions } = opts;
-  const r = spawnSync(cmd, args, { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, ...spawnOptions });
+  const r = spawnSync(...appleCargo(cmd, args, { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, ...spawnOptions }));
   if (!cargoMessages) process.stdout.write(quiet(r.stdout ?? ''));
   process.stderr.write(quiet(r.stderr ?? ''));
   if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})`);
@@ -100,7 +101,7 @@ const refuseMixedTargets = (cmd, args, output) => {
  * says its own failure. A build that ends early stops it. `authored` restores paths in the log (`snapshotSources`). */
 function startApple(cmd, args, log, { authored, ...opts } = {}) {
   const out = openSync(log, 'w');
-  const child = spawn(cmd, args, { cwd: root, ...opts, stdio: ['ignore', out, out] });
+  const child = spawn(...appleCargo(cmd, args, { cwd: root, ...opts, stdio: ['ignore', out, out] }));
   closeSync(out);
   const exited = new Promise((settle) => {
     child.once('error', (error) => settle({ status: null, error }));
@@ -888,8 +889,7 @@ async function main(args, lockHeld = false) {
     const started = Date.now(), compile = crates.filter(crate => !(moduleLib[crate] = kept?.find(crate)));
     for (const crate of compile) moduleLib[crate] = resolve(moduleLibDir, `lib${crate.replaceAll('-', '_')}.dylib`);
     if (compile.length) keptRegistry?.take(moduleTarget, 'modules');
-    const step = compile.length ? startApple('sh', ['-c', 'profile=$1 target=$2 dir=$3 manifest=$4; shift 4; for crate; do cargo build --profile "$profile" -p "$crate" --lib --target "$target" --target-dir "$dir" --manifest-path "$manifest" || exit $?; done',
-      'host-modules', cargoProfile, target, moduleTarget, resolve(root, 'Cargo.toml'), ...compile], resolve(webBuildDir, log), { env: moduleEnv }) : null;
+    const step = compile.length ? startApple('cargo', ['build', '--profile', cargoProfile, ...compile.flatMap(crate => ['-p', crate]), '--lib', '--target', target, '--target-dir', moduleTarget, '--manifest-path', resolve(root, 'Cargo.toml')], resolve(webBuildDir, log), { env: moduleEnv }) : null;
     if (step) beside.push(step);
     return { async done() { await step?.done(); for (const crate of compile) kept?.keep(crate, started); if (compile.length) keptRegistry?.keep(moduleTarget, 'modules', resolve(root, 'Cargo.lock')); } };
   };

@@ -2,6 +2,7 @@
 // Independently link and bake a Rust business-logic module. LLP 1029.000.
 // The dev server calls the same producer; CLI use is an explicit build boundary.
 import { filesystem } from './filesystem.mjs';
+import { appleCargo } from './cargo-check.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { createHash } from 'node:crypto';
@@ -16,7 +17,7 @@ const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const rustCard = (file, bytes) => ({ file, bytes: bytes.length, sha256: hash(bytes) });
 function run(app, command, args, env) {
-  const r = spawnSync(command, args, { cwd: app.workspace, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const r = spawnSync(...appleCargo(command, args, { cwd: app.workspace, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
   if (r.stderr) process.stderr.write(r.stderr);
   if (r.error || r.status !== 0) {
     const output=args.includes('--message-format=json') ? r.stdout.split('\n').flatMap(line=>{
