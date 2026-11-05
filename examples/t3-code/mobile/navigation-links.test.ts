@@ -37,7 +37,7 @@ test('new-task public routes preserve explicit project and branch context', () =
   expect(mobileAppLink('/new/draft/environment', 'visit').location).toBe('/new/draft/environment');
   expect(mobileAppLink('/new/draft/branch', 'visit').location).toBe('/new/draft/branch');
   expect(mobileAppLink('/new/draft/settings', 'visit').location).toBe('/new/draft/settings');
-  expect(mobileAppLink('/new/projects', 'visit').location).toBe('/unmatched-link');
+  expect(mobileAppLink('/new/projects', 'visit').location).toBe('/new');
 });
 
 

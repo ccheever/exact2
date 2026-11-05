@@ -37,7 +37,8 @@ members App
       let atEnd = e.scrollHeight <= e.clientHeight or e.scrollTop + e.clientHeight >= e.scrollHeight - 1
       if threadEndFollowOwner != followOwner
         threadEndFollowOwner = followOwner
-      threadEndFollowEnabled = atEnd
+      if threadEndFollowEnabled != atEnd
+        threadEndFollowEnabled = atEnd
       if atEnd and e.scrollHeight > 0 and (historyAnchorKey != "" or historyAnchorOffset != 0 or historyAnchorRevision != threadData.historyRevision or historyAnchorRestorePending)
         historyAnchorKey = ""
         historyAnchorOffset = 0
