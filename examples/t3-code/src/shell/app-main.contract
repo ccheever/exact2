@@ -63,6 +63,7 @@ component ChatColumn
     sidebarInline: bool // the sidebar is in the row, not the narrow window's sheet (app.contract)
     frameMoved: action
     workspaceEntered: action // the workspace areas F6 moves between (shell-members.contract)
+    keyboardLast: bool
     threadFind: ThreadFindView
     rem: number
     // Ends a citation's placement (app.contract citePlace): the reader's wheel or a minimap jump moves the transcript.
@@ -178,6 +179,11 @@ component ChatColumn
   state dismissedProviderBanner = "" // moved from app.contract: only the chat column reads or writes it
   action dismissProviderBanner
     dismissedProviderBanner = data.providerBannerKey
+  // `[data-workspace-area]:focus-visible` (index.css): the conversation, focused itself from the keyboard (F6, or a
+  // decision that disabled the focused button), draws a 2px ring inside its edges.
+  state conversationRinged = false
+  action conversationFocus(on: bool)
+    conversationRinged = on and keyboardLast
   state rowHover = ""
   state partHover = ""
   action hoverPart(row: string, part: string, over: bool)
@@ -321,7 +327,7 @@ component ChatColumn
       if data.messages.length > 0
         // The history control is the list's first row; the top 24pt fades under the header (topbar-scroll-fade).
         // The conversation is a workspace area (ChatView workspaceAreaProps("conversation", 1, "Conversation")).
-        column flex=1 min-height=0 width="100%" position="relative" id="workspace-conversation" tabindex=-1 role="region" aria-label="Conversation" focusin=workspaceEntered("conversation")
+        column flex=1 min-height=0 width="100%" position="relative" id="workspace-conversation" tabindex=-1 role="region" aria-label="Conversation" focusin=workspaceEntered("conversation") focus=conversationFocus(true) blur=conversationFocus(false) outline="none"
           // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out).
           // `keep-mounted`: the rows the window keeps wherever it is (timeline-kept-rows.ts), so a screen reader wraps
           // from the first message to the last.
@@ -339,6 +345,8 @@ component ChatColumn
           // find is open, as the reference's does.
           if data.transcriptAway and not threadFind.open
             ScrollToEnd(jump=scrollToEnd, inset=laneInset, lift=data.scrollLift, summary=data.composer.endSummary)
+          if conversationRinged
+            box position="absolute" top=0 left=0 right=0 bottom=0 border-width=2 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" pointer-events="none" testId="conversation-ring"
       ComposerGlass(editor=editor, dark=(scheme == "dark"))
       // The composer overlays the transcript (ChatView's data-chat-composer-overlay; composer-overlay.ts
       // measures it for the transcript's end reservation): absolute at the chat's foot over the lane alone, so the

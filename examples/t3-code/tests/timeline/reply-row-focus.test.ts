@@ -42,4 +42,14 @@ describe('a reply row and its controls', () => {
     expect(text).toContain('button id=testId press=chosen popovertarget=menuId');
     expect(appText('app-main.contract')).toContain('id="workspace-conversation" tabindex=-1 role="region" aria-label="Conversation"');
   });
+
+  // index.css `[data-workspace-area]:focus-visible`: a 2px ring inside the area's edges, from the keyboard only.
+  test('the conversation rings while it holds a keyboard focus itself', () => {
+    const column = contractComponent('app-main.contract', 'ChatColumn');
+    const ringed = (on: boolean, keyboardLast: boolean) => { const state = { conversationRinged: !on }; column.call('conversationFocus', state, { keyboardLast }, [on]); return state.conversationRinged; };
+    expect([ringed(true, true), ringed(true, false), ringed(false, true)]).toEqual([true, false, false]);
+    const text = appText('app-main.contract');
+    expect(text).toContain('focus=conversationFocus(true) blur=conversationFocus(false) outline="none"');
+    expect(text).toContain('if conversationRinged\n            box position="absolute" top=0 left=0 right=0 bottom=0 border-width=2');
+  });
 });

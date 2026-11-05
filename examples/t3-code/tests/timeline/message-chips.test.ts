@@ -254,7 +254,7 @@ describe('the chips and rows a context reference draws', () => {
     const text = appText('markdown.contract');
     for (const name of ['CitationContextChip', 'TerminalContextChip']) {
       const body = text.slice(text.indexOf(`component ${name}`)), view = body.slice(0, body.indexOf('\ncomponent '));
-      expect(view.split('\n').find(line => line.includes('button popovertarget=popupId'))).toContain('aria-haspopup="dialog"');
+      expect(view.split('\n').find(line => line.includes('button press=pressed popovertarget=popupId'))).toContain('aria-haspopup="dialog"');
       expect(view).not.toContain('autofocus=');
     }
     const opened = (file: string, name: string, scope: Record<string, unknown>) => {
@@ -276,6 +276,21 @@ describe('the chips and rows a context reference draws', () => {
     for (const [file, id] of [['markdown.contract', 'id=`${popupId}-source`'], ['markdown.contract', 'id=`${popupId}-dialog`'], ['markdown.contract', 'id=`${popupId}-output`'], ['skill-chip.contract', 'id=`${popupId}-instructions`'], ['skill-chip.contract', 'id=`${popupId}-dialog`'], ['timeline-worktree.contract', 'SetupButton(id=`${scope}-open-terminal`'], ['timeline-worktree.contract', 'SetupButton(id=`${scope}-details`']] as const)
       expect(appText(file)).toContain(id);
     expect(appText('timeline-worktree.contract')).toContain('scope="background-setup")');
+    // PopoverPopup's finalFocus: a press focuses the chip first (a Mac click focuses nothing), and as the details close
+    // (Escape, a choice) the focus goes back to it.
+    const pressed = (file: string, name: string, scope: Record<string, unknown>) => {
+      const focused: string[] = [];
+      contractComponent(file, name).call('pressed', {}, { ...scope, focus: (id: string) => focused.push(id) }, []);
+      return focused;
+    };
+    expect(pressed('markdown.contract', 'CitationContextChip', { chip, run })).toEqual(['context-chip-0']);
+    expect(pressed('markdown.contract', 'TerminalContextChip', { chip, run })).toEqual(['context-chip-0']);
+    expect(pressed('skill-chip.contract', 'SkillChip', { id: 'm-0-0' })).toEqual(['context-chip-m-0-0']);
+    expect(pressed('timeline-worktree.contract', 'BackgroundSetupChip', {})).toEqual(['background-setup']);
+    for (const [file, trigger] of [['markdown.contract', 'button press=pressed popovertarget=popupId key=invokerOnEnter hover=hover aria-label=`Quoted'], ['markdown.contract', 'button press=pressed popovertarget=popupId key=invokerOnEnter hover=hover aria-label=`Terminal'], ['skill-chip.contract', 'button press=pressed popovertarget=popupId key=invokerOnEnter id=`context-chip-${id}`'], ['timeline-worktree.contract', 'button press=pressed popovertarget=popupId key=invokerOnEnter id="background-setup"']] as const)
+      expect(appText(file)).toContain(trigger);
+    for (const [file, back] of [['markdown.contract', 'dialogMenuEntered(popupId, `context-chip-${run.id}`)'], ['skill-chip.contract', 'dialogMenuEntered(popupId, `context-chip-${id}`)'], ['timeline-worktree.contract', 'dialogMenuEntered(popupId, "background-setup")']] as const)
+      expect(appText(file)).toContain(`column id=popupId data-dialog-return="menu" focusin=${back} popover="auto" toggle=toggled`);
   });
   // AssistantCitationChip: Go to source is a PopoverClose around a router Link, and its trigger is Base UI's
   // PopoverTrigger, which says whether the details are open (VoiceOver: "collapsed").
@@ -285,8 +300,8 @@ describe('the chips and rows a context reference draws', () => {
     const lines = appText('markdown.contract').split('\n');
     const from = lines.indexOf('component CitationContextChip'), view = lines.slice(from, lines.findIndex((line, i) => i > from && line.startsWith('component ')));
     expect(view.find(line => line.includes('testId="citation-context-source"'))).toContain('role="link"');
-    expect(view.find(line => line.includes('button popovertarget=popupId'))).toContain('aria-expanded=open');
-    expect(view.find(line => line.includes('column id=popupId popover="auto"'))).toContain('toggle=toggled');
+    expect(view.find(line => line.includes('button press=pressed popovertarget=popupId'))).toContain('aria-expanded=open');
+    expect(view.find(line => line.includes('column id=popupId data-dialog-return="menu"'))).toContain('toggle=toggled');
     const chip = contractComponent('markdown.contract', 'CitationContextChip'), state = { open: false };
     const scope = { chip: { owner: 'm', id: 'c', target: 't1' }, run: { id: '0' }, focus() {} };
     chip.call('toggled', state, scope, [{ newState: 'open', oldState: 'closed' }]);
