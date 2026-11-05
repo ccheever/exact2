@@ -94,13 +94,13 @@ describe('Turn into project and Copy › Thread', () => {
     expect(titleMenu(fake([thread({ worktreePath: '/p/t1' })]).client, NOW).some(item => item.id === 'turn-into-project')).toBe(false);
   });
 
-  test('Copy › Thread copies the thread\'s chip, between Path and Thread ID', async () => {
+  test('Copy › Thread copies the thread\'s hosted link, between Path and Thread ID', async () => {
     const { client, copied } = fake([thread()]);
     const copy = titleMenu(client, NOW).filter(item => item.submenu === 'copy');
     expect(copy.map(item => [item.id, item.label, item.icon])).toEqual([['copy-path', 'Path', 'folder'], ['copy-thread', 'Thread', 'message-square'], ['copy-thread-id', 'Thread ID', 'hash']]);
     expect(copy[1]).toMatchObject({ op: 'sidebar:copy-thread', target: 't1' });
     await sidebarCommand(client, native, {} as Files, 'copy-thread', 't1', '');
-    expect(copied).toEqual(['[Fixture](t3-context://v1/thread/thread_t1)']);
+    expect(copied).toEqual(["https://app.t3.codes/threads/env/t1"]);
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'success', title: 'Thread copied', description: 'Fixture' });
   });
 });
