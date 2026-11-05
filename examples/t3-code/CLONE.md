@@ -74,6 +74,13 @@ and spacing. The Contract regression covers the presentation; a native long
 error screenshot and reachability check remain open. The diary is
 `examples/t3-code/mobile/diary/2026-11-04-error-disclosure.md`.
 
+The November 5 continuation applies the same wide trailing-rail rule to Home
+that the thread route already uses. A clipped occlusion that reaches the
+content edge now reserves its full remaining width even when its left edge
+crosses the window midpoint. The focused geometry regression covers the
+midpoint-crossing case; native keyboard-visible Duo reachability remains open.
+The diary is `examples/t3-code/mobile/diary/2026-11-05-home-rail-reservation.md`.
+
 The prior integrated history, table, first-read, rail and Home units remain in
 the commit ancestry. Open parity gaps are live history errors/Retry, filtered
 continuation, selection and exact anchor preservation, bounded transcript

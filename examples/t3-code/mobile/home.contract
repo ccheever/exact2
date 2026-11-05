@@ -10,7 +10,7 @@ use HomeSwipeControls, HomeSwipeMenu, homeSwipeField, homeSwipeNumber, homeSwipe
 
 fn homeMeasuredHeight(geometry: ContentGeometry, fallback: number): number = geometry.state == "ready" and geometry.bounds.height > 0 ? geometry.bounds.height : fallback
 fn homeMeasuredSafeTop(geometry: ContentGeometry, fallback: number): number = geometry.state == "ready" ? geometry.safeArea.top : fallback
-fn homeTrailingReservation(geometry: ContentGeometry): number = geometry.state != "ready" ? 0 : match first(geometry.reservedRegions.filter(region => region.kind == "occlusion" and region.x > geometry.bounds.x + geometry.bounds.width * 0.5)) { case some(region) => max(0, geometry.bounds.x + geometry.bounds.width - region.x), case none => 0 }
+fn homeTrailingReservation(geometry: ContentGeometry): number = geometry.state != "ready" ? 0 : match first(geometry.reservedRegions.filter(region => region.kind == "occlusion" and (region.x > geometry.bounds.x + geometry.bounds.width * 0.5 or region.x + region.width >= geometry.bounds.x + geometry.bounds.width))) { case some(region) => max(0, geometry.bounds.x + geometry.bounds.width - region.x), case none => 0 }
 
 shape HomeColors
   foreground: string
