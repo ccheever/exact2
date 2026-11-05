@@ -126,9 +126,9 @@ func watchPlan() {
     planWatch = t
 }
 
-/// Agent mode: the driver owns the process from here — one JSON line in,
-/// one out. `ready` goes out once the driver has connected, after the first
-/// frame is applied.
+/// Announce `ready` after the driver connects and the first frame is applied.
+/// The simulator carrier also waits for foreground eligibility, bounded by
+/// `Agent.awaitFront`.
 nonisolated(unsafe) var readySent = false
 /// A refused EXACT_PLAN: the view's first layout then boots the embedded
 /// plan, which clears the session's error, but the driver asked for this one.

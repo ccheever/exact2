@@ -389,21 +389,28 @@ test('a real touch refuses a changed display mapping even when scene coordinates
   }
 });
 
-// On the Duo a real touch waits out SpringBoard's fold cloak (cloak.mjs) before its first aim, and a touch still lost
-// says how long it waited.
-test('a real tap waits out the fold cloak before it aims', async () => {
+test('a real tap waits for SpringBoard before aiming and reports the wait on delivery failures', async () => {
   const aim = { orientation: 'portrait', session: 'main', generation: 1, screen: { x: 0, y: 0, w: 400, h: 800 }, point: [30, 20], viewport: [400, 800], at: [30, 20], window: [30, 20], seq: 4, hit: 7 };
   const began = { seq: 5, touch: 1, phase: 'began', t: 1, at: [30, 20], view: 'Control', node: 7, session: 'main', generation: 1 };
-  const tap = (log, order) => realTap({ id: 7,
+  const tap = (log, order, wait, clear = async () => wait) => realTap({ id: 7,
     ask: async (req) => { order.push(req.aim ? 'aim' : 'log'); return req.aim ? { aim } : { log, truncated: false }; },
     touches: {
       async ask(req) { order.push(req.op); return req.op === 'foreground' ? { state: 'runningForeground' } : { injected: {} }; },
-      cloak: { async clear() { order.push('clear'); await new Promise((r) => setTimeout(r, 30)); return 30; } },
+      cloak: { clear },
     } });
-  const order = [];
-  expect(await tap([began, { ...began, seq: 6, phase: 'ended', t: 2 }], order)).toEqual(expect.objectContaining({ delivery: 'platform' }));
-  expect(order.slice(0, 5)).toEqual(['clear', 'aim', 'foreground', 'aim', 'tap']);
-  await expect(tap([], [])).rejects.toThrow('after waiting 30 ms for SpringBoard\'s fold cloak');
+  const entered = Promise.withResolvers(), released = Promise.withResolvers(), order = [];
+  const tapping = tap([began, { ...began, seq: 6, phase: 'ended', t: 2 }], order, null, async () => {
+    entered.resolve();
+    return released.promise;
+  });
+  await entered.promise;
+  expect(order).toEqual([]);
+  released.resolve({ cloaked: 20, transitioned: 30 });
+  expect(await tapping).toEqual(expect.objectContaining({ delivery: 'platform' }));
+  expect(order.slice(0, 4)).toEqual(['aim', 'foreground', 'aim', 'tap']);
+  await expect(tap([], [], { cloaked: 20, transitioned: 30 })).rejects.toThrow('(after waiting 20 ms for SpringBoard\'s fold cloak and 30 ms for a SpringBoard transition, cloak.mjs)');
+  await expect(tap([], [], { cloaked: 0, transitioned: 30 })).rejects.toThrow('(after waiting 30 ms for a SpringBoard transition, cloak.mjs)');
+  await expect(tap([{ ...began, node: 8 }, { ...began, node: 8, seq: 6, phase: 'ended', t: 2 }], [], { cloaked: 0, transitioned: 30 })).rejects.toThrow('after waiting 30 ms for a SpringBoard transition');
 });
 
 // The ops during a still real touch wait for the view it landed on to have it (`reached`), which a scroll view delays;

@@ -260,15 +260,15 @@ export async function restoreAccessibility(udid, found, run = simDefaults) {
  * KEPT_IDLE for the next session. Returns `{ ask(req), close(), pid, started,
  * kept, cloak }`: `ask` sends one line and resolves with its reply, or with an error
  * at `RUNNER_MS`, which also ends the runner (a stalled runner never hangs a
- * drive). On a `foldable` simulator (the iPhone Duo) `cloak` follows
- * SpringBoard's fold cloak (cloak.mjs), which a real touch waits out. The
- * simulator's accessibility keys are on for the session and put back when it
+ * drive). `cloak` follows SpringBoard's main transitions and, on a `foldable`
+ * simulator (the iPhone Duo), fold cloaks: a real touch waits until both clear
+ * (cloak.mjs). The simulator's accessibility keys are on for the session and put back when it
  * ends (`AX_KEYS`).
  */
 export async function openTouches({ udid, appId, foldable }) {
   const lockRelease = lock(udid);
   const started = Date.now();
-  const cloak = foldable ? watchCloak(udid) : null;
+  const cloak = watchCloak(udid, foldable);
   const axRecord = resolve(homedir(), '.cache/exact/simulator-accessibility', `${udid}.json`), axFound = foundAccessibility(udid, axRecord);
   let restored = null;
   // Unread keys were never turned on: the session ends before a write or a runner's start (`readKeys`).
@@ -284,7 +284,7 @@ export async function openTouches({ udid, appId, foldable }) {
   // process's child is waited for (3 s, then SIGKILL) and the lock kept if it
   // will not exit.
   const teardown = async () => {
-    cloak?.close();
+    cloak.close();
     try { socket?.destroy(); } catch {}
     bridge?.close();
     try {
@@ -360,8 +360,8 @@ export async function openTouches({ udid, appId, foldable }) {
         return { error: why };
       });
     };
-    // Wait until the stream is reading, before the app's launch can bring a cloak
-    await cloak?.ready();
+    // Start reading before the app's launch can bring a transition or a cloak
+    await cloak.ready();
     return {
       ask, pid: kept.pid, started: Date.now() - started, kept: reused, cloak,
       end,
@@ -370,7 +370,7 @@ export async function openTouches({ udid, appId, foldable }) {
         if (closing) { const failed = await closing; if (failed) throw failed; return; }
         if (talk.broken()) { const failed = await end(); if (failed) throw failed; return; }
         closing = Promise.resolve(null);
-        cloak?.close();
+        cloak.close();
         socket.end();
         await release();
       },
@@ -434,8 +434,11 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
   // A plain tap aims at the target's own press (LLP 1012 §1: never a control inside it its middle reaches);
   // `rel` is a point in the target (`tap <target> at <x> <y>`), whatever a finger there reaches; a drag starts at the middle.
   const aimReq = { op: 'tap', id, aim: at ? { x: at[0], y: at[1] } : rel ? { at: rel } : drag ? true : { press: true } };
-  // Wait out a fold cloak before aiming: it would take the touch (cloak.mjs)
-  const cloaked = await touches.cloak?.clear() ?? 0;
+  // Wait out a fold cloak and a transition before aiming: either takes the touch or moves where it lands (cloak.mjs)
+  const { cloaked = 0, transitioned = 0 } = await touches.cloak?.clear() ?? {};
+  const waited = [cloaked && `${cloaked} ms for SpringBoard's fold cloak`, transitioned && `${transitioned} ms for a SpringBoard transition`].filter(Boolean).join(' and ');
+  // Include the SpringBoard wait when a touch is lost or lands elsewhere
+  const touchError = (message) => new Error(`${message}${waited ? ` (after waiting ${waited}, cloak.mjs)` : ''}`);
   const first = await ask(aimReq);
   if (first.error) throw new Error(first.error);
   const fg = await touches.ask({ op: 'foreground' });
@@ -542,9 +545,9 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
           if (finished && !ops.length) return;
           if (finished) {
             const log = await entries(), late = ours(log), evidence = JSON.stringify({ aim: a, injected: await injecting, log });
-            throw new Error(late
-              ? `${what}: the runner finished before a dispatch-log read saw the touch begin, and it has ${late.lifted ? 'lifted; lengthen hold' : 'not lifted'}: ${evidence}`
-              : `${what}: the runner finished and no touch has begun: ${evidence}; ${SETTLE_FIRST}`);
+            throw late
+              ? touchError(`${what}: the runner finished before a dispatch-log read saw the touch begin, and it has ${late.lifted ? 'lifted; lengthen hold' : 'not lifted'}: ${evidence}`)
+              : touchError(`${what}: the runner finished and no touch has begun: ${evidence}; ${SETTLE_FIRST}`);
           }
           await new Promise((r) => setTimeout(r, 50));
         }
@@ -643,13 +646,13 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
     if (began && end) {
       // A row UIKit's menu shows (`native`) is in no session and no node: the touch must land outside every node.
       if (a.native) {
-        if (began.node != null) throw new Error(`${what}: the touch landed on node #${began.node}, not on UIKit's ${a.native.kind} "${a.native.label}"`);
+        if (began.node != null) { throw touchError(`${what}: the touch landed on node #${began.node}, not on UIKit's ${a.native.kind} "${a.native.label}"`); }
       } else {
-        if (began.session !== a.session || began.generation !== a.generation) throw new Error(began.session == null ? `${what}: the touch landed on ${began.view}, outside every session, not in ${a.session}` : `${what}: the touch landed in session ${began.session} (generation ${began.generation}), not ${a.session}`);
-        if (began.node !== a.hit) throw new Error(`${what}: the touch landed on ${began.node == null ? began.view : `node #${began.node}`}, not on node #${a.hit} the aim hit-tested`);
+        if (began.session !== a.session || began.generation !== a.generation) { throw touchError(began.session == null ? `${what}: the touch landed on ${began.view}, outside every session, not in ${a.session}` : `${what}: the touch landed in session ${began.session} (generation ${began.generation}), not ${a.session}`); }
+        if (began.node !== a.hit) { throw touchError(`${what}: the touch landed on ${began.node == null ? began.view : `node #${began.node}`}, not on node #${a.hit} the aim hit-tested`); }
       }
       // A grouped list's cells are all the list's node: the row and part too (LLP 1084).
-      if (a.projected && (began.projected?.row !== a.projected.row || began.projected?.part !== a.projected.part)) throw new Error(`${what}: the touch landed on ${JSON.stringify(began.projected ?? null)} in the grouped list, not on ${JSON.stringify(a.projected)} the aim hit-tested`);
+      if (a.projected && (began.projected?.row !== a.projected.row || began.projected?.part !== a.projected.part)) { throw touchError(`${what}: the touch landed on ${JSON.stringify(began.projected ?? null)} in the grouped list, not on ${JSON.stringify(a.projected)} the aim hit-tested`); }
       const moved = seen.filter((e) => e.phase === 'moved');
       const travel = [end.at[0] - began.at[0], end.at[1] - began.at[1]];
       if (drag) {
@@ -657,8 +660,8 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
         // or 5% of the distance, in the window's space the log records.
         const tolerance = Math.max(1, 0.05 * Math.hypot(...net)), w = a.window;
         const startOff = Math.hypot(began.at[0] - w[0], began.at[1] - w[1]), endOff = Math.hypot(end.at[0] - w[0] - net[0], end.at[1] - w[1] - net[1]);
-        if (startOff > tolerance) throw new Error(`${what}: the touch began at (${began.at}), not at the aimed (${w}) within ${tolerance.toFixed(1)} pt`);
-        if (endOff > tolerance || (moves && !moved.length)) throw new Error(`${what}: the touch moved (${travel}) in ${moved.length} moves, not the asked (${net[0]}, ${net[1]}) within ${tolerance.toFixed(1)} pt`);
+        if (startOff > tolerance) { throw touchError(`${what}: the touch began at (${began.at}), not at the aimed (${w}) within ${tolerance.toFixed(1)} pt`); }
+        if (endOff > tolerance || (moves && !moved.length)) { throw touchError(`${what}: the touch moved (${travel}) in ${moved.length} moves, not the asked (${net[0]}, ${net[1]}) within ${tolerance.toFixed(1)} pt`); }
       }
       return {
         tapped: id, at: a.at, delivery: 'platform',
@@ -677,7 +680,7 @@ export async function realTap({ ask, touches, id, at, rel, drag, abandon }) {
         ...(a.avoided ? { avoided: a.avoided } : {}), ...(a.native ? { native: a.native } : {}),
       };
     }
-    if (Date.now() >= deadline) throw new Error(`${what}: no touch reached the app's window within 1 s; the runner finished at ${injected.injected?.end} (log: ${JSON.stringify(seen)}); ${SETTLE_FIRST}${cloaked ? ` (after waiting ${cloaked} ms for SpringBoard's fold cloak, cloak.mjs)` : ''}`);
+    if (Date.now() >= deadline) { throw touchError(`${what}: no touch reached the app's window within 1 s; the runner finished at ${injected.injected?.end} (log: ${JSON.stringify(seen)}); ${SETTLE_FIRST}`); }
     await new Promise((r) => setTimeout(r, 16));
   }
 }
