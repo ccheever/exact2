@@ -1,6 +1,6 @@
 # Contract: a complete working guide for agents
 
-> **Lookup reference; start at [start-here.md](start-here.md).** Building an app needs
+> **Lookup reference: start at [start-here.md](start-here.md).** Building an app needs
 > only that page, and a [recipe](recipes/) answers most questions after it. Open this
 > guide at a section for what no recipe covers, or grep it; don't read it front to back.
 
