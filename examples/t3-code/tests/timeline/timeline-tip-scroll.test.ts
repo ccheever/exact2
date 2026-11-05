@@ -3,7 +3,7 @@
 // and row-tips.contract RowTip keep the epoch they were hovered at; app-main.contract ChatColumn moves it on a scroll.
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { contractComponent } from '../support/contract-action-fixture';
+import { contractComponent, value } from '../support/contract-action-fixture';
 import { appPath } from '../support/app-files';
 
 const tip = contractComponent('shell-tip.contract', 'TimelineTip');
@@ -48,6 +48,23 @@ describe('a transcript tooltip and the transcript\'s scroll', () => {
     expect(state.seen).toBe(t.root.tipEpoch);
   });
 
+  test("a keyboard's focus opens a transcript tip, as Base UI's on a visible focus; a press's focus does not", () => {
+    const scope = { tipEpoch: 0, tipArm: () => {}, interacted: () => {} };
+    // TimelineTip's bubble line: its `shown` argument, read over the tip's state.
+    const line = readFileSync(appPath('shell-tip.contract'), 'utf8').split('\n').find(entry => entry.includes('TipBubble(') && entry.includes('keyboardLast'))!;
+    const expr = /shown=(\(.*\))\)$/.exec(line.trim())![1]!;
+    const shown = (state: Record<string, unknown>, keyboardLast: boolean) => Boolean(value(expr, { ...scope, ...state, keyboardLast }));
+    const keyed = tip.state({ tipEpoch: 0 });
+    tip.call('focusEntered', keyed, scope, [{ target: 'x' }]);
+    expect([shown(keyed, true), shown(keyed, false)]).toEqual([true, false]);
+    const pressed = tip.state({ tipEpoch: 0 });
+    tip.call('pressDown', pressed, scope, [{}]);
+    tip.call('focusEntered', pressed, scope, [{ target: 'x' }]);
+    expect(shown(pressed, true)).toBe(false);
+    tip.call('focusLeft', pressed, scope, [{ target: '' }]);
+    expect(pressed.pressed).toBe(false);
+  });
+
   test('a row tip shown without a hover (its row focused) starts open at the current epoch', () => {
     const state = row.state({ tipEpoch: 3 });
     expect(state.seen).toBe(3);
@@ -55,7 +72,7 @@ describe('a transcript tooltip and the transcript\'s scroll', () => {
 
   test('each tip shows only while its epoch is the transcript\'s, or its trigger has the focus', () => {
     const source = readFileSync(appPath('shell-tip.contract'), 'utf8') + readFileSync(appPath('row-tips.contract'), 'utf8');
-    expect(source).toContain('shown=(over and (focused or seen == tipEpoch))');
+    expect(source).toContain('shown=((over and (focused or seen == tipEpoch)) or (focused and not pressed and keyboardLast))');
     expect(source).toContain('shown=(shown and (focused or seen == tipEpoch))');
     expect(source).toContain('shown=(over and seen == tipEpoch)');
     expect(source).not.toContain('hatch="t3-timeline-tip"');

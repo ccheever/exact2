@@ -849,14 +849,10 @@ above.
   which holds the focus itself, zooms nothing, as in the reference (2026-11-05).
 - A Browser tab floated by closing the right panel draws its page at full size in the card, where the reference
   scales the page down to fit the card (real input, 2026-11-05).
-- ⇧Tab skips a reply's changed-files card (its folder and file rows, Open diff, Expand all folders), which the
-  reference reaches after Copy message (real input, 2026-11-05).
 - After the hero's "or start without a project", Go back does nothing; the reference returns to the project's hero
   (real input, 2026-11-05).
 - ⌘N's project picker lists This machine's scratch folder as a project below the "No project ⌥⌘N" row; the
   reference lists only that row (real input, 2026-11-05).
-- A linked picture's link tooltip sits 11 device px higher than the reference's, and the picture's stop shows no ring
-  where the reference draws a thin one (real input, 2026-11-05).
 
 **Not failures:**
 
