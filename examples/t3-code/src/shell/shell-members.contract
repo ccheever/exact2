@@ -17,6 +17,15 @@ members T3Code
   state toastHover = false
   state shellOpenHandled = ""
   resource page = exactPage() as shape Page // the window's focus and visibility (document.hasFocus(), exact2 #219): thread notifications and activity reports
+  // A work row's time shows while the row holds the focus (group-focus-within). Chromium matches no `:focus-within`
+  // while the window is not key, and when it is key again the reference focuses the composer (ChatView's window focus
+  // listener), so the row's focus look ends each time the window resigns key; `windowLeaves` counts those times.
+  derive windowFocused = page.hasFocus
+  state windowLeaves = 0
+  task windowResigned when not page.hasFocus
+    after(1, windowLeft)
+  action windowLeft
+    windowLeaves = windowLeaves + 1
   resource shell = shellView(data.revision, wallTime.epochAtZero + max(shellClock, elapsed), toastDismissed, toastHover, narrowDiff, page.hasFocus, page.visibilityState, not settingsOpen and not pageCover and not welcome.show, notificationPermission.state) as shape ShellView // then: the chat view is shown (proactive panels); the notification permission (app.contract notificationPermission)
   resource filesMarkdown = renderFileMarkdown(shell.panel.files.markdownSource.concat(shell.panel.attachment.markdownSource).concat(shell.composerFile.file.markdownSource), data.look.math) as shape TranscriptMarkdown
   state rightPanelAt = ""

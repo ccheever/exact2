@@ -165,6 +165,8 @@ component T3Code
     renameFocused
     inlineDocumentViewportWidth
     mediaWidth // the window's width as the reference's media queries see it
+    windowFocused // the window is key, and the times it resigned key (src/shell/shell-members.contract)
+    windowLeaves
     windowZoom // View's zoom, which a Browser tab's own zoom is drawn over (browser-frames.contract)
     sidebarSheetMode // the sidebar as a sheet under 768 CSS px, its open state and its setter (beside narrowDiff)
     sidebarSheetShown

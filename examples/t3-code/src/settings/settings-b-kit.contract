@@ -128,7 +128,7 @@ component CnTooltip
     above: number
   view
     row position="absolute" left="-12.5rem" right="-12.5rem" bottom=above justify-content="center" z-index=60
-      column max-width="20rem" text-wrap="balance" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" role="tooltip" testId=tipId
+      column max-width="20rem" text-wrap="balance" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" border-top-color="light-dark(#e4e4e7, #ffffff22)" border-bottom-color="light-dark(#dbdbde, #ffffff14)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" role="tooltip" testId=tipId
         text tip font-size="0.75rem" line-height="1rem" white-space="pre-wrap" color="light-dark(#18181b, #f5f5f5)"
 
 // FoldedSettingsSection (headerPlacement="inside"): a grouped card whose

@@ -736,8 +736,6 @@ Differences that belong to the app:
   place it by. An image inside a link shows its URL on a keyboard focus, as the reference's does.
 - A focused timeline button shows AppKit's focus ring outside it, where the reference's tool rows ring inside their
   box (`ring-2 ring-inset`) and its inline buttons draw Chromium's outline.
-- After a press on a work group's "Worked for …", the clone keeps the group's time shown once the pointer has left;
-  the reference shows none.
 - Appearance has no Environment identification row. The clone is the stable app only, and it does
   not draw the Nightly or Dev artwork. At v0.1.5 the stable app's default also shows no art, but the
   row lets a user opt into Nightly or Dev artwork ("Show Dev or Nightly artwork in the sidebar

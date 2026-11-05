@@ -291,7 +291,7 @@ describe('the chips and rows a context reference draws', () => {
   test('a secret request draws its card and no divider under it', async () => {
     const { contractComponent } = await import('../support/contract-action-fixture');
     const content = contractComponent('timeline.contract', 'TimelineContent');
-    const divider = (kind: string) => content.drawn('Icon(name="compacted"', content.state(), { message: { kind }, hovering: false, windowPresses: 0 });
+    const divider = (kind: string) => content.drawn('Icon(name="compacted"', content.state(), { message: { kind }, hovering: false, windowPresses: 0, windowFocused: true, windowLeaves: 0 });
     expect([divider('secret'), divider('notice')]).toEqual([false, true]);
   });
 });

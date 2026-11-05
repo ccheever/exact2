@@ -53,7 +53,7 @@ component PrBreakdownCard
     testId: string
   view
     if breakdown.rows.length > 0 or breakdown.loading
-      column padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId=testId
+      column padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" border-top-color="light-dark(#e4e4e7, #ffffff22)" border-bottom-color="light-dark(#dbdbde, #ffffff14)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId=testId
         if breakdown.rows.length > 0
           PrBreakdownGrid(rows=breakdown.rows, total=breakdown.total, diff=diff, ink="light-dark(#18181b, #f5f5f5)")
         else
