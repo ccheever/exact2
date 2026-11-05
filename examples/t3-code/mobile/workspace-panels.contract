@@ -65,7 +65,7 @@ component MobileInspectorPanel
             button press=inspectorControl(inspectorPresentation.owner, "close", "") disabled=(not inspectorPresentation.interactive) aria-label="Close inspector" testId="inspector-close"
               image "symbol:close" width=16 height=16
           if inspectorPresentation.showFiles
-            input type="search" value=inspectorPresentation.query input=inspectorControl(inspectorPresentation.owner, "search") disabled=(not inspectorPresentation.interactive) placeholder="Search files" aria-label="Search files" testId="inspector-search-files" margin=10
+            input type="search" value=inspectorPresentation.query input=inspectorControl(inspectorPresentation.owner, "search") disabled=(not inspectorPresentation.interactive) placeholder="Search files" aria-label="Search files" autocapitalize="none" autocomplete="off" spellcheck=false testId="inspector-search-files" margin=10
           MobileInspectorContent(gitColors=gitLook, state=inspectorState, data=inspectorPresentation, visible=workspace.inspectorVisible, gitBottomInset=(max(layout.safeBottom, 18) + 18), colors=reviewLook, toggleDirectory=toggleDirectory, openFile=openFile, refreshFiles=refreshFiles, reviewFile=reviewFile, gitAction=gitAction, refreshGit=refreshGit)
         t3-workspace-layout workspace-configuration=workspace.configuration change=inspectorEvent position="absolute" left=-22 top=0 bottom=0 width=44
 

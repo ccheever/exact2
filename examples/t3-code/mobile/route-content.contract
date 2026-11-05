@@ -358,11 +358,11 @@ component MobileRouteContent
   derive fileBrowserHeader = routeName == "threadFiles" and not workspace.fileInspectorSupported
   view
     if routeName == "newTask"
-      header height=44 flex-shrink=0 align-items="center" justify-content="space-between"
+      header height=44 flex-shrink=0 display="flex" align-items="center" justify-content="space-between"
         button id="back" press=back aria-label="Back" testId="back-newTask"
           image "symbol:back" width=20 height=20
         text newTaskFlow.title id="route-title" role="heading" aria-level=2 font-size=18 font-weight=800
-        input id="new-task-project-search" type="search" value=newTaskQuery input=editNewQuery placeholder="Search projects" aria-label="Search projects" testId="new-task-project-search"
+        input id="new-task-project-search" type="search" value=newTaskQuery input=editNewQuery placeholder="Search projects" aria-label="Search projects" autocapitalize="none" autocomplete="off" spellcheck=false testId="new-task-project-search"
         if newTaskData.canAddProject
           button press=openAddProject aria-label="Add project" testId="new-task-add-project"
             image "symbol:add" width=20 height=20
@@ -459,7 +459,7 @@ component MobileRouteContent
           ReviewCommentComposer(data=reviewData, value=reviewComment, colors=reviewLook, change=editReviewComment, submit=submitReviewComment)
         else if routeName == "threadFiles"
           if not fileBrowserHeader
-            input value=filesQuery input=editFilesQuery placeholder="Search files" margin=14 aria-label="Search files"
+            input type="search" value=filesQuery input=editFilesQuery placeholder="Search files" margin=14 aria-label="Search files" autocapitalize="none" autocomplete="off" spellcheck=false
           MobileFileTree(bottomInset=(fileBrowserHeader ? 64 : 0), listId="workspace-files", data=filesData, colors=reviewLook, toggle=toggleDirectory, select=openFile, refresh=refreshFiles)
         else if routeName == "threadFile" or (routeName == "newTaskFile" and newTaskFlow.fileReady)
           MobileFileView(data=fileData, requestFailed=fileRequestFailed, requestPending=fileRequestPending, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, fontSize=settingsAppearance.codeFontSize, rowHeight=settingsAppearance.codeLine, numberSize=settingsAppearance.codeNumber, preview=filePreview, routeId=routeId, active=focused, bodySize=settingsAppearance.baseFontSize, bodyLine=settingsAppearance.bodyLine, refresh=refreshFile, action=fileMenuAction)
@@ -556,7 +556,7 @@ component MobileRouteContent
                   position="absolute" width="100%" height=0 pointer-events="none" aria-hidden=true
           else
             row gap=14 padding=14
-              input value=modelQuery input=editModelQuery(`${routeId}:${modelFilterOwner}`) placeholder="Search models" flex=1 min-width=0 aria-label="Search models"
+              input type="search" value=modelQuery input=editModelQuery(`${routeId}:${modelFilterOwner}`) placeholder="Search models" flex=1 min-width=0 aria-label="Search models" autocapitalize="none" autocomplete="off" spellcheck=false
               for menuOwner in [`${routeId}:${modelFilterOwner}`] key=menuOwner
                 button popovertarget=`${menuOwner}:filters` aria-label="filter"
                   t3-symbol symbol-name=(modelData.filter != "" or modelLegacy ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease") symbol-tint=composerLook.icon width=20 height=20
@@ -585,7 +585,7 @@ component MobileRouteContent
         else if routeName == "newTaskEnvironments"
           NewTaskEnvironments(data=newTaskData, action=taskAction, colors=composerLook)
         else if routeName == "newTaskBranches"
-          input value=branchQuery input=editBranchQuery placeholder="Search branches" margin=16 aria-label="Search branches"
+          input type="search" value=branchQuery input=editBranchQuery placeholder="Search branches" margin=16 aria-label="Search branches" autocapitalize="none" autocomplete="off" spellcheck=false
           NewTaskBranches(data=newTaskData, ready=(focused and newTaskFlow.ready and newTaskFlow.requestRoute == routeId), action=taskAction, colors=composerLook)
         else
           scroll id=`scroll-${routeId}` flex=1 min-height=0 keyboardDismissMode="interactive"

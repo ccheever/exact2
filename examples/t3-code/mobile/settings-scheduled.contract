@@ -297,7 +297,7 @@ component SettingsScheduledBranch
         if not data.present
           text "Open a scheduled task form first." color=colors.muted font-size=roles.body.size
         else
-          input value=data.branchQuery input=search placeholder="Search branches" aria-label="Search branches" min-height=44 padding-left=14 padding-right=14 border-radius=14 background-color=colors.grouped border-width=0 color=colors.foreground font-size=roles.body.size
+          input type="search" value=data.branchQuery input=search placeholder="Search branches" aria-label="Search branches" min-height=44 padding-left=14 padding-right=14 border-radius=14 background-color=colors.grouped border-width=0 color=colors.foreground font-size=roles.body.size autocapitalize="none" autocomplete="off" spellcheck=false
           row padding=14 align-items="center" background-color=colors.grouped border-radius=14
             text "Start from origin" flex=1 color=colors.foreground font-size=roles.body.size
             input type="checkbox" switch checked=data.startFromOrigin change=origin disabled=data.busy aria-label="Start from origin" accent-color=colors.switchOn background-color=colors.switchOff margin=0
