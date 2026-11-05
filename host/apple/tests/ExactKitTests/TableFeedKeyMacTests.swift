@@ -102,7 +102,7 @@ final class TableFeedKeyMacTests: XCTestCase {
         view.window?.displayIfNeeded()
         let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
         view.cacheDisplay(in: view.bounds, to: rep)
-        return try XCTUnwrap(rep.colorAt(x: Int(view.bounds.width) - 14, y: Int(view.bounds.midY))?.usingColorSpace(.sRGB))
+        return try XCTUnwrap(rep.paintedColorAt(x: Int(view.bounds.width) - 14, y: Int(view.bounds.midY))?.usingColorSpace(.sRGB))
     }
     /// How far a colour is from grey: the accent's fill is far, the unemphasized one is grey.
     private func chroma(_ c: NSColor) -> CGFloat { max(c.redComponent, c.greenComponent, c.blueComponent) - min(c.redComponent, c.greenComponent, c.blueComponent) }
@@ -542,7 +542,7 @@ final class TableFeedKeyMacTests: XCTestCase {
             var most: CGFloat = 0, least: CGFloat = 1
             for y in Int(box.minY)..<Int(box.maxY) {
                 for x in Int(box.minX)..<Int(box.maxX) {
-                    guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                    guard let c = rep.paintedColorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
                     let luma = (c.redComponent + c.greenComponent + c.blueComponent) / 3
                     most = max(most, luma); least = min(least, luma)
                 }

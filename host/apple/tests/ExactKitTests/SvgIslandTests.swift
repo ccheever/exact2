@@ -47,9 +47,11 @@ class SvgIslandTests: XCTestCase {
         let rect = CGRect(x: 0, y: 0, width: 32, height: 32)
         let whole = try paint(origin: .zero, rect: rect)
         let shifted = try paint(origin: CGPoint(x: 2, y: 3), rect: rect)
-        XCTAssertEqual(whole.dataProvider?.data, shifted.dataProvider?.data)
+        XCTAssertEqual(CapturePixels.bytes(whole), CapturePixels.bytes(shifted))
         let part = try paint(origin: .zero, rect: CGRect(x: 5, y: 7, width: 16, height: 16))
         let a = try XCTUnwrap(whole.dataProvider?.data), b = try XCTUnwrap(part.dataProvider?.data)
+        XCTAssertTrue(CapturePixels.hasPaint(CapturePixels.bytes(whole)), "the reference pattern draws")
+        XCTAssertTrue(CapturePixels.hasPaint(CapturePixels.bytes(part)), "the cropped pattern draws")
         let pa = try XCTUnwrap(CFDataGetBytePtr(a)), pb = try XCTUnwrap(CFDataGetBytePtr(b))
         var worst = 0
         // Compare the requested paint bounds, excluding the raster's one-unit gutter.

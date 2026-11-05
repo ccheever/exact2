@@ -449,6 +449,7 @@ final class TextMetricsTests: XCTestCase {
                 }
                 XCTAssertTrue(presenter.textRasters.ensure(node, urgent: true))
                 let urgent = pixels(try XCTUnwrap(node.textRaster))
+                if !text.isEmpty { XCTAssertTrue(CapturePixels.hasPaint(urgent), "the urgent reference draws") }
                 XCTAssertEqual(node.cachedTextLayout == nil, measured,
                                "measured ranges must avoid constructing a paragraph")
                 node.dropTextRaster()

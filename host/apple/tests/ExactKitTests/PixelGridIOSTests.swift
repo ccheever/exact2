@@ -65,19 +65,18 @@ final class PixelGridIOSTests: XCTestCase {
             node.followedScroll = (top: 100.4, end: false, start: false)
             node.restoreScrollPosition()
             XCTAssertEqual(scroll.contentOffset.y, PixelGrid.round(100.4, scale: scale), accuracy: 1e-6)
-            let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = true; format.preferredRange = .standard
+            let format = UIGraphicsImageRendererFormat(); format.scale = scale; format.opaque = false; format.preferredRange = .standard
             let rule = try XCTUnwrap(p.views[2])
             rule.layer.backgroundColor = UIColor.black.cgColor
             let image = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100), format: format).image { context in
                 UIColor.white.setFill(); context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
                 p.viewport.layer.render(in: context.cgContext)
             }
-            let cg = try XCTUnwrap(image.cgImage), data = try XCTUnwrap(cg.dataProvider?.data)
-            let bytes = CFDataGetBytePtr(data)!
+            let cg = try XCTUnwrap(image.cgImage), bytes = try XCTUnwrap(cg.dataProvider?.data) as Data
             var blended = 0, dark = 0
             for y in 0..<cg.height {
                 let at = y * cg.bytesPerRow + 20 * cg.bitsPerPixel / 8
-                if bytes[at] < 255 { dark += 1 }
+                if CapturePixels.painted(bytes, at: at) && bytes[at] < 255 { dark += 1 }
                 if bytes[at] > 0 && bytes[at] < 255 { blended += 1 }
             }
             print("pixel-grid \(scale)x: \(blended) blended rows after reading restoration")

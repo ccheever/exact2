@@ -70,6 +70,7 @@ final class TextAreaLeadingMacTests: XCTestCase {
                 return CGFloat(y) / scale
             }
         }
+        XCTFail("the text draws")
         return .infinity
     }
 
@@ -188,7 +189,8 @@ final class TextAreaLeadingIOSTests: XCTestCase {
                 f.layer.render(in: ctx.cgContext)
             }
             let cg = try XCTUnwrap(image.cgImage), bytes = try XCTUnwrap(cg.dataProvider?.data) as Data
-            for y in 0..<cg.height { for x in 0..<cg.width where bytes[y * cg.bytesPerRow + x * 4] < 128 { return CGFloat(y) / 2 } }
+            for y in 0..<cg.height { for x in 0..<cg.width where CapturePixels.painted(bytes, at: y * cg.bytesPerRow + x * 4) && bytes[y * cg.bytesPerRow + x * 4] < 128 { return CGFloat(y) / 2 } }
+            XCTFail("the text draws")
             return .infinity
         }
         let font = try XCTUnwrap(f.font)

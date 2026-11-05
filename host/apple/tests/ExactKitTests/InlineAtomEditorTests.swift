@@ -62,11 +62,11 @@ private func upload(_ percent: Int) -> String {
 /// The pixels `draw` paints into a 160 by 20 picture, wide enough for a
 /// label and its percentage: a new label is new pixels.
 private func pixels(_ draw: (CGContext, CGRect) -> Void) throws -> [UInt8] {
-    let srgb = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
-    let context = try XCTUnwrap(CGContext(data: nil, width: 160, height: 20, bitsPerComponent: 8, bytesPerRow: 0, space: srgb, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    let context = try CapturePixelsTests.clearedContext(width: 160, height: 20)
     draw(context, CGRect(x: 0, y: 0, width: 160, height: 20))
-    let data = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
-    return Array(UnsafeBufferPointer(start: data, count: context.bytesPerRow * context.height))
+    let data = CapturePixels.bytes(try XCTUnwrap(context.makeImage()))
+    XCTAssertTrue(CapturePixels.hasPaint(data), "the pill draws")
+    return Array(data)
 }
 
 /// The mean x of the dark pixels `draw` paints into a 40 by 20 picture: the
@@ -1006,6 +1006,10 @@ final class InlineAtomEditorIOSTests: XCTestCase {
 /// press is the text's `atompress`, never a link to follow.
 final class InlineAtomReaderTests: XCTestCase {
     override func setUp() { super.setUp(); ExactMarkdown.install() }
+
+    func testAnEmptyPillPictureIsRejected() {
+        XCTExpectFailure("a pill disappearing cannot count as its picture changing") { _ = try? pixels { _, _ in } }
+    }
 
     func testAnAtomPieceIsItsLabelOnABox() throws {
         let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)

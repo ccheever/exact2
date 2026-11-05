@@ -100,6 +100,7 @@ enum BorderParity {
         for j in 0..<height {
             for i in 0..<width {
                 let a = (j * width + i) * 4, b = ((y * scale + j) * reference.0 + x * scale + i) * 4
+                guard CapturePixels.opaque(ours, at: a), CapturePixels.opaque(reference.2, at: b) else { return (255, 100) }
                 var beyond = false
                 for k in 0..<3 {
                     let d = abs(Int(ours[a + k]) - Int(reference.2[b + k]))

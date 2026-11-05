@@ -44,6 +44,7 @@ final class FrameHealthMetricsTests: XCTestCase {
                 ctx.translateBy(x: -corner.minX, y: -corner.minY)
                 draw(ctx)
             }
+            XCTAssertTrue(CapturePixels.hasPaint(pixels), "the face drawing contains paint")
             return pixels
         }
         func fills(_ outline: (CGRect, CGFloat) -> CGPath) -> [UInt8] {
@@ -60,6 +61,7 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertEqual(apart(face, fills { FrameHealthCardDrawing.continuous($0, radius: $1) }), 0, "the track and the chip take the continuous outline")
         XCTAssertGreaterThan(apart(face, fills { CGPath(roundedRect: $0, cornerWidth: $1, cornerHeight: $1, transform: nil) }), 100,
                              "and circular corners would draw other pixels")
+        XCTExpectFailure("an empty picture cannot establish a different outline") { _ = picture { _ in } }
     }
 
     /// The outline `path` traces, its curves divided into 64 lines each
@@ -344,10 +346,11 @@ final class FrameHealthMetricsTests: XCTestCase {
                 var bytes = [UInt8](repeating: 0, count: width * height * 4)
                 bytes.withUnsafeMutableBytes { buffer in
                     let ctx = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+                        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
                     ctx.scaleBy(x: 2, y: 2)
                     layer.render(in: ctx)
                 }
+                XCTAssertTrue(CapturePixels.hasPaint(bytes), "the chart layer draws")
                 return bytes
             }
             func shown() {
@@ -401,6 +404,9 @@ final class FrameHealthMetricsTests: XCTestCase {
                 }
                 XCTAssertGreaterThan(dark.count, 20, "the last second's frame-rate line")
             }
+            let empty = CALayer()
+            empty.bounds = layers[0].bounds
+            XCTExpectFailure("an empty chart layer cannot establish matching redraws") { _ = pixels(empty) }
         }
     }
 

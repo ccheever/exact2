@@ -217,11 +217,17 @@ final class BarReadsMacTests: XCTestCase {
     /// A readout's painted face carries its opacity: a presented opacity on it presents.
     func testAPresentedOpacityOnAReadoutPresents() throws {
         let p = try fixture(header: [16], extra: view(16, "text", ["text": "Syncing", "accessibilityRole": "status"]))
-        let before = try XCTUnwrap((p.toolbar.items[16]?.view as? NSImageView)?.image?.tiffRepresentation)
+        func picture() throws -> Data {
+            let data = try XCTUnwrap((p.toolbar.items[16]?.view as? NSImageView)?.image?.tiffRepresentation)
+            let image = try XCTUnwrap(NSBitmapImageRep(data: data)?.cgImage)
+            XCTAssertTrue(CapturePixels.hasPaint(CapturePixels.bytes(image)), "the readout draws")
+            return data
+        }
+        let before = try picture()
         let faded = wireBatch([["op": "present", "id": 16, "property": "opacity", "x": 0.4, "y": 0, "w": 0, "h": 0]])
         XCTAssertTrue(p.toolbar.concerns(faded))
         p.apply(faded)
-        XCTAssertNotEqual((p.toolbar.items[16]?.view as? NSImageView)?.image?.tiffRepresentation, before)
+        XCTAssertNotEqual(try picture(), before)
     }
 
     /// The system's colours changed (an accent the user chose): the bar,

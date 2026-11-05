@@ -131,10 +131,11 @@ final class DatesIOSTests: XCTestCase {
         bitmap.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
         var seen = Set<[UInt8]>()
         for y in [Int(pill.midY) - 3, Int(pill.midY), Int(pill.midY) + 3] where y >= 0 && y < h {
-            for x in Int(pill.minX + 10)..<Int(pill.maxX - 10) where x >= 0 && x < w { seen.insert(Array(data[(y * w + x) * 4..<(y * w + x) * 4 + 3])) }
+            for x in Int(pill.minX + 10)..<Int(pill.maxX - 10) where x >= 0 && x < w { seen.insert(Array(data[(y * w + x) * 4..<(y * w + x) * 4 + 4])) }
         }
         XCTAssertEqual(seen.count, 1, "one colour across the pill: \(seen)")
-        XCTAssertNotEqual(seen.first, [255, 255, 255], "the pill's fill, not the page")
+        XCTAssertTrue(seen.allSatisfy { CapturePixels.opaque($0, at: 0) }, "the pill's fill is opaque")
+        XCTAssertNotEqual(seen.first, [255, 255, 255, 255], "the pill's fill, not the page")
         XCTAssertEqual(try XCTUnwrap(said.placeholderShown).text, "Add a date", "the author's placeholder, in the platform's pill")
         // The words follow the prop, and go with it.
         p.apply(wireBatch([["op": "props", "id": 3, "set": ["placeholder": "No date"], "clear": []]]))

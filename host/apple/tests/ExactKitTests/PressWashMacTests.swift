@@ -73,7 +73,7 @@ final class PressWashMacTests: XCTestCase {
         let ctx = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         ctx.draw(crop, in: CGRect(x: 0, y: 0, width: w, height: h))
-        return stride(from: 0, to: pixels.count, by: 4).filter { pixels[$0] < 96 && pixels[$0 + 1] < 96 && pixels[$0 + 2] < 96 }.count
+        return stride(from: 0, to: pixels.count, by: 4).filter { CapturePixels.painted(pixels, at: $0) && pixels[$0] < 96 && pixels[$0 + 1] < 96 && pixels[$0 + 2] < 96 }.count
     }
 
     /// Every `contents` object of a layer tree.
@@ -170,6 +170,7 @@ final class PressWashMacTests: XCTestCase {
         let ctx = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
                             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         ctx.draw(crop, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        XCTAssertTrue(CapturePixels.painted(pixel, at: 0), "the sampled colour is painted")
         return pixel[0]
     }
 
@@ -248,8 +249,9 @@ final class PressWashMacTests: XCTestCase {
             guard let shown = onScreen() else { throw XCTSkip("no window server picture") }
             let box = button.convert(button.bounds, to: nil)
             let onScreenBox = CGRect(x: box.minX, y: window.frame.height - box.maxY, width: box.width, height: box.height)
-            XCTAssertEqual(inkRows(picture, in: CGRect(origin: .zero, size: layer.bounds.size), scale: scale),
-                           inkRows(shown, in: onScreenBox, scale: CGFloat(shown.width) / window.frame.width), "at \(zoom)")
+            let copiedInk = try XCTUnwrap(inkRows(picture, in: CGRect(origin: .zero, size: layer.bounds.size), scale: scale), "the copy draws the label")
+            let shownInk = try XCTUnwrap(inkRows(shown, in: onScreenBox, scale: CGFloat(shown.width) / window.frame.width), "the window draws the label")
+            XCTAssertEqual(copiedInk, shownInk, "at \(zoom)")
         }
     }
 

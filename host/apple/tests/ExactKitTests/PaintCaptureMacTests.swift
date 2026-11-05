@@ -279,7 +279,7 @@ final class PaintCaptureMacTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(mask.presentation()).opacity, 0.5, accuracy: 0.01)
         let rep = try XCTUnwrap(Capture.paintOrderBitmap(of: root))
         func pixel(_ x: Int, _ y: Int) throws -> NSColor {
-            try XCTUnwrap(rep.colorAt(x: x * rep.pixelsWide / 100, y: y * rep.pixelsHigh / 100))
+            try XCTUnwrap(rep.paintedColorAt(x: x * rep.pixelsWide / 100, y: y * rep.pixelsHigh / 100))
         }
         XCTAssertLessThan(try pixel(20, 20).greenComponent, 0.05)
         XCTAssertGreaterThan(try pixel(80, 20).greenComponent, 0.95, "the stroke is only half drawn")
@@ -393,7 +393,7 @@ final class PaintCaptureMacTests: XCTestCase {
         // old path, red fill and narrow bounds, but the active opacity/stroke
         // values must still come from it (also for a mask and animation group).
         let rep = try XCTUnwrap(Capture.paintOrderBitmap(of: root, scale: 1))
-        func pixel(_ x: Int, _ y: Int) throws -> NSColor { try XCTUnwrap(rep.colorAt(x: x, y: y)) }
+        func pixel(_ x: Int, _ y: Int) throws -> NSColor { try XCTUnwrap(rep.paintedColorAt(x: x, y: y)) }
         XCTAssertGreaterThan(try pixel(20, 10).greenComponent, 0.95, "the old path is gone")
         XCTAssertLessThan(try pixel(20, 25).greenComponent, 0.05, "the fresh path is drawn")
         XCTAssertGreaterThan(try pixel(80, 25).greenComponent, 0.95, "strokeEnd stays half drawn")

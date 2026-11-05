@@ -204,6 +204,8 @@ final class IconShapeMacTests: XCTestCase {
             if fringe[i] { m.fringe += 1 } else { m.outside += 1 }
         }
         let h = moments(host, width: width), r = moments(ref, width: width)
+        XCTAssertGreaterThan(h.ink, 0, "the icon draws")
+        XCTAssertGreaterThan(r.ink, 0, "the reference icon draws")
         m.centroid = ((h.x - r.x) * (h.x - r.x) + (h.y - r.y) * (h.y - r.y)).squareRoot()
         m.spread = abs(h.spread - r.spread)
         m.coverage = abs(h.ink - r.ink) / r.ink
@@ -367,7 +369,7 @@ final class IconShapeMacTests: XCTestCase {
         image.contentTintColor = .black; image.cell?.backgroundStyle = .emphasized
         let rep = try XCTUnwrap(image.bitmapImageRepForCachingDisplay(in: image.bounds))
         image.cacheDisplay(in: image.bounds, to: rep)
-        let drawn = try XCTUnwrap(rep.colorAt(x: rep.pixelsWide / 2, y: 2)?.usingColorSpace(.sRGB))
+        let drawn = try XCTUnwrap(rep.paintedColorAt(x: rep.pixelsWide / 2, y: 2)?.usingColorSpace(.sRGB))
         XCTAssertEqual([drawn.redComponent, drawn.greenComponent, drawn.blueComponent].map { Int(($0 * 255).rounded()) }, rgb(selected),
                        "an emphasized template cell image is the selected item's ink whatever tinted it")
     }

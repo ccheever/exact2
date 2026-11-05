@@ -333,6 +333,7 @@ enum HDRPlatformProbe {
         ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
         let px = try XCTUnwrap(ctx.data).assumingMemoryBound(to: Float.self)
         let i = rotated ? ((x * h / sourceWidth) * w + w / 2) * 4 : ((h / 2) * w + x * w / sourceWidth) * 4
+        XCTAssertGreaterThan(px[i + 3], 0, "the sampled HDR or SDR patch is painted")
         return (0..<3).map { Double(px[i + $0]) / max(Double(px[i + 3]), 1e-6) }
     }
 
