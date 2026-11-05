@@ -510,14 +510,41 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertLessThan(4 * card + 48_776, 256 * 1024, "within the process's 256 KiB")
     }
 
-    func testAReleasedCardRestsInTheCornerItsGlideReaches() {
-        typealias Corner = FrameHealthCardFace.Corner
-        let area = CGRect(x: 8, y: 8, width: 400, height: 800), size = CGSize(width: 320, height: 416)
-        XCTAssertEqual(Corner(nearest: CGPoint(x: 20, y: 500), velocity: .zero, size: size, in: area), Corner(maxY: true),
-            "at rest, the corner nearest the card's center")
+    func testAReleasedCardRestsAnywhereAlongTheNearestEdge() {
+        typealias Position = FrameHealthCardFace.Position
+        let area = CGRect(x: 8, y: 8, width: 800, height: 1000), size = CGSize(width: 320, height: 416)
+        for fraction: CGFloat in [0.17, 0.5, 0.83] {
+            let x = area.minX + fraction * (area.width - size.width)
+            let y = area.minY + fraction * (area.height - size.height)
+            for (release, target) in [
+                (CGPoint(x: 20, y: y), CGPoint(x: 8, y: y)),
+                (CGPoint(x: 470, y: y), CGPoint(x: 488, y: y)),
+                (CGPoint(x: x, y: 20), CGPoint(x: x, y: 8)),
+                (CGPoint(x: x, y: 580), CGPoint(x: x, y: 592))
+            ] {
+                let position = Position(nearest: release, velocity: .zero, size: size, in: area)
+                let landed = position.origin(of: size, in: area)
+                XCTAssertEqual(landed.x, target.x, accuracy: 0.001)
+                XCTAssertEqual(landed.y, target.y, accuracy: 0.001)
+            }
+        }
         // Normal deceleration carries a release at 1,000 points a second 499 points
-        XCTAssertEqual(Corner(nearest: CGPoint(x: 20, y: 500), velocity: CGVector(dx: 0, dy: -1000), size: size, in: area), Corner())
-        XCTAssertEqual(Corner(maxX: true, maxY: true).origin(of: size, in: area), CGPoint(x: 88, y: 392))
+        let glide = Position(nearest: CGPoint(x: 20, y: 500), velocity: CGVector(dx: 0, dy: -1000), size: size, in: area)
+        XCTAssertEqual(glide.origin(of: size, in: area), CGPoint(x: 20, y: 8))
+        let side = Position(nearest: CGPoint(x: 20, y: 300), velocity: CGVector(dx: 1000, dy: 100), size: size, in: area)
+        XCTAssertEqual(side.origin(of: size, in: area).x, 488)
+        XCTAssertEqual(side.origin(of: size, in: area).y, 349.9, accuracy: 0.001)
+        let middle = Position(nearest: CGPoint(x: 20, y: 300), velocity: .zero, size: size, in: area)
+        let smaller = CGRect(x: 8, y: 8, width: 600, height: 708)
+        XCTAssertEqual(middle.origin(of: size, in: smaller), CGPoint(x: 8, y: 154))
+        XCTAssertEqual(middle.origin(of: CGSize(width: 900, height: 1200), in: area), area.origin)
+        XCTAssertEqual(middle.origin(of: size, in: area), CGPoint(x: 8, y: 300), "a temporary size constraint preserves the chosen position")
+        XCTAssertEqual(Position(nearest: CGPoint(x: -1000, y: 2000), velocity: .zero, size: size, in: area).origin(of: size, in: area), CGPoint(x: 8, y: 592))
+        XCTAssertEqual(Position(nearest: .zero, velocity: .zero, size: size, in: CGRect(x: 8, y: 8, width: 0, height: 0)).origin(of: size, in: area), area.origin)
+    }
+
+    func testADragKeepsItsReleaseVelocityAndResistsPastTheEdges() {
+        let area = CGRect(x: 8, y: 8, width: 400, height: 800), size = CGSize(width: 320, height: 416)
         var drag = FrameHealthCardFace.Drag(at: .zero, time: 1, origin: .zero, control: nil)
         drag.track(CGPoint(x: 10, y: 0), at: 1.01)
         // A lift at the last point keeps the momentum; one after the press held still has none

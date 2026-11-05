@@ -678,6 +678,46 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertEqual(screen.health.snapshot().callbacks, callbacks)
     }
 
+    func testTheCardKeepsItsPositionAlongEveryEdgeAfterLayout() throws {
+        let health = FrameHealth(enabled: true)
+        defer { health.destroy() }
+        let overlay = FrameHealthOverlay(health: health, measuresScreen: false)
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "the card in a real host window")
+        }
+        let window = hosted(overlay, in: scene, size: .zero)
+        overlay.frame = window.bounds
+        overlay.setVisible(true)
+        overlay.layoutIfNeeded()
+        let right = overlay.bounds.maxX - 8 - overlay.card.frame.width
+        let bottom = overlay.bounds.maxY - 8 - overlay.card.frame.height
+        let x = 8 + (right - 8) * 0.37, y = 8 + (bottom - 8) * 0.61
+        for target in [CGPoint(x: 8, y: y), CGPoint(x: right, y: y), CGPoint(x: x, y: 8), CGPoint(x: x, y: bottom)] {
+            overlay.card.grabbed?()
+            overlay.card.moved?(target)
+            overlay.card.released?(.zero)
+            XCTAssertEqual(overlay.card.frame.minX, target.x, accuracy: 0.001)
+            XCTAssertEqual(overlay.card.frame.minY, target.y, accuracy: 0.001)
+        }
+        let limit = Date(timeIntervalSinceNow: 10)
+        while overlay.movesFast, Date() < limit { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05)) }
+        XCTAssertFalse(overlay.movesFast)
+        overlay.setVisible(false)
+        overlay.setVisible(true)
+        overlay.layoutIfNeeded()
+        XCTAssertEqual(overlay.card.frame.minX, x, accuracy: 0.001)
+        overlay.frame.size.width += 100
+        overlay.setNeedsLayout()
+        overlay.layoutIfNeeded()
+        XCTAssertEqual(overlay.card.frame.minX, 8 + (overlay.bounds.width - 16 - overlay.card.frame.width) * 0.37, accuracy: 0.001)
+        XCTAssertEqual(overlay.card.frame.maxY, overlay.bounds.maxY - 8, accuracy: 0.001)
+        let before = overlay.card.frame.minX
+        XCTAssertTrue(overlay.card.accessibilityMove?(CGVector(dx: 0, dy: -1)) == true)
+        XCTAssertEqual(overlay.card.frame.minX, before, accuracy: 0.001, "moving to another edge keeps the position on the other axis")
+        XCTAssertEqual(overlay.card.frame.minY, 8, accuracy: 0.001)
+        overlay.setVisible(false)
+    }
+
     func testADragGoesPastTheEdgesAndTheCardSpringsBackToAScreenCorner() throws {
         let health = FrameHealth(enabled: true)
         defer { health.destroy() }
