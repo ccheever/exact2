@@ -221,6 +221,23 @@ describe("the page's input", () => {
     expect(socket.requests("terminal.resize").map((frame) => frame.payload).at(-1)).toEqual({ threadId: "thread-1", terminalId: "term-1", cols: 1000, rows: 500 });
   });
 
+  // terminalSession.ts at T3 Code v0.1.7 (#29696): a reconnect is a new attachment, which holds the old size until the
+  // viewer sends its measured grid again.
+  test("after a reconnect the measured grid goes again, once the new attachment runs", () => {
+    const { session, sockets } = harness({ attach, readOnly: false });
+    session.start("ws://host/ws?wsTicket=a");
+    sockets[0]!.open();
+    session.resize(80, 24);
+    sockets[0]!.frame({ _tag: "Chunk", requestId: "1", values: [snapshot("")] });
+    sockets[0]!.frame({ _tag: "Exit", requestId: sockets[0]!.requests("terminal.resize")[0]!.id, exit: { _tag: "Success", value: null } });
+    sockets[0]!.close();
+    session.start("ws://host/ws?wsTicket=b");
+    sockets[1]!.open();
+    expect(sockets[1]!.requests("terminal.resize")).toEqual([]);
+    sockets[1]!.frame({ _tag: "Chunk", requestId: sockets[1]!.requests("terminal.attach")[0]!.id, values: [snapshot("")] });
+    expect(sockets[1]!.requests("terminal.resize").map((frame) => frame.payload)).toEqual([{ threadId: "thread-1", terminalId: "term-1", cols: 80, rows: 24 }]);
+  });
+
   test("a read-only terminal observes and sends nothing", () => {
     const { session, sockets } = harness({ attach, readOnly: true });
     session.start("ws://host/ws?wsTicket=a");

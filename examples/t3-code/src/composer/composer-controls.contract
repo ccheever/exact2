@@ -646,7 +646,8 @@ component ComposerMenus
   derive menuHeight = (which == "runtime" or which == "strip" ? data.composer.runtimeMenuHeight : which == "more" ? data.composer.moreMenuHeight + (permissions ? 131 * rem / 16 : 0) : 0)
   derive belowTop = data.composer.toolbarTop + 30 + 4
   derive below = not strip and menuHeight > 0 and data.composer.toolbarTop > 0 and belowTop + menuHeight + 5 <= viewport.height
-  derive menuBottom = (strip ? viewport.height - (data.composer.stripTop + 4) + 4 : data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - 2 + 4 : 63)
+  // The strip's Permissions menu sits 4pt over its control, which the strip's 8pt top padding puts under the strip's top.
+  derive menuBottom = (which == "strip" ? viewport.height - (data.composer.stripTop + 4) : strip ? viewport.height - (data.composer.stripTop + 4) + 4 : data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - 2 + 4 : 63)
   // The trigger's frame as the menu opened (app.contract openOptions): the implement menu and the meter's details
   // align to its end, the others to its start. Unmeasured, they open at the card's inner edge.
   derive actionsEnd = (optionsAnchorX >= 0 ? optionsAnchorX + optionsAnchorWidth : left + 1)
