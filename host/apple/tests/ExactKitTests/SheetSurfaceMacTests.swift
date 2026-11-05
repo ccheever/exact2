@@ -17,7 +17,7 @@ final class SheetSurfaceMacTests: XCTestCase {
 
     /// The colour of the pixel at row `y` of a capture's middle column
     private func colour(_ rep: NSBitmapImageRep, y: Int) throws -> [Int] {
-        let c = try XCTUnwrap(rep.colorAt(x: rep.pixelsWide / 2, y: y)?.usingColorSpace(.sRGB))
+        let c = try XCTUnwrap(rep.paintedColorAt(x: rep.pixelsWide / 2, y: y)?.usingColorSpace(.sRGB))
         return [c.redComponent, c.greenComponent, c.blueComponent].map { Int(($0 * 255).rounded()) }
     }
 

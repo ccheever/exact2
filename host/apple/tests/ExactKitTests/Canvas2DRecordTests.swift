@@ -47,15 +47,18 @@ final class Canvas2DRecordTests: XCTestCase {
         XCTAssertFalse(tracker().track(list(cover)).refused)
     }
 
-    /// The pixels of `lists` replayed into a bitmap throughout, and of the
-    /// kept lists replayed from their start as a recording replays them.
-    private func pixels(_ r: Canvas2DReplayer) -> [UInt8] {
-        let image = r.image()!
+    private func pixels(_ image: CGImage) -> [UInt8] {
         var px = [UInt8](repeating: 0, count: 300 * 200 * 4)
         let c = CGContext(data: &px, width: 300, height: 200, bitsPerComponent: 8, bytesPerRow: 1200,
                           space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         c.draw(image, in: CGRect(x: 0, y: 0, width: 300, height: 200))
+        XCTAssertTrue(CapturePixels.hasPaint(px), "the canvas draws")
         return px
+    }
+
+    func testAnEmptyDrawingIsRejected() throws {
+        let image = try XCTUnwrap(CapturePixelsTests.clearedContext(width: 300, height: 200).makeImage())
+        XCTExpectFailure("matching transparent pictures do not establish a drawing") { _ = pixels(image) }
     }
 
     func testTheKeptListsFromTheirStartDrawWhatTheBitmapHolds() {
@@ -76,7 +79,7 @@ final class Canvas2DRecordTests: XCTestCase {
         let replay = Canvas2DReplayer(width: 300, height: 200, scale: 2, lifetime: 1, generation: 0)
         replay.restore(kept.start!)
         for l in kept.lists { XCTAssertTrue(replay.apply(l)) }
-        XCTAssertEqual(pixels(replay), pixels(whole))
+        XCTAssertEqual(pixels(replay.image()!), pixels(whole.image()!))
     }
 
     func testKeptListsAreBounded() {

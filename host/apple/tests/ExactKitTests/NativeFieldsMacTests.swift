@@ -575,7 +575,7 @@ final class NativeFieldsMacTests: XCTestCase {
         func border(_ node: NodeView) throws -> NSColor {
             let rep = try XCTUnwrap(Capture.picture(of: node))
             let scale = CGFloat(rep.pixelsWide) / rep.size.width
-            return try XCTUnwrap(rep.colorAt(x: Int(1 * scale), y: Int(node.bounds.midY * scale))?.usingColorSpace(.sRGB))
+            return try XCTUnwrap(rep.paintedColorAt(x: Int(1 * scale), y: Int(node.bounds.midY * scale))?.usingColorSpace(.sRGB))
         }
         func isRed(_ c: NSColor) -> Bool { c.redComponent > 0.6 && c.greenComponent < 0.25 && c.blueComponent < 0.25 }
         for (style, authored) in [(written, true), (bordered, false)] {

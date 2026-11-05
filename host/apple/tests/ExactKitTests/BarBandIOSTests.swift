@@ -155,6 +155,7 @@ final class BarBandIOSTests: XCTestCase {
                 ctx.translateBy(x: -point.x, y: -point.y)
                 window.layer.render(in: ctx)
             }
+            XCTAssertTrue(CapturePixels.painted(rgba, at: 0), "the bar or list ground is painted")
             return rgba.prefix(3).map { Int($0) }
         }
         XCTAssertEqual(route.view.backgroundColor?.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)), UIColor.systemGroupedBackground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)))

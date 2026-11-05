@@ -73,6 +73,7 @@ final class PopoverSurfaceIOSTests: XCTestCase {
         }
         let (_, w, buf) = decoded[key]!
         let i = (Int(point.y * 3) * w + Int(point.x * 3)) * 4
+        XCTAssertTrue(CapturePixels.painted(buf, at: i), "the sampled colour is painted")
         return [Int(buf[i]), Int(buf[i + 1]), Int(buf[i + 2])]
     }
 

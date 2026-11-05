@@ -51,9 +51,9 @@ final class BackdropShadowMacTests: XCTestCase {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
     }
 
-    private func red(_ rep: NSBitmapImageRep, _ x: CGFloat, _ y: CGFloat) -> CGFloat {
+    private func red(_ rep: NSBitmapImageRep, _ x: CGFloat, _ y: CGFloat) throws -> CGFloat {
         let scale = CGFloat(rep.pixelsWide) / 200
-        return rep.colorAt(x: Int(x * scale), y: Int(y * scale))!.usingColorSpace(.sRGB)!.redComponent
+        return try XCTUnwrap(rep.paintedColorAt(x: Int(x * scale), y: Int(y * scale))?.usingColorSpace(.sRGB)).redComponent
     }
 
     func testABackdropBoxCastsItsShadowOutsideItsBox() throws {
@@ -75,17 +75,17 @@ final class BackdropShadowMacTests: XCTestCase {
         // The agent's capture: dark under the box, white beside it, and
         // nothing of the shadow inside the translucent box.
         let shot = try XCTUnwrap(Capture.picture(of: p.viewport))
-        XCTAssertLessThan(red(shot, 100, 108), 0.75, "the shadow below the box")
-        XCTAssertGreaterThan(red(shot, 20, 108), 0.98, "the page beside it")
-        XCTAssertGreaterThan(red(shot, 100, 70), 0.95, "the box's inside")
+        XCTAssertLessThan(try red(shot, 100, 108), 0.75, "the shadow below the box")
+        XCTAssertGreaterThan(try red(shot, 20, 108), 0.98, "the page beside it")
+        XCTAssertGreaterThan(try red(shot, 100, 70), 0.95, "the box's inside")
 
         // The window as the window server composites it.
         guard let window, let live = Agent.ownWindowImage(window.windowNumber) else {
             throw XCTSkip("the window server gave no picture (a display asleep or a locked screen)")
         }
         let rep = NSBitmapImageRep(cgImage: live)
-        XCTAssertLessThan(red(rep, 100, 108), 0.75, "the shadow below the box, in the window")
-        XCTAssertGreaterThan(red(rep, 20, 108), 0.98, "the page beside it, in the window")
+        XCTAssertLessThan(try red(rep, 100, 108), 0.75, "the shadow below the box, in the window")
+        XCTAssertGreaterThan(try red(rep, 20, 108), 0.98, "the page beside it, in the window")
     }
 
     /// The stand is directly under the node's layer and shows as it does.

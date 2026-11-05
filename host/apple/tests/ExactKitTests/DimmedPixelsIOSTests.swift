@@ -330,6 +330,7 @@ private struct Picture: Equatable {
 
     func at(_ point: CGPoint) -> [Int] {
         let i = (Int(point.y * Self.scale) * width + Int(point.x * Self.scale)) * 4
+        XCTAssertTrue(CapturePixels.painted(bytes, at: i), "the sampled colour is painted")
         return [Int(bytes[i]), Int(bytes[i + 1]), Int(bytes[i + 2])]
     }
 

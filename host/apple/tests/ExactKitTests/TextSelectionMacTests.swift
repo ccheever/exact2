@@ -908,7 +908,7 @@ final class TextSelectionMacTests: XCTestCase {
         p.root.addSubview(swatch)
         func painted(_ color: NSColor) throws -> NSColor {
             swatch.color = color
-            return try XCTUnwrap(Capture.picture(of: swatch)?.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB))
+            return try XCTUnwrap(Capture.picture(of: swatch)?.paintedColorAt(x: 2, y: 2)?.usingColorSpace(.sRGB))
         }
         func near(_ got: NSColor, _ want: NSColor, _ by: CGFloat = 0.03) -> Bool {
             abs(got.redComponent - want.redComponent) < by && abs(got.greenComponent - want.greenComponent) < by
@@ -944,6 +944,7 @@ final class TextSelectionMacTests: XCTestCase {
                 let first = try glyph(node, 1), space = try glyph(node, 4), last = try glyph(node, 6)
                 let baseline = node.paragraphBox().minY + (try XCTUnwrap(node.paragraphLayout())).baselines[0].rounded()
                 let own = try picture(node)(first, 10)
+                XCTAssertGreaterThan(own.alphaComponent, 0, "the unselected glyph draws")
                 // A drag from the paragraph's start to the second word: the first word and its space.
                 p.selection.begin(node, event: mouse(.leftMouseDown, node.convert(NSPoint(x: node.paragraphBox().minX, y: 10), to: nil)))
                 p.selection.drag(mouse(.leftMouseDragged, node.convert(NSPoint(x: last.x - last.width, y: 10), to: nil)))
@@ -968,6 +969,7 @@ final class TextSelectionMacTests: XCTestCase {
             let node = try XCTUnwrap(p.views[20]), name = dark ? "dark" : "light"
             let glyphs = try [0, 3, 6].map { try glyph(node, $0) }
             let own = try glyphs.map { try picture(node)($0, 10) }
+            XCTAssertTrue(own.allSatisfy { $0.alphaComponent > 0 }, "each unselected run draws")
             p.selection.begin(node, event: mouse(.leftMouseDown, node.convert(NSPoint(x: 5, y: 10), to: nil), clicks: 3))
             XCTAssertEqual(p.selection.range(node), NSRange(location: 0, length: 8))
             let shown = try picture(node)
@@ -1008,7 +1010,7 @@ final class TextSelectionMacTests: XCTestCase {
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             window.appearance = NSAppearance(named: appearance)
             swatch.color = TextSelection.fill(focused: PageFacts.hasFocus(window))
-            let fill = try XCTUnwrap(Capture.picture(of: swatch)?.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB))
+            let fill = try XCTUnwrap(Capture.picture(of: swatch)?.paintedColorAt(x: 2, y: 2)?.usingColorSpace(.sRGB))
             let rep = try XCTUnwrap(Capture.picture(of: node))
             let scale = CGFloat(rep.pixelsWide) / rep.size.width
             let drawn = try XCTUnwrap(rep.colorAt(x: Int((space.x + space.width / 2) * scale), y: Int(10 * scale))?.usingColorSpace(.sRGB))

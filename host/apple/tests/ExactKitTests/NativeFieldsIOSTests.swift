@@ -432,8 +432,8 @@ final class NativeFieldsIOSTests: XCTestCase {
             node.layer.render(in: ctx.cgContext)
         }
         let cg = try XCTUnwrap(image.cgImage)
-        let bytes = try XCTUnwrap(cg.dataProvider?.data) as Data
-        let ink = stride(from: 0, to: bytes.count, by: 4).filter { bytes[$0] < 100 && bytes[$0 + 1] < 100 && bytes[$0 + 2] < 100 }.count
+        let bytes = CapturePixels.bytes(cg)
+        let ink = stride(from: 0, to: bytes.count, by: 4).filter { CapturePixels.painted(bytes, at: $0) && bytes[$0] < 100 && bytes[$0 + 1] < 100 && bytes[$0 + 2] < 100 }.count
         XCTAssertGreaterThan(ink, 100, "native value draws; checking text alone misses a misplaced UIKit editor")
     }
 
@@ -476,7 +476,7 @@ final class NativeFieldsIOSTests: XCTestCase {
             for y in 4..<(cg.height - 2) {
                 for x in 12..<(cg.width - 12) {
                     let at = y * cg.bytesPerRow + x * 4
-                    guard bytes[at] < 225, bytes[at + 1] < 225, bytes[at + 2] < 225 else { continue }
+                    guard CapturePixels.painted(bytes, at: at), bytes[at] < 225, bytes[at + 1] < 225, bytes[at + 2] < 225 else { continue }
                     count += 1; top = min(top, CGFloat(y) / 2); left = min(left, CGFloat(x) / 2)
                 }
             }

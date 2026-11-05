@@ -22,6 +22,59 @@ import { scope, owner, onEnd, adopting } from "./rt.js";
  * reads (render.mjs), and the agent's `state.head`. */
 export const Head = {};
 const Heads = new Set();
+let StatusGuards;
+
+// Track the server's live effects: pending data can introduce a head in an unmounted arm
+export function statusSubject(parent, subject, selections) {
+  if (!globalThis.__exactRender) { return subject; }
+  const guards = StatusGuards ??= new Set();
+  let guard;
+  onEnd(() => guards.delete(guard));
+  return () => {
+    if (!guard) {
+      guard = { t: parent.nodeType === 11 ? parent.lastChild : parent, n: owner(), selections };
+      guards.add(guard);
+    }
+    return subject();
+  };
+}
+
+export function canSetStatus() {
+  const root = document.getElementById('exact-root');
+  for (const h of Heads) {
+    if (Object.hasOwn(h.f, 'headStatus') && place(h.t, root)) { return true; }
+  }
+  // A source can be revalidated by another answer's store write or watched change.
+  const seen = new Set();
+  const readsData = n => {
+    if (!n || seen.has(n)) { return false; }
+    seen.add(n);
+    return !!n.resource || n.src.some(readsData);
+  };
+  for (const guard of StatusGuards ?? []) {
+    if (!guard.n?.gone && place(guard.t, root, guard.selections) && readsData(guard.n)) { return true; }
+  }
+  return false;
+}
+
+function place(t, root, selections) {
+  if (!t) { return null; }
+  const at = [], path = new Set([t]);
+  // Panel lookup sees ids even inside an inactive nested root; only roots above its owner exclude them.
+  let through;
+  if (globalThis.__exactRender && selections?.length) for (let p = t; p; p = p.parentNode) if (selections.includes(p)) through = p;
+  if (through === t) through = null;
+  let c = t;
+  for (let p = c.parentNode; p && c !== root; c = p, p = p.parentNode) {
+    if (p.hasAttribute?.('navigationBack')) {
+      if ((!globalThis.__exactRender || !through) && unselectedForHead(p).some(off => path.has(off))) { return null; }
+    }
+    if (globalThis.__exactRender && p === through) through = null;
+    at.unshift([].indexOf.call(p.childNodes, c));
+    path.add(p);
+  }
+  return c === root ? at : null;
+}
 
 /** A head: its node `t` (a `<template>` rt.js placed) and its `fields`, each
  * text or a getter `effect` follows. Its fields are the page's while it is
@@ -42,14 +95,8 @@ function publish() {
   // among its siblings, from the root's children down (the order without
   // `compareDocumentPosition`, which a render's DOM, dom.js, lacks).
   for (const h of Heads) {
-    const at = [], path = new Set([h.t]);
-    let c = h.t;
-    for (let p = c.parentNode; p && c !== root; c = p, p = p.parentNode) {
-      if (p.hasAttribute?.("navigationBack") && unselectedForHead(p).some(off => path.has(off))) break;
-      at.unshift([].indexOf.call(p.childNodes, c));
-      path.add(p);
-    }
-    if (c === root) live.push([at, h.f]);
+    const at = place(h.t, root);
+    if (at) live.push([at, h.f]);
   }
   live.sort(([a], [b]) => { let i = 0; while (i < a.length && a[i] === b[i]) i++; return (a[i] ?? -1) - (b[i] ?? -1); });
   for (const [at, f] of live) for (const k in f) {

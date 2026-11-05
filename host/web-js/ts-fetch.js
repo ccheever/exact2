@@ -33,9 +33,13 @@ export function fetch(input, options) {
  * its answer (`call.plain`), so the answer is never held while it is out (LLP 1016.000 D9). */
 export const ordinary = start => counting('plain', start);
 globalThis.__exact_ordinary = ordinary; // for host modules ts-fetch.js does not reach (auth.js)
+// A render waits for I/O even after its source returns a value or its answer Promise settles.
+let RenderIO = 0;
+export const unfinishedIO = () => RenderIO > 0;
 function counting(kind, start) {
+  if (globalThis.__exactRender) RenderIO++;
   const call = answering.call;
-  const end = () => { if (call) { call[kind]--; if (kind === 'held') answering.heldReply(call); call.recount?.(); } else answering.loose(-1); };
+  const end = () => { if (globalThis.__exactRender) RenderIO--; if (call) { call[kind]--; if (kind === 'held') answering.heldReply(call); call.recount?.(); } else answering.loose(-1); };
   if (call) { call[kind] = (call[kind] ?? 0) + 1; call.recount?.(); } else answering.loose(1);
   let out;
   try { out = start(); } catch (e) { end(); throw e; }

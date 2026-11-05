@@ -182,6 +182,7 @@ import CoreText
                         TextEngine.draw(ordinary, spec: spec, in: CGRect(x: 7.25, y: 0.125 - scroll, width: 320, height: ordinary.height), context: ctx)
                         ctx.flush()
                         let expected = Data(bytes: ctx.data!, count: width * height * 4)
+                        XCTAssertTrue(CapturePixels.hasPaint(expected), "the fractional-phase reference draws")
                         let request = RegionRasterRequest(serial: 1, publication: 1, generation: 1,
                             rows: [RegionPaintRow(artifact: 7, box: CGRect(x: 7.25, y: 0.125, width: 320, height: ordinary.height))],
                             scroll: CGPoint(x: 0, y: scroll), size: size, scale: scale,
@@ -492,6 +493,7 @@ import CoreText
                     in: CGRect(x: 7.25, y: 0.125 - scroll, width: 163.25, height: ordinary.height), context: ctx)
                 ctx.flush()
                 let expected = Data(bytes: ctx.data!, count: width * height * 4)
+                XCTAssertTrue(CapturePixels.hasPaint(expected), "the mixed-run reference draws")
                 let request = RegionRasterRequest(serial: 1, publication: 1, generation: 1,
                     rows: [RegionPaintRow(artifact: 7, box: CGRect(x: 7.25, y: 0.125, width: 163.25, height: ordinary.height))],
                     scroll: CGPoint(x: 0, y: scroll), size: CGSize(width: 240, height: 120), scale: scale,
@@ -531,6 +533,7 @@ import CoreText
                     in: CGRect(x: 7.25, y: 0.125 - scroll, width: 163.25, height: ordinary.height), context: ctx)
                 ctx.flush()
                 let expected = Data(bytes: ctx.data!, count: width * height * 4)
+                XCTAssertTrue(CapturePixels.hasPaint(expected), "the shared-preparation reference draws")
                 let request = RegionRasterRequest(serial: 1, publication: 1, generation: 1,
                     rows: [RegionPaintRow(artifact: 7, box: CGRect(x: 7.25, y: 0.125, width: 163.25, height: ordinary.height))],
                     scroll: CGPoint(x: 0, y: scroll), size: CGSize(width: 240, height: 120), scale: scale,

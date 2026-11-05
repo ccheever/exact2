@@ -53,7 +53,9 @@ final class TextRepaintIOSTests: XCTestCase {
         return Array(UnsafeBufferPointer(start: raw.bindMemory(to: UInt8.self, capacity: w * h * 4), count: w * h * 4))
     }
     private func ink(_ page: NodeView, _ rect: CGRect) -> Int {
-        let p = pixels(page, rect)
+        ink(pixels(page, rect))
+    }
+    private func ink(_ p: [UInt8]) -> Int {
         return stride(from: 3, to: p.count, by: 4).filter { p[$0] > 16 }.count
     }
 
@@ -70,6 +72,7 @@ final class TextRepaintIOSTests: XCTestCase {
         XCTAssertGreaterThan(ink(page, rects[0]), 50, "'3 laps' is painted before Reset")
         XCTAssertGreaterThan(ink(page, rects[2]), 50, "'Lap 3' is painted before Reset")
         let countBefore = pixels(page, rects[1])
+        XCTAssertGreaterThan(ink(countBefore), 50, "the count is painted before Reset")
 
         _ = Agent(session: session).tap(["id": Int(try node("reset").id)])
         spin(0.3)
@@ -92,8 +95,9 @@ final class TextRepaintIOSTests: XCTestCase {
         XCTAssertNil(lap.window, "the `if` removed 'Lap 3'")
         XCTAssertEqual(ink(page, rects[2]), 0, "'Lap 3' is gone from the screen")
         // The count shows its new text, not its old pixels.
-        XCTAssertGreaterThan(ink(page, countAfter), 50, "the count is painted after Reset")
-        XCTAssertNotEqual(pixels(page, countAfter), countBefore, "the count's pixels are its new text's")
+        let countPixels = pixels(page, countAfter)
+        XCTAssertGreaterThan(ink(countPixels), 50, "the count is painted after Reset")
+        XCTAssertNotEqual(countPixels, countBefore, "the count's pixels are its new text's")
         if let key = count.textRasterKey { XCTAssertEqual(key.spec.runs.map(\.text).joined(), "0 in all") }
     }
 

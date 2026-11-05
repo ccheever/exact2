@@ -108,7 +108,9 @@ the query and `fragment(top(nav))` what follows `#`.
   (`xs.concat([x])`); an order is `sortBy(xs, x => x.key)`, stable (`"desc"` third).
 - **The query** holds a page's filters and sort, so Back, reload and a shared link keep them.
 - **A page's head:** `head title=… description=… status=404` inside the page. A path no route
-  matches is the `notfound` route, which `serve` answers 404.
+  matches is the `notfound` route, which `serve` answers 404. `status` is a literal 404, 410 or
+  503; put its head behind a data condition when the status depends on an answer. The default
+  server waits for such a page before committing a browser navigation's HTTP status.
 
 **The data module**, `app.ts`, exports `answer`, which `sources` implements: each source is
 `(args, store, storage, native)`, `args` its arguments in order (`loadItem: async ([id]) => …`).

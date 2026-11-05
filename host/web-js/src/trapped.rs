@@ -20,8 +20,17 @@ impl Em<'_> {
         scope: &Scope,
     ) -> Result<String, String> {
         let before = self.uses.metered;
-        let f = self.f(b.expr, scope)?;
-        if self.uses.metered == before {
+        let mut f = self.f(b.expr, scope)?;
+        let metered = self.uses.metered != before;
+        if let Some(owners) = (b.kind == BindingKind::Prop)
+            .then(|| self.answers.status_binding(i, b.id))
+            .flatten()
+        {
+            let owners = super::answers::status_owners(owners);
+            let guard = self.uses.rt("statusSubject");
+            f = format!("(globalThis.__exactRender?{guard}({e},{f},{owners}):{f})");
+        }
+        if !metered {
             return Ok(f);
         }
         let row = match b.kind {

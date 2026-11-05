@@ -645,6 +645,7 @@ private final class RegionReuseGate: @unchecked Sendable {
             profile: profile,format: CGImageAlphaInfo.premultipliedLast.rawValue,
             background: [1,1,1,1],selectionColor: [0.2,0.4,0.8,0.45])
         guard case .raster(let value) = perform(.raster(request)) else { preconditionFailure("expected raster") }
+        XCTAssertTrue(CapturePixels.hasPaint(CapturePixels.bytes(value.image())), "the raster draws")
         return value
     }
 }
