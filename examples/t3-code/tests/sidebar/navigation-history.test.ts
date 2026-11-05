@@ -1,9 +1,10 @@
 // Back and Forward from the sidebar header and a mouse's side buttons (T3 Code 2359643cff, MIT, see LICENSE-T3:
 // navigationHistory.ts, sidebar/SidebarChrome.tsx HistoryNavigationButton; desktop window/DesktopWindow.ts).
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { navigationHistory } from '../../src/sidebar/sidebar-history';
 import { brandMarkWidth } from '../../src/sidebar/sidebar-min-width';
+import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { contractComponent } from '../support/contract-action-fixture';
 import { contractFn } from '../support/contract-fn-fixture';
 
@@ -16,6 +17,8 @@ function client(): T3Client {
   return c;
 }
 const ways = (c: T3Client, page = '', settings = false) => { const h = navigationHistory(c, page, settings); return [`${h.backKind}:${h.backTarget}`, `${h.forwardKind}:${h.forwardTarget}`]; };
+
+afterEach(() => { fleet.entries.clear(); });
 
 describe('the window history the sidebar buttons step', () => {
   test('Go back and Go forward are disabled at the history\'s ends and step the visits between', () => {
@@ -49,6 +52,24 @@ describe('the window history the sidebar buttons step', () => {
     c.threadId = 'a'; ways(c);
     c.threadId = 'b';
     c.shell.threads[0]!.archivedAt = at;
+    expect(ways(c)).toEqual([':', ':']);
+  });
+  test('a visit on another machine steps back to the one it left there, in the fleet form', () => {
+    // A project's draft on Lane Second, then the primary's Scratch draft, which moves the window to This machine.
+    const c = client();
+    c.environmentId = 'env-second'; c.projectId = 'p1'; ways(c);
+    const second = c.shell;
+    fleet.entries.set('second', { key: 'second', environmentId: 'env-second', phase: 'connected', generation: 1, synchronized: 1, config: {}, shell: second } as unknown as FleetEntry);
+    c.environmentId = 'env-primary'; c.projectId = 's1';
+    c.shell = { projects: [{ id: 's1', title: 'Scratch', workspaceRoot: '/scratch' }], threads: [], sequence: 1 };
+    expect(ways(c)).toEqual(['new-thread-in:fleet:env-second:p1', ':']);
+    // Back there: Forward is the Scratch draft, named on its own machine.
+    c.environmentId = 'env-second'; c.projectId = 'p1'; c.shell = second;
+    fleet.entries.set('primary', { key: 'primary', environmentId: 'env-primary', phase: 'connected', generation: 1, synchronized: 1, config: {},
+      shell: { projects: [{ id: 's1', title: 'Scratch', workspaceRoot: '/scratch' }], threads: [], sequence: 1 } } as unknown as FleetEntry);
+    expect(ways(c)).toEqual([':', 'new-thread-in:fleet:env-primary:s1']);
+    // A machine no longer connected is no step.
+    fleet.entries.delete('primary');
     expect(ways(c)).toEqual([':', ':']);
   });
   test('Settings is a location: Back leaves it', () => {

@@ -31,4 +31,11 @@ describe('New thread without a project', () => {
     expect(offers(client())).toEqual([false, false]);
     expect(offers(client('/remote/scratch'))).toEqual([true, true]);
   });
+  test('New thread in... lists the primary\'s Scratch project only as its "No project" row', () => {
+    primary.target = { environmentId: 'env-primary' } as PrimaryTarget;
+    const scratch = { id: 's1', title: 'Scratch', workspaceRoot: '/Users/me/.t3/scratch', createdAt: '2026-10-02T00:00:00.000Z', updatedAt: '2026-10-02T00:00:00.000Z' };
+    fleet.entries.set('primary-key', { key: 'primary-key', environmentId: 'env-primary', phase: 'connected', generation: 2, synchronized: 2,
+      config: { scratchWorkspaceRoot: '/Users/me/.t3/scratch' }, shell: { projects: [scratch], threads: [] } } as unknown as FleetEntry);
+    expect(newThreadInItems(client()).map(item => item.row.title)).toEqual(['Parity fixture', 'No project']);
+  });
 });
