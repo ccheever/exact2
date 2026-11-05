@@ -66,5 +66,9 @@ test "a refused save says why, and OK keeps the draft"
   where the host draws the alert (the web, Linux), its title and OK in view.
 - The button has no `press`: it only closes. Give it one and the dialog is a
   confirmation, which needs its Cancel ([confirm](../contract-for-agents.md#a-confirmation)).
+- On iOS, an error that arrives while another confirmation is open waits until that
+  confirmation closes. Waiting alerts appear in request order; `close(id)` cancels a
+  waiting alert, and a removed dialog never presents later. Waiting alerts appear before
+  dialogs opened by the preceding alert’s chosen action.
 - `then` does not run for a request that brought no answer: show `failed(saved)` in place
   ([fetch-loading-error](fetch-loading-error.md)).
