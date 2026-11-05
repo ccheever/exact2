@@ -11,6 +11,7 @@
 use ShellIcon from "../shell/shell-icons.contract"
 use hoverTipAtFrame from "../shell/hover-layer.contract" // the Markdown image's tooltip in the window's hover layer
 use ClipboardItem from "@exact/clipboard" // Copy image's write (media-copy-image.ts): a use here puts the package in the plan
+use kmReturn from "../shared/menu-keys.contract"
 
 // A media slot (media-views.ts MediaView): kind "image" / "video" / "" (none); state "loading",
 // "ready" or "failed"; the open link ("" for none) and the Retry key ("" for no Retry).
@@ -101,9 +102,15 @@ component MediaPreviewActions
   action press
     hover(false)
     open()
+  // Return presses it as its key goes up: in the menu key's action it would pass an action's statement limit.
+  action returnUp(k: string, e: KeyboardEvent)
+    if kmReturn(k, e)
+      preventDefault()
+      stopPropagation()
+      press()
   slot
   view
-    button id=nodeId press=press hover=hover contextmenu=pointerMenu key=menuKey tabindex=0 aria-label=label title="" cursor="zoom-in" hatch="t3-media" data-media-kind="actions" position="relative" align-self=(fit ? "flex-start" : "auto") max-width="100%" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" testId=testId
+    button id=nodeId press=press hover=hover contextmenu=pointerMenu key=menuKey keyup=returnUp tabindex=0 aria-label=label title="" cursor="zoom-in" hatch="t3-media" data-media-kind="actions" position="relative" align-self=(fit ? "flex-start" : "auto") max-width="100%" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" testId=testId
       children
 
 // MediaActions' TooltipPopup (ui/tooltip.tsx, variant "code": monospace 11px, relaxed leading, up to 30rem wide, breaking
@@ -141,6 +148,11 @@ component MediaVideoFailure
     dark: bool
     local: action
     testId: string
+  action localOnEnter(p0: string, p1: string, p2: string, k: string, e: KeyboardEvent)
+    if kmReturn(k, e)
+      preventDefault()
+      stopPropagation()
+      local(p0, p1, p2)
   view
     column role="alert" width="100%" aspect-ratio=(dark ? "auto" : "16 / 9") height=(dark ? "12rem" : "auto") min-height="7rem" padding="1rem" box-sizing="border-box" gap="0.75rem" align-items="center" justify-content="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(dark ? "light-dark(#e4e4e7b3, #ffffff0d)" : "light-dark(#e4e4e766, #ffffff08)") background-color=(dark ? "#000000" : "light-dark(#f4f4f566, #ffffff06)") testId=testId
       row gap="0.375rem" align-items="center" max-width="100%"
@@ -148,7 +160,7 @@ component MediaVideoFailure
         text media.failText font-size="0.875rem" line-height="1.25rem" text-align="center" line-clamp=2 color=(dark ? "#ffffff" : "light-dark(#71717b, #a1a1a1)") testId=`${testId}-label`
       row flex-wrap="wrap" gap="0.5rem" align-items="center" justify-content="center"
         if media.retryKey != ""
-          button press=local("media-retry", media.retryKey, media.url) disabled=media.retrying aria-label=(media.retrying ? "Retrying…" : "Retry video") testId=`${testId}-retry` height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(dark ? "#ffffff29" : "light-dark(#d4d4d8, #ffffff1c)") background-color=(dark ? "#ffffff1a" : "light-dark(#f4f4f5, #ffffff0f)") opacity=(media.retrying ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" tabindex=0
+          button press=local("media-retry", media.retryKey, media.url) key=localOnEnter("media-retry", media.retryKey, media.url) disabled=media.retrying aria-label=(media.retrying ? "Retrying…" : "Retry video") testId=`${testId}-retry` height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(dark ? "#ffffff29" : "light-dark(#d4d4d8, #ffffff1c)") background-color=(dark ? "#ffffff1a" : "light-dark(#f4f4f5, #ffffff0f)") opacity=(media.retrying ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" tabindex=0
             svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" fill="none" stroke=(dark ? "#ffffff" : "light-dark(#18181b, #f5f5f5)") stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
               path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8M21 3v5h-5"
             text (media.retrying ? "Retrying…" : "Retry video") font-size="0.8125rem" line-height="1.125rem" font-weight=500 white-space="nowrap" color=(dark ? "#ffffff" : "light-dark(#18181b, #f5f5f5)")

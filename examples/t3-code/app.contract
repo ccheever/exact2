@@ -252,6 +252,7 @@ component T3Code
     sideChatPlace
     keyboardLast
     pointerPressed
+    focusSeen // the focused element, for the window's return to key (src/shell/shell-members.contract)
     sideChatX
     sideChatY
     sideChatWidth

@@ -38,6 +38,7 @@ describe('dialog focus lifecycle uses the actual previous focus', () => {
       dialogBack: (owner: string, target: string, popup: string, invoker: string, pressed: string, shown: boolean) => pressed !== '' && shown ? { owner, target: pressed, popup: '', invoker: '' } : { owner, target, popup, invoker },
       dialogLineage: (frames: { owner: string; returns: { owner: string; target: string }[] }[], owner: string) => frames.find(item => item.owner === owner)?.returns ?? [],
       focus: (id: string) => focused.push(id), stopPropagation() {},
+      focusSeen() {},
       chipFocusChanged: (id: string) => observedFocus.push(id),
       confirmationFocused() {}, confirmationClosed() {},
     };

@@ -26,6 +26,29 @@ members T3Code
     after(1, windowLeft)
   action windowLeft
     windowLeaves = windowLeaves + 1
+  // ChatView's window focus listener (shouldRefocusComposerOnWindowFocus): when the window is key again, the composer
+  // takes the focus unless it is somewhere deliberate: a field, a frame (a browser page, a terminal, a document), the
+  // terminal drawer, a dialog or a menu, a sidebar row or a workspace area reached from the keyboard, or the side chat.
+  // A focused button, clicked or tabbed to, yields. AppKit keeps the first responder while the window is not key, so
+  // the last focus the window heard is the one it returns to.
+  state focusTarget = ""
+  state focusField = false
+  state focusMenu = false
+  state focusByKey = false
+  action focusSeen(target: string, field: bool, menu: bool)
+    focusTarget = target
+    focusField = field
+    focusMenu = menu
+    focusByKey = keyboardLast
+  task composerOnWindow when page.hasFocus and windowLeaves > 0 key=windowLeaves
+    after(1, composerOnWindowFocus)
+  action composerOnWindowFocus
+    let framed = querySelectorAll("[data-focus-keeps~=\"frame\"]").includes(focusTarget)
+    let dialog = querySelectorAll("[data-dialog-focus~=\"open\"]").length > 0
+    let sidebarKey = focusByKey and (workspaceArea == "sidebar" or focusTarget.startsWith("workspace-"))
+    let deliberate = focusField or framed or focusMenu or dialog or sidebarKey or workspaceArea == "terminal" or focusTarget.startsWith("side-chat")
+    if data.threadId != "" and not terminalDrawer.open and not modal and not pageCover and mediaWidth >= 640 and not deliberate
+      focus("composer")
   resource shell = shellView(data.revision, wallTime.epochAtZero + max(shellClock, elapsed), toastDismissed, toastHover, narrowDiff, page.hasFocus, page.visibilityState, not settingsOpen and not pageCover and not welcome.show, notificationPermission.state) as shape ShellView // then: the chat view is shown (proactive panels); the notification permission (app.contract notificationPermission)
   resource filesMarkdown = renderFileMarkdown(shell.panel.files.markdownSource.concat(shell.panel.attachment.markdownSource).concat(shell.composerFile.file.markdownSource), data.look.math) as shape TranscriptMarkdown
   state rightPanelAt = ""

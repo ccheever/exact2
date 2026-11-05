@@ -8,6 +8,7 @@
 use LiveActivity from "./timeline-work.contract"
 use TimelineIcon from "./timeline-icons-kit.contract"
 use WorktreeSetupView from "./timeline-worktree-shapes.contract"
+use kmReturn from "../shared/menu-keys.contract"
 
 keyframes tlSetupSpin
   from rotate=0
@@ -96,8 +97,13 @@ component SetupButton
   state hovered = false
   action hover(over: bool)
     hovered = over
+  action pressOnEnter(k: string, e: KeyboardEvent)
+    if kmReturn(k, e)
+      preventDefault()
+      stopPropagation()
+      press()
   view
-    button press=press hover=hover aria-expanded=expanded testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" gap="0.25rem" tabindex=0
+    button press=press key=pressOnEnter hover=hover aria-expanded=expanded testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" gap="0.25rem" tabindex=0
       TimelineIcon(name=icon, size=14, color=(hovered ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"))
       text label font-size="0.75rem" font-weight=500 line-height="1rem" color=(hovered ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
 
@@ -114,8 +120,14 @@ component BackgroundSetupChip
   action hover(over: bool)
     hovered = over
   derive popupId = "background-setup-popover"
+  // A popover trigger: Return opens it as Space does, as Chromium's `<button popovertarget>` takes Enter.
+  action invokerOnEnter(k: string, e: KeyboardEvent)
+    if kmReturn(k, e)
+      preventDefault()
+      stopPropagation()
+      togglePopover(popupId, source="background-setup")
   view
-    button popovertarget=popupId hover=hover aria-label=`Background setup is still running: ${script}. Show setup progress.` testId="background-setup" margin-left="auto" flex-shrink=0 min-width=0 height="1.25rem" padding-left="0.3125rem" padding-right="0.3125rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" gap="0.25rem" align-self="center" title="" tabindex=0
+    button popovertarget=popupId key=invokerOnEnter id="background-setup" hover=hover aria-label=`Background setup is still running: ${script}. Show setup progress.` testId="background-setup" margin-left="auto" flex-shrink=0 min-width=0 height="1.25rem" padding-left="0.3125rem" padding-right="0.3125rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" gap="0.25rem" align-self="center" title="" tabindex=0
       box width="0.75rem" height="0.75rem" flex-shrink=0 animation="tlSetupSpin 1s linear infinite" aria-hidden=true
         TimelineIcon(name="loader-circle", size=12, color=(hovered ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"))
       text "Background setup" min-width=0 line-clamp=1 font-size="0.6875rem" font-weight=500 line-height="1rem" white-space="nowrap" color=(hovered ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")

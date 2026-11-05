@@ -54,7 +54,7 @@ component ViewerFrame
       // WebKit suspends an unpartitioned frame's page once its window has been covered for about 4 minutes, or never
       // shown for about 8 s, so a file would wait for the window to load, index and draw; the reference's page keeps
       // running (LLP 1020.002, "A hidden window's sockets"), as the terminal page does.
-      iframe id=frame.id src=frame.src message=received color-scheme=scheme aria-label=label testId=testId apple.inactiveSchedulingPolicy="throttle" position="absolute" left=0 top=0 width="100%" height="100%" border-width=0
+      iframe id=frame.id data-focus-keeps="frame" src=frame.src message=received color-scheme=scheme aria-label=label testId=testId apple.inactiveSchedulingPolicy="throttle" position="absolute" left=0 top=0 width="100%" height="100%" border-width=0
       if boots > 0 and config != ""
         for key in [`${boots}|${config}`] key=key
           ViewerPostOnce(text=config, target=frame.id)

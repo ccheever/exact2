@@ -8,6 +8,7 @@
 // `disableHtmlFullscreenWindowResize`, so the full-screen video fills the window's content, which keeps its size and
 // Space. The dialog holding the player keeps `full`: while it is set, the dialog lays the player over the whole window,
 // hides the rest, and its Escape leaves full screen instead of closing it.
+use kmReturn from "../shared/menu-keys.contract"
 
 // m:ss, or h:mm:ss from an hour (MediaControlsImpl's FormatTime).
 fn clockText(seconds: number): string = seconds >= 3600 ? `${floor(seconds / 3600)}:${floor(seconds % 3600 / 60) < 10 ? "0" : ""}${floor(seconds % 3600 / 60)}:${floor(seconds % 60) < 10 ? "0" : ""}${floor(seconds % 60)}` : `${floor(seconds / 60)}:${floor(seconds % 60) < 10 ? "0" : ""}${floor(seconds % 60)}`
@@ -173,8 +174,13 @@ component PlayerButton
     press: action
     elementId: string
     testId: string
+  action pressOnEnter(k: string, e: KeyboardEvent)
+    if kmReturn(k, e)
+      preventDefault()
+      stopPropagation()
+      press()
   view
-    button id=elementId press=press aria-label=label title="" width="3rem" height="2.25rem" flex-shrink=0 padding=0 border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" testId=testId tabindex=0
+    button id=elementId press=press key=pressOnEnter aria-label=label title="" width="3rem" height="2.25rem" flex-shrink=0 padding=0 border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" testId=testId tabindex=0
       svg width="1.25rem" height="1.25rem" viewBox="0 0 24 24" fill="#ffffff" aria-hidden=true
         path d=icon
 

@@ -7,6 +7,7 @@ use MermaidDiagram, MermaidFrameView from "./mermaid-frame.contract"
 use Icon from "../shared/icons.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
+use kmReturn from "../shared/menu-keys.contract"
 
 fn diagramScale(width: number, height: number, maxWidth: number, maxHeight: number): number = min(maxWidth / max(1, width), maxHeight / max(1, height))
 
@@ -23,6 +24,11 @@ component DiagramPreviewDialog
   derive frame = scheme == "dark" ? diagram.dark : diagram.light
   derive scale = diagramScale(frame.width, frame.height, windowWidth * 0.92 - 96, min(windowHeight * 0.86, windowHeight - 160))
   derive dialogTargets = ["diagram-preview-close", "diagram-preview-close"]
+  action localOnEnter(p0: string, p1: string, p2: string, k: string, e: KeyboardEvent)
+    if kmReturn(k, e)
+      preventDefault()
+      stopPropagation()
+      local(p0, p1, p2)
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 align-items="center" justify-content="center" background-color="#000000bf" role="dialog" aria-label="Expanded image preview" testId="diagram-preview" id="diagram-preview" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("diagram-preview") key=dialogFallback("diagram-preview", dialogTargets)
       // The focus trap (dialog-trap.contract): the X is the only Tab stop; the backdrop is none (the reference's popup takes its clicks).
@@ -31,7 +37,7 @@ component DiagramPreviewDialog
       button press=local("diagram-close", "", "") aria-label="Close image preview" aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="diagram-preview-backdrop" title=""
       // DialogPopup's media variant: the X (icon-sm, media-close) at the 92vw × 92vh popup's top-right corner, inside
       // its 1pt border; the first of the dialog's items.
-      button id="diagram-preview-close" press=local("diagram-close", "", "") aria-label="Close image preview" testId="diagram-preview-close" position="absolute" right=(windowWidth * 0.04 + 1) top=(windowHeight * 0.04 + 1) z-index=1 width="1.75rem" height="1.75rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled" tabindex=0
+      button id="diagram-preview-close" press=local("diagram-close", "", "") key=localOnEnter("diagram-close", "", "") aria-label="Close image preview" testId="diagram-preview-close" position="absolute" right=(windowWidth * 0.04 + 1) top=(windowHeight * 0.04 + 1) z-index=1 width="1.75rem" height="1.75rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled" tabindex=0
         Icon(name="x", size=16, color="#ffffff")
       column min-width=0 align-items="center"
         box position="relative" width=(frame.width * scale) height=(frame.height * scale)

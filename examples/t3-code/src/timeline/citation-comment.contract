@@ -12,6 +12,7 @@
 // leaving the textarea (a press in the composer's text: Base UI's focus-out), can settle it.
 use ChipPopover from "../composer/composer-chip-popover.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
+use kmReturn from "../shared/menu-keys.contract"
 
 // The popup's height for the flip: its border, py-2, the textarea at its 64 pt, mt-2 and the 24 pt buttons, and the
 // limit's 20 pt line past 8,000 characters (114 pt in the reference's popup with an empty comment).
@@ -76,6 +77,11 @@ component CitationCommentButton
   state hovering = false
   action hover(over: bool)
     hovering = over
+  action chooseOnEnter(k: string, e: KeyboardEvent)
+    if kmReturn(k, e)
+      preventDefault()
+      stopPropagation()
+      choose()
   view
-    button press=choose hover=hover retainFocus=true disabled=(not enabled) testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(primary ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff1c)") opacity=(enabled ? 1 : 0.64) background-color=(primary ? (hovering and enabled ? "light-dark(#1d4ed8, #3b76f6)" : "light-dark(#1b4ed8, #346bf1)") : hovering ? "light-dark(#f4f4f5, #ffffff0f)" : "light-dark(#ffffff, #ffffff07)") box-shadow=(primary ? "inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d" : "0 1px 2px #0000000d") display="flex" flex-direction="row" align-items="center" justify-content="center" title="" tabindex=0
+    button press=choose key=chooseOnEnter hover=hover retainFocus=true disabled=(not enabled) testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(primary ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff1c)") opacity=(enabled ? 1 : 0.64) background-color=(primary ? (hovering and enabled ? "light-dark(#1d4ed8, #3b76f6)" : "light-dark(#1b4ed8, #346bf1)") : hovering ? "light-dark(#f4f4f5, #ffffff0f)" : "light-dark(#ffffff, #ffffff07)") box-shadow=(primary ? "inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d" : "0 1px 2px #0000000d") display="flex" flex-direction="row" align-items="center" justify-content="center" title="" tabindex=0
       text label font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color=(primary ? "#ffffff" : "light-dark(#18181b, #f5f5f5)")

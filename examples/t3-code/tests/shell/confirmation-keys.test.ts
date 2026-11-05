@@ -72,7 +72,7 @@ describe('a confirmation holds the app shortcuts', () => {
     const live = ['settings-dialog', 'environment-remove-dialog'], marked = ['environment-remove-dialog'];
     const state: Env = { focusEditable: false, dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogFrames: [], dialogSeated: [], documentPermissionReturnKey: '', documentPermissionReturnSource: '' };
     const scope = {
-      none: null, focus() {}, chipFocusChanged() {}, stopPropagation: () => stopped.push('stop'),
+      none: null, focus() {}, focusSeen() {}, chipFocusChanged() {}, stopPropagation: () => stopped.push('stop'),
       querySelectorAll: (selector: string) => selector.includes('confirmation') ? marked : selector.includes('dialog-focus') ? live : [],
       frame: (id: string) => ({ unavailable: !live.includes(id), width: live.includes(id) ? 400 : 0, height: live.includes(id) ? 300 : 0 }),
       dialogFrame: (owner: string, returns: unknown[]) => ({ owner, returns }),

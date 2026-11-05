@@ -78,6 +78,7 @@ component T3Window
     composerTargetData: Snapshot // the composer the options menus serve: the window's, or a side chat's (side-chat-members.contract)
     interacted: action // the reader pointed, typed or scrolled (app.contract)
     pointerPressed: action // the reader's last press was the pointer's (src/panel/side-chat-members.contract)
+    focusSeen: action // the focused element, as the window's return to key reads it (src/shell/shell-members.contract)
     workspaceEntered: action // the workspace areas F6 moves between (shell-members.contract)
     historyGo: action // Back and Forward, and the router's `navigate` (src/sidebar/sidebar-members.contract)
     navigationHistory: NavigationHistory // the steps historyGo takes, which the root offers alone (`historyWays`)
@@ -537,6 +538,7 @@ component T3Window
     focusEditable = editable
     if editable
       modifierEditableFocus()
+    focusSeen(e.target, editable, false)
     chipFocusChanged(e.target)
     dialogFocusId = e.target
     dialogFocusOwner = ""
@@ -558,6 +560,7 @@ component T3Window
     focusEditable = editable
     if editable
       modifierEditableFocus()
+    focusSeen(e.target, editable, true)
     chipFocusChanged(e.target)
     dialogFocusId = e.target
     dialogFocusOwner = (frame(dialogFocusOwner).unavailable or frame(dialogFocusOwner).width == 0 or frame(dialogFocusOwner).height == 0) ? "" : dialogFocusOwner

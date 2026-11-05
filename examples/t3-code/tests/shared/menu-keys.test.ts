@@ -406,7 +406,7 @@ describe('one highlight: the pointer and the keys move one focus (Base UI highli
     ['sidebar-row.contract', 'SnoozeMenuItem', 'itemId'], ['shell-details.contract', 'EditorOption', '`details-editor-${editor.id}`'],
     ['settings-scheduled.contract', 'TaskMenuItem', 'itemId'], ['settings-projects.contract', 'ImportScriptItem', '`import-script-${script.name}`'],
     ['panel.contract', 'PanelMenuItem', '`linked-pr-menu-${test}`'], ['panel.contract', 'AddSurfaceMenuItem', '`add-surface-${surface.id}`'],
-    ['files-surface.contract', 'FilesCrumbItem', 'test'], ['markdown.contract', 'TableMenuItem', 'testId'], ['connections-routes.contract', 'RouteMenuItem', 'itemId'],
+    ['files-surface.contract', 'FilesCrumbItem', 'test'], ['table-menu.contract', 'TableMenuItem', 'testId'], ['connections-routes.contract', 'RouteMenuItem', 'itemId'],
     ['connections.contract', 'EnvironmentIconMenu', '`environment-icon-${environment.environmentId}`'],
     ['browser-defaults.contract', 'BdViewportItem', '`browser-default-viewport-option-${option.value}`'], ['git.contract', 'GitMenuRow', '`details-git-menu-${item.id}`'],
   ];

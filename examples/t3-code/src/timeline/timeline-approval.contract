@@ -2,7 +2,7 @@
 // ComposerPendingApprovalActions.tsx's inline presentation (MIT, see LICENSE-T3); timeline-approvals.ts builds it.
 use TimelineIcon from "./timeline-icons-kit.contract"
 use TipBubble from "../shell/shell-tip.contract"
-use KmItem from "../shared/menu-keys.contract"
+use KmItem, kmReturn from "../shared/menu-keys.contract"
 use KeyMenu from "../shared/menu-keys.contract"
 use kmTriggerKey from "../shared/menu-keys.contract"
 use kmTriggerTarget from "../shared/menu-keys.contract"
@@ -82,11 +82,16 @@ component ApprovalChoiceButton
     over = value
   action mark(value: bool)
     focused = value
+  action chooseOnEnter(k: string, e: KeyboardEvent)
+    if kmReturn(k, e)
+      preventDefault()
+      stopPropagation()
+      choose()
   view
     box position="relative" display="flex" flex-direction="row" flex-shrink=0
       if option.warning != ""
         TipBubble(label=option.warning, side="top", align="center", offset=22, inset=0, shown=(over or focused))
-      button press=choose hover=hover focus=mark(true) blur=mark(false) disabled=disabled opacity=(disabled ? 0.64 : 1) testId=`timeline-approval-${approvalId}-${option.id}` aria-label=option.label aria-description=option.warning padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.125rem" title="" tabindex=0
+      button press=choose key=chooseOnEnter hover=hover focus=mark(true) blur=mark(false) disabled=disabled opacity=(disabled ? 0.64 : 1) testId=`timeline-approval-${approvalId}-${option.id}` aria-label=option.label aria-description=option.warning padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.125rem" title="" tabindex=0
         if option.warning != ""
           TimelineIcon(name="triangle-alert", size=12, color=(option.id == "accept" or over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"))
         text option.label font-size="0.75rem" font-weight=500 line-height="1rem" text-decoration-line=(over and not disabled ? "underline" : "none") color=(option.id == "accept" or over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
@@ -186,9 +191,14 @@ component ApprovalWhyAsked
     shown = e.newState == "open"
     if not shown
       pinned = false
+  action pressedOnEnter(k: string, e: KeyboardEvent)
+    if kmReturn(k, e)
+      preventDefault()
+      stopPropagation()
+      pressed()
   view
     box position="relative" display="flex" flex-shrink=0 hover=hover
-      button id=`timeline-approval-why-${id}` press=pressed aria-expanded=shown aria-haspopup="dialog" testId=`timeline-approval-why-${id}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0 title="" tabindex=0
+      button id=`timeline-approval-why-${id}` press=pressed key=pressedOnEnter aria-expanded=shown aria-haspopup="dialog" testId=`timeline-approval-why-${id}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0 title="" tabindex=0
         text "Why am I being asked this?" font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)") text-decoration-line=(over ? "underline" : "none")
       // The 4pt between the card and the button is the card's own padding, so the pointer crossing it stays on the card.
       column id=`timeline-approval-why-card-${id}` popover="auto" toggle=toggled role="dialog" aria-label="Why am I being asked this?" testId=`timeline-approval-why-card-${id}` position="absolute" position-area="top" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" padding-bottom="0.25rem" max-width=`min(${22 * rem}px, calc(100vw - ${2 * rem}px))` background-color="#00000000"

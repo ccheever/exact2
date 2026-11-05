@@ -21,7 +21,7 @@ describe('a modal dialog is modal once the focus is in it', () => {
       dialogReturn: (owner: string, target: string, popup: string, invoker: string) => ({ owner, target, popup, invoker }),
       dialogBack: (owner: string, target: string, popup: string, invoker: string) => ({ owner, target, popup, invoker }),
       dialogLineage: (frames: { owner: string; returns: unknown[] }[], owner: string) => frames.find(item => item.owner === owner)?.returns ?? [],
-      focus() {}, stopPropagation() {}, chipFocusChanged() {}, confirmationFocused() {}, confirmationClosed() {},
+      focus() {}, stopPropagation() {}, focusSeen() {}, chipFocusChanged() {}, confirmationFocused() {}, confirmationClosed() {},
     };
     expect(await source('app-window.contract')).toContain('\n  state dialogSeated: string[] = []\n');
     const state: Env = { focusEditable: false, dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogPressId: '', dialogFrames: [], dialogSeated: [], documentPermissionReturnKey: '', documentPermissionReturnSource: '' };

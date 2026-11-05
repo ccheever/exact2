@@ -110,7 +110,7 @@ const NOT_MODAL: Record<string, string> = {
   'diff.contract "diff-base-picker"': 'Popover',
   'markdown.contract `Terminal excerpt, ${chip.label}`': 'Popover',
   'markdown.contract `Quoted assistant text: ${chip.label}`': 'Popover (AssistantCitationChip)',
-  'markdown.contract "context-chip-details"': 'Popover',
+  'markdown-controls.contract "context-chip-details"': 'Popover',
   'skill-chip.contract `Skill ${label}`': 'Popover (SkillChipPopover)',
   'timeline-worktree.contract "Worktree setup"': 'Popover (BackgroundWorktreeSetupChip)',
   'model-picker.contract "model-dialog"': 'ProviderModelPicker PopoverPopup',

@@ -118,7 +118,7 @@ describe('the window tracks held modifiers from its key events', () => {
   test('the window hears every key through capture and the keyup; a focus at a field empties the route\'s state', () => {
     const calls: unknown[][] = [], selectors: string[] = [];
     const state: Env = { focusEditable: false, dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '' };
-    const props: Env = { shortcuts: [], modifierKey: (...args: unknown[]) => calls.push(args), modifierEditableFocus: () => calls.push(['field']), chipFocusChanged: () => {}, confirmationFocused() {}, interacted: () => calls.push(['interacted']),
+    const props: Env = { shortcuts: [], modifierKey: (...args: unknown[]) => calls.push(args), modifierEditableFocus: () => calls.push(['field']), focusSeen() {}, chipFocusChanged: () => {}, confirmationFocused() {}, interacted: () => calls.push(['interacted']),
       querySelectorAll: (selector: string) => { selectors.push(selector); return ['composer', 'pull-requests-search', 'palette-input']; } };
     window.call('windowFocused', state, props, [{ target: 'composer' }]);
     expect(state.focusEditable).toBe(true);
@@ -135,7 +135,7 @@ describe('the window tracks held modifiers from its key events', () => {
   test('a dialog\'s field (the palette\'s input) is a field too, though the dialog stops the focusin', () => {
     const calls: unknown[][] = [];
     const state: Env = { focusEditable: false, dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogFrames: [], dialogSeated: [] };
-    const scope: Env = { shortcuts: [], modifierKey: (...args: unknown[]) => calls.push(args), modifierEditableFocus: () => calls.push(['field']), chipFocusChanged: () => {}, confirmationFocused() {}, stopPropagation: () => {}, interacted: () => {},
+    const scope: Env = { shortcuts: [], modifierKey: (...args: unknown[]) => calls.push(args), modifierEditableFocus: () => calls.push(['field']), focusSeen() {}, chipFocusChanged: () => {}, confirmationFocused() {}, stopPropagation: () => {}, interacted: () => {},
       querySelectorAll: (selector: string) => selector.includes('editable') ? ['palette-input'] : [], frame: () => ({ unavailable: true, width: 0, height: 0 }),
       dialogLineage: () => [], dialogReturn: (...args: unknown[]) => args, dialogBack: (...args: unknown[]) => args.slice(0, 4), dialogFrame: (owner: string, returns: unknown) => ({ owner, returns }) };
     window.call('dialogEntered', state, scope, ['palette', { target: 'palette-input' }]);
