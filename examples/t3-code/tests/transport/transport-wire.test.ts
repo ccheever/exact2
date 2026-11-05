@@ -34,6 +34,8 @@ describe('Exit failures as Cause.squash reports them', () => {
     // useHostConnectionChecks reports a failed check by this sentence, without a stack trace.
     expect(failure({ _tag: 'Fail', error: { _tag: 'DeviceHostUnavailableError', hostId: 'mac', hostLabel: 'Mac mini', reason: 'SSH connection refused.' } }).message).toBe('Mac mini is unavailable: SSH connection refused.');
     expect(failure({ _tag: 'Fail', error: { _tag: 'DeviceHostUnavailableError', hostId: 'mac', reason: 'SSH connection refused.' } }).message).toBe('Device host mac is unavailable: SSH connection refused.');
+    expect(failure({ _tag: 'Fail', error: { _tag: 'DeviceOperationError', operation: 'probe host', reason: 'request_failed' } }).message).toBe('Device probe host failed: Could not communicate with device support. Try refreshing devices.');
+    expect(failure({ _tag: 'Fail', error: { _tag: 'DeviceOperationError', operation: 'boot', reason: 'command_failed', exitCode: 3 } }).message).toBe('Device boot failed: The device command failed (exit code 3).');
     expect(failure({ _tag: 'Interrupt' }).kind).toBe('Interrupt');
     expect(failure({ _tag: 'Fail', error: { _tag: 'Mystery' } }).message).toBe('The server refused the request (Mystery).');
   });

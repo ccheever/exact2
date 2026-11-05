@@ -213,6 +213,11 @@ function serverSettingsFailure(field: (key: string) => string): string {
   return `Server settings ${operation} failed${provider}${variable} at ${field('settingsPath')}.`;
 }
 
+const DEVICE_BOOT_FAILURES: Record<string, string> = { disk_space: 'There is not enough free disk space on its device host.', timeout: 'The device did not become ready in time.',
+  launch_failed: 'The simulator or emulator could not start.' };
+const DEVICE_OPERATION_FAILURES: Record<string, string> = { request_failed: 'Could not communicate with device support. Try refreshing devices.',
+  invalid_payload: 'The device request could not be encoded.', settings_failed: 'Could not read or save device settings.', hub_rejected: 'The device hub could not complete the request.' };
+
 function typed(value: unknown): TransportFailure {
   if (!isObject(value)) return failure(value);
   const tag = text(value._tag) || text(value.name) || 'RPC';
@@ -241,6 +246,18 @@ function typed(value: unknown): TransportFailure {
   if (!message && tag === 'DeviceHostUnavailableError') message = `${field('hostLabel') || `Device host ${field('hostId')}`} is unavailable: ${field('reason')}`;
   if (!message && tag === 'DevicePlatformUnavailableError') message = `${field('platform')} devices are unavailable on host ${field('hostId')}: ${field('reason')}`;
   if (!message && tag === 'DeviceNotFoundError') message = `Device ${field('deviceId')} was not found on host ${field('hostId')}.`;
+  if (!message && tag === 'DeviceBootError') {
+    const summary = `Device ${field('deviceId')} failed to boot: ${DEVICE_BOOT_FAILURES[field('reason')] ?? ''}`;
+    message = field('diagnostics') ? `${summary}\n\n${field('diagnostics')}`
+      : `${summary} The device host sent no details. Try again or open another device; if it keeps failing, check the device on that host.`;
+  }
+  if (!message && tag === 'DeviceOperationError') {
+    const exitCode = typeof value.exitCode === 'number' ? ` (exit code ${value.exitCode})` : '';
+    const explanation = field('reason') === 'command_failed' ? `The device command failed${exitCode}.` : DEVICE_OPERATION_FAILURES[field('reason')] ?? '';
+    message = `Device ${field('operation')} failed: ${explanation}`;
+  }
+  if (!message && tag === 'DeviceActionUnavailableError') message = field('reason') === 'helper_missing'
+    ? `Device ${field('operation')} requires a helper missing from this install. Set up device support again.` : `Device ${field('operation')} is not supported on ${field('platform')}.`;
   // PreviewStopLocalServerError's and ServerPrepareTriageError's messages are getters (contracts preview.ts, server.ts).
   if (!message && tag === 'PreviewStopLocalServerError') message = STOP_LOCAL_SERVER_FAILURE_MESSAGES[field('reason')] ?? '';
   if (!message && tag === 'ServerPrepareTriageError') message = 'Could not write the triage session files.';
