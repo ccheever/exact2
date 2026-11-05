@@ -734,6 +734,14 @@ Differences that belong to the app:
 - A reply's web link shows no tooltip with its URL when the pointer rests on it, where the reference's anchor has one
   (its Tooltip, side top): each word of a link is a node of its own (`FlowRuns`), so no one box holds the link to
   place it by. An image inside a link shows its URL on a keyboard focus, as the reference's does.
+- Some timeline controls are no Tab stops with Keyboard Navigation off, where the reference tabs to each: a tool row
+  and its Open diff, a plan's Plan actions, and an approval's Decline, Approve and More, its "File change" code and its
+  file. The clone stops once on an approval's group and draws no ring there. The clone's Mac buttons are Tab stops only
+  with `tabindex=0`, which #1483 gave the changed-files card ("Checked with real input (2026-11-05, second)").
+- ⇧Tab from a thread's first timeline stop goes to the sidebar's footer buttons, where the reference's goes to the chat
+  header (Thread actions, New thread in the project, Toggle right panel).
+- After a press on a work group's "Worked for …", the clone keeps the group's time shown once the pointer has left;
+  the reference shows none.
 - Appearance has no Environment identification row. The clone is the stable app only, and it does
   not draw the Nightly or Dev artwork. At v0.1.5 the stable app's default also shows no art, but the
   row lets a user opt into Nightly or Dev artwork ("Show Dev or Nightly artwork in the sidebar
@@ -1628,6 +1636,35 @@ Seen besides the rows, once each unless the item says otherwise:
   without "agent-edits" in the clone; the label came back after Settings opened and closed. The oracle kept it.
 - In the oracle, the new tab menu's Browser added a Browser tab and left Files shown; the clone showed the new tab with
   its address bar focused.
+
+**Checked with real input (2026-11-05, second)** (the bundle of `35d2dafc2d`, which holds the second fix round's #1481
+to #1487, a lane copy on its own bundle id and `HOME`; `second` seeded with `--turns --pull-request --more-turns`, and
+one more stand-in thread, "Plan sample", whose turn sends the stand-in's proposed plan; the oracle at `5d3d78ab93` on its
+own home, paired with the same lane server; 1280 × 840 at 2×; macOS and both apps in Dark; Keyboard Navigation off.
+Presses and keys came from the HID event source, with text typed key by key. Results were read from window captures,
+the clone's focused accessibility element, the oracle's `document.activeElement` and a test server's request log.)
+9 rows: 6 hold and 3 differ.
+
+| Row | Clone | Oracle | Result |
+|---|---|---|---|
+| The floated Browser card (#1482, #1484) | with the right panel closed over a tab showing a 4 × 6 link grid, the card draws the page scaled down; a click on link 10 as drawn loads `/hit/10`, and the next page reads 539 × 748 in the card (1 of 1) | the same (1 of 1) | holds |
+| Go back after the hero's "or start without a project" (#1481) | No project on This machine; Go back returns to agent-edits' hero on Lane Second, Go forward to No project, Go back to the hero (1 of 1) | the same (1 of 1) | holds |
+| ⌘N's project picker with a Lane Second thread open (#1481) | agent-edits, No project ⌥⌘N, empty-project, background-only, shared-notes | the same | holds |
+| Sidebar rows at View zoom 120 % (#1486, #1487) | after two ⌘= and clicks on "Prose answer", "HTML images" and "Italic answer", every row keeps "agent-edits" | the same | holds |
+| ⇧Tab over a reply's changed-files card (#1483) | "Turn with file edits": Fork from this response, Copy message, README.md, notes, Open diff, Expand all folders, Worked for 144ms; "HTML images": Fork, Copy message, shots, Open diff, Expand all folders, then the pictures | the same stops in the same order | holds |
+| The linked picture in "HTML image layout" (#1483) | the link tooltip's top on device row 704 and its bottom border on 754–755; the picture's path tooltip on the oracle's rows; on both stops a dark outer ring and the 2 px ring in the oracle's device columns | the link tooltip's top on row 703 | holds (1 device row, as #1483 measured) |
+| ⇧Tab over a tool row and its Open diff ("Turn with file edits", work group open) | skips the "Changed 1 file" row and, with the row opened by a click, its Open diff: Expand all folders, then Worked for 144ms | stops on the row (Return opens it), and with the row open on its Open diff first | **differs** |
+| ⇧Tab over a plan's buttons ("Plan sample") | plan.md, outline.ts, then Worked for 78ms | plan.md, outline.ts, Plan actions, then Worked for 78ms | **differs** |
+| ⇧Tab over an approval's buttons ("Edit awaiting approval") | one stop on the "File change approval" group, with no ring drawn, then the user message's buttons | More approval options, Approve, Decline, the "File change" code, agent-edits/notes/approved.md, then the user message's buttons | **differs** |
+
+Seen besides the rows, once each unless the item says otherwise:
+
+- ⇧Tab from a thread's first timeline stop goes in the clone to the sidebar's footer (Check for updates, Usage, Pull
+  requests, Settings), and in the oracle to the chat header (Thread actions, New thread in agent-edits, Toggle right
+  panel) (2 of 2 threads).
+- After a press on "Worked for 144ms", the clone keeps the group's time (4:06 PM) shown with the pointer gone; the
+  oracle shows none. The 2026-11-04 session saw the clone do the same.
+- In Dark, the link tooltip's fill is rgb(23, 23, 23) in the clone and rgb(17, 17, 17) in the oracle.
 
 **Fixed, not checked with real input or VoiceOver:**
 
