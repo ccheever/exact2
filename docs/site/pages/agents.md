@@ -22,6 +22,10 @@ Each Markdown page starts with frontmatter (`title`, `description` and `modifica
 
 `/llms.txt` lists every page with its title, its Markdown URL and a one-line description. On a host that reads the site's `_headers` file, such as Cloudflare Pages or Netlify, each response names it in two headers: `Link: </llms.txt>; rel="llms-txt"` and `X-Llms-Txt: /llms.txt`.
 
+## sitemap.md
+
+`/sitemap.md` lists the same pages by section, nested as the guides nest. Each line has the page's Markdown URL, its type (Guide, How-to, Reference), the date it last changed, a summary, and its prerequisites: the page to read before it.
+
 ## Open in your agent
 
 Each page has these actions, at the top of the page and in the rail beside it:

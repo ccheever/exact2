@@ -131,7 +131,30 @@ writeFileSync(join(DIST, 'robots.txt'), `User-agent: *\nAllow: /\n${ORIGIN ? `Si
 
 writeFileSync(
   join(DIST, 'llms.txt'),
-  `# ${site.name}\n\n> ${site.description}\n\n## Pages\n\n${pages.map(p => `- [${p.title}](${ORIGIN}${p.path === '/' ? '/index' : p.path}.md): ${p.description}`).join('\n')}\n`
+  `# ${site.name}\n\n> ${site.description}\n\n[sitemap.md](${ORIGIN}/sitemap.md) lists the same pages with each one's type, last change and prerequisites.\n\n## Pages\n\n${pages.map(p => `- [${p.title}](${ORIGIN}${p.path === '/' ? '/index' : p.path}.md): ${p.description}`).join('\n')}\n`
+);
+
+const TYPES: Record<string, string> = { Home: 'Overview', 'Get started': 'Tutorial', Learn: 'Guide', Recipes: 'How-to', Reference: 'Reference', 'For AI agents': 'Reference' };
+const mdUrl = (p: Page) => `${ORIGIN}${p.path === '/' ? '/index' : p.path}.md`;
+const parentOf = (p: Page) => pages.filter(q => q.path !== '/' && p.path.startsWith(`${q.path}/`)).sort((a, b) => b.path.length - a.path.length)[0];
+const start = pages.find(p => p.path === '/start');
+function prerequisites(p: Page): string {
+  const parent = parentOf(p);
+  if (parent) return `[${parent.title}](${mdUrl(parent)})`;
+  if (p.path === '/recipes/website') return 'start-here-site.md in the exact2 checkout (a website reads it in place of Start here)';
+  if (!start || ['Home', 'Get started', 'For AI agents'].includes(p.section)) return 'None';
+  return `[${start.title}](${mdUrl(start)})`;
+}
+const depth = (p: Page): number => (parentOf(p) ? depth(parentOf(p)) + 1 : 0);
+const sitemapSections = [...new Set(pages.map(p => p.section))].map(section => [
+  `## ${section}`,
+  '',
+  ...pages.filter(p => p.section === section).map(p =>
+    `${'    '.repeat(depth(p))}- [${p.title}](${mdUrl(p)}) | Type: ${TYPES[section] ?? 'Reference'} | Lastmod: ${p.updated || 'unknown'} | Summary: ${p.description} | Prerequisites: ${prerequisites(p)}`),
+].join('\n'));
+writeFileSync(
+  join(DIST, 'sitemap.md'),
+  `# ${site.name} sitemap\n\nA page index for agents: each page's Markdown URL, its type, the date it last changed, a summary, and what to read before it. [llms.txt](${ORIGIN}/llms.txt) lists the same pages without the extra fields.\n\n${sitemapSections.join('\n\n')}\n`
 );
 
 writeFileSync(
@@ -161,5 +184,5 @@ if (ORIGIN) {
   );
 }
 
-console.log(`${DIST}: head (favicon, stored choices, Markdown link, JSON-LD${ORIGIN ? ', canonical' : ''}) on ${prepainted} pages, _redirects (${rules.length - 2} rules), _headers, ${pages.length} .md pages and 404.md, ${Object.keys(redirects).length} moved-page fallbacks, robots.txt, llms.txt${ORIGIN ? ', sitemap.xml' : ''}`);
+console.log(`${DIST}: head (favicon, stored choices, Markdown link, JSON-LD${ORIGIN ? ', canonical' : ''}) on ${prepainted} pages, _redirects (${rules.length - 2} rules), _headers, ${pages.length} .md pages and 404.md, ${Object.keys(redirects).length} moved-page fallbacks, robots.txt, llms.txt, sitemap.md${ORIGIN ? ', sitemap.xml' : ''}`);
 if (!ORIGIN) console.log('  no origin: set it in constants/site.ts (or SITE_ORIGIN) for sitemap.xml, canonical links and JSON-LD URLs');

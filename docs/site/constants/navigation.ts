@@ -457,6 +457,7 @@ export const agentRows: { title: string; detail: string; anchor: string }[] = [
   { title: 'Start prompt', detail: 'The one file to read first', anchor: 'start-prompt' },
   { title: 'Markdown pages', detail: 'Add .md to any page URL', anchor: 'markdown-pages' },
   { title: 'llms.txt', detail: 'Every page in one index', anchor: 'llmstxt' },
+  { title: 'sitemap.md', detail: 'Pages with type and prerequisites', anchor: 'sitemapmd' },
   { title: 'Open in your agent', detail: 'Claude, ChatGPT, Cursor, Codex', anchor: 'open-in-your-agent' },
   { title: 'Terminal lookups', detail: "Answers from an app's folder", anchor: 'terminal-lookups' },
   { title: 'Feedback', detail: 'Report an error in a page', anchor: 'feedback' },
