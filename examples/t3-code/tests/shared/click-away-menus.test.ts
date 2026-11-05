@@ -109,7 +109,7 @@ describe('the approval\'s "More approval options" menu (TimelinePendingApprovalR
     for (const part of ['popovertarget=`timeline-approval-menu-${approval.id}`', 'key=menuKey', 'aria-haspopup="menu"', 'aria-expanded=open']) expect(trigger).toContain(part);
     expect(trigger).not.toContain('press=');
     expect(line(row, 'KeyMenu(menuId=`timeline-approval-menu-${approval.id}-keys`')).toContain('items=items, keyed=0, gap="0px", modal=true)');
-    expect(line(row, 'button id=testId press=choose')).toContain('popovertarget=menuId popovertargetaction="hide"');
+    expect(line(row, 'button id=testId press=chosen')).toContain('popovertarget=menuId popovertargetaction="hide"');
     const more = contractComponent('timeline-approval.contract', 'ApprovalMore'), state = more.state();
     more.call('toggled', state, {}, [{ newState: 'open' }]);
     expect(state.open).toBe(true);

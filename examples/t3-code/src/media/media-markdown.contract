@@ -144,7 +144,7 @@ component MarkdownFileChip
   view
     row height="1.421875rem" flex-shrink=0 align-items="center" padding-left=1 padding-right=1 hover=hover
       CodeTip(label=tip, side="top", offset=21)
-        FileLinkButton(tip=tip, target=target, menu=menu, local=local, testId=testId)
+        FileLinkButton(label=label, tip=tip, target=target, menu=menu, local=local, testId=testId)
           row direction="ltr" gap="0.175rem" align-items="center"
             FileTypeIcon(token=icon, size=14)
             text label font-size="0.875rem" font-weight=500 line-height="1.0625rem" white-space="pre" color=ink text-decoration-line=(hovered ? "underline" : "none")
