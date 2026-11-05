@@ -1014,12 +1014,12 @@ export function renderFrameHealthReport(report) {
     const thermal = ['nominal', 'fair', 'serious', 'critical'][Math.floor(event.flags / 2 ** 32) % 4];
     const reasons = [event.flags & 1 ? 'callback gap' : null, event.flags & 2 ? 'callback target overrun' : null, event.flags & 4 ? 'tick apply target overrun' : null].filter(Boolean);
     if (screen) {
-      const next = event.flags & 8 ? `next update's work began ${ms(event.after_offset_us)} after this one's, work ${ms(event.after_callback_us)}` : 'next update unseen';
+      const next = event.flags & 8 ? `next update's effective start ${ms(event.after_offset_us)} after this one's, work ${ms(event.after_callback_us)}` : 'next update unseen';
       const rest = event.exact_us == null || event.card_us == null ? null : Math.max(0, event.callback_us - event.exact_us - event.card_us);
-      out.push(`#${event.sequence} / capture ${event.capture} / generation ${event.generation} · ${ms(event.age_us)} ago · ${event.flags & 2 ? 'committed past its deadline' : 'timing event'}`,
-        `  work ${ms(event.callback_us)} · ${event.target_offset_us < 0 ? `its work began ${ms(-event.target_offset_us)} after the deadline` : `deadline ${ms(event.target_offset_us)} after its work began`} · previous update's work ${ms(event.before_callback_us || null)} · ${next}`,
+      out.push(`#${event.sequence} / capture ${event.capture} / generation ${event.generation} · ${ms(event.age_us)} ago · ${event.flags & 2 ? 'commit seen past its deadline' : 'timing event'}`,
+        `  work ${ms(event.callback_us)} · deadline ${ms(Math.abs(event.target_offset_us))} ${event.target_offset_us < 0 ? 'before' : 'after'} its work's effective start, the commit less its work · previous update's work ${ms(event.before_callback_us || null)} · ${next}`,
         `  of its work: Exact's host phases ${ms(event.exact_us)} · the card's ${ms(event.card_us)} · the rest ${ms(rest)} · nodes laid out ${event.layouts ?? 'unknown'} · the main thread also waited ${ms(event.waited_us)} in the update`,
-        `  workload ${workload} · asked by ${SCREEN_ASKERS.filter((_, index) => bit(index + 40)).join(', ') || 'none of Exact\'s frame clock (UIKit or the system)'} · thermal ${thermal} · low power ${bit(34)}`);
+        `  workload ${workload} · asked by ${SCREEN_ASKERS.filter((_, index) => bit(index + 40)).join(', ') || 'none of Exact\'s frame clock (UIKit or the system)'} · thermal ${thermal} · low power ${bit(34)}${bit(36) ? ' · card dragged' : ''}`);
       continue;
     }
     out.push(`#${event.sequence} / capture ${event.capture} / generation ${event.generation} · ${ms(event.age_us)} ago · ${reasons.join(', ') || 'timing event'}`,

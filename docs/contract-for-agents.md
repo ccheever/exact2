@@ -3278,18 +3278,23 @@ native-only animation cadence are unmeasured. While the card is shown, bounded h
 capture also records matching asynchronous owner and apply timestamps. Idle time never
 becomes a frame time.
 
-The card's charts take each frame and show the last 30 seconds: the frame rate's
-moving average over the last half second against the request, and each frame's frame
-time and work, the longest in each tenth of a second, against that frame's deadline.
-Within a run of frames the lines reach across tenths of a second without frames; an
-idle app, a pause and a reset leave gaps. The charts take the frames the app's clock
-already runs, start no timer or display link and store no file. The figures update
-every half second, and at once when the source stops, on the existing bounded
-publication pass in common run-loop modes, so touch tracking does not suspend them.
-The reader creates no display link or polling timer, reads nothing while the card is
-hidden, paused or detached, and keeps at most 60 half-second samples. During native
-scrolling the card stays on the app callback source; in development builds on iOS 18
-and later the separate experimental scroll source reaches `perf frames` and the report.
+The card's charts take each frame and show the last 30 seconds: the frame rate's moving
+average over the last half second against the request, and each frame's frame time and
+work, the longest in each tenth of a second, against that frame's deadline. Within a run
+of frames the lines reach across tenths of a second without frames; an idle app, a pause
+and a reset leave gaps. The charts start no display link and store no file. Measuring
+Exact's frames, they take the frames the app's clock already runs and move with the time
+on a tenth-of-a-second timer of their own, which stops once their newest mark has left
+them. Their figures update every half second, and at once when the source stops, on the
+existing bounded publication pass in common run-loop modes, so touch tracking does not
+suspend them. Measuring the screen, the charts take every UI update and glide on Core
+Animation, and the card reads on a half-second timer of its own in place of
+publications, which stops as it hides. The reader creates no display link, reads nothing
+while the card is hidden, paused or detached, and keeps at most 60 half-second samples;
+the first read after a pause covers the paused span. During native scrolling, a card
+measuring Exact's frames stays on the app callback source; in development builds on iOS
+18 and later the separate experimental scroll source reaches `perf frames` and the
+report.
 
 `perf frames health` exposes the metrics. `state.frameHealthUI` contains only the
 card's visibility and window-local bounds, marked as host controls outside app nodes.
@@ -3507,16 +3512,17 @@ sample. The observer reports completion-deadline overruns. Its cadence is unknow
 passive updates can pause while a finger rests, so they contribute no FPS, interval
 histogram or maximum-gap population. This observer is not presentation feedback.
 
-On macOS, Develop offers Frame Health, and the card's Details and Share work
-as on iOS. Actions follow the responder chain to the eligible window; an embedder opts
-in by passing `frameHealthContainer` to `DevMenu.install`. The standalone adapter
-supplies its host slot. The card takes the clicks within its bounds and moves without
-changing the app's viewport. Details shows within the card on both platforms, with the
-app's frames. Active reader updates are coalesced at half-second intervals across the
-process. Lifecycle changes may publish immediately; there is no idle publication
-timer. macOS spatial motion, canvases and press feedback request the current display
-maximum, including above 120 Hz; press clocks are per window and update when its
-screen changes.
+On macOS, Develop offers Frame Health, and the card's Details and Share work as on iOS.
+Actions follow the responder chain to the eligible window; an embedder opts in by
+passing `frameHealthContainer` to `DevMenu.install`. The standalone adapter supplies its
+host slot. The card takes the clicks within its bounds and moves without changing the
+app's viewport. Details shows within the card on both platforms, with the app's frames.
+Active reader updates are coalesced at half-second intervals across the process.
+Lifecycle changes may publish immediately; there is no idle publication timer, and only
+an iOS card measuring the screen reads on a timer of its own, twice a second while it
+shows. macOS spatial motion, canvases and press feedback request the current display
+maximum, including above 120 Hz; press clocks are per window and update when its screen
+changes.
 
 `exact.frame-health/2` is a versioned JSON schema. Field explanations stay here to
 leave bytes for evidence. `columns` names each field in a `hitches` row. Export keeps
@@ -3542,25 +3548,28 @@ offsets (35 minutes either way) and durations (71 minutes).
 | `main_landed_offset_us`, `apply_began_offset_us`, `apply_finished_offset_us` | Main arrival and outermost presenter-apply boundaries. Apply excludes legacy sampler bookkeeping |
 | `work_target_offset_us`, `operations` | Captured frame update's target and batch operation count; an apply without a frame target has no work target |
 
-A report whose `source` is `ui-update`, the card's measure of the screen's UI updates
-on iOS 18 and later, has no frame times and none of Exact's owner or apply boundaries,
-so its rows have only `sequence`, `capture`, `generation`, `age_us`, `flags`,
+A report whose `source` is `ui-update`, the card's measure of the screen's UI updates on
+iOS 18 and later, has no frame times and none of Exact's owner or apply boundaries, so
+its rows have only `sequence`, `capture`, `generation`, `age_us`, `flags`,
 `target_offset_us`, `callback_us`, `before_callback_us`, `after_offset_us`,
 `after_callback_us`, `waited_us`, `exact_us`, `card_us` and `layouts`. There
 `callback_us` is the update's work: the main thread's time from its scheduling until its
 last Core Animation commit, less `waited_us`, the time it waited between them, as UIKit
-lets it for input. The work is taken to end at the commit. `target_offset_us` is UIKit's
-completion deadline from the work's start, negative when the work began after it; work
-longer than it is late. `before_callback_us` is the previous update's work, and
-`after_offset_us` and `after_callback_us` when the next update's work began and its
-length. `exact_us` is the
-part of the work in Exact's host phases (applying batches, rows, text, scroll
-callbacks, pictures and waits on the runtime), `card_us` the card's own, its drawing
-included, and `layouts` how many nodes' views UIKit laid out; the rest is UIKit's, the
-system's and Core Animation's commit, and Exact's work outside its phases, such as
-laying out those views. Null is unmeasured.
-Updates that follow each other as one finishes are the main thread working without a
-pause; a single long one between short ones is one stall, such as a new screen.
+lets it for input. The commit is as the card sees it, in an action just after Core
+Animation's, behind any action ahead of its own in that phase, so a commit that ends
+just before the deadline can count as late; an update with no commit seen ends at its
+completion. The work is placed to end at the commit, so its effective start, the commit
+less the work, is when it began only where its waits all came first. `target_offset_us`
+is UIKit's completion deadline from that effective start, negative when the deadline
+came before it; work longer than it is late. `before_callback_us` is the previous
+update's work, and `after_offset_us` and `after_callback_us` the next update's effective
+start and its work. `exact_us` is the part of the work in Exact's host phases (applying
+batches, rows, text, scroll callbacks, pictures and waits on the runtime), `card_us` the
+card's own, its drawing included, and `layouts` how many nodes' views UIKit laid out;
+the rest is UIKit's, the system's and Core Animation's commit, and Exact's work outside
+its phases, such as laying out those views. Null is unmeasured. Updates that follow each
+other as one finishes are the main thread working without a pause; a single long one
+between short ones is one stall, such as a new screen.
 
 Offsets are relative to the event's origin; negative means before it. Null boundaries
 are unavailable, never zero-cost work. Callback events attach the largest apply since
@@ -3572,18 +3581,18 @@ CPU time. The report cannot attribute unobserved main-thread work, GPU execution
 presentation, input latency or native-only animations. Zero counts or an empty report do not establish healthy rendering. Live agent scheduler/apply parity remains unqualified; reproduce
 outside an agent run for production behavior.
 
-`flags` bits: 0 callback gap >1.5 stable periods, 1 synchronous callback past target,
-2 captured tick apply past its target, 3 following callback known, 4 work known,
-5 largest apply in the callback interval; 16 motion, 17 spatial, 18 canvas, 19 frame
-tasks, 20 fill pending, 21 tick pending, 22 hatch frames, 23 workload flags known
-(otherwise bits 16–22 are unavailable); bits 32–33 thermal state
-(0 nominal, 1 fair, 2 serious, 3 critical), 34 Low Power Mode, 35 card shown, 36 card
-dragging. A `ui-update` row's bits 16–23 are the app session's as its update was
-scheduled, and bits 40–46 the users of Exact's frame clock asking for frames then: 40 the
-session's clock, 41 a list's offset correction, 42 a navigation reveal, 43 the scroll pump,
-44 deferred heavy leaves, 45 a live SVG filter, 46 a textarea's resize grip; with none of
-them, UIKit or the system asked. These cached observations do not establish which
-activity caused the hitch.
+`flags` bits: 0 callback gap >1.5 stable periods, 1 synchronous callback past target, 2
+captured tick apply past its target, 3 following callback known, 4 work known, 5 largest
+apply in the callback interval; 16 motion, 17 spatial, 18 canvas, 19 frame tasks, 20
+fill pending, 21 tick pending, 22 hatch frames, 23 workload flags known (otherwise bits
+16–22 are unavailable); bits 32–33 thermal state (0 nominal, 1 fair, 2 serious, 3
+critical), 34 Low Power Mode, 35 card shown, 36 card dragging. A `ui-update` row's bits
+16–23 are the app session's and bits 35–36 the card's as its update was scheduled, and
+bits 40–46 the users of Exact's frame clock, in any session of the process, asking for
+frames then: 40 the session's clock, 41 a list's offset correction, 42 a navigation
+reveal, 43 the scroll pump, 44 deferred heavy leaves, 45 a live SVG filter, 46 a
+textarea's resize grip; with none of them, UIKit or the system asked. These cached
+observations do not establish which activity caused the hitch.
 
 Save received text as `report.frame-health.json` if needed, then use
 `bun scripts/agent.mjs trace report.frame-health.json` for the expert readout. This

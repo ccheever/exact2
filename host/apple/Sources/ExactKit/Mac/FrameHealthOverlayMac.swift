@@ -11,8 +11,9 @@ final class FrameHealthOverlayMac: NSView {
     private var corner = FrameHealthCardFace.Corner(maxY: true)
     /// Paused, the card shows what it read at the pause, and goes on measuring
     private var paused = false
-    /// While paused, what the card shows: a copy of its reader, and the request and display it was read under
-    private var frozen: (reader: FrameHealthCardReader, rates: FrameHealthCardText.Rates, display: FrameHealthCardText.Display)?
+    /// While paused, the request and display the reader was read under; the reader takes no samples while the
+    /// collector goes on measuring, so the first read after it covers the paused span
+    private var frozen: (rates: FrameHealthCardText.Rates, display: FrameHealthCardText.Display)?
     var desiredVisible = false
     /// The session the agent report describes
     weak var session: ExactSession?
@@ -95,7 +96,7 @@ final class FrameHealthOverlayMac: NSView {
             reader.sample(health, now: now, force: true)
             health.chart = card.chart
             card.chart.follow(true)
-        } else {
+        } else if !paused {
             // A stopped source changes only at lifecycle boundaries, so every one is read
             reader.sample(health, now: now, force: health.snapshot().running == 0)
         }
@@ -113,7 +114,7 @@ final class FrameHealthOverlayMac: NSView {
 
     private func render() {
         guard let health else { return }
-        card.update(FrameHealthCardPresentation(reader: frozen?.reader ?? reader, rates: rates, display: display,
+        card.update(FrameHealthCardPresentation(reader: reader, rates: rates, display: display,
             status: paused ? .paused : health.snapshot().running != 0 ? .live : .idle,
             unavailable: health.enabled ? reader.reading ? nil : FrameHealthReaders.full : health.unavailableReason, health: health,
             details: card.state.showsDetails))
@@ -140,7 +141,7 @@ final class FrameHealthOverlayMac: NSView {
         case .status:
             // Paused, the card keeps what it showed and goes on measuring; resumed, it shows the present, the paused
             // span included
-            frozen = paused ? nil : (reader.copy(), rates, display)
+            frozen = paused ? nil : (rates, display)
             paused.toggle()
             card.chart.hold(paused, at: CACurrentMediaTime())
             if !paused { card.chart.follow(true) }
@@ -181,10 +182,10 @@ final class FrameHealthOverlayMac: NSView {
         }
         switch kind {
         case .report: FrameHealthReport.prepare(health: health.reportSource, session: session) { present(String(decoding: $0, as: UTF8.self)) }
-        case .summary: present(FrameHealthCardText.summary(reader: frozen?.reader ?? reader, rates: rates, display: display, paused: paused,
+        case .summary: present(FrameHealthCardText.summary(reader: reader, rates: rates, display: display, paused: paused,
             health: health).text)
         case .image:
-            let picture = FrameHealthCardText.picture(reader: frozen?.reader ?? reader, chart: card.chart, rates: rates, display: display, paused: paused,
+            let picture = FrameHealthCardText.picture(reader: reader, chart: card.chart, rates: rates, display: display, paused: paused,
                 health: health, palette: card.palette)
             if let image = picture.flatMap(NSImage.init(data:)) { present(image) }
         }
