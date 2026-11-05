@@ -6,6 +6,15 @@ disabled. Use this handoff when taking over the work.
 
 ## Active handoff — November 1
 
+The November 5 continuation improves filtered Home search. Results are kept per
+connected environment and published as each answer arrives, so a slow fleet
+member no longer blanks an already matching list. Related query refinements keep
+their prior matches visible until the new answer settles; unrelated queries stay
+empty while pending. The focused search suite covers incremental answers,
+related-query retention and stale unrelated results. Native filtered-state
+screenshots and accessibility readback remain open; this source unit makes no
+frame-rate claim.
+
 The coordinator worktree is clean at `fe882b504b` on
 `t3/coordinate-t3-ios-mini`. The branch is pushed to PR216's
 `feat(example)/t3-code-ios` destination. PR216 remains draft, unmerged and
