@@ -206,18 +206,6 @@ final class ActivityResolverTests: XCTestCase {
             renderer.scale = 1; renderer.proposedSize = ProposedViewSize(width: 300, height: nil)
             return try XCTUnwrap(renderer.cgImage)
         }
-        func darkest(_ image: CGImage) throws -> Int {
-            let w = image.width, h = image.height
-            var data = [UInt8](repeating: 0, count: w * h * 4)
-            let context = try XCTUnwrap(CGContext(data: &data, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-            context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-            var darkest = 765
-            for at in stride(from: 0, to: data.count, by: 4) {
-                let sum = Int(data[at]) + Int(data[at + 1]) + Int(data[at + 2])
-                darkest = min(darkest, sum)
-            }
-            return darkest
-        }
         let freshInk = try darkest(try render(fresh)), keptInk = try darkest(try render(kept))
         XCTAssertLessThan(freshInk, 120, "black text on white")
         XCTAssertGreaterThan(keptInk, freshInk + 150, "the kept state is dimmed")
@@ -225,6 +213,31 @@ final class ActivityResolverTests: XCTestCase {
         _ = environment
         XCTAssertTrue(placeholder.placeholder)
         XCTAssertNotEqual(try darkest(try render(placeholder)), freshInk, "the placeholder is redacted")
+    }
+
+    private enum CaptureFailure: Error { case noInk }
+
+    private func darkest(_ image: CGImage) throws -> Int {
+        let w = image.width, h = image.height
+        var data = [UInt8](repeating: 0, count: w * h * 4)
+        let context = try XCTUnwrap(CGContext(data: &data, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var darkest = 765
+        for at in stride(from: 0, to: data.count, by: 4) where CapturePixels.painted(data, at: at) {
+            darkest = min(darkest, Int(data[at]) + Int(data[at + 1]) + Int(data[at + 2]))
+        }
+        guard darkest < 765 else { throw CaptureFailure.noInk }
+        return darkest
+    }
+
+    func testDarkestSkipsTransparentPixels() throws {
+        let context = try CapturePixelsTests.clearedContext(width: 2, height: 1)
+        XCTAssertThrowsError(try darkest(XCTUnwrap(context.makeImage())), "an empty capture has no ink")
+        context.setFillColor(CGColor(gray: 1, alpha: 1)); context.fill(CGRect(x: 1, y: 0, width: 1, height: 1))
+        XCTAssertThrowsError(try darkest(XCTUnwrap(context.makeImage())), "clear pixels beside white are not ink")
+        context.setFillColor(CGColor(gray: 0, alpha: 1)); context.fill(CGRect(x: 1, y: 0, width: 1, height: 1))
+        XCTAssertEqual(try darkest(XCTUnwrap(context.makeImage())), 0, "painted black text is dark")
     }
 }
 #endif
