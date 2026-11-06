@@ -40,17 +40,17 @@ shape PullRequestsData
 component PullRequests
   props
     data: PullRequestsData
-    refresh: action
-    action: action
-    query: action
+    reloadAction: action
+    selectAction: action
+    changeQuery: action
   state queryValue = ""
   state queryOwner = ""
   action editQuery(value: string)
     queryValue = value
     queryOwner = data.query
-    query(value)
+    changeQuery(value)
   action reload
-    refresh()
+    reloadAction()
   view
     column flex=1 min-height=0 font-family="DM Sans"
       row padding-left=16 padding-right=16 padding-top=4 padding-bottom=8 align-items="center" gap=8
@@ -59,7 +59,7 @@ component PullRequests
           t3-symbol symbol-name="arrow.clockwise" width=18 height=18
       row padding-left=16 padding-right=16 padding-bottom=10 gap=8
         input value=(queryOwner == data.query ? queryValue : data.query) input=editQuery placeholder="Search pull requests" aria-label="Search pull requests" testId="pull-requests-search" flex=1
-        button press=action("state", "all") aria-label="Show all pull request states" testId="pull-requests-filter" padding=8
+        button press=selectAction("state", "all") aria-label="Show all pull request states" testId="pull-requests-filter" padding=8
           t3-symbol symbol-name="line.3.horizontal.decrease.circle" width=19 height=19
       if data.error != ""
         column margin-left=16 margin-right=16 padding=16 border-radius=14 role="alert"
@@ -83,7 +83,7 @@ component PullRequests
                 text group.label font-size=13 font-weight=700
                 text `${group.count}` margin-left=5 font-size=13
               for row in group.rows key=row.key
-                button press=action("select", row.ref) testId=`pull-request-${row.number}` padding=12 margin-bottom=8 border-radius=14 text-align="left" background-color=(row.selected ? "#eef2ff" : "transparent")
+                button press=selectAction("select", row.ref) testId=`pull-request-${row.number}` padding=12 margin-bottom=8 border-radius=14 text-align="left" background-color=(row.selected ? "#eef2ff" : "transparent")
                   column gap=4
                     row align-items="center" gap=6
                       text `#${row.number}` font-size=13 font-weight=700
