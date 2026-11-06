@@ -270,7 +270,7 @@ component App
   resource appearance = appearance(preferences.serialized, viewport.prefersColorScheme) as shape Appearance
   resource look = theme(appearance.scheme, appearance.themeId) as shape Theme
   resource snapshotRead = snapshotRead() as shape SnapshotRead
-  resource data = snapshot(appearance.scheme, appearance.themeId, snapshotRead.serial, wallTime.epochAtZero + elapsed) as shape Snapshot
+  resource data = snapshot(appearance.scheme, appearance.themeId, snapshotRead.serial) with wallTime.epochAtZero + elapsed as shape Snapshot
   resource keyboard = keyboardSnapshot(`${top(nav).id}`, top(nav).url, data.revision) as shape MobileKeyboardSnapshot
   mutation keyboardCopied as shape MobileKeyboardResult refreshes keyboard
   mutation keyboardDismissed as shape MobileKeyboardResult refreshes keyboard

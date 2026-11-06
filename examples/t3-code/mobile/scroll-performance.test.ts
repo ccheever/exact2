@@ -16,7 +16,7 @@ test('scroll-facing snapshots use sampled clocks instead of a frame clock', () =
     const end = app.indexOf('\n', start);
     expect(app.slice(start, end)).not.toContain('performanceNow()');
   }
-  expect(app).toContain('resource data = snapshot(appearance.scheme, appearance.themeId, snapshotRead.serial, wallTime.epochAtZero + elapsed)');
+  expect(app).toContain('resource data = snapshot(appearance.scheme, appearance.themeId, snapshotRead.serial) with wallTime.epochAtZero + elapsed');
   expect(app).toContain('resource home = homeView(data.revision, wallTime.epochAtZero + elapsed');
   expect(app).toContain('resource threadData = threadView(data.revision, wallTime.epochAtZero + max(elapsed, agentsElapsed)');
   expect(app).toContain('wallTime.epochAtZero + performanceNow()');
