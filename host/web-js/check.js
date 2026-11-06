@@ -162,6 +162,17 @@ export function observe(views, inactive = () => false) {
     }
     return false;
   };
+  // Whether a box that scrolls sideways holds `el` clipped at rest, its middle `mx` past the box's edge, with room to scroll that
+  // middle in: a swipe row's action beside a pane in a wide window, where what a finger meets at the action's place is the pane.
+  const slides = (el, mx) => {
+    for (let s = el.parentElement; s; s = s.parentElement) {
+      if (!/^(auto|scroll)$/.test(getComputedStyle(s).overflowX) || s.scrollWidth <= s.clientWidth + 1) continue;
+      const left = s.getBoundingClientRect().left + s.clientLeft, right = left + s.clientWidth;
+      if (mx >= right) return s.scrollWidth - s.clientWidth - s.scrollLeft > mx - right + 0.5;
+      if (mx < left) return s.scrollLeft > left - mx + 0.5;
+    }
+    return false;
+  };
   const items = [];
   const out = new Set();
   // Outermost first, so a view past the viewport's side is named and not each of its children.
@@ -284,7 +295,7 @@ export function observe(views, inactive = () => false) {
           let c = hit; while (c.parentElement && !c.parentElement.contains(el)) c = c.parentElement;
           const cb = c.getBoundingClientRect();
           item.beneath = { by: viewOf(c), x: r2(cb.left), y: r2(cb.top), w: r2(cb.width), h: r2(cb.height) };
-          if (!reach(el, hit, false, my)) item.cover = { by: viewOf(hit), name: hit.localName, kind: modal && !modal.contains(hit) ? 'sheet' : 'node' };
+          if (!reach(el, hit, false, my) && !slides(el, b.left + b.width / 2)) item.cover = { by: viewOf(hit), name: hit.localName, kind: modal && !modal.contains(hit) ? 'sheet' : 'node' };
         }
       }
       if (text && !item.cut && b.bottom - H >= 2 && b.top < H && !reach(el, null, false)) item.cut = { edge: 'bottom', dx: 0, dy: r2(b.bottom - H) };

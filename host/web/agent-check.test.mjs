@@ -163,6 +163,29 @@ const SCROLLED = `component ScrolledFixture
         column testId="spacer" height=890 flex-shrink=0
         text testId="past" flex-shrink=0 "This line straddles the end of the scroll view"
 `;
+// A swipe row's action in a column beside a pane, as a wide window's list beside its detail: at rest the snap scroll clips the action
+// past the column's edge, where a finger meets the pane, and scrolling the row brings it in (`swipe-delete`, not covered). A box that
+// clips and does not scroll leaves its button as unreachable (`shut-delete`).
+const SWIPE_BESIDE = `component SwipeBesideFixture
+  state n = 0
+  action bump
+    n = n + 1
+  view
+    row testId="app" gap=0
+      column width=200 flex-shrink=0
+        scroll testId="swipe" overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
+          row
+            text width="100%" flex-shrink=0 scroll-snap-align="start" padding=12 "A row's content"
+            button testId="swipe-delete" press=bump width=88 flex-shrink=0 scroll-snap-align="end" padding=12
+              text "Delete"
+        column testId="shut" width=200 overflow="hidden"
+          row
+            text width=200 flex-shrink=0 padding=12 "A shut row"
+            button testId="shut-delete" press=bump width=88 flex-shrink=0 padding=12
+              text "Delete"
+      column width=190 flex-shrink=0
+        text testId="pane" "A pane"
+`;
 // LLP 1116.006 D5: a text judged on the fill under it — its own box's (a rounded bubble, whose corners show the page), a
 // bubble column's, the page's — in each scheme; and rows a scroller cuts, overlapping nothing past its edge.
 const BUBBLES = `component BubbleFixture
@@ -474,6 +497,12 @@ test('a page with every finding class has each found, by testId, in the scheme i
     expect(kinds(run)).toEqual({ count: ['overflow'] });
     expect(run.findings[0].detail.width).toBe(390);
   } finally { await sideways.close(); }
+  const beside = await open({ host: 'web', url: await built('swipe-beside', SWIPE_BESIDE), size: [390, 400] });
+  try {
+    const run = (await checkOp(beside, ['light'])).check[0];
+    const covered = Object.fromEntries(run.findings.filter((f) => f.kind === 'covered').map((f) => [f.node, f.kind]));
+    expect(covered).toEqual({ 'shut-delete': 'covered' });
+  } finally { await beside.close(); }
   const tall = await open({ host: 'web', url: await built('tall', TALL) });
   try {
     const t = kinds((await checkOp(tall, [])).check[0]);
