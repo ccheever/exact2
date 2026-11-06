@@ -237,6 +237,14 @@ test('web-build --out writes a site that serve.mjs serves by the hosting rule, r
       // (A served document names its build's generation in its base.)
       expect([path, accept, r.status, (await r.text()).replace(/<base href="[^"]*">/, '<base href="/">')]).toEqual([path, accept, status, page(file)]);
     }
+    writeFileSync(resolve(out, 'index.md'), '# Home\n');
+    writeFileSync(resolve(out, 'live.md'), '# Live\n');
+    for (const [path, accept, type, body] of [['/', 'text/markdown', 'text/markdown', '# Home\n'], ['/live', 'text/markdown, text/html;q=0.9', 'text/markdown', '# Live\n'],
+      ['/live', 'text/html, text/markdown;q=0.5', 'text/html', null], ['/item/7', 'text/markdown, text/html;q=0.9', 'text/html', null]]) {
+      const r = await fetch(url(path), { headers: { accept } });
+      expect([path, accept, r.status, r.headers.get('content-type').split(';')[0], r.headers.get('vary')]).toEqual([path, accept, 200, type, 'Accept']);
+      if (body) expect(await r.text()).toBe(body);
+    }
     // A page sent before the build is replaced still loads its build's files: the build replaced is kept beside the
     // output by its generation (`dist.gen`), as target/web-dist's is.
     const generation = async () => /<base href="\/\.exact\/gen\/([0-9a-f]{32})\/">/.exec(await (await fetch(url('/'), { headers: html })).text())?.[1];

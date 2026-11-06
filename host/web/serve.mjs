@@ -18,7 +18,7 @@ import { withLock } from './build-lock.mjs';
 import { canonicalBytes } from '../../scripts/deploy-signing.mjs';
 import { copyShaders, developmentURLScheme, resolveApp, webDist, webHostFiles } from '../../scripts/app.mjs';
 import { settingChanges } from '../../js/bake/src/__exact_env.mjs';
-import { acceptsHTML, appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
+import { acceptsHTML, appDocumentPath, prefersMarkdown, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
 import { canonical, matchPattern } from '../web-js/route-pattern.js';
 import { guardFlags } from '../../scripts/help.mjs';
 
@@ -900,10 +900,11 @@ export async function serveBuildTree(dist, req, res, { pinned = null, pages = nu
     sendStaticBody(req, res, answers.body, { 'content-type': answers.status === 200 ? 'application/json' : 'text/plain; charset=utf-8', 'cache-control': answers.status === 200 ? 'private, max-age=3600, immutable' : 'no-store' }, answers.status);
     return;
   }
-  let r = target ? await servedFile(dist, target.pathname, req.headers.accept, { pinned }) : { status: 404 };
+  const negotiated = !!target && !extname(target.pathname), markdown = negotiated && prefersMarkdown(req.headers.accept) ? await servedFile(dist, `${target.pathname.replace(/\/+$/, '') || '/index'}.md`, req.headers.accept, { pinned }) : null;
+  let r = markdown?.status === 200 ? markdown : target ? await servedFile(dist, target.pathname, req.headers.accept, { pinned }) : { status: 404 };
   // A request taking any type (curl's) is answered as a navigation where that is a page rendered for it, as any
   // server rendering pages answers it; a route the client draws stays a browser's.
-  if (pages && target && asksPage(req, target.pathname) && !acceptsHTML(req.headers.accept)) {
+  if (pages && target && r !== markdown && asksPage(req, target.pathname) && !acceptsHTML(req.headers.accept)) {
     const page = await servedFile(dist, target.pathname, 'text/html', { pinned });
     if (page.route === '/shell.html' && ['request', 'cached'].includes(page.render)) r = page;
   }
@@ -935,7 +936,7 @@ export async function serveBuildTree(dist, req, res, { pinned = null, pages = nu
   }
   if (!r.body) { res.writeHead(r.status, { 'cache-control': 'no-store', ...(r.status === 503 ? { 'retry-after': '1' } : {}) }); res.end(); return; }
   const type = webContentType(r.route);
-  if (!compression || r.status !== 200) { sendStaticBody(req, res, r.body, { 'content-type': type, 'cache-control': 'no-store' }, r.status); return; }
+  if (!compression || r.status !== 200) { sendStaticBody(req, res, r.body, { 'content-type': type, 'cache-control': 'no-store', ...(negotiated ? { vary: 'Accept' } : {}) }, r.status); return; }
   const body = Buffer.isBuffer(r.body) ? r.body : Buffer.from(r.body), digest = bodyDigest(body);
   let encoding = null;
   if (COMPRESSIBLE.has(type)) {
@@ -944,7 +945,7 @@ export async function serveBuildTree(dist, req, res, { pinned = null, pages = nu
     void compression.warm(digest, body);
   }
   const headers = { 'content-type': type, 'cache-control': 'no-cache', etag: `"${digest}${encoding ? `-${encoding}` : ''}"`,
-    ...(COMPRESSIBLE.has(type) ? { vary: 'Accept-Encoding' } : {}), ...(encoding ? { 'content-encoding': encoding } : {}) };
+    ...(COMPRESSIBLE.has(type) || negotiated ? { vary: [negotiated && 'Accept', COMPRESSIBLE.has(type) && 'Accept-Encoding'].filter(Boolean).join(', ') } : {}), ...(encoding ? { 'content-encoding': encoding } : {}) };
   if (matchesETag(req.headers['if-none-match'], headers.etag)) {
     const { 'content-type': _, 'content-encoding': __, ...validators } = headers;
     res.writeHead(304, validators); res.end(); return;
@@ -1081,9 +1082,8 @@ export function webContentType(route) {
   if (route === AUTH_CALLBACK) return 'text/html';
   return {
     '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json',
-    '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan',
-    '.mp4': 'video/mp4', '.webm': 'video/webm', '.vtt': 'text/vtt',
-    '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.oga': 'audio/ogg',
+    '.txt': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8', '.xml': 'application/xml', '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan',
+    '.mp4': 'video/mp4', '.webm': 'video/webm', '.vtt': 'text/vtt', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.oga': 'audio/ogg',
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.pdf': 'application/pdf',
     '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.wgsl': 'text/wgsl',
     // A game's baked assets (game/README "Assets"): binary, and compressible.

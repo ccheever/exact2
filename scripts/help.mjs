@@ -132,7 +132,8 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
 file at its path; else, for a browser's navigation to a path a route in routes.json matches,
 shell.html with 200, or for a render=request or cached route its page rendered under Bun
 (curl's request too); else 404.html with 404. A static host serves the directory so, with
-those routes' shell. Beside the app's sources, a page asked for after a source changed
+those routes' shell. A request preferring text/markdown (its Accept header) for a page whose
+.md file is beside it gets that file, with Vary: Accept. Beside the app's sources, a page asked for after a source changed
 builds the site again first (no restart); a build that fails is the answer, with its errors.
 Ports    one HTTP port, on 127.0.0.1 (--lan: every interface). Runs in the foreground until ^C.`,
     example: 'bun exact.mjs serve dist --port 3000',

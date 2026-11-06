@@ -99,6 +99,17 @@ export function webRequestURL(target) {
 const FILE_EXTENSIONS = new Set(['.html', '.htm', '.css', '.js', '.mjs', '.json', '.wasm', '.plan', '.map', '.txt', '.xml', '.pdf', '.zip',
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.svg', '.ico', '.mp4', '.webm', '.vtt', '.wav', '.mp3', '.m4a', '.aac', '.ogg', '.oga',
   '.ttf', '.otf', '.woff', '.woff2', '.wgsl', '.hbc', '.model', '.tex']);
+
+export function prefersMarkdown(accept = '') {
+  const quality = (type) => {
+    const range = String(accept ?? '').toLowerCase().split(',').map((r) => r.split(';').map((part) => part.trim())).find(([name]) => name === type);
+    const q = range?.slice(1).find((param) => param.startsWith('q='));
+    return !range ? 0 : q ? Number(q.slice(2)) || 0 : 1;
+  };
+  const markdown = quality('text/markdown');
+  return markdown > 0 && markdown >= quality('text/html');
+}
+
 /** Whether a request's `Accept` takes HTML (RFC 9110: the media type, any
  * case, at a quality above zero), as a browser's navigation does. With
  * `wildcard`, a range taking any type or any text type, or no header at
