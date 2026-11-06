@@ -350,7 +350,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
             removeSearch()
             attachedLayout = mode
             if glass { if #available(iOS 26.0, *) { makeGlassToolbar(route) } }
-            else { makeHeaderSearch(route); if config.layout == "compact" { makeLegacyTabs(route) } }
+            else { makeHeaderSearch(route) }
             // Native edits retain their text and caret across asynchronous root echoes.
             replaceQuery(query)
         }
@@ -442,7 +442,9 @@ private final class T3HomeChromeView: ExactNativeInstance {
     @available(iOS 26.0, *)
     private func makeGlassToolbar(_ route: ExactRoute) {
         if config?.layout == "compact" {
-            makeCompactTabs(route)
+            // The root Contract tablist owns UIKit's tab bar. Home only supplies
+            // its search header, so switching tabs never tears this route down.
+            makeHeaderSearch(route)
             return
         }
         let bar = UIView(); bar.translatesAutoresizingMaskIntoConstraints = false

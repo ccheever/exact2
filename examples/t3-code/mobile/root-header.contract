@@ -31,8 +31,8 @@ component MobileRootHeader
       if routeName == "newTaskDraft"
         button id="new-task-cancel" press=closeNewTask aria-label="Cancel" testId="new-task-cancel"
           text "Cancel"
-      if routeName != "home" and routeName != "threadQueue" and routeName != "newTaskDraft"
-        button id="back" press=back aria-label=(routeName == "settings" ? "Go back" : "Back") testId=`back-${routeName}`
+      if routeName != "home" and routeName != "threadQueue" and routeName != "newTaskDraft" and not routeName.startsWith("settings")
+        button id="back" press=back aria-label="Back" testId=`back-${routeName}`
           image "symbol:back" width=20 height=20
       if subtitle != ""
         view display="flex" flex-direction="column" align-items="center" min-width=0

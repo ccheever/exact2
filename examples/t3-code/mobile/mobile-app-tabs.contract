@@ -1,0 +1,19 @@
+component MobileAppTabBar
+  props
+    appTab: string
+    visible: bool
+    selectTab: action
+  view
+    row role="tablist" aria-label="T3 Code sections" testId="workspace-tabs" display=(visible ? "flex" : "none") position="absolute" left=0 right=0 bottom=0 z-index=100 height=56
+      button role="tab" aria-controls="panel-home" aria-selected=(appTab == "home") press=selectTab("home") testId="workspace-tab-threads"
+        image (appTab == "home" ? "symbol:sf/message-fill" : "symbol:sf/message")
+        text "Chats"
+      button role="tab" aria-controls="panel-pullRequests" aria-selected=(appTab == "pullRequests") press=selectTab("pullRequests") testId="workspace-tab-pullRequests"
+        image "symbol:sf/arrow-triangle-branch"
+        text "PRs"
+      button role="tab" aria-controls="panel-settingsUsage" aria-selected=(appTab == "settingsUsage") press=selectTab("settingsUsage") testId="workspace-tab-usage"
+        image "symbol:sf/chart-bar-xaxis"
+        text "Usage"
+      button role="tab" aria-controls="panel-settings" aria-selected=(appTab == "settings") press=selectTab("settings") testId="workspace-tab-settings"
+        image (appTab == "settings" ? "symbol:sf/gearshape-fill" : "symbol:sf/gearshape")
+        text "Settings"

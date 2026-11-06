@@ -9,8 +9,11 @@ use WorkspaceEntry from "./mobile-workspace.contract"
 use homeAutomationPath from "./home-routes.contract"
 
 fn newTaskModal(name: string, route: string, session: string, split: bool): bool = name == "newTask" and route == session and not split
-fn mobileRouteFormSheet(name: string, route: string, session: string, split: bool): string = name == "threadModel" or name == "newTaskModel" ? "composer" : newTaskModal(name, route, session, split) ? "new-task" : name == "settings" and not split ? "settings" : name == "connections" or name == "connect" ? "true" : ""
-fn mobileRoutePresentation(name: string, route: string, session: string, split: bool): string = name == "homeArrange" or name == "threadBrowser" or name == "threadDevices" or name == "settingsLegal" or (name == "settings" and split) ? "fullscreen" : name == "threadModel" or name == "newTaskModel" or newTaskModal(name, route, session, split) or (name == "settings" and not split) or name == "threadQueue" or name.startsWith("git") or name == "connections" or name == "connect" or name == "threadTerminalCapture" ? "modal" : ""
+// Settings is a root tab on compact phones, so it stays in the tab stack with
+// the bar visible. Its child pages use the normal stack back action. Split
+// layouts still present the settings root as a full-screen detail pane.
+fn mobileRouteFormSheet(name: string, route: string, session: string, split: bool): string = name == "threadModel" or name == "newTaskModel" ? "composer" : newTaskModal(name, route, session, split) ? "new-task" : name == "connections" or name == "connect" ? "true" : ""
+fn mobileRoutePresentation(name: string, route: string, session: string, split: bool): string = name == "homeArrange" or name == "threadBrowser" or name == "threadDevices" or name == "settingsLegal" or (name == "settings" and split) ? "fullscreen" : name == "threadModel" or name == "newTaskModel" or newTaskModal(name, route, session, split) or name == "threadQueue" or name.startsWith("git") or name == "connections" or name == "connect" or name == "threadTerminalCapture" ? "modal" : ""
 // ThreadQueueControl uses 0.65 and 0.95 snap fractions. Exact's navigation
 // host accepts percentage detents and maps them to UIKit custom detents.
 fn mobileRouteDetent(name: string, route: string, session: string, split: bool): string = name == "threadQueue" ? "65% 95%" : name == "threadModel" or name == "newTaskModel" or newTaskModal(name, route, session, split) ? "large" : ""

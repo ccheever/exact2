@@ -6,6 +6,8 @@ import { overlayMobilePreferenceChoices } from './settings-preferences';
 import { contractComponent, value, type Env } from '../tests/support/contract-action-fixture';
 
 const pairingContract = readFileSync(new URL('./mobile-root-state.contract', import.meta.url), 'utf8');
+const appContract = readFileSync(new URL('./app.contract', import.meta.url), 'utf8');
+const appTabsContract = readFileSync(new URL('./mobile-app-tabs.contract', import.meta.url), 'utf8');
 const pairingNames = ['pairingUiInitial', 'pairingUiVisit', 'pairingUiPreparing', 'pairingUiPreparedApplies',
   'pairingUiPrepared', 'pairingUiPreparedReply', 'pairingUiResolved', 'pairingReplyPlan'];
 
@@ -171,6 +173,41 @@ describe('mobile pairing source', () => {
       .toEqual({ url: '', host: '', code: '', generation: 0, visit: '', editRevision: 0, scanned: true });
     expect(() => answer('pairingFields', [])).toThrow('Unknown mobile source: pairingFields');
     expect(() => answer('missing', [])).toThrow('Unknown mobile source');
+  });
+});
+
+describe('root tab navigation', () => {
+  test('renders every tab stack and a persistent tablist below the route viewport', () => {
+    expect(appContract).toContain('for tab in nav.tabs key = tab.name');
+    expect(appContract).toContain('column id=\"workspace-panel\" position=\"relative\" width=(workspace.usesSplitView ? workspace.contentSettledWidth : \"100%\") height=\"100%\" flex=(workspace.usesSplitView ? 0 : 1)');
+    expect(appContract).toContain('column role=\"tabpanel\" id=`panel-${tab.name}` position=\"absolute\" top=0 left=0 right=0 bottom=(workspace.usesSplitView or not appTabRoot ? 0 : 56)');
+    expect(appTabsContract).toContain('row role=\"tablist\" aria-label=\"T3 Code sections\"');
+    expect(appTabsContract).toContain('aria-selected=(appTab == \"settings\") press=selectTab(\"settings\")');
+    expect(appContract).toContain('if change.kind == \"close\" and top(nav).name == \"settings\"\n            nav = select(nav, \"home\")');
+    expect(appContract).toContain('id=\"workspace-panel\" position=\"relative\"');
+    expect(appContract).toContain('MobileAppTabBar(appTab=appTab, visible=(not workspace.usesSplitView and appTabRoot)');
+  });
+
+  test('selecting a tab preserves its existing stack and settings close selects Home', () => {
+    const root = contractComponent('mobile/app.contract', 'App');
+    const home = { id: 'home', name: 'home' }, settings = { id: 'settings', name: 'settings' };
+    const state: Env = { nav: [home, settings], settingsVisits: [], settingsEvent: { kind: 'close' }, workspaceEntries: [] };
+    const scope: Env = {
+      select: (nav: Env[], name: string) => name === 'home' ? [home] : [settings],
+      path: (name: string) => name,
+      top: (nav: Env[]) => nav.at(-1),
+      settingsEventPlan: () => ({ records: [], close: true }),
+    };
+    root.call('selectTab', state, scope, ['settings']);
+    expect(state.nav).toEqual([settings]);
+    root.call('didSettingsEvent', state, scope, []);
+    expect(state.nav).toEqual([home]);
+
+    const settingsChild = { id: 'settings-appearance', name: 'settingsAppearance' };
+    const childState: Env = { nav: [home, settings, settingsChild], settingsVisits: [], settingsEvent: { kind: 'back' }, workspaceEntries: [] };
+    const childScope: Env = { ...scope, back: (nav: Env[]) => nav.slice(0, -1), settingsEventPlan: () => ({ records: [], close: true }) };
+    root.call('didSettingsEvent', childState, childScope, []);
+    expect(childState.nav).toEqual([home, settings]);
   });
 });
 
