@@ -14,23 +14,21 @@ interactive hit target.
 ## Lean in
 
 The workspace wrapper now passes pointer input through to the selected tab panel
-and its direct route columns. The selected panel remains interactive and hidden
-tab panels remain inert, so the four app tab stacks stay mounted without a
-full-screen wrapper stealing touches. Settings remains a root tab with the
-native header's Close control; pushed Settings routes keep the tab stack and
+and only the selected route at the top of that tab's stack is visible and
+interactive. Older routes and inactive tab panels remain mounted for state
+retention but cannot cover the active route. Settings remains a root tab with
+the native header's Close control; pushed Settings routes keep the tab stack and
 native Back behavior.
 
 ## Needed
 
-The local device-agent session was unavailable during the parent verification
-attempt. A reviewer drive on the signed iOS build reached Settings → Appearance
-and returned with platform Back while retaining the Settings root; a fresh
-parent device capture is still useful when the agent service is available.
+The first signed drive exposed full-screen retained route wrappers covering
+Settings, PRs and Usage rows. The corrected Contract gates visibility and hit
+testing to the active route; a fresh signed-device drive is required to verify
+the fix after rebuilding.
 
 ## Checkpoints
 
 - Contract build: passed.
 - `app.test.ts`: 31 tests, 131 assertions passed.
 - iOS no-install build: passed.
-- Reviewer native drive: Settings root and the persistent tab bar were present;
-  Appearance pushed and platform Back returned to the retained Settings root.

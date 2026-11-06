@@ -179,13 +179,13 @@ describe('mobile pairing source', () => {
 describe('root tab navigation', () => {
   test('renders every tab stack and a persistent tablist below the route viewport', () => {
     expect(appContract).toContain('for tab in nav.tabs key = tab.name');
-    expect(appContract).toContain('column id=\"workspace-panel\" position=\"relative\" width=(workspace.usesSplitView ? workspace.contentSettledWidth : \"100%\") height=\"100%\" flex=(workspace.usesSplitView ? 0 : 1)');
-    expect(appContract).toContain('column id=\"workspace-panel\" position=\"relative\" width=(workspace.usesSplitView ? workspace.contentSettledWidth : \"100%\") height=\"100%\" flex=(workspace.usesSplitView ? 0 : 1) flex-shrink=(workspace.usesSplitView ? 0 : 1) min-width=0 min-height=0 pointer-events=\"none\"');
-    expect(appContract).toContain('column role=\"tabpanel\" id=(workspace.usesSplitView and tab.name == appTab ? \"workspace-panel\" : `panel-${tab.name}`) position=\"absolute\" top=0 left=0 right=0 bottom=(workspace.usesSplitView or not appTabRoot ? 0 : 56) visibility=(tab.name == appTab ? \"visible\" : \"hidden\") aria-hidden=(tab.name != appTab) pointer-events=(tab.name == appTab ? \"auto\" : \"none\")');
+    expect(appContract).toContain('column id=\"workspace-shell\" position=\"relative\" width=(workspace.usesSplitView ? workspace.contentSettledWidth : \"100%\") height=\"100%\" flex=(workspace.usesSplitView ? 0 : 1)');
+    expect(appContract).toContain('column role=\"tabpanel\" id=(workspace.usesSplitView and tab.name == appTab ? \"workspace-panel\" : `panel-${tab.name}`) position=\"absolute\" top=0 left=0 right=0 bottom=(workspace.usesSplitView or not appTabRoot ? 0 : 56) visibility=(tab.name == appTab ? \"visible\" : \"hidden\") aria-hidden=(tab.name != appTab) pointer-events=\"none\"');
+    expect(appContract).toContain('column id=`mobile-route-${entry.id}` navigationKey=`${entry.id}` pointer-events=(tab.name == appTab and entry.id == top(nav).id ? \"auto\" : \"none\") visibility=(tab.name == appTab and entry.id == top(nav).id ? \"visible\" : \"hidden\") aria-hidden=(tab.name != appTab or entry.id != top(nav).id)');
     expect(appTabsContract).toContain('row role=\"tablist\" aria-label=\"T3 Code sections\"');
     expect(appTabsContract).toContain('aria-selected=(appTab == \"settings\") press=selectTab(\"settings\")');
     expect(appContract).toContain('if change.kind == \"close\" and top(nav).name == \"settings\"\n            nav = select(nav, \"home\")');
-    expect(appContract).toContain('id=\"workspace-panel\" position=\"relative\"');
+    expect(appContract).toContain('id=\"workspace-shell\" position=\"relative\"');
     expect(appContract).toContain('MobileAppTabBar(appTab=appTab, visible=(not workspace.usesSplitView and appTabRoot)');
   });
 
