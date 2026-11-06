@@ -1,11 +1,11 @@
 # Recipe: foldables
 
-The iPhone Duo splits its inner display at the hinge when partially folded.
+A foldable, such as an iPhone Duo, splits its inner display at the hinge when partially folded.
 `exactViewport()` uses web names: `devicePosture` is `"folded"`, and
 `horizontalViewportSegments` (side by side, a book) or `verticalViewportSegments` (one
 above the other, a laptop) is 2. `env(viewport-segment-<left|top|width|height> <x> <y>)`
-places a box on segment `x, y` (LLP 1078). Duo-only native code needs no earlier-system path:
-all Duos run iOS 27.1+, so `#available(iOS 27.1, *)` admits APIs such as `UIHinge`.
+places a box on segment `x, y` (LLP 1078). All Duos run iOS 27.1+, so Duo-only native code
+can use APIs such as `UIHinge` behind `#available(iOS 27.1, *)` with no fallback.
 
 ```contract
 shape Viewport
@@ -41,7 +41,7 @@ On a fold ([HIG](https://developer.apple.com/design/human-interface-guidelines/d
 - A route on the trailing segment keeps its title with
   `navigationBar=(book ? "none" : "auto")`: on a book fold its first-child `header`
   paints in it as written, with its own Back if pushed; otherwise it is UIKit's bar.
-- Place panes in reading order, starting on the leading segment: segment 1 for
+- Place panes in reading order, leading segment first: segment 1 for
   right-to-left text, since segments count from the left.
 - For a laptop fold, place authored controls on the bottom segment, as the talk says.
   Cap a bottom sheet's `max-height` at both the room below its header and
