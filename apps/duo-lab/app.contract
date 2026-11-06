@@ -1,3 +1,5 @@
+use ArrangementScreen from "./arrangement.contract"
+
 // Duo Lab (LLP 1078 D8): the first consumer of `device-posture` and the
 // viewport segments, and the iPhone Duo's stress fixture — what
 // `bun scripts/smoke.mjs duo` drives fully open, partially folded and closed.
@@ -13,6 +15,8 @@
 
 routes nav
   tab fold "/"
+  tab panes "/panes"
+    panes-next "/panes/next"
   tab images "/images"
   tab reflow "/reflow"
   tab combos "/combos"
@@ -46,6 +50,8 @@ shape FeedRow
   body: string
 shape KeyboardRow
   id: number
+shape ArrangementSupport
+  available: bool
 
 style Screen
   position="absolute"
@@ -59,6 +65,14 @@ style Screen
 style ReadableList
   margin-left="max(0px, calc(env(-exact-readable-content-corners-inset-left) - env(-exact-layout-margins-corners-inset-left)))"
   margin-right="max(0px, calc(env(-exact-readable-content-corners-inset-right) - env(-exact-layout-margins-corners-inset-right)))"
+// Region insets clear obstructions; keep a text gutter inside them, even when they are zero.
+style ReadingBody
+  width="100%"
+  box-sizing="border-box"
+  padding-top=16
+  padding-bottom=16
+  padding-left="max(calc(env(-exact-safe-area-corners-inset-left) + 16px), env(-exact-readable-content-corners-inset-left))"
+  padding-right="max(calc(env(-exact-safe-area-corners-inset-right) + 16px), env(-exact-readable-content-corners-inset-right))"
 // The safe area kept clear of the panel's rounded corners (LLP 1123 D10)
 style Safe
   box-sizing="border-box"
@@ -101,6 +115,7 @@ style Card
 fn sheetStop(projected: number): number = projected < 300 ? 200 : 400
 
 component DuoLab
+  resource paneSupport = arrangementSupport() as shape ArrangementSupport
   resource viewport = exactViewport() as shape Viewport
   resource items = items() as shape Item[]
   resource rows = imageRows() as shape ImageRow[]
@@ -145,6 +160,8 @@ component DuoLab
     nav = select(nav, name)
   action openNote
     nav = push(nav, path("note"))
+  action openPanesNext
+    nav = push(nav, path("panes-next"))
   action back
     nav = back(nav)
   action navigate(location: string)
@@ -252,10 +269,10 @@ component DuoLab
                         row
                           text "Tap the first field, then Focus last. The last field and Done should appear above the keyboard. Use First to jump back, and repeat."
                   if entry.name == "keyboard-editor"
-                    scroll id=`keyboard-scroll-${entry.id}` flex=1 min-height=0 padding-top=16 padding-bottom=16 padding-left="env(-exact-readable-content-corners-inset-left)" padding-right="env(-exact-readable-content-corners-inset-right)" testId="keyboard-editor-scroll"
-                      column gap=16
+                    scroll id=`keyboard-scroll-${entry.id}` flex=1 min-height=0 width="100%" box-sizing="border-box" testId="keyboard-editor-scroll"
+                      column class=ReadingBody gap=16
                         text "Type sample text. Try a cancelled swipe, a completed swipe, and the native Back button."
-                        input id="keyboard-editor" hatch="keyboard-field" value=checkEditor input=checkWriteEditor placeholder="Type here" aria-label="Editor" testId="keyboard-editor" width="100%"
+                        input id="keyboard-editor" hatch="keyboard-field" value=checkEditor input=checkWriteEditor placeholder="Type here" aria-label="Editor" testId="keyboard-editor" width="100%" box-sizing="border-box"
                         button press=checkDismissBack testId="keyboard-dismiss-back"
                           text "Dismiss keyboard and go Back"
                         text "If a blank band appears, tap Share immediately. The file keeps the recent geometry from before the share sheet."
@@ -276,8 +293,9 @@ component DuoLab
                         button press=dismiss testId="keyboard-form-done"
                           text "Done"
                   if entry.name == "keyboard-search"
-                    scroll id=`keyboard-scroll-${entry.id}` flex=1 min-height=0 padding-top=16 padding-bottom=16 padding-left="env(-exact-readable-content-corners-inset-left)" padding-right="env(-exact-readable-content-corners-inset-right)"
-                      text "Type sample text in the header, then use Back. The previous screen should show the final committed text and one blur. Repeat with a swipe. Check the committed text after Back, then Share from that screen; recording continues through Back."
+                    scroll id=`keyboard-scroll-${entry.id}` flex=1 min-height=0 width="100%" box-sizing="border-box" testId="keyboard-search-scroll"
+                      column class=ReadingBody
+                        text "Type sample text in the header, then use Back. The previous screen should show the final committed text and one blur. Repeat with a swipe. Check the committed text after Back, then Share from that screen; recording continues through Back." testId="keyboard-search-description"
               // Reflow and Images scroll the whole width under a header that is
               // UIKit's navigation bar, whose large title UIKit takes away as the
               // scroller immediately following the header moves. Fold, Combinations
@@ -288,24 +306,29 @@ component DuoLab
                   header class=Head
                     text "Images" role="heading" aria-level=1 testId="images-title"
                     text `${rows.length} ${rows.length == 1 ? "row" : "rows"} over four pictures; fold mid-scroll.`
-                  list id="image-list" appearance="none" virtualized=true estimated-item-height=236 flex=1 min-height=0 width="100%" box-sizing="border-box" padding-left="env(-exact-readable-content-corners-inset-left)" padding-right="env(-exact-readable-content-corners-inset-right)" overflow-x="hidden" testId="image-list"
+                  list id="image-list" appearance="none" virtualized=true estimated-item-height=236 flex=1 min-height=0 width="100%" box-sizing="border-box" overflow-x="hidden" testId="image-list"
                     for row in rows key=row.id
-                      column width="100%" box-sizing="border-box" padding-top=12 testId=`image-row-${row.id}`
-                        image row.asset aria-label=row.caption width="100%" height=190 border-radius=12 object-fit="cover" background-color="-exact-secondary-background"
-                        text row.caption font-size=13 padding-top=6 color="-exact-secondary-label"
+                      column class=ReadingBody padding-top=12 padding-bottom=0 testId=`image-row-${row.id}`
+                        image row.asset aria-label=row.caption width="100%" height=190 border-radius=12 object-fit="cover" background-color="-exact-secondary-background" testId=`image-${row.id}`
+                        text row.caption font-size=13 padding-top=6 color="-exact-secondary-label" testId=`image-caption-${row.id}`
               if entry.name == "reflow"
                 column navigationKey=`${entry.id}` navigationScroll="reflow-scroll" class=Screen testId="screen-reflow"
                   header class=Head
                     text "Reflow" role="heading" aria-level=1 testId="reflow-title"
-                  scroll id="reflow-scroll" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-left="env(-exact-readable-content-corners-inset-left)" padding-right="env(-exact-readable-content-corners-inset-right)" testId="reflow-scroll"
-                    column width="100%" box-sizing="border-box" padding-top=16 padding-bottom=16 gap=16
+                  scroll id="reflow-scroll" flex=1 min-height=0 width="100%" box-sizing="border-box" testId="reflow-scroll"
+                    column class=ReadingBody gap=16
                       text doc.body markup="markdown" testId="document" width="100%" font-size=17 line-height="26px"
                       text "Feed" font-size=22 font-weight=700 testId="feed-title"
                       for post in feed key=post.id
                         row gap=10 class=Card testId=`feed-${post.id}`
                           text post.who font-size=14 font-weight=600 flex-shrink=0 width=72
                           text post.body font-size=14 flex=1 min-width=0
-              if entry.name != "images" and entry.name != "reflow" and t.name != "keyboard"
+              if t.name == "panes"
+                if entry.name == "panes"
+                  ArrangementScreen(routeKey=`${entry.id}`, routeName=entry.name, prefix="panes", title="Panes", nextTitle="Next", openNext=openPanesNext, nativeArrangement=paneSupport.available)
+                else
+                  ArrangementScreen(routeKey=`${entry.id}`, routeName=entry.name, prefix="pushed", title="Pushed panes", nextTitle="Back", openNext=back, nativeArrangement=paneSupport.available)
+              if entry.name != "images" and entry.name != "reflow" and t.name != "keyboard" and t.name != "panes"
                 column navigationKey=`${entry.id}` navigationBar="none" class=Screen testId=`screen-${entry.name}`
                   if entry.name == "fold"
                     // Two segments across: the list on the first, the detail on the
@@ -377,6 +400,9 @@ component DuoLab
         button role="tab" aria-controls="panel-fold" aria-selected=(nav.tab == "fold") press=selectTab("fold") testId="tab-fold" flex=1
           image "symbol:book"
           text "Fold"
+        button role="tab" aria-controls="panel-panes" aria-selected=(nav.tab == "panes") press=selectTab("panes") testId="tab-panes" flex=1
+          image "symbol:layers"
+          text "Panes"
         button role="tab" aria-controls="panel-images" aria-selected=(nav.tab == "images") press=selectTab("images") testId="tab-images" flex=1
           image "symbol:photo"
           text "Images"
@@ -387,7 +413,7 @@ component DuoLab
           image "symbol:layers"
           text "Combos"
         button role="tab" aria-controls="panel-keyboard" aria-selected=(nav.tab == "keyboard") press=selectTab("keyboard") testId="tab-keyboard" flex=1
-          image "symbol:sf/keyboard"
+          image "symbol:icon.keyboard"
           text "Keyboard"
 
 // The three facts and the viewport, printed so a screenshot is its own evidence.

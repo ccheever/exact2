@@ -13,6 +13,22 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Layout
 
+- **A layout-region inset is not a page gutter.** The web can report zero
+  for `env(-exact-readable-content-corners-inset-left)` and its right-edge equivalent. Give reading
+  content ordinary padding inside the safe region, and bound a full-width
+  field with `box-sizing="border-box"`: its native padding and border otherwise
+  extend beyond the authored width. (Duo Lab, 2026-11-04.)
+
+- **`gap`, `row-gap` and `column-gap` accept numeric lengths, not `calc()` or `env()`.**
+  The compiler rejects a segment-based gap with `lower-attr-value: expected
+  nonnegative number`. Place fold panes by segment edges in a container aligned
+  with the viewport. Global segment lengths used as flex bases shrink across
+  the hinge if a header or footer reduces the container's space. Put that chrome
+  inside a pane, and end a bottom pane at `bottom: 0`. For side-by-side
+  panes, automatic left/right insets with flex start/end alignment preserve
+  reading order; fixed width plus both physical insets overconstrains RTL.
+  Keep the same pane instances while their positions change. (Duo Lab, 2026-11-05.)
+
 - **In the web build, a view that leaves with an exit animation can jump as it starts
   to fade.** Symptom: the leaving view starts its exit higher or lower than it was,
   when the same action also changes its parent's layout, such as a top padding that is
@@ -832,6 +848,10 @@ after launch) names a top level slower than 50 ms. Where the top level cannot be
 price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1).
 
 ## Actions
+
+- **App resources belong in the root component.** A child can declare a reserved
+  viewport reader, but an app source there fails with `type-child-resource`.
+  Declare the resource in the root and pass the value the child needs as a prop.
 
 - **A send reads a derive from before the action's writes.** An action's writes
   commit together; reading a derive after assigning one of its inputs still reads

@@ -1,0 +1,112 @@
+shape PaneViewport
+  width: number
+  height: number
+  horizontalViewportSegments: number
+  verticalViewportSegments: number
+
+component ArrangementScreen
+  props
+    openNext: action
+    prefix: string
+    title: string
+    nextTitle: string
+    routeKey: string
+    routeName: string
+    nativeArrangement: bool
+  resource viewport = exactViewport() as shape PaneViewport
+  state mode = "split"
+  derive active = nativeArrangement ? mode : "css"
+  derive across = viewport.horizontalViewportSegments == 2
+  derive down = viewport.verticalViewportSegments == 2
+  derive direction = across or (not down and viewport.width >= 700) ? "row" : "column"
+  derive anchored = active == "css" and (across or down)
+  action layout(value: string)
+    mode = value
+  view
+    column navigationKey=routeKey navigationBar=(anchored ? "none" : "auto") testId=`screen-${routeName}` position="absolute" inset=0
+      if not anchored
+        ArrangementChrome(title=title, nextTitle=nextTitle, prefix=prefix, mode=mode, controls=nativeArrangement, openNext=openNext, showSplit=layout("split"), showOverlay=layout("overlay"), showAuthored=layout("css"))
+      // Segment edges are viewport-relative. Keep chrome inside the first pane so this container starts at the same origin.
+      column id=`${prefix}-container` hatch="arranged-panes" data-pane-layout=active testId=`${prefix}-container` flex=1 min-height=0 position="relative" display="flex" flex-direction=(anchored ? "column" : direction) gap=(anchored ? 0 : 12)
+        Pane(name="Workspace", prefix=`${prefix}-workspace`, anchored=anchored, leading=true, across=across, down=down)
+          if anchored
+            ArrangementChrome(title=title, nextTitle=nextTitle, prefix=prefix, mode=mode, controls=nativeArrangement, openNext=openNext, showSplit=layout("split"), showOverlay=layout("overlay"), showAuthored=layout("css"))
+        Pane(name="Activity", prefix=`${prefix}-activity`, anchored=anchored, leading=false, across=across, down=down)
+
+component ArrangementChrome
+  props
+    title: string
+    nextTitle: string
+    prefix: string
+    mode: string
+    controls: bool
+    openNext: action
+    showSplit: action
+    showOverlay: action
+    showAuthored: action
+  view
+    header display="flex" flex-wrap="wrap" align-items="center" gap=8 padding=12
+      text title role="heading" aria-level=1
+      if controls
+        button press=showSplit aria-pressed=(mode == "split") testId=`${prefix}-split`
+          text "Split"
+        button press=showOverlay aria-pressed=(mode == "overlay") testId=`${prefix}-overlay`
+          text "Overlay"
+        button press=showAuthored aria-pressed=(mode == "css") testId=`${prefix}-css`
+          text "Authored"
+      button press=openNext testId=`${prefix}-next`
+        text nextTitle
+    text (controls ? (mode == "css" ? "Authored responsive layout" : mode == "overlay" ? "UIKit Overlay" : "UIKit Split") : "Responsive layout. Split and Overlay require the native iOS app on iOS 27.1 or later.") padding=12 testId=`${prefix}-policy`
+
+component Pane
+  props
+    name: string
+    prefix: string
+    anchored: bool
+    leading: bool
+    across: bool
+    down: bool
+  slot
+  derive paneTop = anchored ? (down and not leading ? "env(viewport-segment-top 0 1)" : "0px") : "auto"
+  derive paneLeft = anchored and not across ? "0px" : "auto"
+  derive paneWidth = anchored ? (across ? "min(env(viewport-segment-width 0 0), env(viewport-segment-width 1 0))" : "auto") : "100%"
+  derive paneHeight = anchored ? (down and leading ? "env(viewport-segment-height 0 0)" : "auto") : "100%"
+  derive paddingTop = anchored and (across or leading) ? "calc(16px + max(env(safe-area-inset-top), env(-exact-safe-area-corners-inset-top)))" : "16px"
+  derive paddingBottom = anchored and (across or not leading) ? "calc(16px + max(env(safe-area-inset-bottom), env(-exact-safe-area-corners-inset-bottom)))" : "16px"
+  derive paddingLeft = anchored ? "calc(16px + max(env(safe-area-inset-left), env(-exact-safe-area-corners-inset-left)))" : "16px"
+  derive paddingRight = anchored ? "calc(16px + max(env(safe-area-inset-right), env(-exact-safe-area-corners-inset-right)))" : "16px"
+  state draft = ""
+  state count = 0
+  derive rows = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40]
+  action write(value: string)
+    draft = value
+  action increment
+    count = count + 1
+  action confirm
+    showModal(`${prefix}-confirmation`)
+  action clear
+    draft = ""
+  view
+    scroll id=`${prefix}-pane` testId=`${prefix}-pane` flex="1 1 0%" min-width=0 min-height=0 position=(anchored ? "absolute" : "relative") top=paneTop left=paneLeft right=(anchored and not across ? "0px" : "auto") align-self=(anchored and across ? (leading ? "flex-start" : "flex-end") : "auto") bottom=(anchored and not (down and leading) ? "0px" : "auto") width=paneWidth height=paneHeight background-color="Canvas"
+      column padding-top=paddingTop padding-bottom=paddingBottom padding-left=paddingLeft padding-right=paddingRight gap=12
+        children
+        text name role="heading" aria-level=2
+        text "Edit, scroll, switch layouts, and fold. Your place and draft should stay."
+        input id=`${prefix}-draft` value=draft input=write placeholder="A draft to keep" aria-label=`${name} draft` testId=`${prefix}-draft`
+        text draft testId=`${prefix}-echo`
+        row gap=12 align-items="center" flex-wrap="wrap"
+          button press=increment testId=`${prefix}-increment`
+            text "Add one"
+          text `${count}` font-variant-numeric="tabular-nums" testId=`${prefix}-count`
+          button press=confirm testId=`${prefix}-clear`
+            text "Clear draft"
+        dialog role="alertdialog" aria-label="Clear draft?" id=`${prefix}-confirmation` testId=`${prefix}-confirmation`
+          text "Clear this draft?"
+          button command="close" commandfor=`${prefix}-confirmation` testId=`${prefix}-cancel`
+            text "Keep draft"
+          button press=clear command="close" commandfor=`${prefix}-confirmation` destructive=true testId=`${prefix}-confirm`
+            text "Clear"
+        for row in rows key=row
+          column padding-top=12 padding-bottom=12 gap=4
+            text `${name} ${row}` role="heading" aria-level=3 testId=`${prefix}-row-${row}`
+            text "Each pane scrolls independently. Try rotating, folding, opening the keyboard, and returning from another screen."

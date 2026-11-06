@@ -10,8 +10,8 @@
     "id": "com.exact.duolab",
     "name": "Duo Lab"
   },
-  "data": ["keyboard-screen", "focus-on-show"],
-  "hatches": { "keyboard-field": ["ios"], "keyboard-route": ["ios"] },
+  "data": ["keyboard-screen", "focus-on-show", "pane-layout"],
+  "hatches": { "keyboard-field": ["ios"], "keyboard-route": ["ios"], "arranged-panes": ["ios"] },
   "host": {
     "ios": {
       "icon": "art/DuoLab.icon",

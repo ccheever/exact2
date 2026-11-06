@@ -2405,7 +2405,10 @@ arrangement and avoid nesting it in authored scrollers or other native layout
 containers ([Apple's containment guidance](https://developer.apple.com/documentation/uikit/uiarrangementviewcontroller)).
 Keep the same children mounted when switching between native and CSS layouts, so
 folds and resizes preserve their controls, bindings and state. Older systems and
-other hosts use the authored CSS layout. See Apple's
+other hosts use the authored CSS layout. Duo Lab's
+[Panes screen](../apps/duo-lab/arrangement.contract) and
+[hatch](../apps/duo-lab/modules/apple/ArrangedPanes.swift) use UIKit split and overlay
+arrangements and responsive CSS elsewhere. See Apple's
 [arrangement guidance](https://developer.apple.com/design/human-interface-guidelines/designing-for-iphone-duo).
 
 ## Routes and web documents

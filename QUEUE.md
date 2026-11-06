@@ -1,5 +1,9 @@
 # Queue
 
+- **Keyboard Check route on a Duo panel switch** (2026-11-04): folding from 130° to closed while editing returned the pushed editor to the Keyboard root. Inspect native navigation events and the app recorder; gutter checks select the pose before opening the editor.
+- **Native Mac element arrangements** (2026-11-04): the AppKit prototype reset a scroller from 120 points to zero during adoption. Keep the CSS layout until native containment retains authored scroll offsets.
+- **Duo native panes under the bars** (2026-11-05): qualify visible bounds through bar minimization and every fold pose before moving the Split and Overlay description into Workspace.
+
 - **The JS symbol fixtures fail before exercising symbols on main** (2026-11-05). `host/web/tests/js-symbols.test.mjs` imports a missing `Hooks` export in its unit fixtures; its browser server also returns 404 for shared modules such as `/web/timer-observations.js`, leaving readiness pending. All seven cases fail on main and with the list fix. Repair the fixture imports and module serving before assessing symbol behavior.
 - **The touch press test crosses its scroll-suppression assertion on main** (2026-11-05). In `host/web/tests/press.test.mjs`, "a pressable that declares no feedback dims while pressed" expects no pressed mark after a recent scroll at line 541 and sees one on both main and the list branch. Check the event timing and suppression rule before changing either.
 
