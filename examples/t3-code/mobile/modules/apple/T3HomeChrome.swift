@@ -120,10 +120,12 @@ private final class T3SystemTabDelegate: NSObject, UITabBarControllerDelegate {
     }
 }
 
-private final class T3LegacyTabDelegate: NSObject, UITabBarDelegate {
-    private let select: (String) -> Void
+private final class T3SidebarTabDelegate: NSObject, UITabBarDelegate {
     private let keys: [String]
-    init(keys: [String], select: @escaping (String) -> Void) { self.keys = keys; self.select = select }
+    private let select: (String) -> Void
+    init(keys: [String], select: @escaping (String) -> Void) {
+        self.keys = keys; self.select = select
+    }
     func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
         guard let index = tabBar.items?.firstIndex(where: { $0 === item }), keys.indices.contains(index) else { return }
         select(keys[index])
@@ -241,8 +243,8 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private var dismiss: UIButton?
     private var systemTabController: T3SystemTabController?
     private var systemTabDelegate: T3SystemTabDelegate?
-    private var legacyTabBar: UITabBar?
-    private var legacyTabDelegate: T3LegacyTabDelegate?
+    private var sidebarTabBar: UITabBar?
+    private var sidebarTabDelegate: T3SidebarTabDelegate?
     private weak var systemTabParent: UIViewController?
     private weak var systemTabHost: UIView?
     private var systemTabConstraints: [NSLayoutConstraint] = []
@@ -350,7 +352,10 @@ private final class T3HomeChromeView: ExactNativeInstance {
             removeSearch()
             attachedLayout = mode
             if glass { if #available(iOS 26.0, *) { makeGlassToolbar(route) } }
-            else { makeHeaderSearch(route) }
+            else {
+                makeHeaderSearch(route)
+                if config.layout == "sidebar" { makeSidebarTabs(route) }
+            }
             // Native edits retain their text and caret across asynchronous root echoes.
             replaceQuery(query)
         }
@@ -497,27 +502,36 @@ private final class T3HomeChromeView: ExactNativeInstance {
         makeSystemTabs(route)
     }
 
-    private func makeLegacyTabs(_ route: ExactRoute) {
+    private func makeSidebarTabs(_ route: ExactRoute) {
         let keys = ["threads", "pullRequests", "usage", "settings"]
-        let labels = ["Chats", "PRs", "Usage", "Settings"]
+        let labels = ["Chats", "Pull Requests", "Usage", "Settings"]
         let symbols = ["text.bubble", "arrow.triangle.branch", "chart.bar.xaxis", "gearshape"]
-        let bar = UITabBar(); bar.translatesAutoresizingMaskIntoConstraints = false
-        bar.tintColor = .label; bar.unselectedItemTintColor = .secondaryLabel
-        bar.items = labels.enumerated().map { index, label in
-            let item = UITabBarItem(title: label, image: UIImage(systemName: symbols[index]), tag: index)
-            item.accessibilityIdentifier = "workspace-tab-\(keys[index])"
+        let bar = UITabBar()
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        bar.accessibilityIdentifier = "workspace-sidebar-tab-bar"
+        bar.delegate = nil
+        bar.tintColor = .label
+        bar.unselectedItemTintColor = .secondaryLabel
+        bar.backgroundColor = .clear
+        bar.isTranslucent = true
+        bar.items = keys.enumerated().map { index, key in
+            let item = UITabBarItem(title: nil, image: UIImage(systemName: symbols[index]), selectedImage: index == 0 ? UIImage(systemName: "text.bubble.fill") : nil)
+            item.accessibilityLabel = labels[index]
+            item.accessibilityIdentifier = "workspace-sidebar-tab-\(key)"
             return item
         }
-        let delegate = T3LegacyTabDelegate(keys: keys) { [weak self] key in self?.emit("tab", key) }
+        bar.selectedItem = bar.items?.first
+        let delegate = T3SidebarTabDelegate(keys: keys) { [weak self] key in self?.emit("tab", key) }
         bar.delegate = delegate
-        let routeView = route.controller.view!
-        let host = routeView.window?.rootViewController?.viewIfLoaded ?? routeView
-        host.addSubview(bar)
+        root.addSubview(bar)
         NSLayoutConstraint.activate([
-            bar.leadingAnchor.constraint(equalTo: host.leadingAnchor), bar.trailingAnchor.constraint(equalTo: host.trailingAnchor),
-            bar.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+            bar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            bar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            bar.bottomAnchor.constraint(equalTo: root.safeAreaLayoutGuide.bottomAnchor),
+            bar.heightAnchor.constraint(equalToConstant: 64),
         ])
-        legacyTabBar = bar; legacyTabDelegate = delegate
+        sidebarTabBar = bar
+        sidebarTabDelegate = delegate
     }
 
     @available(iOS 26.0, *)
@@ -683,6 +697,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
     fileprivate func setWorkspaceHidden(_ hidden: Bool) {
         guard workspaceHidden != hidden else { return }
         workspaceHidden = hidden
+        sidebarTabBar?.isHidden = hidden
         guard config?.layout == "sidebar" else { return }
         if !hidden {
             replaceQuery(query)
@@ -716,11 +731,11 @@ private final class T3HomeChromeView: ExactNativeInstance {
             controller.view.removeFromSuperview()
             controller.removeFromParent()
         }
-        legacyTabBar?.removeFromSuperview()
-        legacyTabBar = nil; legacyTabDelegate = nil
         systemTabParent = nil
         systemTabHost = nil
         systemTabController = nil; systemTabDelegate = nil
+        sidebarTabBar?.removeFromSuperview()
+        sidebarTabBar = nil; sidebarTabDelegate = nil
         filter = nil; compose = nil; dismiss = nil
         width = nil; keyboardBottom = nil; restingBottom = nil; glassLeading = nil; glassTrailing = nil; glassCenter = nil
         settingQuery = false

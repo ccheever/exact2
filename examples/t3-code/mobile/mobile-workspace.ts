@@ -15,6 +15,7 @@ export interface MobileWorkspaceInspector {
 }
 export interface MobileWorkspaceOptions {
   width: number; height: number;
+  safeLeft?: number; safeRight?: number;
   primarySidebarPreferredVisible: boolean; supplementaryPanePreferredVisible: boolean; fileInspectorPreferredVisible: boolean;
   supplementaryPanePreferredWidth?: number | null; fileInspectorPreferredWidth?: number | null;
   /** Actual client generation, when root has a selected connection. */
@@ -105,6 +106,7 @@ export function mobileWorkspace(input: unknown, options: MobileWorkspaceOptions)
     && (!registration!.environmentId || registration!.environmentId === top?.params.threadEnvironment)
     && (!registration!.threadId || registration!.threadId === top?.params.threadId);
   const geometryInput: AdaptiveWorkspaceInput = { ...options, width: finite(options.width), height: finite(options.height),
+    safeLeft: finite(options.safeLeft ?? 0), safeRight: finite(options.safeRight ?? 0),
     pathname: pathname(workspace?.url ?? '/'), focusedAuxiliaryPaneRole: role,
     supplementaryPanePreferredWidth: preferredWidth(options.supplementaryPanePreferredWidth),
     fileInspectorPreferredWidth: preferredWidth(options.fileInspectorPreferredWidth),

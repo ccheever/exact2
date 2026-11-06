@@ -76,9 +76,9 @@ export function mobileHomeChrome(input: HomeChromeInput, sources: HomeSource[] =
     colors: { foreground: theme.foreground, muted: theme.colors.muted, iconMuted: theme.colors.iconMuted, subtle: theme.colors.subtle } };
   return { configuration: JSON.stringify(configuration), environmentId, projectKey,
     bottomClearance: input.layout === 'compact' ? Math.max(input.safeBottom ?? 0, 24) + 96
-      + (input.liquidGlassSupported === false ? 44 : 0) : Math.max(input.safeBottom ?? 0, 16) + 16,
+      + (input.liquidGlassSupported === false ? 44 : 0) : Math.max(input.safeBottom ?? 0, 16) + 80,
     emptyClearance: input.layout === 'compact' ? Math.max(input.safeBottom ?? 0, 24)
-      + (input.liquidGlassSupported === false ? 44 : 0) : Math.max(input.safeBottom ?? 0, 16) + 16,
+      + (input.liquidGlassSupported === false ? 44 : 0) : Math.max(input.safeBottom ?? 0, 16) + 80,
     toolbarContentInset: input.layout === 'compact' ? 56 : 0 };
 }
 

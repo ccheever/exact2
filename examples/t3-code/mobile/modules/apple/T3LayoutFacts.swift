@@ -129,7 +129,7 @@ final class T3LayoutFacts: ExactNativeInstance {
                              guide: $0.keyboardLayoutGuide.layoutFrame)
         } ?? false
         let windowHeight = window.bounds.height.isFinite && window.bounds.height > 0 ? Double(window.bounds.height) : 0
-        let value: [String: Any] = ["safeTop": Double(window.safeAreaInsets.top), "safeBottom": Double(window.safeAreaInsets.bottom), "liquidGlass": glass,
+        let value: [String: Any] = ["safeTop": Double(window.safeAreaInsets.top), "safeRight": Double(window.safeAreaInsets.right), "safeBottom": Double(window.safeAreaInsets.bottom), "safeLeft": Double(window.safeAreaInsets.left), "liquidGlass": glass,
             "keyboardDocked": docked, "displayScale": Double(window.screen.scale), "windowHeight": windowHeight]
         guard let data = try? JSONSerialization.data(withJSONObject: value, options: .sortedKeys) else { return }
         let text = String(decoding: data, as: UTF8.self)

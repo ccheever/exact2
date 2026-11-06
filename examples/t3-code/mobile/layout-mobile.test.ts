@@ -162,6 +162,18 @@ describe("deriveLayout", () => {
     expect(deriveLayout({ width: 1_024, height: 768 }).listPaneWidth).toBe(328);
     expect(deriveLayout({ width: 1_600, height: 1_000 }).listPaneWidth).toBe(380);
   });
+
+  it("subtracts horizontal safe areas before admitting a split", () => {
+    expect(deriveLayout({ width: 800, height: 700, safeLeft: 38, safeRight: 84 })).toMatchObject({
+      variant: "compact",
+      usesSplitView: false,
+    });
+    expect(deriveLayout({ width: 900, height: 700, safeLeft: 38, safeRight: 84 })).toMatchObject({
+      variant: "split",
+      usesSplitView: true,
+      listPaneWidth: 280,
+    });
+  });
 });
 
 describe("deriveWorkspacePaneLayout", () => {

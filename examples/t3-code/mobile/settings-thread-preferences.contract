@@ -38,7 +38,7 @@ component SettingsThreadPreferences
     change(data.scopeJSON, key, raw)
   view
     scroll id="settings-thread-preferences-scroll" flex=1 min-height=0 background-color=colors.sheet
-      column gap=21 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom font-family="DM Sans"
+      column gap=21 padding-left="calc(17.5px + env(safe-area-inset-left))" padding-right="calc(17.5px + env(safe-area-inset-right))" padding-top=14 padding-bottom=bottom font-family="DM Sans"
         if data.error != ""
           text data.error color=colors.foreground font-size=roles.footnote.size role="alert"
         if data.serverVisible

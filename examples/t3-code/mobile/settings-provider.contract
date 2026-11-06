@@ -54,7 +54,7 @@ component SettingsProviderAccounts
     signOut: action
   view
     scroll id="settings-provider-scroll" flex=1 min-height=0 background-color=colors.sheet
-      column gap=21 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom font-family="DM Sans" testId="settings-provider-accounts"
+      column gap=21 padding-left="calc(17.5px + env(safe-area-inset-left))" padding-right="calc(17.5px + env(safe-area-inset-right))" padding-top=14 padding-bottom=bottom font-family="DM Sans" testId="settings-provider-accounts"
         if data.error.length > 0
           text data.error role="alert" color=danger font-size=roles.body.size line-height=`${roles.body.line}px`
         if data.emptyMessage.length > 0

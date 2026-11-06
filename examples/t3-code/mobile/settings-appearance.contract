@@ -83,7 +83,7 @@ component SettingsAppearance
     change: action
   view
     scroll id="settings-appearance-scroll" flex=1 min-height=0 background-color=data.colors.sheet
-      column gap=21 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=data.bottom font-family="DM Sans" testId="settings-appearance"
+      column gap=21 padding-left="calc(17.5px + env(safe-area-inset-left))" padding-right="calc(17.5px + env(safe-area-inset-right))" padding-top=14 padding-bottom=data.bottom font-family="DM Sans" testId="settings-appearance"
         column gap=7
           SettingsSectionLabel(title="Color scheme", colors=data.colors, roles=data.roles)
           row gap=7 role="radiogroup"
