@@ -488,7 +488,7 @@ component App
         homeProject = change.project
         settledCount = change.count
         if change.location != ""
-          nav = push(nav, change.location)
+          nav = event.kind == "tab" or event.kind == "settings" ? select(nav, change.location) : push(nav, change.location)
       case none
         homeQuery = homeQuery
   state composerFocusIdentity = ""
