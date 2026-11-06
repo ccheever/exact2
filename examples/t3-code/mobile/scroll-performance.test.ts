@@ -82,7 +82,7 @@ test('Home keeps menus outside the virtualized feed at one bounded resident pair
 test('Home keeps its native scroll owner through filtered empty results', () => {
   const app = appText('mobile/app.contract');
   const home = appText('mobile/home.contract');
-  expect(app).toContain('entry.name == "home" ? "home-list"');
+  expect(app).toContain('entry.name == "home" ? (home.fullPageEmpty ? "" : "home-list")');
 
   const filteredStart = home.indexOf('else if items.length == 0 and not fullPageEmpty');
   const fullPageStart = home.indexOf('else if items.length == 0\n', filteredStart + 1);
