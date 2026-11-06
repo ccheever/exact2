@@ -4,14 +4,15 @@ import { afterEach, beforeEach, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
+import { listAssets } from '../host/web/serve.mjs';
 import { moduleGraph, notBuildInput } from './agent-launch.mjs';
 import { buildArgs, buildFirst, buildReason, childFailure, failureSummary, linuxRebuild, nativeBuild, overrideDir, planOverride, planSource, ownVerb, prebuild, rebuildCommand, refuseBuild } from './agent-build.mjs';
 import { openStdio } from './agent-stdio.mjs';
-import { linuxBinary, resolveApp } from './app.mjs';
+import { linuxBinary, resolveApp, verifyBakeFiles } from './app.mjs';
 
 test('Mac drives use the assembled app bundle even without catalogs or widgets', () => {
   const { dir } = scratchApp('ats-drive');
@@ -370,6 +371,62 @@ test('a product the build wrote and then read is judged by its recorded bytes; a
     if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
     if (macBin === undefined) delete process.env.EXACT_MAC_BIN; else process.env.EXACT_MAC_BIN = macBin;
     if (targetDir !== undefined) process.env.CARGO_TARGET_DIR = targetDir;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// assets/ and deck/ are copied into the bundle as the bake recorded them, and a build script can write them after the
+// build starts: the drive compares their bytes with the record, as packaging does. Nothing here runs Cargo or the copier.
+test('a copied asset is judged by the bytes the bake recorded, not by its time', () => {
+  const previous = process.env.EXACT_APP_DIR;
+  const { dir, write } = scratchApp('generated-assets');
+  try {
+    process.env.EXACT_APP_DIR = dir;
+    const app = resolveApp('generated-assets'), now = Date.now();
+    const at = seconds => new Date(now + seconds * 1000);
+    const stamp = (file, seconds) => utimesSync(resolve(dir, file), at(seconds), at(seconds));
+    for (const file of ['app.contract', 'app.json', 'exact.mjs', 'apple/Cargo.toml', 'web/Cargo.toml']) stamp(file, -60);
+    // The build ran from t-20 s to t+10 s and wrote these at t-10 s.
+    const files = ['assets/generated/preview.js', 'deck/generated/device.html'], text = file => `generated ${file}\n`;
+    for (const file of files) { write(file, text(file)); stamp(file, -10); }
+    const plan = Buffer.from('baked plan');
+    const compat = { embedded: { plan: { bytes: plan.length, sha256: createHash('sha256').update(plan).digest('hex') }, assets: listAssets(dir) } };
+    verifyBakeFiles(compat, plan, listAssets(dir));
+    const target = 'aarch64-apple-ios-sim', profile = resolve(app.target, target, 'host-dev');
+    mkdirSync(profile, { recursive: true });
+    // The bake watches each tree whole, so the dep-info names the roots too.
+    writeFileSync(resolve(profile, 'libgenerated_assets_apple.d'), `${profile}/libgenerated_assets_apple.a: ${['assets', 'deck', ...files].map(file => resolve(dir, file)).join(' ')}\n`);
+    const bundle = appleArtifacts(app, { destination: 'ios-simulator' }).bundle, receipt = resolve(bundle, 'receipt.json');
+    mkdirSync(bundle, { recursive: true });
+    const record = build => { writeFileSync(receipt, JSON.stringify({ target, started: at(-20).toISOString(), build })); utimesSync(receipt, at(10), at(10)); };
+    const changed = () => nativeBuild('ios', app).changed.map(path => resolve(path)).sort();
+    record({ compat });
+    assert.deepEqual(changed(), []);
+    assert.doesNotThrow(() => refuseBuild('ios', nativeBuild('ios', app), app));
+    // Other bytes, a file gone and a file added are each stale, though older than the build's start.
+    write(files[0], 'other bytes'); stamp(files[0], -60);
+    assert.deepEqual(changed(), [resolve(dir, files[0])]);
+    assert.throws(() => refuseBuild('ios', nativeBuild('ios', app), app), /ios build is stale/);
+    write(files[0], text(files[0]));
+    rmSync(resolve(dir, files[1]));
+    assert.deepEqual(changed(), [resolve(dir, files[1])]);
+    write(files[1], text(files[1]));
+    write('assets/generated/extra.js', 'new'); stamp('assets/generated/extra.js', -60);
+    assert.deepEqual(changed(), [resolve(dir, 'assets/generated/extra.js')]);
+    rmSync(resolve(dir, 'assets/generated/extra.js'));
+    // A symbolic link is no change, as for the build-start walk; the bake refuses one.
+    symlinkSync(resolve(dir, files[0]), resolve(dir, 'assets/generated/link.js'));
+    assert.deepEqual(changed(), []);
+    rmSync(resolve(dir, 'assets/generated/link.js'));
+    // The app's other files keep the build's start.
+    stamp('app.contract', -5);
+    assert.deepEqual(changed(), [resolve(dir, 'app.contract')]);
+    stamp('app.contract', -60);
+    // A receipt that records no assets judges them by the build's start too.
+    record({});
+    for (const file of files) assert.ok(changed().includes(resolve(dir, file)), file);
+  } finally {
+    if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
     rmSync(dir, { recursive: true, force: true });
   }
 });
