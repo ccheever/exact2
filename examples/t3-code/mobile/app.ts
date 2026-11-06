@@ -82,6 +82,7 @@ import { mobilePreferencesResource, mobileSavePreference, mobileApplyAppearance,
 import { settingsAppearanceView, settingsChoices } from './settings-appearance';
 import { mobileArchiveCommand, mobileArchiveRead, mobileArchiveScope, mobileArchiveView } from './archive';
 import { pullRequestsPage } from './shared/pages-prs';
+import { pullRequestDetail } from './shared/pages-pr-detail';
 import { mobileAgentActivity } from './agent-activity';
 import { mobileComposerSettings, mobileComposerSettingsAction } from './composer-settings';
 import { mobileNewTask, mobileNewTaskChooser, mobileNewTaskPrepare, mobileNewTaskCachedPrepare } from './new-task';
@@ -663,6 +664,27 @@ const sources: Sources = {
           conflict: row.conflict, checksLabel: row.checksLabel, reviewLabel: row.reviewLabel, additions: row.additions, deletions: row.deletions,
           author: row.author, repository: row.repository, age: row.age, selected: row.selected,
           labels: row.labels.map(label => ({ key: label.key, name: label.name })) })) })) };
+  },
+  pullRequestDetail: async (args, _store, _storage, nativeInput) => {
+    const native = sourceNative('pullRequestDetail', args, nativeInput);
+    const view = await pullRequestDetail(mobileClient, native?.available ? mobileNative(native) : native, {
+      selected: String(args[3] ?? ''), refresh: Number(args[1] ?? 0), now: Number(args[2] ?? 0),
+    });
+    return {
+      open: view.open, loading: view.loading, error: view.error, errorTitle: view.errorTitle, ref: view.ref,
+      number: view.number, numberLabel: view.numberLabel, title: view.title, repository: view.repository,
+      stateLabel: view.stateLabel, conflict: view.conflict, author: view.author, authorInitial: view.authorInitial,
+      updated: view.updated, baseBranch: view.baseBranch, headBranch: view.headBranch, files: view.files,
+      additions: view.additions, deletions: view.deletions, checksSummary: view.checksSummary, checksTone: view.checksTone,
+      reviewers: view.reviewers.map(reviewer => reviewer.login),
+      labels: view.labels.map(label => ({ key: label.key, name: label.name })),
+      bodies: view.bodies.map(body => ({ id: body.id, body: body.body })), hasBody: view.hasBody,
+      checks: view.checks.map(check => ({ key: check.key, name: check.name, statusLabel: check.statusLabel, description: check.description })),
+      comments: view.comments.map(comment => ({ key: comment.key, author: comment.author, initial: comment.initial, age: comment.age,
+        body: view.bodies.find(body => body.id === comment.bodyId)?.body ?? '' })),
+      commentCount: view.commentCount, commentsLabel: view.commentsLabel,
+      timeline: view.timeline.map(event => ({ key: event.key, kind: event.kind, title: event.title, detail: event.detail, age: event.age })),
+    };
   },
   archiveAction: (args, _store, storage, nativeInput) => {
     const native = sourceNative('archiveAction', args, nativeInput);

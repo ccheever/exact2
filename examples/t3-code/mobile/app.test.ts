@@ -175,6 +175,26 @@ describe('mobile pairing source', () => {
 });
 
 describe('generated source dispatcher', () => {
+  test('pull request detail keeps a neutral first frame until a selection exists', async () => {
+    const detail = await answer('pullRequestDetail', [false, 0, 0, '']);
+    expect(detail).toMatchObject({ open: false, loading: false, error: '', number: 0, title: '', comments: [], timeline: [] });
+    expect(detail).not.toHaveProperty('githubUrl');
+  });
+
+  test('selecting a pull request opens the detail route while retaining the list selection', () => {
+    const root = contractComponent('mobile/app.contract', 'App');
+    const state: Env = { pullRequestsSelected: '', nav: [{ id: 'list', name: 'pullRequests' }] };
+    let sequence = 0;
+    const scope: Env = {
+      top: (nav: Env[]) => nav.at(-1),
+      path: (name: string) => name,
+      push: (nav: Env[], name: string) => [...nav, { id: `detail-${++sequence}`, name }],
+    };
+    root.call('pullRequestsAction', state, scope, ['select', '{"number":7}']);
+    expect(state.pullRequestsSelected).toBe('{"number":7}');
+    expect((state.nav as Env[]).at(-1)).toMatchObject({ name: 'pullRequestsDetail' });
+  });
+
   test('unopened settings choices have a neutral first-frame result', () => {
     expect(answer('settingsChoices', ['', '', false])).toEqual({ key: '', title: '', footer: '', ready: false, options: [] });
   });
