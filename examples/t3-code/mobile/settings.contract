@@ -78,7 +78,7 @@ component SettingsRoot
     navigate: action
   view
     scroll id="settings-scroll" flex=1 min-height=0 background-color=data.colors.sheet
-      column gap=14 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=data.bottom font-family="DM Sans" testId="settings-root"
+      column gap=14 padding-left="calc(17.5px + env(safe-area-inset-left))" padding-right="calc(17.5px + env(safe-area-inset-right))" padding-top=14 padding-bottom=data.bottom font-family="DM Sans" testId="settings-root"
         for section in data.sections key=section.title
           column gap=7
             text section.title padding-left=7 padding-right=7 min-height=settingsRootTextBoxHeight(data.roles.footnote.line, displayScale) font-size=data.roles.footnote.size line-height=`${data.roles.footnote.line}px` font-weight=500 color=data.colors.muted
@@ -108,7 +108,7 @@ component SettingsChoices
     change: action
   view
     scroll id="settings-choice-scroll" flex=1 min-height=0 background-color=colors.sheet
-      column gap=10.5 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom font-family="DM Sans" testId=`settings-choice-${data.key}`
+      column gap=10.5 padding-left="calc(17.5px + env(safe-area-inset-left))" padding-right="calc(17.5px + env(safe-area-inset-right))" padding-top=14 padding-bottom=bottom font-family="DM Sans" testId=`settings-choice-${data.key}`
         column gap=7
           SettingsSectionLabel(title=data.title, colors=colors, roles=roles)
           column border-radius=24 corner-shape="-exact-continuous" overflow="hidden" background-color=colors.grouped role="radiogroup"

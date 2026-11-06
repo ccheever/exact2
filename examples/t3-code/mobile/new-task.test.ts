@@ -736,8 +736,8 @@ test('New Task keyboard offset uses an explicit docked guide fact, never focus-l
   for (const value of [false, null, 1, "true", {}, []]) {
     expect(mobileLayoutFacts(JSON.stringify({ keyboardDocked: value })).keyboardDocked).toBe(false);
   }
-  expect(mobileLayoutFacts('{"safeTop":-1,"safeBottom":34,"keyboardDocked":true,"liquidGlass":true}'))
-    .toEqual({ safeTop: 0, safeBottom: 34, liquidGlass: true, keyboardDocked: true, displayScale: 1, windowHeight: 0 });
+  expect(mobileLayoutFacts('{"safeTop":-1,"safeRight":84,"safeBottom":34,"safeLeft":38,"keyboardDocked":true,"liquidGlass":true}'))
+    .toEqual({ safeTop: 0, safeRight: 84, safeBottom: 34, safeLeft: 38, liquidGlass: true, keyboardDocked: true, displayScale: 1, windowHeight: 0 });
   expect(mobileLayoutFacts('{"focused":true,"height":300}').keyboardDocked).toBe(false);
 });
 

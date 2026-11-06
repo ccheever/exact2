@@ -52,7 +52,7 @@ component SettingsProjectOverview
       save(data.scopeJSON, data.identity, name)
   view
     scroll id="settings-project-scroll" flex=1 min-height=0 background-color=colors.sheet
-      column gap=21 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom font-family="DM Sans"
+      column gap=21 padding-left="calc(17.5px + env(safe-area-inset-left))" padding-right="calc(17.5px + env(safe-area-inset-right))" padding-top=14 padding-bottom=bottom font-family="DM Sans"
         if data.error != ""
           text data.error role="alert" font-size=roles.footnote.size color=colors.foreground
         if data.empty

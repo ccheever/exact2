@@ -91,9 +91,10 @@ export function deriveThreadFeedInitialContentInset(input: {
 
 export type WorkspaceAuxiliaryPaneRole = "supplementary" | "inspector";
 
-export function deriveLayout(input: { readonly width: number; readonly height: number }): Layout {
+export function deriveLayout(input: { readonly width: number; readonly height: number; readonly safeLeft?: number; readonly safeRight?: number }): Layout {
   const { width, height } = input;
-  const wideEnoughForSplit = width >= SPLIT_LAYOUT_MIN_WIDTH && height >= SPLIT_LAYOUT_MIN_HEIGHT;
+  const usableWidth = Math.max(0, width - Math.max(0, input.safeLeft ?? 0) - Math.max(0, input.safeRight ?? 0));
+  const wideEnoughForSplit = usableWidth >= SPLIT_LAYOUT_MIN_WIDTH && height >= SPLIT_LAYOUT_MIN_HEIGHT;
 
   if (!wideEnoughForSplit) {
     return {
@@ -108,7 +109,7 @@ export function deriveLayout(input: { readonly width: number; readonly height: n
     variant: "split",
     usesSplitView: true,
     listPaneWidth: clamp(
-      Math.round(width * 0.32),
+      Math.round(usableWidth * 0.32),
       SPLIT_SIDEBAR_MIN_WIDTH,
       SPLIT_SIDEBAR_DEFAULT_MAX_WIDTH,
     ),

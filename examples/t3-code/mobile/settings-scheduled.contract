@@ -104,7 +104,7 @@ component SettingsScheduledTasks
     menu: action
   view
     scroll flex=1 min-height=0 background-color=colors.sheet id="scheduled-tasks-scroll"
-      column padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom gap=17.5 font-family="DM Sans"
+      column padding-left="calc(17.5px + env(safe-area-inset-left))" padding-right="calc(17.5px + env(safe-area-inset-right))" padding-top=14 padding-bottom=bottom gap=17.5 font-family="DM Sans"
         if data.error.length > 0
           text data.error color=danger role="alert" font-size=roles.body.size
         if data.emptyMessage.length > 0
@@ -177,7 +177,7 @@ component SettingsScheduledEditor
     field("enabled", value ? "true" : "false")
   view
     scroll flex=1 min-height=0 background-color=colors.sheet id="scheduled-editor-scroll"
-      column gap=17.5 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom font-family="DM Sans"
+      column gap=17.5 padding-left="calc(17.5px + env(safe-area-inset-left))" padding-right="calc(17.5px + env(safe-area-inset-right))" padding-top=14 padding-bottom=bottom font-family="DM Sans"
         if not data.present
           text "Open a scheduled task form first." color=colors.muted font-size=roles.body.size
         else
