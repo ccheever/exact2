@@ -200,20 +200,24 @@ export async function mobileSnapshotRead(nativeInput: Native | null | undefined,
   const reading = ++snapshotReadStarted;
   const { native, storage } = answerHandles(nativeInput, suppliedStorage);
   const fleetRevision = fleet.revision;
+  // Preparation intentionally outlives the first-pixel metadata read. Guard
+  // its handle so a resource that is let go cannot call native.watch after the
+  // answer lifetime and turn a normal retirement into a Home error banner.
+  const preparationSource = native?.available ? letGoAware(native) : native;
   // Let the preparation pass perform its one launch catalog read so the
   // focused status and catalog read below retain the existing ownership
   // ordering. Later background passes observe the canonical in-memory catalog
   // instead of racing a newer root read with an older native result.
   let preparationCatalogRead = false;
   let metadataPublished = false;
-  const preparationNative: Native | null | undefined = native ? {
-    available: native.available,
-    watch: topic => native.watch(topic),
+  const preparationNative: Native | null | undefined = preparationSource ? {
+    available: preparationSource.available,
+    watch: topic => preparationSource.watch(topic),
     async later(request) {
-      if (obj(request).op !== 'environments') return native.later(request);
+      if (obj(request).op !== 'environments') return preparationSource.later(request);
       const first = !preparationCatalogRead; preparationCatalogRead = true;
       if (!first) return { ok: true, generation: mobileClient.generation, value: { saved: fleet.saved } };
-      const response = await native.later(request);
+      const response = await preparationSource.later(request);
       const responseObject = obj(response);
       if (responseObject.ok !== true || (!metadataPublished && reading === snapshotReadStarted)) return response;
       return { ...responseObject, value: { ...obj(responseObject.value), saved: fleet.saved } };
@@ -235,6 +239,16 @@ export async function mobileSnapshotRead(nativeInput: Native | null | undefined,
     await mobileQueuedEditRefresh(preparationNative, mobileClient);
     mobileVoiceObserveDraft(mobileClient);
   })();
+  // Attach the retirement handler before metadata awaits. A failed native
+  // preference read can let this background pass go while the catalog reply is
+  // still pending; waiting until below would leave its superseded rejection
+  // unhandled in the runtime.
+  const preparationHandled = preparation.then(() => {
+    if (fleet.revision !== fleetRevision && reading === snapshotReadStarted) mobileClient.revision++;
+  }).catch(error => {
+    if (letGo(error)) return;
+    if (reading === snapshotReadStarted) { mobileClient.error = error instanceof Error ? error.message : String(error); mobileClient.revision++; }
+  });
   let catalogSucceeded = false;
   let focusedStatus = {}, focusedGeneration = -1, focusedOrigin = '', focusedEnvironmentId = '', preferencesText = '{}', routingReady = false;
   if (native?.available) {
@@ -261,6 +275,21 @@ export async function mobileSnapshotRead(nativeInput: Native | null | undefined,
         if (preferences?.ok) preferencesText = str(obj(preferences.value).text, '{}');
         routingReady = catalogSucceeded && preferences?.ok === true;
       }
+      // Launch preparation can update the native catalog after its first fleet
+      // pass (the local backend status is read after that pass). Reconcile one
+      // short metadata pass before publishing the root so Home never captures
+      // an empty catalog while a saved environment has already been written.
+      // This does not wait for transcript recovery or any server connection.
+      if (reading === snapshotReadStarted) {
+        const catalogBeforeRefresh = fleet.saved;
+        await metadata('localBackendStatus');
+        const refreshed = await metadata('environments');
+        if (reading === snapshotReadStarted && fleet.saved === catalogBeforeRefresh
+          && refreshed?.ok && Array.isArray(obj(refreshed.value).saved)) {
+          catalogSucceeded = true;
+          fleet.saved = arr(obj(refreshed.value).saved);
+        }
+      }
     } catch (error) { if (letGo(error)) throw error; }
   }
   if (reading === snapshotReadStarted) {
@@ -271,12 +300,7 @@ export async function mobileSnapshotRead(nativeInput: Native | null | undefined,
   }
   // Recovery owns its own epochs, so a later root read can supersede this one
   // without allowing an old preparation failure to poison the initial shell.
-  void preparation.then(() => {
-    if (fleet.revision !== fleetRevision && reading === snapshotReadStarted) mobileClient.revision++;
-  }).catch(error => {
-    if (letGo(error)) return;
-    if (reading === snapshotReadStarted) { mobileClient.error = error instanceof Error ? error.message : String(error); mobileClient.revision++; }
-  });
+  void preparationHandled;
   // Let a newer root read publish its metadata before this superseded read
   // hands back its serial. This keeps concurrent reads monotonic for Exact's
   // resource scheduler without adding a startup delay.
