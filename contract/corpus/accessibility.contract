@@ -55,3 +55,7 @@ component Accessibility
         text "guide" href="https://example.com/" testId="guide"
       input type="checkbox" checked=checked change=setChecked aria-label="Checked" testId="check"
       input type="password" value=secret input=writeSecret aria-label="Secret" testId="secret"
+      list aria-label="Destinations" testId="destinations"
+        for place in ["Orchard", "Harbor", "Meadow"] key=place
+          link href=`#${place}`
+            text place

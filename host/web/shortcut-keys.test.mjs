@@ -1,3 +1,4 @@
+import { viewParent, viewChildren } from './navigation.js';
 // Issue #110: an aria-keyshortcuts chord whose key types no Latin character
 // (Korean 2-Set's ㅠ on KeyB, Russian, Greek) is its physical key's (`code`),
 // as web apps match; a Latin character is the key wherever it is (AZERTY,
@@ -6,7 +7,7 @@ import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { Script } from 'node:vm';
 
-let inputSource = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
+let inputSource = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8').replace(/^import \{ viewChildren, viewParent \} from '\.\/navigation\.js';\n/m, '');
 for (const name of ['prompt-glue', 'alert-message']) {
   const stripped = inputSource.replace(new RegExp(`^import\\s+["']\\./${name}\\.js["'];[^\\n]*\\n`, 'm'), '');
   if (stripped === inputSource) throw new Error(`input glue must retain its ${name} side-effect import`);
@@ -19,7 +20,7 @@ function page(chords, { shown = true, marked = false } = {}) {
   const clicks = [], listeners = [];
   const buttons = chords.map(chord => ({ isConnected: true, disabled: false, getClientRects: () => (shown ? [{}] : []),
     hasAttribute: name => marked && name === 'data-exact-bar-back', getAttribute: () => chord, click() { clicks.push(chord); } }));
-  const context = {
+  const context = { viewParent, viewChildren,
     document: { addEventListener(kind, fn, capture) { if (kind === 'keydown' && capture) listeners.push(fn); }, activeElement: { closest: () => null },
       getElementById: id => (id === 'exact-snap' ? {} : null), styleSheets: [], documentElement: { dataset: {} } },
     getComputedStyle: () => ({ visibility: 'visible' }),

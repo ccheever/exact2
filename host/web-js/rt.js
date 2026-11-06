@@ -1,7 +1,7 @@
 import { resourceInspection } from "./resource-inspection.js";
 import { oneActivation, suppressedInvocation, releaseAsset as rel } from "./elements.js"; import { reloadOnGone } from "./generation-reload.js"; import { rt as Link } from "./rt-link.js";
 export { liveTime } from "./live-time.js";
-import { commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, inertAncestor, sheetLeaves, liveById, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt, navigation } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
+import { viewChildren, listRow, listItem, syncListItemRoles, listOwner, unwrapListItem, commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, inertAncestor, sheetLeaves, liveById, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt, navigation } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots, openTabs, unopened, tp } from "./document.js"; export { Head, unopened, tp }; export { canSetStatus, statusSubject } from "./document.js"; import { conforms, eq, equal, failureCode, failureReason, loneSurrogate } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
 import * as Ov from "./overlay.js"; import { beatAfter } from "./beat.js"; import { counted, heldAsks, heldReplies, longPollReplied, longPollEnded, trackAnswer } from "./held.js"; export { heldAsks, heldReplies }; export { unfinishedAnswers } from "./held.js"; // optimistic writes shown over answers (the runner's writes.rs)
@@ -611,13 +611,13 @@ const SVG = "http://www.w3.org/2000/svg";
 export function h(p, tag, cls, attrs, text, ns) {
   if (attrs?.["aria-keyshortcuts"] != null || attrs?.["data-exact-looks"] != null) input(); // (a look snaps by its edges too, LLP 1121 D8)
   if (Adopt) { const e = adopt(p, tag, cls, attrs); if (tag === "video" || tag === "audio") Media.media(e, attrs); if (tag === "iframe") frame(e, attrs?.["data-app-src"]); if (tag === "button") oneActivation(e); return e; }
-  const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag); e.$exactTree = true; e.authoredInert = attrs?.inert !== undefined;
+  const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag), owner = listOwner(p); e.$exactTree = true; e.authoredInert = attrs?.inert !== undefined;
   if (cls !== 0) e.setAttribute("class", "c" + cls); // `bits`, below: the paint facts the compiler wrote, kept as paint.js `facts` reads them rather than read back from the attribute names; a bound fact's `P` clears them (LLP 1071.001 A6)
   let bits = 0; if (attrs) { for (const k in attrs) if (NOT_DOM.test(k)) e["$" + k] = attrs[k]; else { e.setAttribute(k, rel(k, attrs[k])); if (k === "data-exact-f" || k.startsWith("data-exact-f-")) bits |= Number(attrs[k]); } if ("data-scrolldocument" in attrs) Docs.add(e); if (tag === "img" && ("data-symbol-source" in attrs || "data-app-src" in attrs)) Hooks.image?.(e); } if (Paint) e.$paintFacts = bits;
   if (text !== 0) e.textContent = text;
   if (tag === "iframe") frame(e, attrs?.["data-app-src"]);
   if (tag === "button") oneActivation(e);
-  p.append(e);
+  p.append(owner ? listItem(e, owner) : e);
   if (tag === "video" || tag === "audio") Media.media(e, attrs); // an `audio` is the same media host (LLP 1042 §8)
   Paint?.list(e); return e;
 }
@@ -631,12 +631,8 @@ export function cv(e) {
   s.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;z-index:-1";
   if (Adopt) e.insertBefore(s, at(e)); else e.append(s);
 }
-// A page rendered ahead (by the Rust render host or by this runtime under
-// Bun) is adopted, not rebuilt: construction walks the document with a
-// cursor per parent, takes each element whose tag matches, gives it the
-// class it would have had and drops the renderer's view ids, and inserts
-// the region anchors a fresh build would have made. A
-// mismatch abandons adoption and builds afresh (LLP 1048.000 D6).
+// Adopt with a cursor per parent: match tags, restore classes and region anchors, and drop renderer view ids.
+// A mismatch abandons adoption and builds afresh (LLP 1048.000 D6).
 let Adopt = false, AdoptedLists = new Set(); // the parents whose rows a keyed list adopted: one holding rows past the list's (a page built ahead, opened at a query it was not built at) is no projection of this plan either (`mount`)
 class Mismatch extends Refusal {}
 // The next node to adopt under `p`; insertions go before it and never move it.
@@ -644,8 +640,9 @@ const at = p => (p.$n === undefined ? (p.$n = p.firstChild) : p.$n);
 function adopt(p, tag, cls, attrs) {
   let e = at(p);
   while (e && e.nodeType !== 1) e = e.nextSibling;
+  const shell = e; if (e?.hasAttribute("data-exact-list-item")) e = listRow(e);
   if (!e || e.localName.toLowerCase() !== tag.toLowerCase()) throw new Mismatch(`adoption: expected <${tag}>, found ${e ? "<" + e.localName + ">" : "nothing"}`);
-  p.$n = e.nextSibling; e.$exactTree = true; e.authoredInert = attrs?.inert !== undefined;
+  p.$n = shell.nextSibling; e.$exactTree = true; e.authoredInert = attrs?.inert !== undefined;
   e.$paintWaiting = false; e.$paintFacts = null; e.removeAttribute("data-exact-paint");
   // Inline rows stay, except spinner alignment: its class follows the live parent.
   if (attrs?.["data-exact-progress"] !== undefined) e.style.removeProperty("justify-self");
@@ -700,6 +697,7 @@ export function P(e, name, f) {
     else if (BOOL.test(name)) { if (name === "inert") e.authoredInert = v === "true"; e.toggleAttribute(name, v === "true"); if (name === "disabled" && v === "true" && document.activeElement === e && e.matches(":disabled")) e.blur(); /* HTML focus fixup, now, for a control only (glue.js) */ if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; if (name === "autofocus") { if (v === "true") e.removeAttribute("data-autofocus"); else e.setAttribute("data-autofocus", "false"); } }
     else if (v == null) { if (e.hasAttribute(name) || suppressedInvocation(e, name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) Paint?.facts(e); } }
     else if (e.getAttribute(name) !== v) { e.setAttribute(name, v); if (name.startsWith("data-exact-")) Paint?.facts(e); }
+    if (name === "role") syncListItemRoles(e); else if (name === "popover" && e.parentElement?.hasAttribute("data-exact-list-item")) listItem(e);
     if (e.localName === "a" && (name === "target" || name === "href" && (!e.hasAttribute("target") || e.rel === "external noopener"))) { const out = name === "href" && v != null && /^\s*(https?:)?\/\//i.test(v), t = name === "target" ? v : out ? "_blank" : null; if (t) e.setAttribute("target", t); else e.removeAttribute("target"); if (t === "_blank") e.rel = out ? "external noopener" : "noopener"; else e.removeAttribute("rel"); } // a link to an absolute URL leaves the app in a new browsing context unless its `target` is authored (element.rs `leaves_app`, `props_of`; chat F11)
     if (name === "sandbox" && e.localName === "iframe" && !e.exactAppFrame) { const source = e.$src ?? e.getAttribute("src"); if (source != null) { const s = navigable(source, e) ? source : "about:blank"; if (sandboxChanged || e.getAttribute("src") !== s) e.setAttribute("src", s); } } // a new sandbox takes effect on navigation, even to the same source; a literal source stays in src, a refused `data:` source in $src
     if ((name === 'src' || name === 'sandbox') && e.localName === 'iframe') commitGuestOrigin(e);
@@ -1171,9 +1169,10 @@ function range(p) {
 // A view leaving with its exit animation stays where it was until it ends
 // (presence-glue.js removes it): never moved, since moving cancels a CSS animation.
 const exiting = n => n.nodeType === 1 && n.hasAttribute("data-exiting");
-function clear(a, b) { Paint?.list(a.parentNode); for (let n = a.nextSibling; n !== b;) { const m = n.nextSibling; if (!exiting(n)) Leave ? Leave(n, b) : sheetLeaves(n) || n.remove(); n = m; } }
+function leave(n) { const shell = n.nodeType === 1 && n.hasAttribute("data-exact-list-item") ? n : null; n = shell ? listRow(shell) : n; if (n && !exiting(n)) Leave ? Leave(n) : sheetLeaves(n) || n.remove(); if (shell?.parentNode) unwrapListItem(shell); }
+function clear(a, b) { Paint?.list(a.parentNode); for (let n = a.nextSibling; n !== b;) { const m = n.nextSibling; leave(n); n = m; } }
 function build(b, f, own) {
-  const frag = document.createDocumentFragment();
+  const frag = document.createDocumentFragment(); frag.$listOwner = listOwner(b.parentNode);
   const s = scope(() => f(frag), own);
   b.before(frag); Paint?.list(b.parentNode);
   return s;
@@ -1267,7 +1266,7 @@ export function each(p, list, key, row, pure) {
         }
         else {
           r = { item: sig(item), index: sig(i) };
-          const frag = document.createDocumentFragment();
+          const frag = document.createDocumentFragment(); frag.$listOwner = listOwner(parent);
           r.s = scope(() => row(frag, r.item, r.index), own);
           // A row of one element is that element (a region at its top would
           // have put its own anchors beside it); any other is bracketed.
@@ -1280,12 +1279,12 @@ export function each(p, list, key, row, pure) {
       const list = order = [...next.values()];
       for (let i = 0; i < list.length; i++) list[i].at = i;
       // Every row goes and the region is all its parent holds: emptied at once.
-      if (rows.size && b && !Leave && list.every(r => r.frag) && !a.previousSibling && !b.nextSibling && !parent.querySelector(':scope > [navigationPresentation="modal"]')) { // not where the parent holds a modal route, which may leave (navigation.js `sheetLeaves`)
+      if (rows.size && b && !Leave && list.every(r => r.frag) && !a.previousSibling && !b.nextSibling && !viewChildren(parent).some(r => r.getAttribute("navigationPresentation") === "modal")) { // not where the parent holds a modal route, which may leave (navigation.js `sheetLeaves`)
         endAll(rows);
         parent.textContent = "";
         parent.append(a, b);
       }
-      else if (rows.size) { endAll(rows); for (const r of rows.values()) { let n = r.start; while (n) { const m = n.nextSibling; Leave ? Leave(n, b) : sheetLeaves(n) || n.remove(); if (n === r.end) break; n = m; } } }
+      else if (rows.size) { endAll(rows); for (const r of rows.values()) { let n = r.start; while (n) { const m = n.nextSibling; leave(n); if (n === r.end) break; n = m; } } }
       // Order, from the last row back: kept rows on the longest run already in
       // order stay; any other moves before the row after it; new rows go in
       // one fragment per run.
@@ -1354,7 +1353,7 @@ function adoptLazy(x) {
     if (!(e instanceof Mismatch)) throw e;
     say(`each: a row built afresh: ${e.message}`);
     Adopt = false;
-    const frag = document.createDocumentFragment(), old = r.start;
+    const frag = document.createDocumentFragment(), old = r.start; frag.$listOwner = listOwner(p);
     r.s = scope(() => row(frag, r.item, r.index), own);
     if (frag.childNodes.length === 1 && frag.firstChild.nodeType === 1) r.start = r.end = frag.firstChild;
     else { r.start = document.createComment(""); r.end = document.createComment(""); frag.prepend(r.start); frag.append(r.end); }

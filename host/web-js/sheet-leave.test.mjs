@@ -129,3 +129,16 @@ test('a sheet the JS runtime removes, holding a field whose decorations the brow
   const painted = await page.evaluate(() => document.querySelector('[data-testid="field"]').exactDecorations.painted);
   expect([painted, await press(page, 'pop')]).toEqual([true, null]);
 }), 120000);
+
+test('a sheet in an ordinary list survives whole-loop replacement until its exit ends', () => served(SOURCE.replace('main navigationKey', 'list appearance="none" navigationKey'), async (url, browser) => {
+  const page = await (await browser.newContext({ viewport: { width: 400, height: 700 }, reducedMotion: 'no-preference' })).newPage();
+  await page.goto(url);
+  await page.getByTestId('route-sheet').waitFor({ state: 'attached' });
+  expect(await press(page, 'replace')).toBe(true);
+  await page.getByTestId('route-b').waitFor({ state: 'attached' });
+  expect(await page.evaluate(async () => {
+    const sheet = document.querySelector('[data-testid="route-sheet"]');
+    await Promise.all(sheet.getAnimations().map(a => (a.finish(), a.finished)));
+    return document.querySelector('[data-testid="route-sheet"]') === null;
+  })).toBe(true);
+}), 120000);

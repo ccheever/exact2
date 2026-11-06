@@ -1,0 +1,58 @@
+routes nav
+  tab home "/" render=build
+  tab saved "/saved"
+
+keyframes leave
+  to opacity=0
+
+component ListStructures
+  state choice = "a"
+  state large = false
+  state shown = true
+  state listRole = false
+  derive current = top(nav)
+  action pick(value: string)
+    choice = value
+  action tab(value: string)
+    nav = select(nav, value)
+  action resize
+    large = not large
+  action drop
+    shown = false
+  action changeRole
+    listRole = true
+  action noop
+    choice = choice
+  view
+    list appearance="none" role="presentation" display="flex" flex-direction="column" testId="root" navigationKey=`${current.id}` navigationBack="" width=400
+      list role="radiogroup" testId="radios" appearance="none" display="flex"
+        button "A" role="radio" aria-checked=(choice == "a") press=pick("a") testId="radio-a"
+        button "B" role="radio" aria-checked=(choice == "b") press=pick("b") testId="radio-b"
+      column height=60 position="relative"
+        for t in nav.tabs key=t.name
+          list appearance="none" role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}` position="absolute" inset=0
+            for e in t.stack key=e.id
+              text t.name navigationKey=`${e.id}` testId=`route-${t.name}`
+      list role="tablist" testId="tabs" appearance="none" display="flex"
+        button "Home" role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=tab("home") testId="tab-home"
+        button "Saved" role="tab" aria-controls="panel-saved" aria-selected=(nav.tab == "saved") press=tab("saved") testId="tab-saved"
+      list appearance="auto" listStyle="inset-grouped" testId="grouped"
+        section testId="empty-section"
+          header
+            text "Empty"
+        section testId="filled-section"
+          button "Grouped row" press=noop testId="grouped-row"
+      row
+        button "Resize" press=resize testId="resize"
+        button "Drop" press=drop testId="drop"
+        button "Role" press=changeRole testId="change-role"
+      list appearance="none" testId="resizing" role=(listRole ? "list" : "presentation")
+        if shown
+          text "Resizing row" testId="resizing-row" role="listitem" height=(large ? 80 : 40) -exact-layout-transition="2000ms linear" -exact-exit-animation="leave 2000ms linear both"
+      list testId="direct-flow" appearance="none" position="relative" width=300 font-size=16 line-height=24
+        box testId="direct-shape" position="absolute" left=0 top=0 width=80 height=48 wrap-flow="both"
+        text "Words flow beside the shape and continue under it. Words flow beside the shape and continue under it. Words flow beside the shape and continue under it." testId="direct-text"
+      view testId="outer-flow" position="relative" width=300 font-size=16 line-height=24
+        box testId="outer-shape" position="absolute" left=0 top=0 width=80 height=48 wrap-flow="both"
+        list appearance="none"
+          text "Words flow beside the shape and continue under it. Words flow beside the shape and continue under it. Words flow beside the shape and continue under it." testId="nested-text"
