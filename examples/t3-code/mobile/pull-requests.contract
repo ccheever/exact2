@@ -1,0 +1,101 @@
+shape PullRequestLabel
+  key: string
+  name: string
+
+shape PullRequestRow
+  key: string
+  ref: string
+  number: number
+  title: string
+  stateLabel: string
+  conflict: string
+  checksLabel: string
+  reviewLabel: string
+  additions: string
+  deletions: string
+  author: string
+  repository: string
+  age: string
+  selected: bool
+  labels: PullRequestLabel[]
+
+shape PullRequestGroup
+  key: string
+  label: string
+  count: number
+  rows: PullRequestRow[]
+
+shape PullRequestsData
+  available: bool
+  loading: bool
+  error: string
+  empty: string
+  emptyDetail: string
+  emptyAction: string
+  query: string
+  total: number
+  groups: PullRequestGroup[]
+  truncated: bool
+
+component PullRequests
+  props
+    data: PullRequestsData
+    refresh: action
+    action: action
+    query: action
+  state queryValue = ""
+  state queryOwner = ""
+  action editQuery(value: string)
+    queryValue = value
+    queryOwner = data.query
+    query(value)
+  action reload
+    refresh()
+  view
+    column flex=1 min-height=0 font-family="DM Sans"
+      row padding-left=16 padding-right=16 padding-top=4 padding-bottom=8 align-items="center" gap=8
+        text "Pull Requests" role="heading" aria-level=2 font-size=20 font-weight=700 flex=1
+        button press=reload aria-label="Refresh pull requests" testId="pull-requests-refresh" padding=8
+          t3-symbol symbol-name="arrow.clockwise" width=18 height=18
+      row padding-left=16 padding-right=16 padding-bottom=10 gap=8
+        input value=(queryOwner == data.query ? queryValue : data.query) input=editQuery placeholder="Search pull requests" aria-label="Search pull requests" testId="pull-requests-search" flex=1
+        button press=action("state", "all") aria-label="Show all pull request states" testId="pull-requests-filter" padding=8
+          t3-symbol symbol-name="line.3.horizontal.decrease.circle" width=19 height=19
+      if data.error != ""
+        column margin-left=16 margin-right=16 padding=16 border-radius=14 role="alert"
+          text data.empty font-weight=700
+          text data.emptyDetail margin-top=6
+          button press=reload margin-top=10 testId="pull-requests-retry"
+            text "Try again"
+      else if data.loading and data.groups.length == 0
+        column flex=1 align-items="center" justify-content="center"
+          t3-archive-spinner spinner-tint="currentColor" width=20 height=20
+          text "Loading pull requests" margin-top=10
+      else if data.groups.length == 0
+        column flex=1 align-items="center" justify-content="center" padding=28
+          text (data.empty != "" ? data.empty : "No pull requests") role="heading" aria-level=3 font-weight=700 text-align="center"
+          text (data.emptyDetail != "" ? data.emptyDetail : "Pull requests from every project in this workspace appear here.") margin-top=7 text-align="center"
+      else
+        scroll flex=1 min-height=0 testId="pull-requests-list"
+          for group in data.groups key=group.key
+            column padding-left=16 padding-right=16 padding-top=12
+              row align-items="center" padding-bottom=6
+                text group.label font-size=13 font-weight=700
+                text `${group.count}` margin-left=5 font-size=13
+              for row in group.rows key=row.key
+                button press=action("select", row.ref) testId=`pull-request-${row.number}` padding=12 margin-bottom=8 border-radius=14 text-align="left" background-color=(row.selected ? "#eef2ff" : "transparent")
+                  column gap=4
+                    row align-items="center" gap=6
+                      text `#${row.number}` font-size=13 font-weight=700
+                      text row.stateLabel font-size=13
+                      if row.age != ""
+                        text row.age font-size=12
+                    text row.title font-size=16 font-weight=600
+                    text `${row.repository} · ${row.author}` font-size=13
+                    if row.conflict != ""
+                      text row.conflict font-size=12
+                    row gap=8
+                      if row.additions != ""
+                        text row.additions font-size=12
+                      if row.deletions != ""
+                        text row.deletions font-size=12

@@ -1,5 +1,6 @@
 use HomeArrangementData, AutomationCreditConfirmation, automationReplyPlan, automationCreditHandoff, HtmlRenderContext, HtmlRenderResult, htmlRenderReply, ThreadSubmissionInput, ThreadSubmissionResult, ThreadSubmission, ThreadLocalColors, terminalReply, composerReply, selectedThreadReply, preparedDraftReply, editedOutboxReply, threadSelectionNotice, projectRenameSaved, noticeChoice, noticeReceived, threadSubmissionNoticeMessage, changeNoticeMessage, fileNoticeMessage, voiceNoticeMessage, filesNoticeMessage, informationNoticeMessage, settingNoticeMessage, automationNoticeMessage, TerminalAttachChange, SnapshotRead, HomeReplyPlan, homeReplyPlan, pairingReplyPlan, modelReplyPlan, taskReplyPlan, PairingUi, PairingPrepared, pairingUiInitial, pairingUiVisit, pairingUiPreparing, pairingUiPreparedReply, followedLocation, SettingsVisit, settingsVisitOwner, settingsVisitSelection, settingsEventPlan, pairingCameraPlan, mediaUiInitial, mediaUiOpen, mediaUiRetry, documentReplyPlan, mediaReplyPlan, TerminalCaptureSelection, terminalCaptureStart, terminalCaptureSelect, terminalCaptureAttached, ArchiveVisit, archiveDefaultFilters, archiveVisitFilters, archiveLiveRecords, archiveEventRecords, ArchiveDeleteTarget, GitForm, gitFormField, gitFormBranches, IncomingShareInbox, IncomingSharePresentation, MobileKeyboardSnapshot, MobileKeyboardResult, MobileGitFeedbackSnapshot, MobileGitFeedbackResult, ArchiveChromeSnapshot, ArchiveChromeEvent, ProjectFaviconImages, ProjectFaviconAdmission, ProjectFaviconPrepared, MobileOutboxDrive, MobileOutboxEdit, ComposerRootInput, ComposerRootView, ComposerRootResult, homeChromeChange, homeAutomationPath, NewTaskCloneSnapshot, NewTaskCloneColors, AddProjectSnapshot, AddProjectColors, addProjectLocation, addProjectNextAlert, mobileInformationPath, mobileSettingPath, ThreadHeaderOptions, ThreadHeaderSnapshot, ThreadHeaderRead, ThreadHeaderResult, WorkingControlData, MobileInspectorPanel, MobileWorkspaceOverlays, MobileQueueSnapshot, GitColors, MobileGitSnapshot, MobileGitResult, MobileGitBranchesSnapshot, MobileGitBranchResult, InspectorState, InspectorContext, InspectorChange, InspectorPresentation, WorkspaceEvent, MobileRouteContent, MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation, ThreadPreferencesData, SettingsProjectOverview, SettingsProjectData, AccountEntry, SettingsWrite, StreamingAssistant, StreamingHapticState, AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, SettingsSelection, MobileLayout, HomeChromeView, ChromeEvent, HomeActionResult, ThreadSelection, HomeView, HomePreferences, Time, Viewport, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewPreparation, previewMayRetry, previewDiscoveryActive, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change, NotificationsData, MobileBrowserSnapshot, MobilePreviewColors, MobileDevicesSnapshot, InformationData, AttachmentAudioStatus, ScheduledClockTime, AutomationPrepared, AutomationData, VoiceSnapshot, VoiceStatus, VoiceResult, VoiceColors, AttachmentDocumentSnapshot, AttachmentDocumentMenu, AttachmentDocumentAction, MobileTerminalSnapshot, MobileTerminalResult, MobileTerminalEvent, MobileTerminalCapture, ReviewSnapshot, ReviewResult, ReviewColors, FileTreeSnapshot, FileTreeResult, FileSnapshot, FileActionResult, FileUi, ServerSettingsData, SettingsProviderAccounts, ProviderSettingsData, MediaPreviewSnapshot, ComposerAttachmentsSnapshot, SettingsChoicesData, MobilePreferencesResource, SettingsAppearance, SettingsAppearanceData, ArchiveData, ArchiveColors, ArchiveScope, ArchiveRead, AgentActivityData, AgentActivityColors, EnvironmentDetailData, NewTaskFlowSnapshot, NewTaskFlowResult, ComposerSettingsSnapshot, ComposerActionResult, ComposerColors, NewTaskSnapshot, NewTaskPreparation, ThreadSnapshot, ThreadColors, ComposerFocusReturn, composerReturnPhase, HomeColors from "./root-imports.contract"
 use mobileRouteFormSheet, mobileRoutePresentation, mobileRouteDetent from "./mobile-root-state.contract"
+use PullRequestsData from "./pull-requests.contract"
 use MobileSidebarPanel, MobileWorkspaceMarkers from "./workspace-panels.contract"
 font "DM Sans" // @ref examples/t3-code/mobile/docs/1130.002-design-system-parity.spec.md#typography-and-font-assets
   400 = "assets/fonts/DMSans_400Regular.ttf"
@@ -8,7 +9,7 @@ font "DM Sans" // @ref examples/t3-code/mobile/docs/1130.002-design-system-parit
   400 italic = "assets/fonts/DMSans_400Regular_Italic.ttf"
   700 italic = "assets/fonts/DMSans_700Bold_Italic.ttf"
 routes nav
-  home "/"
+  tab home "/"
     homeArrange "/arrange"
     thread "/threads/:threadEnvironment/:threadId"
     threadQueue "/threads/:threadEnvironment/:threadId/queue"
@@ -30,31 +31,7 @@ routes nav
     threadModelOption "/threads/:threadEnvironment/:threadId/model/options/:modelOption"
     threadRuntime "/threads/:threadEnvironment/:threadId/model/runtime"
     threadAgents "/threads/:threadEnvironment/:threadId/agents"
-    settings "/settings"
-    settingsAuth "/settings/auth"
-    settingsWaitlist "/settings/waitlist"
-    settingsNotifications "/settings/notifications"
-    settingsThreads "/settings/thread-preferences"
-    settingsProjectOverview "/settings/project"
     connectOnboarding "/connect-onboarding"
-    archive "/settings/archive"
-    settingsServer "/settings/server/:serverPage"
-    settingsProviders "/settings/provider-accounts"
-    settingsAppearance "/settings/appearance"
-    settingsChoice "/settings/preferences/:settingsChoice"
-    settingsScheduledTasks "/settings/scheduled"
-    settingsScheduledNew "/settings/scheduled/new"
-    settingsScheduledEdit "/settings/scheduled/edit"
-    settingsScheduledModel "/settings/scheduled/model"
-    settingsScheduledBranch "/settings/scheduled/branch"
-    settingsAbout "/settings/about"
-    settingsClientStorage "/settings/client-storage"
-    settingsDiagnostics "/settings/diagnostics"
-    settingsOpenSourceLicenses "/settings/open-source-licenses"
-    settingsOpenSourceLicense "/settings/open-source-licenses/:entryKey"
-    settingsLegal "/settings/legal"
-    settingsUsage "/settings/usage"
-    settingsUsageAccount "/settings/usage/account/:usageAccount/:usageWindow/:usageKind"
     newTask "/new"
       addProject "/new/add-project"
       addProjectRepository "/new/add-project/repository"
@@ -74,6 +51,31 @@ routes nav
     environments "/settings/environments"
     environmentDetail "/settings/environments/:environmentKey"
     notfound
+  tab pullRequests "/pull-requests"
+  tab settingsUsage "/settings/usage"
+    settingsUsageAccount "/settings/usage/account/:usageAccount/:usageWindow/:usageKind"
+  tab settings "/settings"
+    settingsAuth "/settings/auth"
+    settingsWaitlist "/settings/waitlist"
+    settingsNotifications "/settings/notifications"
+    settingsThreads "/settings/thread-preferences"
+    settingsProjectOverview "/settings/project"
+    archive "/settings/archive"
+    settingsServer "/settings/server/:serverPage"
+    settingsProviders "/settings/provider-accounts"
+    settingsAppearance "/settings/appearance"
+    settingsChoice "/settings/preferences/:settingsChoice"
+    settingsScheduledTasks "/settings/scheduled"
+    settingsScheduledNew "/settings/scheduled/new"
+    settingsScheduledEdit "/settings/scheduled/edit"
+    settingsScheduledModel "/settings/scheduled/model"
+    settingsScheduledBranch "/settings/scheduled/branch"
+    settingsAbout "/settings/about"
+    settingsClientStorage "/settings/client-storage"
+    settingsDiagnostics "/settings/diagnostics"
+    settingsOpenSourceLicenses "/settings/open-source-licenses"
+    settingsOpenSourceLicense "/settings/open-source-licenses/:entryKey"
+    settingsLegal "/settings/legal"
 component App
   members "./content-geometry-root.contract"
   action showMobileNotice(title: string, message: string)
@@ -464,7 +466,7 @@ component App
         sidebarProject = change.project
         sidebarSettledCount = change.count
         if change.location != ""
-          nav = push(nav, change.location)
+          nav = event.kind == "tab" or event.kind == "settings" ? select(nav, change.location) : push(nav, change.location)
       case none
         sidebarQuery = sidebarQuery
   action showMoreSidebar
@@ -1275,6 +1277,10 @@ component App
   resource archiveScope = archiveScope(data.revision, data.environmentId, data.generation, data.ready, data.status, data.environments) as shape ArchiveScope
   resource archiveRead = archiveRead(top(nav).name == "archive" ? `${top(nav).id}` : "", archiveScope.key, archiveRefresh) as shape ArchiveRead
   resource archiveData = archiveView(wallTime.epochAtZero + elapsed, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).query, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).environment, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).sort, top(nav).name == "archive", archiveRead, archiveScope, stack(nav).filter(entry => entry.name == "archive").length > 0) as shape ArchiveData
+  state prQuery = ""
+  state pullRequestsSelected = ""
+  state pullRequestsRefresh = 0
+  resource pullRequestsData = pullRequestsPage(top(nav).name == "pullRequests", pullRequestsRefresh, wallTime.epochAtZero + elapsed, pullRequestsSelected, prQuery, prQuery != "", `${top(nav).id}`) as shape PullRequestsData
   task expireArchive when stack(nav).filter(entry => entry.name == "archive").length == 0
     after(300000, tick)
   resource agentLook = agentColors(appearance.scheme, appearance.themeId) as shape AgentActivityColors
@@ -1300,6 +1306,16 @@ component App
     archiveVisits = archiveEventRecords(archiveVisits, archiveChromeChanged, workspaceEntries)
   action refreshArchive
     archiveRefresh = archiveRefresh + 1
+  action refreshPullRequests
+    pullRequestsRefresh = pullRequestsRefresh + 1
+  mutation pullRequestsChanged as shape Change refreshes pullRequestsData
+  action pullRequestsQuery(value: string)
+    prQuery = value
+  action pullRequestsAction(kind: string, value: string)
+    if kind == "select"
+      pullRequestsSelected = value
+    else
+      send pullRequestsChanged = command(`pageslocal:pr-${kind}`, "", value, `${top(nav).id}`, taskGuardOwner, taskGuardRoute)
   action archiveAction(kind: string, environmentId: string, projectId: string, threadId: string)
     if kind == "delete"
       archiveDelete = ArchiveDeleteTarget(environment=environmentId, project=projectId, thread=threadId)
