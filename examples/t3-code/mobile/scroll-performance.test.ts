@@ -31,6 +31,8 @@ test('feed scrollports measure authored padding and avoid animating stream corre
   expect(home).toContain('keyboardDismissMode="on-drag" scrollbar-width="none" touch-action="pan-y"');
   expect(thread).toContain('column flex=1 min-height=0 min-width=0 justify-content="flex-end"');
   expect(thread).toContain('min-width=0 box-sizing="border-box" overflow-x="hidden" overscroll-behavior="contain" keyboardDismissMode="none" touch-action="pan-y" virtualized=true');
+  expect(thread).toContain('ThreadErrorBanner(data=data, trailingReservation=trailingReservation');
+  expect(thread).toContain('margin-right=(12 + trailingReservation)');
   expect(thread).toContain('scroll-start="end" scrollFollowEnd=endFollowEnabled scroll=historyScroll');
   expect(thread).not.toContain('scroll-start="end" scrollFollowEnd=true scroll=historyScroll');
   expect(route).toContain('derive threadScrollToEndVisible = not threadEndFollowEnabled and threadData.loaded and not threadData.loading and threadData.error == "" and threadData.rows.length > 0');
