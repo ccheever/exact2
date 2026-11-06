@@ -121,11 +121,12 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
   },
   serve: {
     line: 'serve a built site, as a static host would (npm start)',
-    usage: 'bun exact.mjs serve [<dir>] [--port <n>] [--lan]',
+    usage: 'bun exact.mjs serve [<dir>] [--port <n>] [--lan] [--no-rebuild]',
     flags: [
       ['--port <n>', 'listen on <n> (default: PORT from the environment, else 8765)'],
       ['--lan', 'bind every interface, so another device on this network opens it'],
       ['--origin <dir>', 'a directory deploy published to, in place of a build'],
+      ['--no-rebuild', 'serve the completed build; source edits require the app\'s full build command'],
     ],
     internal: ['--loopback'],
     body: `Serves <dir> (default target/web-dist, web-build's) and prints its URL. For a request: the
@@ -134,6 +135,7 @@ shell.html with 200, or for a render=request or cached route its page rendered u
 (curl's request too); else 404.html with 404. A static host serves the directory so, with
 those routes' shell. Beside the app's sources, a page asked for after a source changed
 builds the site again first (no restart); a build that fails is the answer, with its errors.
+--no-rebuild preserves extra build steps' output; incompatible settings are refused.
 Ports    one HTTP port, on 127.0.0.1 (--lan: every interface). Runs in the foreground until ^C.`,
     example: 'bun exact.mjs serve dist --port 3000',
   },

@@ -39,6 +39,7 @@ say why each line is so: keep its shape, replace its content. Read
 |---|---|
 |`web-build --out dist`|Compiles and builds the site. A Contract error or an `app.ts` type error fails it, naming the line: it is the one check after an edit (`npm run build`).|
 |`serve dist`|Serves it, rendering `render=request` pages per request, and builds again on an edit (`npm start`).|
+|`serve dist --no-rebuild`|Serves the completed build without rebuilding on an edit. Use it for sites with extra build steps (Markdown, SEO files); run the full build to see an edit. Refuses settings that differ from the build's.|
 |`test web`|Runs `app.test.contract` in Chrome.|
 
 Keep scratch files in `.exact/` and helper scripts in `tools/`: neither makes the build stale.

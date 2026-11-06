@@ -94,8 +94,7 @@ function captureRow(event) {
   if (owner?.matches("a[href]") && (owner.target && owner.target !== "_self" || owner.hasAttribute("download"))) return;
   if (listRows(list).some(r => r.el === owner && r.press === "true")) {
     const candidate = pressedRow = { row: owner, list, route, from: last?.url, event };
-    // Qualification below reads the dispatch itself. This timer only releases the
-    // retained Event after the dispatch; it does not extend row ownership.
+    // qualification reads the dispatch; this timer releases its retained event without extending row ownership.
     setTimeout(() => { if (pressedRow === candidate) pressedRow = null; }, 0);
   }
 }
@@ -130,8 +129,7 @@ export function routeFlags(root) { const off = new Set([...root.querySelectorAll
 const routesOf = nav => stacksOf(nav).find(routes => routes.some(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"))) ?? [];
 const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
-// Agent launch facts belong to the carrier, not the router's typed URL. Keep
-// them on every History entry so a browser reload retains its agent adapter.
+// carrier launch facts stay on every history entry, outside the typed URL, so reload retains the agent adapter.
 const agentParameters = ['agent', 'seed', 'locale', 'formatLocale', 'timeZone', 'epoch', 'storage', 'failFetch'];
 export function historyURL(path) { // (exported for its test)
   const facts = AGENT_ADMITTED ? launched() : null;
@@ -184,9 +182,8 @@ function opensPopover(el) {
   if (commanded) return commanded.hasAttribute("popover") && /^(show|toggle)-popover$/i.test(el.getAttribute("command") ?? "");
   return !!document.getElementById(el.getAttribute("popovertarget") || "")?.hasAttribute("popover") && !/^hide$/i.test(el.getAttribute("popovertargetaction") ?? "");
 }
-// @ref LLP 1115.000 D4.1 — a route is a page, so the title follows it: `document.title` is the authored `head`'s title
-// (`said`: each target's head writer passes it, null for none), else the selected route's header's heading (what iOS
-// puts in the bar), else the app's name. Read again after every projection.
+// @ref LLP 1115.000 D4.1: after each projection, document.title follows the route: authored head title (`said`,
+// null for none), else its header heading (iOS's bar title), else the app name. each target's head writer passes `said`.
 const titleOf = route => headerOf(route)?.querySelector("h1, h2, h3, h4, h5, h6, [role=heading]")?.textContent.trim() ?? "";
 let saidTitle = null, appName = null;
 export function pageTitle(said = saidTitle) {
