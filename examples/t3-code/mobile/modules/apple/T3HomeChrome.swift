@@ -120,6 +120,16 @@ private final class T3SystemTabDelegate: NSObject, UITabBarControllerDelegate {
     }
 }
 
+private final class T3LegacyTabDelegate: NSObject, UITabBarDelegate {
+    private let select: (String) -> Void
+    private let keys: [String]
+    init(keys: [String], select: @escaping (String) -> Void) { self.keys = keys; self.select = select }
+    func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
+        guard let index = tabBar.items?.firstIndex(where: { $0 === item }), keys.indices.contains(index) else { return }
+        select(keys[index])
+    }
+}
+
 private final class T3TabPlaceholderController: UIViewController {
     override func loadView() {
         let view = UIView()
@@ -231,6 +241,8 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private var dismiss: UIButton?
     private var systemTabController: T3SystemTabController?
     private var systemTabDelegate: T3SystemTabDelegate?
+    private var legacyTabBar: UITabBar?
+    private var legacyTabDelegate: T3LegacyTabDelegate?
     private weak var systemTabParent: UIViewController?
     private weak var systemTabHost: UIView?
     private var systemTabConstraints: [NSLayoutConstraint] = []
@@ -301,12 +313,9 @@ private final class T3HomeChromeView: ExactNativeInstance {
     }
     fileprivate func attach(_ route: ExactRoute) {
         if self.route !== route { detach(); self.route = route }
-        // A Home visit owns the compact tab bar. Returning from an archive,
-        // usage, or settings route must restore the authored Chats selection
-        // before UIKit paints the route again.
-        if config?.layout == "compact" {
-            systemTabController?.selectedIndex = 0
-        }
+        // Keep UIKit's selected tab. The Contract owns tab selection; resetting
+        // it on every Home reattachment made a return from another tab jump
+        // back to Chats before the route echo settled.
         refresh()
     }
     private var isAttached: Bool {
@@ -341,7 +350,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
             removeSearch()
             attachedLayout = mode
             if glass { if #available(iOS 26.0, *) { makeGlassToolbar(route) } }
-            else { makeHeaderSearch(route) }
+            else { makeHeaderSearch(route); if config.layout == "compact" { makeLegacyTabs(route) } }
             // Native edits retain their text and caret across asynchronous root echoes.
             replaceQuery(query)
         }
@@ -484,6 +493,29 @@ private final class T3HomeChromeView: ExactNativeInstance {
     @available(iOS 26.0, *)
     private func makeCompactTabs(_ route: ExactRoute) {
         makeSystemTabs(route)
+    }
+
+    private func makeLegacyTabs(_ route: ExactRoute) {
+        let keys = ["threads", "pullRequests", "usage", "settings"]
+        let labels = ["Chats", "PRs", "Usage", "Settings"]
+        let symbols = ["text.bubble", "arrow.triangle.branch", "chart.bar.xaxis", "gearshape"]
+        let bar = UITabBar(); bar.translatesAutoresizingMaskIntoConstraints = false
+        bar.tintColor = .label; bar.unselectedItemTintColor = .secondaryLabel
+        bar.items = labels.enumerated().map { index, label in
+            let item = UITabBarItem(title: label, image: UIImage(systemName: symbols[index]), tag: index)
+            item.accessibilityIdentifier = "workspace-tab-\(keys[index])"
+            return item
+        }
+        let delegate = T3LegacyTabDelegate(keys: keys) { [weak self] key in self?.emit("tab", key) }
+        bar.delegate = delegate
+        let routeView = route.controller.view!
+        let host = routeView.window?.rootViewController?.viewIfLoaded ?? routeView
+        host.addSubview(bar)
+        NSLayoutConstraint.activate([
+            bar.leadingAnchor.constraint(equalTo: host.leadingAnchor), bar.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            bar.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+        ])
+        legacyTabBar = bar; legacyTabDelegate = delegate
     }
 
     @available(iOS 26.0, *)
@@ -682,6 +714,8 @@ private final class T3HomeChromeView: ExactNativeInstance {
             controller.view.removeFromSuperview()
             controller.removeFromParent()
         }
+        legacyTabBar?.removeFromSuperview()
+        legacyTabBar = nil; legacyTabDelegate = nil
         systemTabParent = nil
         systemTabHost = nil
         systemTabController = nil; systemTabDelegate = nil
