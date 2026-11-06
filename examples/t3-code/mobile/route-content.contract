@@ -399,6 +399,9 @@ component MobileRouteContent
                 text "Return home" font-size=16 line-height="23px" font-weight=700 color=look.colors.primaryForeground
         else if routeName == "homeArrange"
           HomeArrangement(requestRoute=routeId, data=arrangement, colors=HomeArrangementColors(screen=look.screen, foreground=homeLook.foreground, muted=homeLook.muted, primaryText=homeLook.primaryText, borderSubtle=homeLook.borderSubtle), safeTop=0, safeBottom=0, drop=homeArrangeDrop, close=back)
+        else if routeName == "home" and workspace.emptyWorkspaceDetail
+          column flex=1 align-items="center" justify-content="center" background-color=look.screen
+            text "Select a thread" color=look.secondary
         else if routeName == "home"
           Home(contentGeometry=contentGeometry, routeId=routeId, active=focused, refreshAt=home.nextSwipeRefreshAt, epochAtZero=homeEpochAtZero, refreshClock=refreshHomeClock, reducedMotion=viewport.prefersReducedMotion, listId="home-list", items=home.items, emptyTitle=home.emptyTitle, emptyDetail=home.emptyDetail, emptyTitleRole=settingsData.root.roles.headline, emptyDetailRole=settingsData.root.roles.footnote, plainTitleRole=settingsData.root.roles.title, plainDetailRole=settingsData.root.roles.body, plainActionRole=settingsData.root.roles.footnote, loading=home.loading, addEnvironment=home.addEnvironment, fullPageEmpty=home.fullPageEmpty, liquidGlass=layout.liquidGlass, windowHeight=(layout.windowHeight > 0 ? layout.windowHeight : viewport.height), safeTop=layout.safeTop, bottomClearance=chrome.bottomClearance, emptyClearance=chrome.emptyClearance, selectThread=chooseThread, menuAction=homeMenuAction, toggleShelf=toggleHomeShelf, showMore=showMore, addConnection=addEnvironment, colors=homeLook)
           HomeChrome(routeKey=routeId, configuration=chrome.configuration, event=homeEvent, height=(contentGeometry.verticalBarEdge != "none" ? layout.windowHeight : (layout.liquidGlass ? chrome.toolbarContentInset + layout.safeBottom : 0)), trailingReservation=contentGeometryTrailingReservation(contentGeometry))
@@ -589,8 +592,8 @@ component MobileRouteContent
           NewTaskBranches(data=newTaskData, ready=(focused and newTaskFlow.ready and newTaskFlow.requestRoute == routeId), action=taskAction, colors=composerLook)
         else
           scroll id=`scroll-${routeId}` flex=1 min-height=0 keyboardDismissMode="interactive"
-            column padding-left=(routeName == "environmentDetail" ? 0 : routeName == "environments" ? 17.5 : 20)
-              padding-right=(routeName == "environmentDetail" ? 0 : routeName == "environments" ? 17.5 : 20)
+            column padding-left=(routeName == "environmentDetail" ? 0 : routeName == "environments" ? "calc(17.5px + env(safe-area-inset-left))" : "calc(20px + env(safe-area-inset-left))")
+              padding-right=(routeName == "environmentDetail" ? 0 : routeName == "environments" ? "calc(17.5px + env(safe-area-inset-right))" : "calc(20px + env(safe-area-inset-right))")
               padding-top=(routeName == "environmentDetail" ? 0 : routeName == "environments" ? 14 : 16)
               padding-bottom=36
               gap=(routeName == "connections" or routeName == "environments" ? 0 : 14)

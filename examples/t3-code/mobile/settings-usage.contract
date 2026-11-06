@@ -173,7 +173,7 @@ component SettingsUsage
     refresh: action
   view
     UsageScroll(data=data, colors=colors, refresh=refresh)
-      column padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom gap=17.5 font-family="DM Sans"
+      column padding-left="calc(17.5px + env(safe-area-inset-left))" padding-right="calc(17.5px + env(safe-area-inset-right))" padding-top=14 padding-bottom=bottom gap=17.5 font-family="DM Sans"
         row padding=2 border-radius=7 background-color=colors.subtle
           button press=local("tab", "limits") flex=1 min-height=32 border-radius=6 background-color=(data.tab == "limits" ? colors.grouped : "transparent")
             text "Limits" color=colors.foreground font-size=roles.footnote.size

@@ -60,6 +60,8 @@ shape WorkspaceEntry
 shape WorkspaceOptions
   width: number
   height: number
+  safeLeft: number
+  safeRight: number
   primarySidebarPreferredVisible: bool
   supplementaryPanePreferredVisible: bool
   fileInspectorPreferredVisible: bool

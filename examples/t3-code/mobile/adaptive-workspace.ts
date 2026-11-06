@@ -7,6 +7,8 @@ import { deriveLayout, deriveWorkspacePaneLayout, deriveFileInspectorPaneLayout,
 export interface AdaptiveWorkspaceInput {
   readonly width: number;
   readonly height: number;
+  readonly safeLeft?: number;
+  readonly safeRight?: number;
   /** Underlying workspace path, excluding sheet overlays. */
   readonly pathname: string;
   readonly primarySidebarPreferredVisible: boolean;
@@ -23,14 +25,15 @@ export interface AdaptiveWorkspaceInput {
 }
 export function adaptiveWorkspace(input: AdaptiveWorkspaceInput) {
   const layout = deriveLayout(input);
+  const usableWidth = Math.max(0, input.width - Math.max(0, input.safeLeft ?? 0) - Math.max(0, input.safeRight ?? 0));
   const sidebarAvailable = input.primarySidebarAvailable !== false;
   // Home's own list fills the screen; a sidebar beside it would show the same list twice.
-  const showPrimarySidebar = sidebarAvailable && input.pathname !== '/' && input.primarySidebarPreferredVisible;
+  const showPrimarySidebar = sidebarAvailable && input.primarySidebarPreferredVisible;
   const auxiliaryPaneRole = input.focusedAuxiliaryPaneRole ?? (/\/files(?:\/|$)/.test(input.pathname) ? 'inspector' : 'supplementary');
-  const fileInspector = deriveFileInspectorPaneLayout({ layout, viewportWidth: input.width,
+  const fileInspector = deriveFileInspectorPaneLayout({ layout, viewportWidth: usableWidth,
     preferredWidth: input.fileInspectorPreferredWidth,
     reservedLeadingWidth: layout.usesSplitView && showPrimarySidebar ? (layout.listPaneWidth ?? 0) : 0 });
-  const panes = deriveWorkspacePaneLayout({ layout, viewportWidth: input.width,
+  const panes = deriveWorkspacePaneLayout({ layout, viewportWidth: usableWidth,
     primarySidebarPreferredVisible: showPrimarySidebar,
     auxiliaryPaneRole,
     auxiliaryPanePreferredVisible: auxiliaryPaneRole === 'inspector' ? input.fileInspectorPreferredVisible : input.supplementaryPanePreferredVisible,
@@ -38,7 +41,7 @@ export function adaptiveWorkspace(input: AdaptiveWorkspaceInput) {
   const inspectorSupported = input.inspectorRegistered && panes.auxiliaryPaneWidth !== null;
   const inspectorVisible = inspectorSupported && panes.auxiliaryPaneVisible && input.inspectorActive;
   const inspectorTargetWidth = inspectorVisible ? (panes.auxiliaryPaneWidth ?? 0) : 0;
-  const contentSettledWidth = layout.usesSplitView ? Math.max(0, panes.contentPaneWidth - inspectorTargetWidth) : input.width;
+  const contentSettledWidth = layout.usesSplitView ? Math.max(0, panes.contentPaneWidth - inspectorTargetWidth) : usableWidth;
   const chatContentMaxWidth = layout.usesSplitView ? CHAT_CONTENT_MAX_WIDTH : contentSettledWidth;
   const chatHorizontalPadding = deriveCenteredContentHorizontalPadding({ viewportWidth: contentSettledWidth,
     maxContentWidth: layout.usesSplitView ? CHAT_CONTENT_MAX_WIDTH : null, minimumPadding: layout.usesSplitView ? 20 : 16 });

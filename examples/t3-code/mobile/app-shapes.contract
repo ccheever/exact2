@@ -41,7 +41,9 @@ shape MobileLayout
   displayScale: number
   windowHeight: number
   safeTop: number
+  safeRight: number
   safeBottom: number
+  safeLeft: number
   liquidGlass: bool
   keyboardDocked: bool
 shape HomeChromeView

@@ -12,8 +12,11 @@ import { mobileHomeChrome, decodeHomeChromeEvent } from './home-chrome';
 export function mobileLayoutFacts(input: string) {
   let value: Record<string, unknown> = {};
   try { value = obj(JSON.parse(input)); } catch { /* Bake has no UIKit geometry. */ }
-  return { safeTop: typeof value.safeTop === 'number' && Number.isFinite(value.safeTop) ? Math.max(0, value.safeTop) : 0, safeBottom: typeof value.safeBottom === 'number' && Number.isFinite(value.safeBottom)
-    ? Math.max(0, value.safeBottom) : 0, liquidGlass: value.liquidGlass === true, keyboardDocked: value.keyboardDocked === true,
+  return { safeTop: typeof value.safeTop === 'number' && Number.isFinite(value.safeTop) ? Math.max(0, value.safeTop) : 0,
+    safeRight: typeof value.safeRight === 'number' && Number.isFinite(value.safeRight) ? Math.max(0, value.safeRight) : 0,
+    safeBottom: typeof value.safeBottom === 'number' && Number.isFinite(value.safeBottom) ? Math.max(0, value.safeBottom) : 0,
+    safeLeft: typeof value.safeLeft === 'number' && Number.isFinite(value.safeLeft) ? Math.max(0, value.safeLeft) : 0,
+    liquidGlass: value.liquidGlass === true, keyboardDocked: value.keyboardDocked === true,
     displayScale: typeof value.displayScale === 'number' && Number.isFinite(value.displayScale) && value.displayScale > 0 ? value.displayScale : 1,
     windowHeight: typeof value.windowHeight === 'number' && Number.isFinite(value.windowHeight) && value.windowHeight > 0 ? value.windowHeight : 0 };
 }

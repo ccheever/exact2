@@ -78,7 +78,7 @@ component SettingsInformation
     else
       column flex=1 min-height=0 background-color=colors.sheet font-family="DM Sans"
         scroll id="settings-information-scroll" flex=1 min-height=0
-          column gap=(route == "settingsOpenSourceLicenses" ? 0 : 21) padding-left=(route == "settingsOpenSourceLicenses" ? 0 : 17.5) padding-right=(route == "settingsOpenSourceLicenses" ? 0 : 17.5) padding-top=(route == "settingsOpenSourceLicenses" ? 0 : 14) padding-bottom=(route == "settingsOpenSourceLicenses" and data.licensesReady ? 74 : bottom)
+          column gap=(route == "settingsOpenSourceLicenses" ? 0 : 21) padding-left=(route == "settingsOpenSourceLicenses" ? 0 : "calc(17.5px + env(safe-area-inset-left))") padding-right=(route == "settingsOpenSourceLicenses" ? 0 : "calc(17.5px + env(safe-area-inset-right))") padding-top=(route == "settingsOpenSourceLicenses" ? 0 : 14) padding-bottom=(route == "settingsOpenSourceLicenses" and data.licensesReady ? 74 : bottom)
             if route == "settingsAbout"
               column gap=7
                 SettingsSectionLabel(title="App", colors=colors, roles=roles)

@@ -120,6 +120,18 @@ private final class T3SystemTabDelegate: NSObject, UITabBarControllerDelegate {
     }
 }
 
+private final class T3SidebarTabDelegate: NSObject, UITabBarDelegate {
+    private let keys: [String]
+    private let select: (String) -> Void
+    init(keys: [String], select: @escaping (String) -> Void) {
+        self.keys = keys; self.select = select
+    }
+    func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
+        guard let index = tabBar.items?.firstIndex(where: { $0 === item }), keys.indices.contains(index) else { return }
+        select(keys[index])
+    }
+}
+
 private final class T3TabPlaceholderController: UIViewController {
     override func loadView() {
         let view = UIView()
@@ -229,6 +241,8 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private var dismiss: UIButton?
     private var systemTabController: T3SystemTabController?
     private var systemTabDelegate: T3SystemTabDelegate?
+    private var sidebarTabBar: UITabBar?
+    private var sidebarTabDelegate: T3SidebarTabDelegate?
     private var glassLeading: NSLayoutConstraint?
     private var glassTrailing: NSLayoutConstraint?
     private var glassCenter: NSLayoutConstraint?
@@ -328,7 +342,10 @@ private final class T3HomeChromeView: ExactNativeInstance {
             removeSearch()
             attachedLayout = mode
             if glass { if #available(iOS 26.0, *) { makeGlassToolbar(route) } }
-            else { makeHeaderSearch(route) }
+            else {
+                makeHeaderSearch(route)
+                if config.layout == "sidebar" { makeSidebarTabs(route) }
+            }
             // Native edits retain their text and caret across asynchronous root echoes.
             replaceQuery(query)
         }
@@ -473,6 +490,38 @@ private final class T3HomeChromeView: ExactNativeInstance {
         makeSystemTabs(route)
     }
 
+    private func makeSidebarTabs(_ route: ExactRoute) {
+        let keys = ["threads", "pullRequests", "usage", "settings"]
+        let labels = ["Chats", "Pull Requests", "Usage", "Settings"]
+        let symbols = ["text.bubble", "arrow.triangle.branch", "chart.bar.xaxis", "gearshape"]
+        let bar = UITabBar()
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        bar.accessibilityIdentifier = "workspace-sidebar-tab-bar"
+        bar.delegate = nil
+        bar.tintColor = .label
+        bar.unselectedItemTintColor = .secondaryLabel
+        bar.backgroundColor = .clear
+        bar.isTranslucent = true
+        bar.items = keys.enumerated().map { index, key in
+            let item = UITabBarItem(title: nil, image: UIImage(systemName: symbols[index]), selectedImage: index == 0 ? UIImage(systemName: "text.bubble.fill") : nil)
+            item.accessibilityLabel = labels[index]
+            item.accessibilityIdentifier = "workspace-sidebar-tab-\(key)"
+            return item
+        }
+        bar.selectedItem = bar.items?.first
+        let delegate = T3SidebarTabDelegate(keys: keys) { [weak self] key in self?.emit("tab", key) }
+        bar.delegate = delegate
+        root.addSubview(bar)
+        NSLayoutConstraint.activate([
+            bar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            bar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            bar.bottomAnchor.constraint(equalTo: root.safeAreaLayoutGuide.bottomAnchor),
+            bar.heightAnchor.constraint(equalToConstant: 64),
+        ])
+        sidebarTabBar = bar
+        sidebarTabDelegate = delegate
+    }
+
     @available(iOS 26.0, *)
     private func makeSystemTabs(_ route: ExactRoute) {
         // One UITabBarController owns Home tabs on every iPhone. UIKit chooses
@@ -585,6 +634,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
     fileprivate func setWorkspaceHidden(_ hidden: Bool) {
         guard workspaceHidden != hidden else { return }
         workspaceHidden = hidden
+        sidebarTabBar?.isHidden = hidden
         guard config?.layout == "sidebar" else { return }
         if !hidden {
             replaceQuery(query)
@@ -617,6 +667,8 @@ private final class T3HomeChromeView: ExactNativeInstance {
             controller.removeFromParent()
         }
         systemTabController = nil; systemTabDelegate = nil
+        sidebarTabBar?.removeFromSuperview()
+        sidebarTabBar = nil; sidebarTabDelegate = nil
         filter = nil; compose = nil; dismiss = nil
         width = nil; keyboardBottom = nil; restingBottom = nil; glassLeading = nil; glassTrailing = nil; glassCenter = nil
         settingQuery = false

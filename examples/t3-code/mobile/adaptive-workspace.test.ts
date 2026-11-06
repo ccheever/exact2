@@ -6,10 +6,10 @@ const base: AdaptiveWorkspaceInput = { width: 1024, height: 768, pathname: '/thr
   primarySidebarPreferredVisible: true, supplementaryPanePreferredVisible: true,
   fileInspectorPreferredVisible: true, inspectorRegistered: false, inspectorActive: false };
 
-test('Home fills the width with no sidebar without overwriting preference, compact preserves input state', () => {
+test('Home keeps a split sidebar for tab navigation and compact fills the width', () => {
   const input = { ...base, pathname: '/', primarySidebarPreferredVisible: false };
   expect(adaptiveWorkspace(input)).toMatchObject({ sidebarMounted: true, sidebarVisible: false, sidebarTargetWidth: 0, contentSettledWidth: 1024 });
-  expect(adaptiveWorkspace({ ...input, primarySidebarPreferredVisible: true })).toMatchObject({ sidebarVisible: false, contentSettledWidth: 1024 });
+  expect(adaptiveWorkspace({ ...input, primarySidebarPreferredVisible: true })).toMatchObject({ sidebarVisible: true, emptyWorkspaceDetail: true, contentSettledWidth: 696 });
   expect(adaptiveSidebarToggle(input).primarySidebarPreferredVisible).toBe(false);
   expect(adaptiveWorkspace({ ...input, width: 932, height: 430 })).toMatchObject({ sidebarMounted: false, sidebarVisible: false, emptyWorkspaceDetail: false, contentSettledWidth: 932 });
   expect(input.primarySidebarPreferredVisible).toBe(false);
