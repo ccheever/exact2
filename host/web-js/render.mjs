@@ -77,7 +77,7 @@ export function deferredAnswers(hash) {
 /** `/.exact/checkpoint/<hash>.json`'s hash, or null. */
 export const deferredPath = path => /^\/\.exact\/checkpoint\/([0-9a-f]{32})\.json$/.exec(path)?.[1] ?? null;
 
-export function renderer(dist) {
+export function renderer(dist, { closed = false } = {}) {
   const script = new vm.Script(readFileSync(resolve(dist, '.gen/server.js'), 'utf8'), { filename: 'server.js' });
   const shell = readFileSync(resolve(dist, existsSync(resolve(dist, 'shell.html')) ? 'shell.html' : 'index.html'), 'utf8');
   const capture = readFileSync(new URL('./capture.js', import.meta.url), 'utf8').trim();
@@ -85,7 +85,7 @@ export function renderer(dist) {
   const cache = new Map();
   const files = p => { let v = cache.get(p); if (!v) { v = readFileSync(resolve(dist, p.replace(/^\.?\//, ''))); if (p.endsWith('.wasm')) v = new WebAssembly.Module(v); cache.set(p, v); } return v; };
   // Every render's fetches share one HTTP cache, for as long as each answer's headers allow (http-cache.mjs).
-  const fetched = cachingFetch(fetch);
+  const fetched = closed ? () => Promise.reject(new Error('network data is unavailable during Markdown compilation')) : cachingFetch(fetch);
   const name = unesc(/<title>([^<]*)<\/title>/.exec(shell)?.[1] ?? '');
   // The head's fields a crawler reads after the title and viewport, as page.rs `page_head` writes them.
   const crawled = (out, location) => {
@@ -164,6 +164,8 @@ export function renderer(dist) {
       fetch: fetchOwned,
       crypto: { subtle: crypto.subtle, getRandomValues: drew(a => crypto.getRandomValues(a)), randomUUID: drew(() => crypto.randomUUID()) },
       WebAssembly, atob, btoa, Event: class {}, CustomEvent: class {}, __exactRender: true, __files: files,
+      ...(closed ? { __exactMarkdown: new Map() } : {}),
+      __exactMarkdownBuilt: JSON.parse(/<script type="application\/vnd.exact.markdown">([\s\S]*?)<\/script>/.exec(shell)?.[1] ?? '[]'),
     });
     ctx.globalThis = ctx; ctx.self = ctx;
     utcIntl.runInContext(ctx);
@@ -234,6 +236,11 @@ export function renderer(dist) {
   }
   const render = async (location, deadline = DEADLINE) => (await begin(location)).finish(deadline);
   render.begin = begin;
+  render.markdown = async () => {
+    const { ctx } = realm();
+    await ctx.__start();
+    return ctx.__markdown();
+  };
   return render;
 }
 
