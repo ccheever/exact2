@@ -65,7 +65,7 @@ component Rail
     copyMarkdown: action
     copied: bool
   view
-    nav aria-label="Page" inert=(not roomy) width="clamp(0px, (100vw - 1280px) * 1000, 13rem)" overflow="hidden" flex-shrink=0 margin-left="clamp(0px, (100vw - 1280px) * 1000, 56px)" padding="clamp(0px, (100vw - 1280px) * 1000, 4px) 0 0 clamp(0px, (100vw - 1280px) * 1000, 8px)" position="sticky" top=24 align-self="flex-start" testId="toc"
+    nav aria-label="Page" inert=(not roomy) width="calc(13rem - clamp(0px, (1280px - 100vw) * 1000, 13rem))" overflow="hidden" flex-shrink=0 margin-left="calc(56px - clamp(0px, (1280px - 100vw) * 1000, 56px))" padding="calc(4px - clamp(0px, (1280px - 100vw) * 1000, 4px)) 0 0 calc(8px - clamp(0px, (1280px - 100vw) * 1000, 8px))" position="sticky" top=24 align-self="flex-start" testId="toc"
       column gap=28
         column gap=10
           RailLink(href=page.editUrl, icon="symbol:pencil", label="Edit page")

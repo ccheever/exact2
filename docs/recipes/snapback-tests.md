@@ -25,7 +25,7 @@ an intentional clock test must arrange both clocks.
 Server ids are unique, not ordered. Sort by time; tests can reach rows by text
 or position (`for t, i in tasks key=t.id`, ``testId=`task-${i}` ``).
 
-Wiring the backend: [snapback](snapback.md).
+Wiring the backend: [a Snapback backend (shared server data)](snapback.md).
 
 A test that deliberately refuses a request asserts it after settling data:
 

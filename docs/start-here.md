@@ -1,6 +1,6 @@
 # Start here: building an app with Exact
 
-The only required reading; the rest is lookup. A website reads [start-here-site.md](start-here-site.md) instead.
+The only required reading; the rest is lookup. A website reads [Start here: a website with Exact](start-here-site.md) instead.
 
 ```prompt Build an app with Exact
 Build a new app with Exact in this folder. Use https://github.com/ccheever/exact2/blob/main/docs/start-here.md as the source for each step: it is the only required reading. The exact2 checkout has the same page at docs/start-here.md.
@@ -91,7 +91,7 @@ the two differ, and draws `home.diff.png`, so neither picture needs viewing. On 
 `agent web --url /item/7` opens at a page, and a capture of the whole page compares at its height.
 
 `agent ios` is the app as a person sees it, UIKit's bars included, with screenshots a pixel a
-point (`--scale 3`: the device's): no other simulator tool is needed ([ios-driving](recipes/ios-driving.md)).
+point (`--scale 3`: the device's): no other simulator tool is needed ([driving iOS](recipes/ios-driving.md)).
 
 ## Platform checks
 
@@ -273,10 +273,10 @@ field fails a resource or voids a mutation’s reply, whose slot keeps its old v
 Type the function returning a reply (`Promise<Result<'post'>>`) so the build names
 an extra field. It reaches only what its `grants` name. A value fixed at build, such as an
 API's origin, is `const API = import.meta.env.API_BASE_URL` at its top level, the name declared
-in `app.json`'s `env` ([rest-backend](recipes/rest-backend.md)). A failed read should
+in `app.json`'s `env` ([your own REST server](recipes/rest-backend.md)). A failed read should
 fail its resource so Exact can retain its previous answer; a mutation may return
 a shaped domain refusal for its action to handle
-([fetch-loading-error](recipes/fetch-loading-error.md)). The clock and
+([fetch with loading, error and retry](recipes/fetch-loading-error.md)). The clock and
 randomness are refused there; time comes as an argument. A date from a value
 works (`new Date(ms)`, `Intl.DateTimeFormat`). `console.log` appears in the agent’s
 `logs` and its last lines in a failed test’s notes. It imports its own `.ts`/`.js` and pure-JS npm

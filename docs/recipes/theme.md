@@ -59,7 +59,7 @@ component App
   coloured by `color` and sized by its font ([symbols](symbols.md)).
 - **The scheme:** `setScheme("light" | "dark" | "system")` sets the app's (in its action, and a
   `mount` task for a kept one); `color-scheme`
-  fixes a subtree in one. Modes the person picks (Dim, Black) are axes ([tamber](tamber.md)).
+  fixes a subtree in one. Modes the person picks (Dim, Black) are axes ([a brand](tamber.md)).
 - **Check it:** `bun exact.mjs tamber check .` (`pair=` warns below 4.5:1); a drive or an
   authored test says `prefer prefers-color-scheme dark` (then `light`) before an `expect` or
   `screenshot`, or `check both` judges both schemes.

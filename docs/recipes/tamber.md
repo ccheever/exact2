@@ -1,4 +1,4 @@
-# A brand: Light, Dim and Black
+# Recipe: a brand in Light, Dim and Black
 
 An app's own colours are its design, `app.tamber` beside `app.contract` (LLP
 1121). Rows name its tokens as they name roles; a mode the person picks (Dim or
@@ -42,7 +42,7 @@ What to know:
 
 - **Names, not values.** `bun exact.mjs tamber check .` checks the design;
   `tamber eval . --mode dark-style=dim` prints each token in that mode;
-  `tamber fmt .` gives the file its one layout.
+  `tamber fmt .` formats it.
   `no-tells` reads the design: a token is not a literal.
 - **An axis is the app's.** `under scheme=dark` keeps the light side; a `when`
   line gives the mode's value; the first value is the default.

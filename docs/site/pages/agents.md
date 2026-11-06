@@ -10,7 +10,7 @@ Give your agent one file before it builds an app with Exact. The home page has a
 {{START_PROMPT}}
 ```
 
-For a website (pages served to a browser), the file is [start-here-site.md](../../start-here-site.md) in place of [start-here.md](../../start-here.md). Everything else in the docs is lookup.
+For a website (pages served to a browser), the guide is [Start here: a website with Exact](../../start-here-site.md) in place of [Start here: building an app with Exact](../../start-here.md). Everything else in the docs is lookup.
 
 ## Markdown pages
 
@@ -21,6 +21,10 @@ Each Markdown page starts with frontmatter (`title`, `description` and `modifica
 ## llms.txt
 
 `/llms.txt` lists every page with its title, its Markdown URL and a one-line description. On a host that reads the site's `_headers` file, such as Cloudflare Pages or Netlify, each response names it in two headers: `Link: </llms.txt>; rel="llms-txt"` and `X-Llms-Txt: /llms.txt`.
+
+## sitemap.md
+
+`/sitemap.md` lists the same pages by section, nested as the guides nest. Each line has the page's Markdown URL, its type (Guide, How-to, Reference), the date it last changed, a summary, and its prerequisites: the page to read before it.
 
 ## Open in your agent
 

@@ -3,7 +3,7 @@
 What an app leaves unsaid, the web draws as a well-made web app would; iOS and macOS
 draw their own controls from the same file. Say what a thing is; leave the look alone: a
 `background-color`, `border`, `border-radius` or `font-size` on a `button` makes it your own
-box (emphasis is a part: [content-design](content-design.md)).
+box (emphasis is a part: [content design](content-design.md)).
 
 | You write | The web draws |
 |---|---|
@@ -33,10 +33,10 @@ unsaid: a hex stays the same in dark mode while the controls change.
   centred column, `max-width` a phone's width or a little more. A list and its detail, or a
   dashboard of cards: two columns. A root tab bar is a sidebar and a list whose rows push
   (`forward-chevron`) sits beside its detail, with nothing to write ([tabs](tabs.md),
-  [navigation-stack](navigation-stack.md)); a layout chosen by width (`exactViewport()`):
-  [responsive-columns](responsive-columns.md).
+  [a navigation stack](navigation-stack.md)); a layout chosen by width (`exactViewport()`):
+  [columns that wrap on a phone](responsive-columns.md).
 - **A route is a page.** The tab's title is the route `header`'s heading, focus moves to
   it on a push and back on Back, a sheet is a dialog to a screen reader, a tab bar and a
   menu take arrow keys: nothing to write. A row that only navigates is a `link
   href=path(…)`, not a `button`, so a new tab and "Copy Link" work
-  ([navigation-stack](navigation-stack.md)).
+  ([a navigation stack](navigation-stack.md)).

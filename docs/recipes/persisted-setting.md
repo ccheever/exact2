@@ -1,4 +1,4 @@
-# A remembered setting
+# Recipe: a remembered setting
 
 A setting the app keeps across launches — a tip percentage, °C or °F — is a root
 `state` that ends in `persist` (LLP 1116 D5). There is no data module, grant or

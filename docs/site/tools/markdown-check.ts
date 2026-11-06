@@ -5,7 +5,7 @@ import { site } from '../constants/site.ts';
 // Checks the Markdown that tools/postbuild.ts wrote into dist, as an agent reads it: one .md file for each
 // page and nothing else, each with its frontmatter, the llms.txt pointer, an H1 with the feedback block
 // below it, closed code fences, no HTML or CSS leaked into the prose, and links and images that reach a
-// file in dist. llms.txt lists every page. Exits 1 on the first build that breaks one. docs.expo.dev's
+// file in dist. llms.txt and sitemap.md list every page. Exits 1 on the first build that breaks one. docs.expo.dev's
 // scripts/check-markdown-pages.ts is the model.
 
 const SITE = resolve(import.meta.dir, '..');
@@ -83,15 +83,19 @@ const expected = new Set(pages.map(p => markdownPath(p.path)));
 const written = readdirSync(DIST, { recursive: true, encoding: 'utf8' })
   .filter(f => f.endsWith('.md') && !f.startsWith('assets/'))
   .map(f => `/${f.split('\\').join('/')}`);
-for (const f of written) if (!expected.has(f) && f !== '/404.md') fail(f, 'is no page in content/pages.json');
+for (const f of written) if (!expected.has(f) && f !== '/404.md' && f !== '/sitemap.md') fail(f, 'is no page in content/pages.json');
 if (!written.includes('/404.md')) fail('/404.md', 'missing');
 
 const llms = existsSync(join(DIST, 'llms.txt')) ? readFileSync(join(DIST, 'llms.txt'), 'utf8') : '';
 if (!llms) fail('/llms.txt', 'missing');
 else for (const p of pages) if (!llms.includes(`](${ORIGIN}${markdownPath(p.path)})`)) fail('/llms.txt', `does not list ${markdownPath(p.path)}`);
 
+const sitemap = existsSync(join(DIST, 'sitemap.md')) ? readFileSync(join(DIST, 'sitemap.md'), 'utf8') : '';
+if (!sitemap) fail('/sitemap.md', 'missing');
+else for (const p of pages) if (!sitemap.includes(`](${ORIGIN}${markdownPath(p.path)}) | Type: `)) fail('/sitemap.md', `does not list ${markdownPath(p.path)}`);
+
 if (problems.length) {
   console.error(`markdown-check: ${problems.length} problems\n${problems.map(p => `  ${p}`).join('\n')}`);
   process.exit(1);
 }
-console.log(`markdown-check: ${pages.length} .md pages, 404.md and llms.txt are valid`);
+console.log(`markdown-check: ${pages.length} .md pages, 404.md, llms.txt and sitemap.md are valid`);

@@ -2,7 +2,7 @@
 
 `performanceNow()` restarts at 0 on every launch, so a start mark that outlives it is a date,
 `time.epochAtZero + performanceNow()`. It is a small number: a root `state … persist` keeps it, with
-no data module ([persisted-setting](persisted-setting.md)).
+no data module ([a remembered setting](persisted-setting.md)).
 
 ```contract
 shape Time
@@ -68,4 +68,4 @@ test "stop banks the time, and reset clears it"
 - A test's `reload` relaunches at the virtual time the test had reached, so a running timer reads
   as it did before it (`0:05` above); `performanceNow()` starts at 0 again.
 - The readout is deliberate design: its size in `rem`, which grows with Dynamic Type as a bare
-  number would not, with `tabular-nums` ([numeric-readout](numeric-readout.md)).
+  number would not, with `tabular-nums` ([a numeric readout](numeric-readout.md)).

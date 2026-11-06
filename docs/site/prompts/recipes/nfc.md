@@ -1,0 +1,13 @@
+```prompt Read and write NFC tags
+Add NFC tag reading, and writing if I ask for it, to the Exact app in this folder. Use https://github.com/ccheever/exact2/blob/main/docs/recipes/nfc.md as the source for each step. The exact2 checkout has the same page at docs/recipes/nfc.md.
+
+1. If this folder is not an Exact app (it has no exact.mjs and app.contract), stop and tell me. Find the exact2 checkout (the folder with scripts/exact.mjs); if you cannot find it, ask me where it is.
+2. If I did not say what a tag holds and what the app does with it, propose it and ask me. NFC needs a phone: no desktop, simulator or browser but Chrome on Android has it, and a signed iOS build also needs the App ID's NFC Tag Reading capability, which I must turn on.
+3. Install the package: `bun <exact2>/scripts/exact.mjs add nfc .`. In app.ts, declare `device.nfc` with its purpose key, and add the purpose sentence to `strings/en.json`.
+4. In app.contract, show nothing NFC while `available` is false, and offer `openNFCSettings()` while `radio` is `off`. Scan from a press with `scan(once=true)`, and handle each `reading` on the root's outermost node.
+5. Draw the wait only where the platform draws none: a sheet with Cancel while `readerUI` is `app` and `state` is `granted`. On iOS, pass the words as `apple.alertMessage` and `apple.errorMessages`. Read and write record bytes in app.ts only. Confirm before `makeReadOnly()`: it cannot be undone.
+6. Add tests in app.test.contract with the substitutes the recipe names: `prefer extension nfc.tags=[...]`, `prefer extension nfc.field="<id>"`, and `tap @t cancel` and `tap @t timeout`.
+7. Follow the platform checks in docs/start-here.md (`bun exact.mjs docs platform checks`) for the targets in the app's AGENTS.md and app.json until they pass. Read the reports, including counted findings; a zero exit code alone does not mean clean. Fix the app, not the test. If a finding stays after three rounds of fixes, or the app had it before you changed anything, record it (step 8) and report it; do not keep trying.
+8. When a doc was wrong or missing, or a step needed a workaround, read `bun exact.mjs feedback status`. Under `never`, keep no note. Otherwise record it locally: `EXACT_FEEDBACK=0 bun exact.mjs feedback note "<what happened>"` (use your shell's environment syntax). Do not change the saved policy or send notes, even under `always`; tell me how many you kept.
+9. Tell me what the app reads and writes, what the tests and verify reported, and what I must still do on a phone. Shelf's Tag This Book (`apps/shelf` in the exact2 checkout) is the whole app.
+```

@@ -61,7 +61,7 @@ test "search, swipe to delete, delete from the menu"
 - The empty search field scrolls away on iOS, as UIKit's does; `position="sticky" top=0`
   on the `input` pins it. Querying a server: `contract vocab search`.
 - A filter: a `row role="radiogroup"` of `button role="radio"`
-  ([persisted-setting](persisted-setting.md)): a segmented control, unless you paint them.
+  ([a remembered setting](persisted-setting.md)): a segmented control, unless you paint them.
 - One long-press menu serves every row: the row notes which (`aim`); each item acts on
   `aimed` and hides it (iOS: a `UIMenu`).
 - The list runs under the bar and under a row of only controls pinned beside it (a

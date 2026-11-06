@@ -13,7 +13,7 @@ Symbols the web draws blank are one warning line.
 
 **Comparing a port with the original.** `agent ios --touch platform` makes each tap a real touch,
 which opens UIKit's menus and reaches a native module's own controls: drive with it to compare a
-port's screens with the original's ([ios-driving](ios-driving.md)). Porting a React Native app,
+port's screens with the original's ([driving iOS](ios-driving.md)). Porting a React Native app,
 read [its pitfalls](../agent-pitfalls.md#porting-a-react-native-app) first.
 
 **What ships.** `ios --release` builds what ships; it ignores `EXACT_AGENT`, so drive the

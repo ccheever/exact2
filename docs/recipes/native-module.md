@@ -3,7 +3,7 @@
 **Sound, MIDI and a transport are built in** ([guide](../contract-for-agents.md#sound-midi-and-media),
 `apps/metronome`): write no module. Another platform API with no view (a measurement
 hook) is the app's one module, which `app.ts` asks: `modules/apple/*.swift`, one `ExactModule` subclass that `let exactModule` names.
-app.json needs nothing for it ([app-json](app-json.md)).
+app.json needs nothing for it ([app.json](app-json.md)).
 
 ```swift
 import Foundation
@@ -71,4 +71,4 @@ export const answer: Answer = (source, args, store, storage, native) =>
 - **Exiting:** iOS has no quit. `exit(0)` skips the app's pending writes: keep it to a
   measurement hook, after `fflush(stdout)`.
 - **A Swift edit rebuilds** (`bun exact.mjs ios`); views from the same module are
-  [native-views](native-views.md).
+  [native views](native-views.md).

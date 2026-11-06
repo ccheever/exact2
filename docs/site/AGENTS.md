@@ -27,3 +27,11 @@ command confused you, record it: `bun exact.mjs feedback note "<what happened>"`
 exact2's commit and the last exit code, never output or code. `bun exact.mjs feedback status` says
 whether notes are sent and whether to keep a diary; under `never`, skip all of this.
 <!-- exact:end -->
+
+## Search
+
+The search dialog (Cmd+K) asks the Algolia app and index in `constants/search.ts` with its
+search-only key, so it works the same locally and on the deployed site. As on docs.expo.dev,
+the index is the Algolia Crawler's: it crawls the deployed site from `sitemap.xml` on a schedule
+and writes DocSearch records (`hierarchy.lvl0` to `lvl6`, `content`, `url`), so nothing here
+holds a write key. Its configuration lives in the Algolia dashboard (Data sources, Crawler).

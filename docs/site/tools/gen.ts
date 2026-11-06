@@ -103,7 +103,7 @@ const promptOf = (source: string) => existsSync(join(PROMPTS, source)) ? `${read
 function read(nav: NavPage): Doc {
   const text = readFileSync(join(DOCS, nav.source), 'utf8')
     .replaceAll('{{START_PROMPT}}', START_PROMPT)
-    .replace(/^([\s\S]*?\n\n[\s\S]*?\n\n)/, intro => `${intro}${promptOf(nav.source)}`)
+    .replace(/^(#[^\n]*\n\n(?:(?!```)[^\n]+\n)*\n?)/, intro => `${intro}${promptOf(nav.source)}`)
     .replace(/https:\/\/github\.com\/ccheever\/exact2\/blob\/main\/docs\/[\w./-]+\.md/g, url => docsUrlOf.get(url) ?? url);
   const tokens = marked.lexer(text, { gfm: true });
   const slug = slugger();
