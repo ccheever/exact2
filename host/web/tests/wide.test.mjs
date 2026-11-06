@@ -84,7 +84,7 @@ async function inChrome(html, test, w = 1280) {
     };
     await size(w);
     await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
-    await test(evaluate, size, click);
+    await test(evaluate, size, click, call);
   } finally {
     await suite.close();
     server.close();
@@ -101,6 +101,30 @@ check('a root tab bar left unsaid is a sidebar on a wide window and a bar on a p
   expect(await evaluate(`[document.getElementById('nav').hasAttribute('data-exact-sidebar'), box('bar')[0], box('bar')[2], box('bar')[1] + box('bar')[3], box('panels')[2]]`)).toEqual([false, 0, 390, 800, 390]);
   await size(1280);
   expect(await evaluate(`[document.getElementById('nav').hasAttribute('data-exact-sidebar'), box('bar')]`)).toEqual([true, [0, 0, 240, 800]]);
+  // Keep the authored content aligned with the viewport segments when each half is narrow
+  await evaluate(`Object.defineProperty(window, 'viewport', { configurable: true, value: { segments: [new DOMRect(0, 0, 620, 800), new DOMRect(660, 0, 620, 800)] } }); select(document.getElementById('nav').getAttribute('navigationKey'));`);
+  expect(await evaluate(`[document.getElementById('nav').hasAttribute('data-exact-sidebar'), box('panels')[0], box('panels')[2]]`)).toEqual([false, 0, 1280]);
+  await evaluate(`delete window.viewport; select(document.getElementById('nav').getAttribute('navigationKey'));`);
+  expect(await evaluate(`document.getElementById('nav').hasAttribute('data-exact-sidebar')`)).toBe(true);
+}), 60000);
+
+check('fold-only media changes reproject navigation without a viewport resource', () => inChrome(page(tabs(BAR)), async (evaluate, size, click, call) => {
+  const sidebar = wanted => evaluate(`new Promise((resolve, reject) => {
+    const root = document.getElementById('nav');
+    const observer = new MutationObserver(check);
+    const timer = setTimeout(() => { observer.disconnect(); reject(new Error('sidebar projection did not settle')); }, 10000);
+    function check() { if (root.hasAttribute('data-exact-sidebar') === ${wanted}) { clearTimeout(timer); observer.disconnect(); resolve(); } }
+    observer.observe(root, { attributes: true, attributeFilter: ['data-exact-sidebar'] }); check();
+  })`);
+  await evaluate(`Object.defineProperty(navigator, 'devicePosture', { configurable: true, value: undefined }); Object.defineProperty(window, 'viewport', { configurable: true, value: undefined }); window.resizes = 0; addEventListener('resize', () => resizes++);`);
+  expect(await evaluate(`document.getElementById('nav').hasAttribute('data-exact-sidebar')`)).toBe(true);
+  await call('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false,
+    displayFeature: { orientation: 'vertical', offset: 620, maskLength: 40 } });
+  await sidebar(false);
+  expect(await evaluate(`[resizes, box('panels')[0], box('panels')[2]]`)).toEqual([0, 0, 1280]);
+  await call('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+  await sidebar(true);
+  expect(await evaluate(`resizes`)).toBe(0);
 }), 60000);
 
 check('an arrangement the app wrote stays its own on a wide window', async () => {

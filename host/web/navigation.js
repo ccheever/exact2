@@ -24,7 +24,7 @@ const tabsOf = nav => {
 export const panelsOf = nav => tabsOf(nav)[1];
 const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? panels.map(routesIn) : [nav ? routesIn(nav) : []]; };
 // @ref LLP 1115.002 D4, LLP 1116.004 D1.2 — WIDE changes presentation; the list/outer-press rule stays shared.
-const WIDE = "(min-width: 900px)", wide = () => !!globalThis.matchMedia?.(WIDE).matches;
+const WIDE_WIDTH = 900, WIDE = `(min-width: ${WIDE_WIDTH}px)`, wide = () => { if (!globalThis.matchMedia?.(WIDE).matches) { return false; } const { cols, rects } = fold(); return cols === 1 || (rects.length > 0 && rects.every(([, , width]) => width >= WIDE_WIDTH)); }; // Base wide navigation on the space within each horizontal segment
 let splitLists = new WeakMap(), rowOf = new WeakMap(), actionRows = new WeakMap(), visits = new Map();
 const activationRequired = new WeakSet(), activated = new WeakSet();
 const sheet = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation"));
@@ -146,10 +146,7 @@ const byPerson = (e, el = e.target) => e.type === "keydown" ? /^(Arrow(Up|Down|L
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 /** A route's Back control, the selected route's unless named (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not: the route's own, else one in no route at all (a header the routes share), as iOS resolves it (NavigationBack.control); another route's is that route's. */
 const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("navigationBack")) => route && name !== null ? route.querySelector(`[id="${CSS.escape(name)}"]`) ?? [...nav.ownerDocument.querySelectorAll(`[id="${CSS.escape(name)}"]`)].find(control => [null, nav].includes(control.closest("[navigationKey]"))) ?? null : undefined;
-// @ref LLP 1116.000 D4, LLP 1115.000 D4.14 — a pushed route's bar draws a web Back (an arrow and "Back", or the control's
-// words) where iOS draws UIKit's (NavigationBarIOS.swift `projectBack`), with no Back control too; not on a stack's root,
-// a sheet, a route with no bar, or for a disabled or inert control. An item of the bar iOS makes of its header is pressed
-// through it and not shown (index.html). The button is the header's shadow root's, before its slot.
+// LLP 1116.000 D4: Back belongs to the header shadow root; bar items proxy the authored controls.
 const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:6px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:var(--exact-back-press,.5)}svg{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="4 4 16 16" aria-hidden="true"><path d="M19 12H5m6-6-6 6 6 6"/></svg><span></span></button><slot></slot>`;
 const headerOf = route => viewChildren(route).find(child => child.localName === "header");
 const authored = '[data-exact-said~="appearance"]'; // a header or a node in one whose author wrote `appearance: none` (element.rs)
@@ -184,9 +181,7 @@ function opensPopover(el) {
   if (commanded) return commanded.hasAttribute("popover") && /^(show|toggle)-popover$/i.test(el.getAttribute("command") ?? "");
   return !!document.getElementById(el.getAttribute("popovertarget") || "")?.hasAttribute("popover") && !/^hide$/i.test(el.getAttribute("popovertargetaction") ?? "");
 }
-// @ref LLP 1115.000 D4.1 — a route is a page, so the title follows it: `document.title` is the authored `head`'s title
-// (`said`: each target's head writer passes it, null for none), else the selected route's header's heading (what iOS
-// puts in the bar), else the app's name. Read again after every projection.
+// LLP 1115.000 D4.1: title precedence is authored head, visible route heading, then app name.
 const titleOf = route => headerOf(route)?.querySelector("h1, h2, h3, h4, h5, h6, [role=heading]")?.textContent.trim() ?? "";
 let saidTitle = null, appName = null;
 export function pageTitle(said = saidTitle) {
@@ -344,7 +339,7 @@ export const navigation = { personScrolls: 0, // the person's scrolls (`byPerson
     document.addEventListener("click", captureRow, true);
     document.addEventListener("dragstart", event => { if (root.contains(event.target) && event.target.matches?.('img[data-symbol-source], :is(button, a[href], [data-exact-on~="press"]) img')) event.preventDefault(); }); // @ref LLP 1115.000 D4.14 — symbols and images inside pressables do not start picture drags.
     globalThis.matchMedia?.(WIDE).addEventListener?.("change", () => navigation.project(root, log));
-    addEventListener("resize", () => navigation.project(root, log)); // Bare plans have no exactViewport callback.
+    onFold(() => navigation.project(root, log));
     addEventListener("popstate", event => {
       if (!last) return;
       const index = browserIndex();
@@ -556,9 +551,8 @@ export function afterPaintPieces(load, o) {
     return p && c ? Promise.all([p, c]) : (p ?? c ?? null);
   } };
 }
-// LLP 1063: preload presence-glue.js after paint for plans naming layout or exit motion, even an initially empty binding.
-// Boot and a first press jump before it loads. A batch with an exit waits for loading; later batches queue behind it.
-// `pending` lets the agent wait within its deadline, `apply` replays batches, and `live` holds the loaded module.
+// LLP 1063: preload presence-glue.js after paint for declared layout or exit motion; boot and first presses jump until loaded.
+// Queue exits and later batches until loading finishes. The agent waits on bounded pending work.
 export function presenceLoader(load, root, apply, log) {
   let live = null, loading = null, unavailable = false, scheduled = null;
   const held = [], row = op => op.op === 'exit' || /(^|;)\s*--exact-(layout-transition|exit-animation)\s*:/.test((op.css ?? '').replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, '""'));
@@ -616,19 +610,13 @@ export function animationClock(now, settled, synced) {
     },
   };
 }
-// Synced animations (LLP 1055.002): a node whose `animation-timeline` is `clock(Name)` carries
-// `--exact-animation-clock:Name` (css.rs), and each CSS animation on it joins that clock. A clock is one origin, set
-// when an animation joins it idle (no other member unfinished) and kept while it is busy; a joiner starts on the latest
-// cycle boundary at or before it joins (a cycle is two iterations under `alternate`), so it ends where it would.
-// `start` is the synced start at `now` (the agent's clock seeks from it); `sync`, after a commit, sets each joined or
-// resumed animation's `startTime` once on the page's timeline. Nothing runs per frame.
+// LLP 1055.002: clock(Name) animations share an origin. Idle clocks start now; joiners use the latest cycle boundary.
+// Alternate animations count a pair of iterations as one cycle. sync updates startTime once per commit.
 export function animationClocks(root) {
   const origins = new Map(), members = new Map(), paused = new WeakMap(), clocked = new WeakMap();
   const clockOf = a => a.animationName === undefined ? '' : a.effect?.target?.style?.getPropertyValue('--exact-animation-clock').trim() ?? '';
   const live = a => a.effect?.target?.isConnected && a.playState !== 'idle' && a.playState !== 'finished';
-  // Each commit (`sync`, or the agent's `register`) first lets go of every member whose node left, whose play ended, or
-  // that moved to another clock: it holds no clock busy, and a removed screen's targets are not kept for the page's
-  // lifetime.
+  // Release departed, ended or retargeted animations so they do not keep clocks busy.
   const commit = () => {
     for (const [c, m] of members) { for (const b of m) if (!live(b) || clockOf(b) !== c) m.delete(b); if (!m.size) members.delete(c); }
   };
@@ -711,11 +699,8 @@ function followScroll(el, enabled) {
 }
   return { followedScrolls, followScroll, settleFollow, rememberScroll };
 }
-// One scheme allowlist for every URL the page can navigate to: a link's `href` (an authored `link`, an inline run bound
-// to data, a Markdown link), an iframe's `src`, and `openURL`. A `javascript:` URL in any of them runs in this page's
-// origin. The browser's own parser reads the scheme, past the whitespace and control characters it may hide behind.
-// `openURL` alone also takes a scheme app.json's `open_url` declares (`exact.openSchemes`, `declaredScheme`), never one
-// that runs or reads content.
+// Use the browser URL parser to normalize schemes, including hidden whitespace, for every navigable URL.
+// openURL also permits declared external schemes, excluding schemes that execute or read page content.
 export const declaredScheme = protocol => !/^(javascript|vbscript|data|file|filesystem|blob|about|view-source|jar|intent|content):$/.test(protocol) && (globalThis.exact?.openSchemes ?? []).includes(protocol.slice(0, -1));
 export function navigableURL(href, base = document.baseURI) {
   try { const url = new URL(href, base); return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol) ? url.href : null; } catch { return null; }
@@ -732,9 +717,7 @@ export function refuseURL(el, name, value) {
   console.warn(`exact: refused ${name} ${JSON.stringify(String(value).slice(0, 80))}: only http, https, mailto and tel navigate${name === "src" ? ", and data: in a sandbox without allow-same-origin" : ""}`);
   if (name === "src") el.setAttribute(name, "about:blank"); else el.removeAttribute(name);
 }
-// A list item's paragraph (indent > 0, LLP 1045 D4) is a block padded by the item's indent; its marker (flags 32), a 40 px
-// box pulled into the gutter by the block's negative `text-indent`, ends at the indent (`flex-end`, overflowing leftwards as
-// the outside marker does): `<ul>`/`<ol>`'s layout, which native hosts copy with a head indent (exact-markdown's `LIST_INDENT`).
+// LLP 1045 D4: a list marker ends at the paragraph indent, like an outside HTML list marker.
 export function renderMarkup(el, json) {
   let pieces;
   try { pieces = JSON.parse(json); } catch { pieces = []; }
@@ -773,9 +756,7 @@ export function renderMarkup(el, json) {
     });
   }
 }
-// @ref LLP 1007 §6 — a page the dev server serves names its current generation, and its first boot is that one, not
-// app.wasm's older baked plan (a deep link booted stale on 2026-09-22). dev.js supplies it once asked (glue.js asks
-// when the wasm is up); without it, or with none in 5 s, the page boots the baked plan.
+// LLP 1007 §6: boot the dev generation when named; use the baked plan if none arrives within five seconds
 export function devFirst() {
   if (!document.querySelector('meta[name="exact-dev-generation"]')) return null;
   const slot = globalThis.exactDevFirst ??= {};
@@ -785,9 +766,7 @@ export function devFirst() {
     if (slot.provide) ask(); else slot.ready = ask;
   });
 }
-// Refusals and malformed request bodies are known while their enclosing batch is still applying. Deliver them on the
-// next microtask so their commits cannot re-enter `apply` halfway through that batch; in flight until then, so a wait
-// sees what their parse asks for next.
+// Defer refusal replies until the batch finishes to prevent reentrant commits; count them in flight through delivery
 export function deferredFulfill(fulfill, inflight) {
   return (...args) => { const p = Promise.resolve().then(() => fulfill(...args)); inflight.add(p); p.finally(() => inflight.delete(p)); };
 }
@@ -898,8 +877,7 @@ export function inertAncestor(el) {
   }
   return null;
 }
-// The page's environment: the safe-area insets from a hidden probe's padding, and the
-// keyboard's height as the visual viewport reports it.
+// Read safe-area insets from probe padding and keyboard height from the visual viewport
 let probe;
 export function environment() {
   if (!probe) {
@@ -907,7 +885,6 @@ export function environment() {
     probe.style.cssText = "position:fixed;inset:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)";
     document.body.append(probe);
   }
-  const r2 = (x) => Math.round(x * 100) / 100;
   const cs = getComputedStyle(probe);
   return {
     "safe-area-inset-top": r2(parseFloat(cs.paddingTop) || 0),
@@ -918,35 +895,71 @@ export function environment() {
     ...foldEnv(),
   };
 }
-// @ref LLP 1078 D6, D7 — the fold as the browser reports it: the Device Posture API's `navigator.devicePosture.type`
-// and the viewport segments `window.viewport.segments` (two or more means a divider splits the viewport; the columns
-// are the distinct lefts, the rows the distinct tops). Where the browser lacks the APIs: `continuous`, 1 × 1, which is
-// also what Chromium reports on a flat display. Under the agent, `prefer posture` and `prefer segments` go through
-// CDP's display-feature and posture overrides (the driver), so the browser's own readings change; where CDP offers
-// none, the driver's substitute lands here (`preferFold`) and stands in for them — the facts and `layout.env`, not
-// CSS's own `env()` resolution. The substitute lives on `globalThis.exact`: the JS target's agent reads its own copy of
-// this module (`agent-navigation.js`), and both copies must agree.
-const foldSubstitute = () => globalThis.exact?.foldSubstitute ?? null;
+// Read CSS when the JS fold interfaces are absent (LLP 1078 D6). Share agent substitutes with agent-navigation.js; they change facts, not CSS env() resolution (D7).
 const r2 = (x) => Math.round(x * 100) / 100;
 function readFold() {
-  const posture = globalThis.navigator?.devicePosture?.type === "folded" ? "folded" : "continuous";
+  const posture = globalThis.navigator?.devicePosture?.type ?? (foldMedia('(device-posture: folded)') ? 'folded' : 'continuous');
   const segments = globalThis.viewport?.segments;
-  const rects = Array.isArray(segments) && segments.length >= 2 ? segments.map((s) => [s.x, s.y, s.width, s.height]) : [];
-  const cols = rects.length ? new Set(rects.map((r) => r[0])).size : 1, rows = rects.length ? new Set(rects.map((r) => r[1])).size : 1;
-  return { posture, cols, rows, rects };
+  if (Array.isArray(segments) && segments.length >= 2) {
+    const rects = segments.map(s => [s.x, s.y, s.width, s.height]);
+    return { posture, cols: new Set(rects.map(r => r[0])).size, rows: new Set(rects.map(r => r[1])).size, rects };
+  }
+  const cols = foldCount('horizontal'), rows = foldCount('vertical'); return { posture, cols, rows, rects: foldRects(cols, rows) };
 }
-export const fold = () => foldSubstitute() ?? readFold();
-/** `layout.env`'s four names (LLP 1012 §1). */
+const foldQueries = new Map(), foldListeners = new Set();
+let foldProbe;
+function foldMedia(query) {
+  let list = foldQueries.get(query);
+  if (!list && typeof globalThis.matchMedia === 'function') {
+    list = matchMedia(query);
+    foldQueries.set(query, list);
+    list.addEventListener('change', () => { for (const changed of foldListeners) { changed(); } });
+  }
+  return list?.matches === true;
+}
+function foldCount(axis) {
+  let count = 1;
+  while (count < 255 && foldMedia(`(${axis}-viewport-segments >= ${count + 1})`)) { count++; }
+  return count;
+}
+function foldRects(cols, rows) {
+  if (cols * rows === 1 || !globalThis.document?.body || typeof globalThis.getComputedStyle !== 'function') { return []; }
+  if (!foldProbe) {
+    foldProbe = document.createElement('div');
+    foldProbe.style.cssText = 'position:fixed;width:0;height:0;visibility:hidden;pointer-events:none;contain:strict';
+    document.body.append(foldProbe);
+  }
+  const rects = [], fields = ['left', 'top', 'width', 'height'];
+  for (let row = 0; row < rows; row++) {
+    for (let column = 0; column < cols; column++) {
+      for (const field of fields) { foldProbe.style.setProperty(`--exact-segment-${field}`, `env(viewport-segment-${field} ${column} ${row}, -1px)`); }
+      const style = getComputedStyle(foldProbe), rect = fields.map(field => parseFloat(style.getPropertyValue(`--exact-segment-${field}`)));
+      if (!rect.every(value => Number.isFinite(value) && value >= 0)) { return []; }
+      rects.push(rect);
+    }
+  }
+  return rects;
+}
+export const fold = () => globalThis.exact?.foldSubstitute ?? readFold();
+/** layout.env's names (LLP 1012 section 1). */
 export function foldEnv() {
   const f = fold();
-  return { "device-posture": f.posture, "horizontal-viewport-segments": f.cols, "vertical-viewport-segments": f.rows, "viewport-segments": f.rects.map((r) => r.map(r2)) };
+  return { "device-posture": f.posture, "horizontal-viewport-segments": f.cols, "vertical-viewport-segments": f.rows, "viewport-segments": f.rects.map(r => r.map(r2)) };
 }
-/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1078 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. Bit 25 is reserved. */
-export function foldBits() { const f = fold(); return (f.posture === "folded" ? 256 : 0) | ((f.cols & 255) << 9) | ((f.rows & 255) << 17); }
+/** LLP 1078 D6: bit 8 is folded, bits 9–16 count columns, 17–24 count rows; bit 25 is reserved. */
+export function foldBits() {
+  const f = fold();
+  return (f.posture === "folded" ? 256 : 0) | ((f.cols & 255) << 9) | ((f.rows & 255) << 17);
+}
 export function onFold(changed) {
-  globalThis.navigator?.devicePosture?.addEventListener?.("change", changed);
-  addEventListener("resize", changed);
-} /** A context menu's popover, opened for the `contextmenu` event `e` (LLP 1021 §5.1): `find` answers `[popover, source]` when there is still one to open. It opens once the press that asked is over: a Mac's `contextmenu` comes with the button still down, and Firefox and WebKit take the release that follows, outside a popover just opened, for its light dismiss, so the menu never showed there. And it opens at the pointer (LLP 1115.000 D4.7): where the press was is left on the popover (`--exact-context-x`, `-y`) until it closes, for the page's sheet to place it by (neutral.css; the shell's own reads neither). A menu key has no point, and its menu opens at its row. */ export function contextAt(e, find) { const open = () => { const [p, source] = find() ?? []; if (!p) return; if (e.clientX || e.clientY) { p.style.setProperty("--exact-context-x", `${e.clientX}px`); p.style.setProperty("--exact-context-y", `${e.clientY}px`); p.exactAt ??= (p.addEventListener("toggle", t => { if (t.newState === "closed") for (const axis of "xy") p.style.removeProperty(`--exact-context-${axis}`); }), true); } try { p.showPopover({ source }); } catch {} }, ends = ["pointerup", "pointercancel", "mouseup"], end = () => { for (const type of ends) removeEventListener(type, end, true); setTimeout(open); }; if (!e.buttons) return void setTimeout(open); for (const type of ends) addEventListener(type, end, true); }
+  // Install media queries even when no resource reads viewport facts.
+  readFold();
+  foldListeners.add(changed);
+  globalThis.navigator?.devicePosture?.addEventListener?.('change', changed);
+  addEventListener('resize', changed);
+}
+/** A context menu's popover, opened for the `contextmenu` event `e` (LLP 1021 §5.1): `find` answers `[popover, source]` when there is still one to open. It opens once the press that asked is over: a Mac's `contextmenu` comes with the button still down, and Firefox and WebKit take the release that follows, outside a popover just opened, for its light dismiss, so the menu never showed there. And it opens at the pointer (LLP 1115.000 D4.7): where the press was is left on the popover (`--exact-context-x`, `-y`) until it closes, for the page's sheet to place it by (neutral.css; the shell's own reads neither). A menu key has no point, and its menu opens at its row. */
+export function contextAt(e, find) { const open = () => { const [p, source] = find() ?? []; if (!p) return; if (e.clientX || e.clientY) { p.style.setProperty("--exact-context-x", `${e.clientX}px`); p.style.setProperty("--exact-context-y", `${e.clientY}px`); p.exactAt ??= (p.addEventListener("toggle", t => { if (t.newState === "closed") for (const axis of "xy") p.style.removeProperty(`--exact-context-${axis}`); }), true); } try { p.showPopover({ source }); } catch {} }, ends = ["pointerup", "pointercancel", "mouseup"], end = () => { for (const type of ends) removeEventListener(type, end, true); setTimeout(open); }; if (!e.buttons) return void setTimeout(open); for (const type of ends) addEventListener(type, end, true); }
 /** The grid a host without a fold makes for `prefer segments <cols>x<rows> [gap <points>]`: the viewport split evenly, the gap centred on each divider; refused by name. */
 export function evenSegments(width, height, cols, rows, gap = 0) {
   if (!(cols >= 1 && rows >= 1)) throw Object.assign(new Error(`segments ${cols}x${rows}: each count is at least 1`), { malformed: true });
@@ -984,17 +997,12 @@ const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)
 export const preferences = () => { const bits = queries().reduce((bits, [q, bit]) => bits | (q.matches ? bit : 0), 0), pinned = globalThis.exact?.systemScheme; return pinned ? (bits & ~16) | (pinned === "dark" ? 16 : 0) : bits; }; // a dev pin's scheme is the system's (LLP 1122 D4; dev.js)
 export const displayMode = () => DISPLAY_MODES[(preferences() >>> 29) & 7]; /** A phone-sized screen (its short side under 600 CSS px): the GPU tier's class when the adapter says nothing it knows, and never `high` (LLP 1139.003 D2). */ export const handheld = (platform = globalThis) => Math.min(platform.screen?.width ?? Infinity, platform.screen?.height ?? Infinity) < 600;
 export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventListener("change", changed));
-// @ref LLP 1069.000 D2 — the page's facts as `exact_set_page` takes them: bit 0 `document.visibilityState == "hidden"`, bit 1
-// `!navigator.onLine`, bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5), bit 3 `typeof showOpenFilePicker ===
-// "function"` (LLP 1069.010 D2; studio diary R31), bit 4 `!document.hasFocus()` (#114), told again at the window's `focus` and `blur`,
-// bits 5–6 Navigation Timing's `type` (runner/src/page.rs `NAVIGATION_TYPES`; a prerender's is `navigate`), bit 8 `navigator.canShare({files})` for a
-// small text file, bit 9 a picture of an element in a share, which the web never takes and only `prefer` sets (LLP 1125 D12), bit 10 from a `pagehide` with `persisted` until its `pageshow`, bits 11–12 the GPU tier, 0 high, 1 mid, 2 low (LLP 1139.003 D2), bits 16–31 those `pageshow` events (the back/forward cache, LLP 1069.000 D2). Under the agent the drive's values stand in (visible, online, a share sheet, the pickers, focus, a `navigate`, GPU tier `high`: LLP 1069.000 D6), set by `prefer`'s `page` group; the machine is never read, but for the display's scale (below).
+// LLP 1069.000 D2/D6: pack page facts; agent preferences replace browser readings except display scale.
+// Picture sharing is agent-only; persisted pageshow events count back/forward cache restores.
 export function pageReporter(agent, platform = globalThis) {
   const facts = { "visibility-state": "visible", online: true, "can-share": true, "can-share-files": true, "can-share-pictures": false, "can-open-files": true, "has-focus": true, "root-font-size": 16, "gpu-tier": "high", "iframe-partition": false }, cache = { persisted: false, restores: 0 }; // cache: the drive's page is never put away
   let sharesFiles; const canShareFiles = () => sharesFiles ??= (() => { try { return typeof platform.navigator.canShare === "function" && platform.navigator.canShare({ files: [new platform.File([""], "a.txt", { type: "text/plain" })] }) === true; } catch { return false; } })();
-  // @ref LLP 1069.000 D3 — the root font size: the document element's computed `font-size`, the browser's setting
-  // unless a page sets it; under the agent the drive sets it on the element (`prefer root-font-size`). The app's own
-  // size (`appRootFontSize`) is set over it and read past.
+  // LLP 1069.000 D3: read the browser root font beneath the app override; the agent supplies its preference.
   const rootFontSize = () => agent ? facts["root-font-size"] : beneathApp(platform, () => parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16), displayScale = () => platform.devicePixelRatio > 0 ? platform.devicePixelRatio : 1; // @ref LLP 1115.000 D10.3 — the display's scale is the page's own `devicePixelRatio`, read under the agent too: the drive sets it through the browser's emulation (`prefer display-scale`), never by a substitute, and a zoom fires `resize`, which tells it again
   const loaded = agent ? "" : platform.performance?.getEntriesByType?.("navigation")?.[0]?.type; let told; const gpuTier = () => told ?? (handheld(platform) ? "low" : "high"); // @ref LLP 1139.003 D2 — the GPU tier: the adapter's, told by gpu-glue.js before the device is made (gpu-tier.js), else the screen's class; the agent's is `high` until `prefer gpu-tier`
   const navigationType = ["reload", "back_forward"].includes(loaded) ? loaded : "navigate";
@@ -1086,10 +1094,7 @@ export function placeReporter(params, platform = globalThis) {
     return [platform.navigator.language, platform.Intl.DateTimeFormat().resolvedOptions().timeZone, seed, platform.Intl.DateTimeFormat().resolvedOptions().locale].join('\0'); // the last: ECMA-402's default locale, which a browser's formatters use
   };
 }
-// @ref LLP 1027.000.000 D3 — under the agent the date at the clock's zero is the drive's epoch (default
-// 2026-01-01T00:00:00Z), and the offset its zone's at the virtual instant `elapsed` names; `clock +N` moves the date
-// because `now()` moves, and the glue tells the offset again after each clock move, so crossing a DST change re-answers
-// it (LLP 1069.007 D2).
+// LLP 1027.000.000 D3: agent time starts at the drive epoch; clock movement updates the date and zone offset.
 export function timeReporter(params, platform = globalThis) {
   return (elapsed) => {
     if (!(AGENT_ADMITTED && params.has('agent'))) return [platform.Date.now() - elapsed, -new platform.Date().getTimezoneOffset()];
@@ -1100,9 +1105,7 @@ export function timeReporter(params, platform = globalThis) {
     return [epoch, (Date.UTC(at.year, at.month - 1, at.day, at.hour, at.minute, at.second) - Math.floor((epoch + elapsed) / 1000) * 1000) / 60000];
   };
 }
-// Where the page launches (LLP 1038 D5): its path and query, less a drive's own parameters, which are the host's facts
-// and not a route's — a driven page numbers its visits as a native host does (feed F16). The JS target launches here
-// too (rt.js re-exports it).
+// LLP 1038 D5: launch at the page path, query and fragment, excluding agent-only parameters.
 export function launchLocation(platform = globalThis) {
   const { pathname, search, hash = "" } = platform.location, q = new URLSearchParams(search); // the fragment is the launch's too (LLP 1153 D5)
   if (!(AGENT_ADMITTED && q.has('agent'))) return pathname + search + hash;
@@ -1140,9 +1143,8 @@ export function guestMessageAuthorized(el, eventOrigin) {
   const state = iframeOrigins.get(el);
   return Boolean(state && !state.revoked && (state.opaque ? eventOrigin === "null" : eventOrigin === state.origin));
 }
-// @ref LLP 1069.001 D4 (amended 2026-10-04) — a select, range or date is controlled as a text field is: the committed
-// `value` is written when it changes, and shown again after the options change or a refused `type`; after the action
-// that heard the person (`acted`) it keeps their choice, as the web build's does.
+// LLP 1069.001 D4: restore controlled choices after options change or an edit is refused.
+// After the input action (`acted`), keep the person's choice.
 const VALUED = new Set(["range", "date", "time", "datetime-local"]);
 export const valuedControl = (el) => el instanceof HTMLSelectElement || (el instanceof HTMLInputElement && VALUED.has(el.type));
 export function settleValue(el, acted = false) {
@@ -1158,9 +1160,7 @@ export const textField = (el) => el instanceof HTMLTextAreaElement ? el.getAttri
 export const editMenu = (target) => { const f = target.closest("input,textarea,[contenteditable]"); return !!f && (!(f instanceof HTMLInputElement) || textField(f)); }; // a `contextmenu` from a text field, a textarea or an editable region opens the browser's edit menu and runs no handler (review b5-b 3); a control's input (a checkbox, switch, radio, range, date, time or file) has no such menu, so its node's handler runs and its popover opens, as Chrome sends the event and macOS runs it (#487)
 // Host kinds 40–42 carry UTF-16 start,end,direction before the field’s text.
 export const fieldSelection = (el) => { const end = el.value.length; return `${el.selectionStart ?? end},${el.selectionEnd ?? end},${el.selectionDirection ?? "none"},`; };
-// A radio's group as committed again (x2apps survey #2): the browser checked the radio and unchecked its group at once;
-// the action decides, and one that refuses snaps the group back. `bound` reads a radio's committed `checked` (undefined
-// when it has none); the unchecks go first, so the radio left checked is the committed one.
+// Restore unchecked peers first so the committed radio wins; an absent bound value is uncontrolled.
 export function settleRadios(el, bound) {
   const group = el.name ? [...document.querySelectorAll('input[type="radio"]')].filter((r) => r.name === el.name) : [el];
   for (const r of group) if (bound(r) === false && r.checked) r.checked = false;
