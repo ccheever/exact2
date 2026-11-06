@@ -2378,6 +2378,36 @@ carries it beside a Linux executable or, signed, in an Apple bundle's `Framework
 does not list; two dependencies declaring `native` (`bake-native-twice`).
 `packages/fixtures/vault` is a whole one, its library built by `test/library.mjs`.
 
+### Arranged panes
+
+On iOS and iPadOS 27.1 or later, an element hatch can call
+`element.arrange(using: controller)` with a `UIArrangementViewController` configured
+with `UISplitArrangement` or `UIOverlayArrangement`. Exact places the element's two
+authored children in the controller and lays each out in the space UIKit gives it.
+Give the element a definite size, such as `height="100%"` in a sized route;
+allocated children do not give an auto-height parent its height. Pass `nil` to
+restore CSS layout.
+
+A `true` result accepts the request; UIKit lays it out when the owning container
+is available. `false` means the element is unavailable, it lacks two valid children,
+or the controller already belongs to another container. Once accepted, the request
+falls back to CSS if the element no longer has two valid children and resumes when
+two valid children return. Child order and replacements follow the authored tree.
+
+Use a bounded scroller in each child for independent scrolling. The first visible
+vertical scroller is the default title and scroll-to-top target; `navigationScroll`
+can name another. Exact keeps the route's safe area while its navigation bar
+minimizes, so scrolling one pane leaves the other's content in place. Removing the
+arrangement restores the prior policy. Each scroller keeps UIKit's edge effect.
+
+Declare the hatch for its platforms in `app.json`. Keep navigation outside the
+arrangement and avoid nesting it in authored scrollers or other native layout
+containers ([Apple's containment guidance](https://developer.apple.com/documentation/uikit/uiarrangementviewcontroller)).
+Keep the same children mounted when switching between native and CSS layouts, so
+folds and resizes preserve their controls, bindings and state. Older systems and
+other hosts use the authored CSS layout. See Apple's
+[arrangement guidance](https://developer.apple.com/design/human-interface-guidelines/designing-for-iphone-duo).
+
 ## Routes and web documents
 
 Declare at most one `routes <slot>` in the app's root file. Each row names an

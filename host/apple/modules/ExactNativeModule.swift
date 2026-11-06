@@ -564,6 +564,9 @@ final class ExactHatches {
     let surfaceHasFn: SurfaceHasFn?, surfaceSensorFn: SurfaceSensorFn?
     /// One of 168 or more: a package's call of the app's handler (LLP 1133.016 D15 item 1; ExactExtensions.swift).
     let invokeFn: Invocations.InvokeFn?
+    /// One of 176 or more: an authored content arrangement.
+    typealias ArrangementFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?) -> Int32
+    let arrangementFn: ArrangementFn?
     #if os(iOS) || os(tvOS)
     /// One of 112 or more: a held tab's navigation controller, built (`ExactTab.controller`).
     typealias StackFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
@@ -618,6 +621,8 @@ final class ExactHatches {
         surfaceSensorFn = surfaces ? table.load(fromByteOffset: 152, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: SurfaceSensorFn.self) } : nil
         invokeFn = table.load(as: UInt32.self) >= 168
             ? table.load(fromByteOffset: 160, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: Invocations.InvokeFn.self) } : nil
+        arrangementFn = table.load(as: UInt32.self) >= 176
+            ? table.load(fromByteOffset: 168, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: ArrangementFn.self) } : nil
     }
 
     /// A package picture changed (0) or revoked (1): the host's raster loader acts on it.
@@ -899,6 +904,17 @@ public final class ExactElement {
     public func owns(recognizer: ExactPlatformRecognizer, _ what: String, surface: Bool = false) {
         if isLive { hatches?.owns(scope: scopeName, node: node, kind: 1, object: recognizer, what, surface: surface) }
     }
+
+    #if os(iOS)
+    /// Lay out this element's two authored children with UIKit, preserving their content.
+    /// Pass nil to restore their authored layout. Navigation stays outside the arrangement.
+    @available(iOS 27.1, *)
+    @discardableResult
+    public func arrange(using controller: UIArrangementViewController?) -> Bool {
+        guard isLive, let hatches, let arrange = hatches.arrangementFn else { return false }
+        return arrange(hatches.host, node, controller.map { Unmanaged.passUnretained($0).toOpaque() }) == 0
+    }
+    #endif
 
     /// The controls this hatch drew in the node (§3.5), at most 32. Setting
     /// the list replaces it; one that breaks a bound is refused whole, by

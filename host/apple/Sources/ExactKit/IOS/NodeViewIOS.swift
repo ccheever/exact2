@@ -774,6 +774,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         presenter?.collections.userIntent(id, travel: true)
         retainedScrollTop = nil
         #if os(iOS)
+        if #available(iOS 27.1, *) { presenter?.arrangements.cancelScrollHandoff(id) }
         if swipeOwner { presenter?.swipeActions.painted.began(self) }
         #endif
     }
@@ -1038,13 +1039,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         ])
     }
 
-    // display:none removes the CSS box, but retains its stored scroll position.
-    // UIKit/AppKit collapse the native extent; keep that transient reset out of
-    // scroll events and restore only when the box returns.
+    // A pane hidden by its native container retains its scroll position as display:none does.
     var hasScrollLayoutBox: Bool {
         var ancestor: UIView? = self
         while let current = ancestor {
-            if let node = current as? NodeView, node.style["display"]?.string == "none" { return false }
+            if let node = current as? NodeView,
+               node.style["display"]?.string == "none" || node.presenter?.arrangementHides(node.id) == true { return false }
             ancestor = current.superview
         }
         return true
