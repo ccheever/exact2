@@ -1,3 +1,4 @@
+import { viewChildren } from "./navigation.js";
 // The agent's door into a JS-target page (LLP 1012's operations, as far as
 // the JS target carries them): `exact.agentSettled(request)` answers what
 // `scripts/agent.mjs web` asks. Input and screenshots stay the carrier's own
@@ -83,7 +84,7 @@ export function install(exact) {
   // A paragraph text flows around shapes is its fragments on the page; the
   // tree is its own text and runs (flow.js keeps them).
   const flowed = el => el.$flow && el.querySelector(':scope > [data-flow-fragment]');
-  const kids = el => el.getAttribute('markup') === 'markdown' ? [] : flowed(el) ? el.$flow.kids : [...el.children].filter(c => !c.hasAttribute('data-surface') && !c.hasAttribute('data-exiting') && (el.getAttribute('data-hatch') == null || c.$exactTree));
+  const kids = el => el.getAttribute('markup') === 'markdown' ? [] : flowed(el) ? el.$flow.kids : viewChildren(el).filter(c => !c.hasAttribute('data-surface') && !c.hasAttribute('data-exiting') && (el.getAttribute('data-hatch') == null || c.$exactTree));
   // A text's inline runs are text nodes too (the runner's tree; element.rs
   // marks only the paragraph `data-exact-text`).
   // (A flowed paragraph's runs are held off the page: runs too.)
@@ -92,7 +93,7 @@ export function install(exact) {
   const SVG = { svg: 'Svg', g: 'SvgGroup', path: 'SvgPath', polyline: 'SvgPolyline', polygon: 'SvgPolygon', circle: 'SvgCircle', line: 'SvgLine', rect: 'SvgRect', ellipse: 'SvgEllipse', defs: 'SvgDefs', linearGradient: 'SvgLinearGradient', radialGradient: 'SvgRadialGradient', stop: 'SvgStop', use: 'SvgUse', symbol: 'SvgSymbol', clipPath: 'SvgClipPath', text: 'SvgText', tspan: 'SvgTSpan', marker: 'SvgMarker', mask: 'SvgMask', pattern: 'SvgPattern', foreignObject: 'SvgForeignObject', filter: 'SvgFilter' };
   const svg = el => el.localName === 'svg' && el.parentElement?.namespaceURI === el.namespaceURI ? 'SvgViewport' : SVG[el.localName] ?? (el.localName.startsWith('fe') ? 'SvgFe' : 'View');
   // A paragraph's run is text, but an image among its words is an `Image`, as the runner's tree types it (LLP 1011.002).
-  const type = el => el.exactNative ? 'NativeView' : el.namespaceURI === 'http://www.w3.org/2000/svg' ? svg(el) : el.exactMarkup ? 'TextInput' : el.localName === 'select' || el.localName === 'button' && el.hasAttribute('data-button-style') || el.localName === 'input' && /^(file|checkbox|radio|range|date|time|datetime-local)$/.test(el.type) || el.hasAttribute('data-exact-progress') || el.localName === 'progress' ? 'Control' : el.localName === 'option' || el.hasAttribute('data-exact-text') || run(el) && el.tagName !== 'IMG' ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? (el.getAttribute('role') === 'list' ? 'List' : 'ScrollView') : TYPES[el.tagName] ?? 'View';
+  const type = el => el.exactNative ? 'NativeView' : el.namespaceURI === 'http://www.w3.org/2000/svg' ? svg(el) : el.exactMarkup ? 'TextInput' : el.localName === 'select' || el.localName === 'button' && el.hasAttribute('data-button-style') || el.localName === 'input' && /^(file|checkbox|radio|range|date|time|datetime-local)$/.test(el.type) || el.hasAttribute('data-exact-progress') || el.localName === 'progress' ? 'Control' : el.localName === 'option' || el.hasAttribute('data-exact-text') || run(el) && el.tagName !== 'IMG' ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? (el.hasAttribute('data-exact-list') ? 'List' : 'ScrollView') : TYPES[el.tagName] ?? 'View';
   const record = (el, depth) => {
     const props = {};
     if (el.dataset.testid) props.testId = el.dataset.testid;

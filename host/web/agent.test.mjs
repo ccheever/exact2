@@ -1,3 +1,4 @@
+import { viewParent, viewChildren } from './navigation.js';
 // @ref LLP 1043.000 §3 D7/D8 — flow settlement must not change LLP 1012's API.
 import { test, expect } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
@@ -693,7 +694,7 @@ test('non-flow operation transcripts remain byte-for-byte equal to the existing 
 });
 
 // Run the input adapter with controlled scheduling; browser tests cover geometry.
-let inputSource = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
+let inputSource = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8').replace(/^import \{ viewChildren, viewParent \} from '\.\/navigation\.js';\n/m, '');
 for (const name of ['prompt-glue', 'alert-message']) {
   const stripped = inputSource.replace(new RegExp(`^import\\s+["']\\./${name}\\.js["'];[^\\n]*\\n`, 'm'), '');
   if (stripped === inputSource) throw new Error(`input glue must retain its ${name} side-effect import`);
@@ -710,7 +711,7 @@ function inputFixture() {
     closest() { return this.disabled ? this : null; }, matches: () => false, contains: () => true, setPointerCapture(id) { captured.push(id); } };
   const buttons = [];
   // `page` is a built document being adopted (LLP 1048.000 D6); this page was not built.
-  const f = vm.createContext({ inputReady: false, inputHandlers: null, page: null,
+  const f = vm.createContext({ viewParent, viewChildren, inputReady: false, inputHandlers: null, page: null,
     views: new Map([[7, el]]), retiredViews: new WeakSet(), frames, sent, captured, el,
     root: { querySelectorAll: s => s.includes('aria-modal') ? [] : buttons, addEventListener() {}, contains: () => true }, // press feedback's listener: press.test.mjs drives it
     // The shortcuts' keydown listens in the capture phase, a pressable's activation in the bubble phase.

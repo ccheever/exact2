@@ -573,7 +573,7 @@ test('a batch that wants frames presents every animation frame and keeps timer t
 // its event to the detached original. A mock dispatch misses the double route.
 // Run an in-page fixture (a function) in headless Chrome over these glue modules; its result by value.
 async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js', '/input-glue.js', '/prompt-glue.js', '/alert-message.js'], files = {}, runtime = false, drive = null) {
-  const served = new Set([...modules, '/timer-waits-glue.js', '/timer-observations.js']);
+  const served = new Set(['/navigation.js', ...modules, '/timer-waits-glue.js', '/timer-observations.js']);
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) {
     const path = new URL(req.url).pathname;
     if (files[path]) return new Response(Bun.file(files[path]));

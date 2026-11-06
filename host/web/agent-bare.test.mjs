@@ -3,11 +3,12 @@ import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { sourceMapReader, render, identifyLayoutNodes } from '../../scripts/agent-inspect.mjs';
+import { viewChildren } from './navigation.js';
 
 test('the JS agent tree lists authored children but not a hatch part as a view', () => {
   const source = readFileSync(new URL('../web-js/agent.js', import.meta.url), 'utf8');
   const declaration = source.match(/^  const kids = .*;$/m)[0];
-  const kids = vm.runInNewContext(`const flowed = () => false; ${declaration}; kids`);
+  const kids = vm.runInNewContext(`const flowed = () => false; ${declaration}; kids`, { viewChildren });
   const child = exact => ({ $exactTree: exact, hasAttribute: () => false });
   const authored = child(true), seal = child(false);
   const node = { getAttribute: name => name === 'data-hatch' ? 'badge' : null, children: [authored, seal] };

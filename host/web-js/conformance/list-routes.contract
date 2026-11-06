@@ -1,0 +1,39 @@
+routes page
+  home "/" render=build
+
+component ListRoutes
+  state depth = 1
+  state layer = true
+  action open
+    depth = 2
+  action sheet
+    depth = 3
+  action reveal
+    layer = false
+  action back
+    depth = 1
+  view
+    list navigationKey=`${depth}` navigationBack="back" role="presentation" appearance="none" width=320 height=400 testId="stack"
+      list navigationKey="1" role="presentation" appearance="none" testId="home"
+        header
+          text "Home" role="heading" aria-level=1
+        button "Open" press=open testId="open"
+        button "Sheet" press=sheet testId="sheet"
+      if depth == 2
+        list navigationKey="2" role="presentation" appearance="none" testId="detail"
+          header
+            text "Detail" role="heading" aria-level=1 testId="detail-title"
+            button "Back" id="back" press=back testId="back"
+          header
+            text "Later heading" role="heading" aria-level=1 testId="late-title"
+      if depth == 3
+        list navigationKey="3" navigationPresentation="modal" role="presentation" appearance="none" testId="modal-card"
+          header
+            text "Sheet" role="heading" aria-level=1 testId="modal-title"
+            button "Back" id="back" press=back testId="modal-back"
+            button "Reveal" press=reveal testId="reveal"
+          text "Body" testId="modal-body" min-height=40
+          view popover=(layer ? some("manual") : none) testId="modal-popover"
+            text "More content"
+          dialog testId="modal-dialog"
+            text "Dialog content"

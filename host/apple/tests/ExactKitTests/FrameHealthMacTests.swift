@@ -43,6 +43,37 @@ final class FrameHealthMacTests: XCTestCase {
         window.close()
         XCTAssertEqual(node.press.to, 1)
     }
+    func testDesktopCardKeepsItsPositionAlongEveryEdgeAfterLayout() {
+        _ = NSApplication.shared
+        let health = FrameHealth(enabled: true)
+        defer { health.destroy() }
+        let overlay = FrameHealthOverlayMac(health: health)
+        overlay.frame = CGRect(x: 0, y: 0, width: 900, height: 900)
+        overlay.setVisible(true)
+        overlay.layoutSubtreeIfNeeded()
+        let right = overlay.bounds.maxX - 8 - overlay.card.frame.width
+        let top = overlay.bounds.maxY - 8 - overlay.card.frame.height
+        let x = 8 + (right - 8) * 0.37
+        for target in [CGPoint(x: 8, y: 150), CGPoint(x: right, y: 180), CGPoint(x: 160, y: 8), CGPoint(x: x, y: top)] {
+            overlay.card.grabbed?()
+            overlay.card.moved?(target)
+            overlay.card.released?(.zero)
+            XCTAssertEqual(overlay.card.frame.minX, target.x, accuracy: 0.001)
+            XCTAssertEqual(overlay.card.frame.minY, target.y, accuracy: 0.001)
+        }
+        overlay.card.layer?.removeAllAnimations()
+        overlay.setVisible(false)
+        overlay.setVisible(true)
+        overlay.needsLayout = true
+        overlay.layoutSubtreeIfNeeded()
+        XCTAssertEqual(overlay.card.frame.minX, x, accuracy: 0.001)
+        overlay.frame.size.width = 1200
+        overlay.layout()
+        XCTAssertEqual(overlay.card.frame.minX, 8 + (overlay.bounds.width - 16 - overlay.card.frame.width) * 0.37, accuracy: 0.001)
+        XCTAssertEqual(overlay.card.frame.maxY, overlay.bounds.maxY - 8, accuracy: 0.001)
+        overlay.setVisible(false)
+    }
+
     func testDesktopCardUsesHostSlotTakesClicksWithinItsBoundsAndClampsWithoutResizingTheApp() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "desktop-frame-health")

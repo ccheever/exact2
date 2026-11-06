@@ -1,4 +1,4 @@
-import { inertAncestor } from './navigation.js';
+import { viewChildren, inertAncestor } from './navigation.js';
 import { carryRouter, clock, launchLocation, res, sig } from './rt.js';
 import { offerAll } from './focus.js';
 
@@ -75,7 +75,7 @@ export function prepareDev() {
     if (!cp.focus) return;
     // A virtualized row wrapper is a logical View in the wasm tree even
     // though it is host-created and has no plan-node carry attribute.
-    const children = e => [...(e?.children ?? [])].filter(x => x.hasAttribute('data-carry-type') || x.hasAttribute('data-listitemkey'));
+    const children = e => viewChildren(e).filter(x => x.hasAttribute('data-carry-type') || x.hasAttribute('data-listitemkey'));
     let el = document.getElementById('exact-root');
     for (const at of cp.focus.path) el = children(el)[at];
     if (el?.getAttribute('data-carry-type') === cp.focus.type && el.getClientRects().length && !el.matches(':disabled') && !inertAncestor(el)) focus.call(el, { preventScroll: true });
