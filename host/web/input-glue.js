@@ -265,6 +265,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // LLP 1121 D8), eased from what shows at the press, a hover look's included.
   const PAINT = ["--exact-press-opacity", "--exact-press-opacity-to", "--exact-press-background-color", "--exact-press-color"];
   const paints = new Map();
+  const hasPaint = el => PAINT.some(p => el.style.getPropertyValue(p));
   const EASE = { duration: 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both" };
   // Start the ease toward `state.to` from where it shows, over `duration`,
   // on the node's look beneath, read now (`paintRule`): at the press, as it
@@ -290,7 +291,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     paints.delete(el);
     if (!paints.size) { sheets.disconnect(); gone.disconnect(); }
     state.observer.disconnect();
-    state.animation.cancel();
+    state.animation?.cancel();
     el.removeAttribute("data-exact-painting");
     drop(state);
   };
@@ -405,7 +406,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // The agent's node detail reports it (scripts/agent-inspect.mjs), and the press tests read it.
   (globalThis.exact ??= {}).pressShown = el => {
     const state = paints.get(el);
-    if (!state) return null;
+    if (!state?.animation) return null;
     const cs = getComputedStyle(el), paint = Number(cs.getPropertyValue("--exact-press-paint")) || 0;
     const shown = { paint, opacity: String(+(Number(cs.opacity) * (state.factor?.(paint) ?? 1)).toPrecision(6)), color: cs.color, backgroundColor: cs.backgroundColor };
     if (state.background && typeof OffscreenCanvas === "function") {
@@ -452,10 +453,10 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // `stale`: a sheet, the scheme or a token changed, which no attribute of the node's says.
   const repaint = (el, stale = false) => {
     const state = paints.get(el);
-    if (!state) return;
+    if (!state || !state.animation && !hasPaint(el)) return;
     if (stale) state.stale = true;
-    const t = state.animation.effect.getComputedTiming();
-    paint(el, state, Math.max(0, (t.endTime ?? 0) - (t.localTime ?? 0)));
+    const t = state.animation?.effect.getComputedTiming();
+    paint(el, state, t ? Math.max(0, (t.endTime ?? 0) - (t.localTime ?? 0)) : EASE.duration);
   };
   globalThis.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => { for (const el of paints.keys()) repaint(el, true); });
   // So does a live edit that reaches it through a sheet (a state look's rule, the theme's) or the root's
@@ -470,7 +471,6 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   const showPaint = (el, down, now = false) => {
     let state = paints.get(el);
     if ((state?.to ?? 0) === (down ? 1 : 0)) return;
-    if (!state && !PAINT.some(p => el.style.getPropertyValue(p))) return;
     if (!state) {
       state = { observer: new MutationObserver(() => repaint(el)) };
       state.observer.observe(el, { attributes: true, attributeFilter: ["style", "class"] });
@@ -482,6 +482,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       paints.set(el, state);
     }
     state.to = down ? 1 : 0;
+    // A hold exists before its first computed target; only a written paint starts an animation.
+    if (!state.animation && !hasPaint(el)) { if (!down) endPaint(el, state); return; }
     paint(el, state, EASE.duration);
     if (!down && (now || !el.isConnected)) endPaint(el, state);
   };

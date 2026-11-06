@@ -1,7 +1,6 @@
-//! @ref LLP 1121 D8 (stage 8 A) — state parts: `:disabled` and `:checked`
-//! fold into the rows an author writes today, per longhand, `:checked`
-//! under `:disabled`; paint rows only; never on a native control or a
-//! list's row; host states' rows literal.
+//! State parts fold runner-known states into ordinary rows and leave press,
+//! hover and focus tracking with the host. Active targets may compute;
+//! hover and focus targets are literals. List rows admit active parts.
 
 use exact_kernel::{Color, ColorValue, Kernel, RowValue, StyleId};
 use exact_plan::Value;
@@ -39,6 +38,7 @@ fn colour(r: &Runner<NoData>, id: &str, style: StyleId) -> String {
     let key = r.kernel().find_by_test_id(id)[0];
     match r.kernel().node_by_key(key).unwrap().computed(style) {
         RowValue::ColorValue(ColorValue::Fixed(c)) | RowValue::Color(c) => hex(c),
+        RowValue::Color2(c) => hex(c[0]),
         other => format!("{other:?}"),
     }
 }
@@ -140,7 +140,7 @@ fn a_state_part_is_refused_where_it_cannot_be() {
     );
     assert_eq!(
         refused(&node(
-            ":active\n          background-color=(on ? \"#000000\" : \"#ffffff\")"
+            ":hover\n          background-color=(on ? \"#000000\" : \"#ffffff\")"
         )),
         "lower-state-literal"
     );
@@ -164,7 +164,7 @@ fn a_state_part_is_refused_where_it_cannot_be() {
         "lower-state-target"
     );
     assert_eq!(
-        refused("component App\n  state rows = [\"a\"]\n  view\n    list flex=1\n      for row in rows key=row\n        column press=go\n          :active\n            opacity = 0.5\n          text row\n  action go\n    rows = rows\n"),
+        refused("component App\n  state rows = [\"a\"]\n  view\n    list flex=1\n      for row in rows key=row\n        column press=go\n          :hover\n            opacity = 0.5\n          text row\n  action go\n    rows = rows\n"),
         "lower-state-target"
     );
     // A host state's literal rows compile (recorded for the hosts).
@@ -374,7 +374,7 @@ fn a_state_keeps_the_base_it_does_not_write() {
 fn round_one_refusals_and_typing() {
     // A grouped list's row is a cell.
     assert_eq!(
-        refused("component App\n  view\n    list appearance=\"auto\"\n      section\n        button press=go\n          :active\n            opacity = 0.5\n          text \"r\"\n  state n = 0\n  action go\n    n = n + 1\n"),
+        refused("component App\n  view\n    list appearance=\"auto\"\n      section\n        button press=go\n          :hover\n            opacity = 0.5\n          text \"r\"\n  state n = 0\n  action go\n    n = n + 1\n"),
         "lower-state-target"
     );
     // A component's element as a list's row and elsewhere: refused only as the row.
@@ -600,4 +600,136 @@ fn a_host_state_on_a_run_is_refused() {
     // An SVG `tspan` in SVG `text` is no paragraph run.
     let svg = "component App\n  view\n    svg viewBox=\"0 0 10 10\"\n      text\n        tspan \"x\"\n          :hover\n            opacity = 0.5\n";
     assert_ne!(refused(svg), "lower-state-target");
+}
+
+#[test]
+fn active_targets_follow_regular_commits_and_clear() {
+    let mut r = booted(
+        r##"component App
+  state on = false
+  action flip
+    on = !on
+  view
+    column press=flip testId="paint"
+      :active
+        background-color = (on ? "#ff0000" : none)
+        color = (on ? "#00ff00" : "#0000ff")
+        opacity = (on ? 0.4 : 0.8)
+        -exact-press-scale = (on ? 0.92 : 0.97)
+      text "Paint"
+"##,
+    );
+    let style = |r: &Runner<NoData>| {
+        let k = r.kernel();
+        let s = k.node_by_key(k.find_by_test_id("paint")[0]).unwrap().style;
+        (
+            s.mask.has(StyleId::PressBackgroundColor),
+            s.press_opacity_to,
+            s.press_scale,
+        )
+    };
+    assert_eq!(style(&r), (false, 0.8, 0.97));
+    assert_eq!(colour(&r, "paint", StyleId::PressColor), "#0000ff");
+    press(&mut r, "paint");
+    assert_eq!(style(&r), (true, 0.4, 0.92));
+    assert_eq!(
+        colour(&r, "paint", StyleId::PressBackgroundColor),
+        "#ff0000"
+    );
+    assert_eq!(colour(&r, "paint", StyleId::PressColor), "#00ff00");
+    press(&mut r, "paint");
+    assert_eq!(style(&r), (false, 0.8, 0.97));
+    assert_eq!(colour(&r, "paint", StyleId::PressColor), "#0000ff");
+}
+
+#[test]
+fn active_targets_from_conditional_classes_keep_node_precedence() {
+    let mut r = booted(
+        r##"style Cold
+  :active
+    background-color = "#111111"
+    color = "#ffffff"
+style Hot
+  :active
+    background-color = "#333333"
+    color = "#000000"
+component App
+  state on = false
+  action flip
+    on = !on
+  view
+    column class=(on ? Hot : Cold) press=flip testId="paint"
+      :active
+        color = "#abcdef"
+      text "Paint"
+"##,
+    );
+    assert_eq!(
+        colour(&r, "paint", StyleId::PressBackgroundColor),
+        "#111111"
+    );
+    assert_eq!(colour(&r, "paint", StyleId::PressColor), "#abcdef");
+    press(&mut r, "paint");
+    assert_eq!(
+        colour(&r, "paint", StyleId::PressBackgroundColor),
+        "#333333"
+    );
+    assert_eq!(colour(&r, "paint", StyleId::PressColor), "#abcdef");
+}
+
+#[test]
+fn active_targets_can_belong_to_list_rows() {
+    let mut r = booted(
+        r##"component App
+  state on = false
+  state rows = ["a", "b"]
+  action flip
+    on = !on
+  view
+    list virtualized=true estimated-item-height=40 height=120
+      for row in rows key=row
+        column press=flip testId="paint" height=40
+          :active
+            background-color = (on ? none : "#ff0000")
+            color = (row == "a" ? "#111111" : "#222222")
+          text row
+"##,
+    );
+    let fills = |r: &Runner<NoData>| {
+        let k = r.kernel();
+        k.find_by_test_id("paint")
+            .into_iter()
+            .map(|key| {
+                k.node_by_key(key)
+                    .unwrap()
+                    .style
+                    .mask
+                    .has(StyleId::PressBackgroundColor)
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(fills(&r), [true, true]);
+    assert_eq!(colour(&r, "paint", StyleId::PressColor), "#111111");
+    press(&mut r, "paint");
+    assert_eq!(fills(&r), [false, false]);
+}
+
+#[test]
+fn active_targets_select_a_custom_button_when_needed() {
+    let r = booted(
+        r##"component App
+  state n = 0
+  action go
+    n = n + 1
+  view
+    button press=go testId="paint"
+      :active
+        background-color = "#ff0000"
+      text "Paint"
+"##,
+    );
+    let k = r.kernel();
+    let node = k.node_by_key(k.find_by_test_id("paint")[0]).unwrap();
+    assert_eq!(node.node_type, exact_kernel::NodeType::Pressable);
+    assert!(node.style.mask.has(StyleId::PressBackgroundColor));
 }

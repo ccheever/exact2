@@ -60,6 +60,25 @@ final class PressPaintTests: XCTestCase {
     private func layer(_ v: NodeView) -> CALayer? { v.layer }
     private func fade(_ v: NodeView) -> CABasicAnimation? { layer(v)?.animation(forKey: "pressOpacity") as? CABasicAnimation }
 
+    func testAFirstPaintTargetAppearingDuringAPressIsShown() throws {
+        let (p, v) = try fixture([:])
+        v.pressed = true
+        XCTAssertFalse(v.pressPaint.down)
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": blue, "text_color": white, "press_background_color": navy, "press_color": yellow]]]))
+        XCTAssertTrue(v.pressPaint.down)
+        XCTAssertEqual(v.style["background_color"], ink(navy))
+        XCTAssertEqual(p.views[2]?.style["text_color"], ink(yellow))
+        #if os(iOS)
+        XCTAssertNil(v.layer.animation(forKey: "pressDim"))
+        #endif
+        v.pressFollows(inside: false)
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["background_color": blue, "text_color": white, "press_background_color": green]]]))
+        waitFor("the press leaving its bounds") { !v.pressPaint.down }
+        v.pressFollows(inside: true)
+        XCTAssertEqual(v.style["background_color"], ink(green))
+        v.pressed = false
+    }
+
     func testPressingShowsThePaintAndReleasingGivesTheEnginesBack() throws {
         let (p, v) = try fixture(["press_opacity": 0.5, "press_background_color": navy, "press_color": yellow])
         let inherits = try XCTUnwrap(p.views[2]), keeps = try XCTUnwrap(p.views[3])

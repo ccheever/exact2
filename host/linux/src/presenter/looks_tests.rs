@@ -33,8 +33,12 @@ const APP: &str = r##"component App
 "##;
 
 fn boot() -> Presenter<()> {
+    boot_with(APP)
+}
+
+fn boot_with(src: &str) -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(APP)
+        &contract::compile(src)
             .unwrap_or_else(|e| panic!("{e}"))
             .encode(),
         (),
@@ -233,5 +237,38 @@ fn a_focus_look_shows_with_the_ring() {
         pixel(&mut p, at.0, at.1),
         [255, 0, 255],
         "a key shows the ring, and the look"
+    );
+}
+
+#[test]
+fn a_target_appearing_during_a_stationary_press_is_painted() {
+    let src = APP
+        .replace(
+            "background-color = \"#0000ff\"",
+            "background-color = (presses > 0 ? \"#0000ff\" : none)",
+        )
+        .replace("opacity = 0.5", "opacity = (presses > 0 ? 0.5 : none)");
+    let mut p = boot_with(&src);
+    let b = rect(&mut p, "card");
+    let (x, y) = (b.0 + b.2 - 20., b.1 + 30.);
+    p.pointer_move(x, y, 0.).unwrap();
+    assert!(p.pointer_down(x, y, 0.).unwrap());
+    p.clock(120.);
+    let k = p.host.kernel();
+    let id = k.node_by_key(k.find_by_test_id("card")[0]).unwrap().id;
+    assert_eq!(p.host.dispatch_at(id, Event::Press, 120.), None);
+    assert_eq!(p.after_commit(), None);
+    p.clock(240.);
+    assert!(
+        near(pixel(&mut p, x, y), [127, 127, 255]),
+        "{:?}",
+        pixel(&mut p, x, y)
+    );
+    p.pointer_up(x, y, 240.).unwrap();
+    p.clock(360.);
+    assert!(
+        near(pixel(&mut p, x, y), [255, 255, 51]),
+        "{:?}",
+        pixel(&mut p, x, y)
     );
 }

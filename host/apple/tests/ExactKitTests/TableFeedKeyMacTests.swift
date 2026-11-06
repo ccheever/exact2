@@ -633,6 +633,20 @@ final class TableFeedKeyMacTests: XCTestCase {
         XCTAssertTrue(try f.node("title-2").inEmphasizedRow)
     }
 
+    func testAFirstTargetAppearingDuringTheTablesClickPaintsTheHeldRow() throws {
+        let f = try keyed(count: 20)
+        let row = try f.node("row-1"), title = try f.node("title-1")
+        XCTAssertFalse(row.authorsPress)
+        click(title, in: f) {
+            XCTAssertTrue(row.pressed)
+            f.presenter.apply(wireBatch([["op": "style", "id": row.id, "style": ["press_background_color": [255, 0, 0, 255]]]]))
+            XCTAssertTrue(row.pressPaint.down)
+            XCTAssertEqual(row.style["background_color"], .array([.number(255), .number(0), .number(0), .number(255)]))
+        }
+        XCTAssertFalse(row.pressed)
+        XCTAssertEqual(f.table.selectedRow, 1)
+    }
+
     func testAuthoredPressedPaintFollowsTheTablesClickWithoutReplacingSelection() throws {
         let source = TableFixture.source(count: 20).replacingOccurrences(of: "row press=open(r)", with: "row press=open(r) -exact-press-opacity=0.4 -exact-press-background-color=\"#ff0000\" -exact-press-color=\"#00ff00\"")
         let f = try keyed(count: 20, source: source)

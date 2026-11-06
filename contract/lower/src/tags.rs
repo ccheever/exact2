@@ -412,6 +412,9 @@ pub fn rows(a: &contract_syntax::Attr) -> Vec<StyleId> {
 
 /// Look up an attribute.
 pub fn attr(name: &str) -> Option<AttrTarget> {
+    if let Some(("active", row)) = contract_syntax::state::state_of(name) {
+        return crate::states::active_target(row);
+    }
     if let Some(target) = crate::style_names::lookup(name) {
         return Some(target);
     }

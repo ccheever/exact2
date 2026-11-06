@@ -265,8 +265,14 @@ impl<D: DataSource> Host<D> {
 
     pub(super) fn press_settle(&self) -> Option<f64> {
         self.presses
-            .values()
-            .map(|p| p.start + DURATION)
+            .iter()
+            .filter(|(key, _)| {
+                self.runner
+                    .kernel()
+                    .node_by_key(**key)
+                    .is_some_and(|n| shows(&n))
+            })
+            .map(|(_, p)| p.start + DURATION)
             .filter(|&end| end > self.now_ms)
             .reduce(f64::max)
     }

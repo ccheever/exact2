@@ -4332,6 +4332,8 @@ under `:disabled`, and `:disabled` is your own disabled look (no default dim).
 node's pressed paint (LLP 1061 D7), eased on the press curve (under Reduce
 Motion too, as the press is feedback) and replacing the host's unsaid press (no
 65% dim on top); its `opacity` is the opacity it shows pressed, not a share.
+Its targets may compute during ordinary commits, including a conditional class
+and `none` to clear a target. Pressing needs no runner round trip.
 Say each once: `:active background-color` beside `-exact-press-background-color`
 is refused (`lower-state-press-paint`), as is a border or shadow there, which the
 press cannot paint yet. `:hover` and `:focus-visible` take `background-color`,
@@ -4340,11 +4342,13 @@ press cannot paint yet. `:hover` and `:focus-visible` take `background-color`,
 the web a `transition` of the node's own on one of those rows still times it), the
 focus's over the hover's, under the press. Each host applies them on its own
 tracking, over the node's rows (rows a part doesn't name show the base, also a
-base that changes while pressed); their rows are literals, tokens included. A
+base that changes while pressed); hover and focus rows are literals, tokens included. A
 disabled node takes none. The web (both targets) does this today; Apple, Linux
 and Android follow (LLP 1121 stage 8 B). A part
-on a native control or a list's row is refused (their states are the
-platform's); a node's own part whose state it never writes (`:disabled` with no
+on a native control is currently refused. A list's row accepts `:active`; its
+other states remain the platform's. A button with authored press paint becomes
+a custom button unless you explicitly require native appearance, which refuses
+that paint. A node's own part whose state it never writes (`:disabled` with no
 `disabled`) is warned of (`lower-state-dead`).
 
 A native control takes `accent-color` and, a field, the design's `Field`,

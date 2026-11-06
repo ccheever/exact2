@@ -1175,7 +1175,22 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a held 
       f.style.removeProperty('--exact-press-color'); await frame(); finish(f); await frame(); finish(f);
       const cleared = exact.pressShown(f);
       pointer(f, 'pointerup'); finish(f); await frame();
-      const out = { before: [before.opacity, before.color], moved: moved.opacity, cleared: cleared.color };
+      const late = document.createElement('div');
+      late.dataset.exactOn = 'press'; late.style.cssText = 'width:60px;height:20px;background-color:white';
+      document.getElementById('exact-root').append(late);
+      pointer(late, 'pointerdown');
+      const initial = exact.pressShown(late);
+      late.style.setProperty('--exact-press-background-color', 'red');
+      await frame(); finish(late); await frame(); finish(late);
+      const appeared = exact.pressShown(late)?.backgroundColor;
+      late.style.removeProperty('--exact-press-background-color');
+      await frame(); finish(late);
+      const absent = exact.pressShown(late)?.backgroundColor ?? getComputedStyle(late).backgroundColor;
+      late.style.setProperty('--exact-press-background-color', 'blue');
+      await frame(); finish(late); await frame(); finish(late);
+      const appearedAgain = exact.pressShown(late)?.backgroundColor;
+      pointer(late, 'pointerup'); finish(late);
+      const out = { initial, appeared, absent, appearedAgain, before: [before.opacity, before.color], moved: moved.opacity, cleared: cleared.color };
       for (const id of ['clip', 'axis']) {
         const el = document.getElementById(id);
         pointer(el, 'pointerdown');
@@ -1186,6 +1201,8 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a held 
       }
       return out;
     });
+    expect(seen.initial).toBe(null);
+    expect([seen.appeared, seen.absent, seen.appearedAgain]).toEqual(['rgb(255, 0, 0)', 'rgb(255, 255, 255)', 'rgb(0, 0, 255)']);
     expect([engine, ...seen.before]).toEqual([engine, '0.4', 'rgb(255, 0, 0)']);
     expect([engine, seen.moved, seen.cleared]).toEqual([engine, '0.3', 'rgb(0, 0, 0)']);
     expect([engine, seen.clip.clip, seen.clip.origin, seen.clip.layers]).toEqual([engine, 'content-box', 'content-box', 1]);

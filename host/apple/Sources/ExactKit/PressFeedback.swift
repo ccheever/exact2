@@ -15,7 +15,7 @@ import UIKit
 #endif
 
 /// One node's press factor, eased from `from` to `to` since `start`.
-struct PressFeedback {
+package struct PressFeedback {
     var from: CGFloat = 1, to: CGFloat = 1, start: CFTimeInterval = 0
     /// A release that came before the press was ever on screen, held until
     /// the press has eased all the way in (D2): UIKit's delayed touches hand
@@ -30,9 +30,9 @@ struct PressFeedback {
     var dimmedAt: CFTimeInterval?
     #endif
     /// In and back alike: a fast settle that reads as a physical give.
-    static let duration: CFTimeInterval = 0.12
+    package static let duration: CFTimeInterval = 0.12
     /// `ease` as Core Animation's curve, for the render server's ease.
-    static let timing = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
+    package static let timing = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
     /// Shorter than one 60 Hz frame: a press this young was never presented.
     static let unseen: CFTimeInterval = 1.0 / 60
 
@@ -116,18 +116,24 @@ extension NodeView {
     /// the platform's own. A held press (HeldState.swift) shows it as a
     /// real press does, with no haptic.
     func showPress(_ down: Bool) {
+        #if os(iOS)
+        if presenter?.groupedLists?.press(self, down: down) == true {
+            paintPress(false, instantly: true); aimPress(false, release: true); dimPress(false, instantly: true)
+            return
+        }
+        #endif
         let down = down && defaultLink == nil
         // What a press shows goes at its release whatever the style says now:
         // an authored look the style dropped while held included.
-        if !down { paintPress(false); aimPress(false, release: true) }
+        if !down || !authorsPress { paintPress(false, instantly: down); aimPress(false, release: true) }
         #if os(iOS)
         // A list's row is its cell: the cell's ground, not the dim (LLP 1115.000 D16).
         if platformPressDims, presenter?.rowCells.press(self, down) == true { return }
         if platformPressDims { dimPress(down); return }
-        if !down { dimPress(false) }
+        dimPress(false, instantly: down)
         #elseif os(macOS)
         if platformPressTints { tintPress(down); return }
-        if !down { tintPress(false) }
+        tintPress(false)
         #endif
         guard down else { return }
         paintPress(true)

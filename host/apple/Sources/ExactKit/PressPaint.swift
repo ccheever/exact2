@@ -75,6 +75,7 @@ extension NodeView {
     var showsOwnTextColor: Bool {
         wrote("text_color") || (pressPaint.down && style["press_color"] != nil)
     }
+    package var pressIsDown: Bool { holds("active") || pressed && !pressPaint.outside }
     /// The rows of the pressed paint (LLP 1061 D7).
     static let pressPaintRows = ["press_opacity", "press_opacity_to", "press_background_color", "press_color"]
     /// Whether the author wrote this node's pressed look: a press scale or
@@ -279,6 +280,7 @@ extension NodeView {
     /// held colour. Re-ink after applying the style to avoid re-entering
     /// `presented` while it is building that style.
     func refreshPressInheritance() {
+        if pressed || holds("active") { showPress(pressIsDown) }
         guard pressPaint.down, !showsOwnTextColor else { return }
         liveLender()?.inkAgain()
     }

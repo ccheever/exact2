@@ -37,7 +37,7 @@ final class TableHost {
             let point = content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
             guard let table = content.hitTest(point) as? RunnerTableView, let feed = table.feed,
                   let row = feed.row(at: table.row(at: table.convert(event.locationInWindow, from: nil))),
-                  let node = feed.pressing(row), node.authorsPress, !node.disabled, !node.inert else { return }
+                  let node = feed.pressing(row), !node.disabled, !node.inert else { return }
             pressContact = PressNode(node, bubbled: false)
             node.pressed = true
             pressCell = table.rowView(atRow: row.index, makeIfNecessary: false)?.view(atColumn: 0) as? TableRowCell

@@ -52,6 +52,8 @@ package protocol GroupedLists: AnyObject {
     func reveal(_ id: UInt32, port: (UIScrollView) -> CGRect) -> Bool?
     /// Where a real finger aimed at `node` lands, for a row a list draws.
     func shown(_ node: NodeView) -> GroupedAim?
+    /// Show a press on a standard native row; false when its authored view owns it.
+    func press(_ node: NodeView, down: Bool) -> Bool
     /// The agent's `tap` on a row UIKit draws.
     func activate(_ node: NodeView, before: (CGPoint?) -> Bool) -> [String: Any]?
     /// `layout <id>`'s native fields for a list or a row it draws.

@@ -775,6 +775,64 @@ fn direct_control_contacts_keep_their_original_activation_policy() {
 }
 
 #[test]
+fn a_computed_feedback_target_does_not_take_over_native_activation() {
+    for pointer in [PointerKind::Touch, PointerKind::Pen] {
+        for (drift, clear) in [(6., false), (0., false), (0., true)] {
+            let mut p = boot(
+                r##"component App
+  state painted = false
+  state checked = false
+  state seen = ""
+  action paint
+    painted = !painted
+  action pressed
+    seen = `${seen}press `
+  action changed(value: bool)
+    checked = value
+    seen = `${seen}change `
+  view
+    column width=400 height=400
+      box press=pressed width=300 height=80 testId="feedback"
+        :active
+          opacity=(painted ? 0.5 : none)
+        input type="checkbox" checked=checked change=changed testId="control" width=200 height=40
+      button "Paint" press=paint testId="paint"
+      text `${checked}:${seen}` testId="log"
+"##,
+            );
+            p.set_pointer_kind(pointer);
+            let (x, y) = middle(&p, "control");
+            p.pointer_down(x, y, 0.).unwrap();
+            p.pointer_move(x + drift, y, 1.).unwrap();
+            p.clock(120.);
+            let paint = id(&p, "paint");
+            assert_eq!(p.host.dispatch_at(paint, Event::Press, 120.), None);
+            assert_eq!(p.after_commit(), None);
+            if clear {
+                assert_eq!(p.host.dispatch_at(paint, Event::Press, 120.), None);
+                assert_eq!(p.after_commit(), None);
+            }
+            p.clock(240.);
+            assert_eq!(
+                p.host.presented(id(&p, "feedback")).opacity,
+                if drift == 0. && !clear { 0.5 } else { 1. },
+                "{pointer:?}, drift={drift}, clear={clear}"
+            );
+            p.pointer_up(x + drift, y, 241.).unwrap();
+            assert_eq!(
+                log(&p),
+                if drift == 0. {
+                    "true:change "
+                } else {
+                    "false:"
+                },
+                "{pointer:?}, drift={drift}, clear={clear}"
+            );
+        }
+    }
+}
+
+#[test]
 fn a_pressed_field_keeps_its_ring_and_script_focus_follows_the_one_it_leaves() {
     let source = r##"component App
   action next

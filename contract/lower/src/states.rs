@@ -15,8 +15,9 @@
 //!   its `:active` span; the host's one press shows them.
 //! - `:hover` and `:focus-visible` are recorded for the hosts to apply on
 //!   their own tracking: their rows by longhand ([`Folded::looks`]).
-//! - A host-known state's rows are literal only (a token is a literal).
-//! - Paint rows only, never on a native control or a list's row.
+//! - Hover and focus looks are literal; active targets may compute.
+//! - Paint rows only. List rows admit authored press paint; native controls
+//!   currently refuse state parts.
 
 use super::*;
 use contract_syntax::state::state_of;
@@ -44,6 +45,19 @@ const ACTIVE_ROWS: [(&str, &str); 4] = [
     ("opacity", PRESS_OPACITY_TO),
     ("-exact-press-scale", "-exact-press-scale"),
 ];
+
+/// Nodes whose platform state handling restricts authored parts.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StateTarget {
+    NativeControl,
+    ListRow,
+}
+
+/// The rows a written active part supplies, including before button admission.
+pub(crate) fn active_target(row: &str) -> Option<tags::AttrTarget> {
+    let (_, paint) = ACTIVE_ROWS.iter().find(|(name, _)| *name == row)?;
+    crate::style_names::lookup(paint)
+}
 
 /// The press's absolute opacity, lowering's row for `:active`'s `opacity`
 /// (never an author's: `lower-unknown-attr`).
@@ -137,7 +151,11 @@ pub(crate) fn refusal(state: &str, row: &Attr, values: bool) -> Option<LowerErro
             span: row.span,
         });
     }
-    if values && host && !matches!(row.value, Expr::Str(..) | Expr::Number(..) | Expr::Bool(..)) {
+    if values
+        && host
+        && state != "active"
+        && !matches!(row.value, Expr::Str(..) | Expr::Number(..) | Expr::Bool(..))
+    {
         return Some(LowerError {
             id: "lower-state-literal",
             message: format!("`{}` in `:{state}` is computed: the host applies its state on its own, with no round trip to the runner, so its rows are literals (a token's name is one)", row.name),
@@ -372,7 +390,8 @@ pub(crate) fn row_name(id: exact_kernel::StyleId) -> Option<&'static str> {
 
 impl Lowerer<'_> {
     /// Fold `expanded`'s state parts; `None` when it has none. `target` is
-    /// why the node takes none (a native control, a list's row); `implied`
+    /// which states the platform alone handles (all on a native control,
+    /// non-press states on a list row); `implied`
     /// the rows the node takes when its author writes none (a link's text
     /// colour), a base a state's row falls back to; `class_len` how many of
     /// `expanded` are its sheet's and class's.
@@ -380,7 +399,7 @@ impl Lowerer<'_> {
     pub(crate) fn fold_states(
         &mut self,
         expanded: &[Attr],
-        target: Option<&str>,
+        target: Option<StateTarget>,
         implied: &[(&str, Expr)],
         class_len: usize,
         scope: &Scope,
@@ -402,12 +421,21 @@ impl Lowerer<'_> {
         let Some((_, first, _)) = parts.first() else {
             return Ok(None);
         };
-        if let Some(why) = target {
-            return err(
-                "lower-state-target",
-                format!("a state part on {why}: its states are the platform's (LLP 1121 D8); style it with `accent-color`, or a box of your own"),
-                first.span,
-            );
+        if let Some(target) = target {
+            if let Some((_, row, _)) = parts
+                .iter()
+                .find(|(state, ..)| target == StateTarget::NativeControl || *state != "active")
+            {
+                let why = match target {
+                    StateTarget::NativeControl => "a native control",
+                    StateTarget::ListRow => "a list's row, whose non-press states are the cell's",
+                };
+                return err(
+                    "lower-state-target",
+                    format!("a state part on {why}: its states are the platform's (LLP 1121 D8); style it with `accent-color`, or a box of your own"),
+                    row.span,
+                );
+            }
         }
         let base: Vec<Attr> = expanded
             .iter()

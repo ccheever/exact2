@@ -4,6 +4,12 @@ import UIKit
 
 // Keep the detail button while UIKit refreshes the cell for accessibility.
 final class GroupedCell: UICollectionViewListCell {
+    var forcedPressed = false { didSet { if forcedPressed != oldValue { setNeedsUpdateConfiguration() } } }
+    override var configurationState: UICellConfigurationState {
+        var state = super.configurationState
+        state.isHighlighted = state.isHighlighted || forcedPressed
+        return state
+    }
     #if os(iOS)
     weak var menuSource: NodeView?
     private var detailButton: UIButton?

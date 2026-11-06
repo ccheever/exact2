@@ -759,9 +759,11 @@ style PostButton
   authored `opacity`; a colour that reads what `disabled` reads) still count. `:active`
   turns off the host's unsaid press look on that node (iOS's dim, the Mac's ink wash, the
   web's 65%).
-- **Excluded:** native controls (their states are the platform's, D9) and a `list`'s rows
-  (their press is the cell highlight, LLP 1115.000 D16). A state part on either is
-  `lower-state-target`.
+- **Targets:** native controls currently refuse state parts (`lower-state-target`). A
+  `list`'s row accepts `:active` paint through its existing host press tracking; other
+  states remain the cell's. Active targets may compute during ordinary commits, including
+  conditional classes and clearing a target with `none`. A bare button with authored
+  press paint becomes custom; explicitly native appearance refuses unsupported paint.
 - **Ruled 2026-10-18 (Charlie, on a panel of Astra, Grok and Fable; option B):** `:active` is
   the authoring form and D7's press paint its one runtime, extended until it paints what
   `:active` says; this replaced looks for `:active` (stage 8 A's table keeps `:hover` and
@@ -3533,10 +3535,10 @@ on a fresh page.
 - **Rows and targets** (`contract/lower/src/states.rs`). A runner-known state takes
   `background-color`, `color`, `border-color` (each side's longhand too), `opacity`, `box-shadow` and
   `-exact-tint-color`; a host-known one `background-color`, `border-color`, `opacity`, `box-shadow`
-  and `-exact-press-scale`. Another is `lower-state-row`. A host state's row is a literal
-  (`lower-state-literal`; a token's name is one, theme2's ruling (b)). A part on a native control
-  (`controls::control`, or a `Control` node) or on a cell list's row (through its `for`, `if` and
-  `match` regions) is `lower-state-target`.
+  and `-exact-press-scale`. Another is `lower-state-row`. Hover and focus rows are literals
+  (`lower-state-literal`; a token's name is one); active targets may compute. Native controls
+  currently refuse state parts (`lower-state-target`); a cell list's row accepts `:active`
+  through its `for`, `if` and `match` regions, with other states refused.
 - **Runner-known states fold** into the node's rows, per longhand: `disabled ? D : (checked ? C :
   B)`. B is the base the class and the node compose, a `border-color` split into its sides and a
   side a `border` or `border-top` writes as its component, so a state's `border-color` overrides
