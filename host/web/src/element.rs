@@ -1064,6 +1064,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilityHasPopup => "aria-haspopup",
             PropId::AccessibilityCurrent => "aria-current",
             PropId::AccessibilitySort => "aria-sort",
+            PropId::AccessibilityRowCount => "aria-rowcount",
+            PropId::AccessibilityColumnCount => "aria-colcount",
+            PropId::AccessibilityRowIndex => "aria-rowindex",
+            PropId::AccessibilityColumnIndex => "aria-colindex",
             // @ref LLP 1153 D7 — a table cell's own attributes.
             PropId::ColSpan => "colspan",
             PropId::RowSpan => "rowspan",

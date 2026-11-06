@@ -1,0 +1,297 @@
+import { mobileQueuedEditPresentation } from './queued-edit';
+import { mobileHtmlRenderSnapshot, type HtmlRenderSnapshot, type HtmlRenderTheme } from './html-render-owner';
+import { mobileQueuedEditDismissKey } from './queued-edit-memory';
+import { mobileThreadForkObserveProjection, mobileThreadForkPresentation } from './thread-fork';
+// Mobile ThreadFeed/ThreadComposer at upstream365aa87982; shared transport and V2 reducers stay authoritative.
+// @ref examples/t3-code/mobile/docs/1130.000-mobile-app-layout.decision.md#shared-typescript
+// @ref examples/t3-code/mobile/docs/1130.003-pairing-and-transport.decision.md#mobile-adaptations
+import { mobileComposerTarget, mobileComposerTargetText } from './composer-target';
+import { mobileComposerAttachmentUploadSnapshot } from './composer-attachment-uploads';
+import { mobileAnswerFilesOwner, mobileAnswerFilesRequest, mobilePrepareAnswerFiles } from './thread-answer-files';
+import { mobileClient, mobileCommand, mobileNative } from './client';
+import { mobileProviderIconURL } from './environment-detail';
+import type { T3Client } from './shared/client';
+import { arr, obj, str, type Obj } from './shared/domain';
+import { activeRun, type Files, type Native } from './shared/protocol';
+import { mobileModelSelectionReady, mobileModelSelectionUnavailable } from './model-availability';
+import { letGoAware } from './shared/let-go';
+import { transcriptRows, timelineView } from './shared/timeline-presentation';
+import { turnItemPresentationRevision } from './shared/timeline-item-fetch';
+import { refreshTimelineReads, timelineReadsNeeded } from './shared/timeline-prepare';
+import { attachmentUrls, cachedAttachmentUrl } from './shared/timeline-attachments';
+import { toolImageUrls } from './timeline-tool-images';
+import { syncWorktreeSetup, threadWorktreeSetup, worktreeDetailsOpen } from './shared/timeline-worktree';
+import { threadPhase } from './shared/composer-presentation';
+import { primaryAction } from './shared/composer-controls-view';
+import { followUpBehavior } from './shared/composer-controls';
+import { queueState } from './shared/composer-controls-queue';
+import { requestPresentation } from './shared/requests';
+import { emptyPendingInput, type PendingInputView } from './pending-input';
+import type { ThreadMarkdownBlock } from './thread-markdown';
+import { mobileThreadMarkdownCache } from './thread-markdown-cache';
+import { mobileThreadHistory } from './thread-history';
+import { mobileForkLifecycleActivity, mobileThreadActivity } from './thread-work';
+import type { ThreadActivity } from './thread-work';
+import { mobileThreadOutbox, threadOutboxStatus, threadOutboxPreview, prepareThreadOutboxPreviews } from './thread-outbox';
+import { mobileThreadErrorView } from './thread-error';
+export type { ThreadActivity } from './thread-work';
+
+export interface ThreadMedia { id: string; name: string; kind: string; url: string }
+export interface ThreadHtmlPresentation { context: string; width: number; theme: HtmlRenderTheme; iconColor: string }
+const emptyHtmlRender: HtmlRenderSnapshot = { context: '', key: '', identifier: '', sourceJSON: '', title: '', height: 80, available: false };
+export interface ThreadRow { id: string; kind: string; title: string; body: string; blocks: ThreadMarkdownBlock[]; user: boolean;
+  timestamp: string; showMeta: boolean; streaming: boolean; attribution: string; senderThreadId: string; intent: string; intentDescription: string; intentTone: string; copyConfiguration: string;
+  expanded: boolean; toggleOp: string; toggleId: string; failed: boolean; live: boolean; activities: ThreadActivity[];
+  htmlRender: HtmlRenderSnapshot; media: ThreadMedia[]; first: boolean; last: boolean; canFork: boolean; forkKey: string; forkBusy: boolean; }
+export interface ThreadApprovalOption { id: string; label: string; tone: string; warning: string }
+export interface ThreadApproval { id: string; title: string; detail: string; warning: string; disabled: boolean; reason: string; options: ThreadApprovalOption[] }
+export interface ThreadComposerState { editing: boolean; saving: boolean; canCancel: boolean; editNotice: string; editNoticeDismissKey: string; editPendingId: string; canRetryEdit: boolean; contentOwner: string; draft: string; placeholder: string; canSend: boolean; canStop: boolean; showStop: boolean;
+  canOperate: boolean; showReadOnlyNotice: boolean; sendLabel: string; sendSymbol: string; blockedReason: string; modelLabel: string; providerDriver: string;
+  providerIconURL: string; modelUnavailable: boolean; running: boolean; queueCount: number; }
+export interface ThreadSnapshot { queuedCanSelect: boolean; queuedFailed: boolean; queuedCanEdit: boolean; queued: boolean; queuedOwner: string; queuedStatus: string; queuedReason: string; queuedCanRetry: boolean; revision: number; environmentId: string; threadId: string; title: string; loaded: boolean; loading: boolean; rows: ThreadRow[];
+  emptyTitle: string; emptyDetail: string; error: string; errorWarning: boolean; errorSummary: string; errorExpandable: boolean; errorLimit: '' | 'workspace' | 'chatgpt'; uncertain: boolean; hasMore: boolean; historyRequest: string; historyLoading: boolean; historyError: string; historyRevision: number;
+  readsNeeded: boolean; answerFilesOwner: string; answerFilesRequest: string; approvals: ThreadApproval[]; composer: ThreadComposerState; pendingInput: PendingInputView; }
+interface ProjectedThreadItem { row: Obj; item: Obj }
+interface ProjectedThreadItemsCache {
+  source: unknown;
+  revision: number;
+  threadEpoch: number;
+  threadId: string;
+  map: Map<string, ProjectedThreadItem>;
+}
+const projectedThreadItemsCache = new WeakMap<T3Client, ProjectedThreadItemsCache>();
+
+interface TranscriptRowsCache {
+  source: unknown;
+  revision: number;
+  threadEpoch: number;
+  threadId: string;
+  setupSource: unknown;
+  setupPreparing: boolean;
+  setupDetailsOpen: boolean;
+  itemPresentationRevision: number;
+  openKey: string;
+  viewNonce: number;
+  revertKey: string;
+  timestampFormat: string;
+  rows: ReturnType<typeof transcriptRows>;
+}
+const transcriptRowsCache = new WeakMap<T3Client, TranscriptRowsCache>();
+
+/**
+ * Scroll events re-render the feed without changing the selected projection.
+ * Keep the source-index lookup across those renders; client revisions and
+ * thread epochs still invalidate it for live updates and selection changes.
+ */
+function projectedThreadItems(client: T3Client): Map<string, ProjectedThreadItem> {
+  const source = client.projection.visibleTurnItems;
+  const previous = projectedThreadItemsCache.get(client);
+  // A zero revision is the pre-snapshot construction state used while a
+  // client is being assembled. Do not retain rows there: callers may still be
+  // filling fixture objects in place before the first canonical revision.
+  if (client.revision > 0 && previous && previous.source === source && previous.revision === client.revision
+    && previous.threadEpoch === client.threadEpoch && previous.threadId === client.threadId) return previous.map;
+  const map = new Map<string, ProjectedThreadItem>();
+  if (Array.isArray(source)) {
+    for (const value of source) {
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) continue;
+      const row = value as Obj;
+      map.set(JSON.stringify([row.sourceThreadId, row.sourceItemId]), { row, item: obj(row.item) });
+    }
+  }
+  projectedThreadItemsCache.set(client, { source, revision: client.revision, threadEpoch: client.threadEpoch, threadId: client.threadId, map });
+  return map;
+}
+
+/**
+ * Fold, copy and revert controls live in timelineView rather than the server
+ * projection. Include their small local keys so an unchanged scroll redraw
+ * reuses the complete row derivation while a local disclosure or action still
+ * presents immediately.
+ */
+export function mobileTranscriptRows(client: T3Client): ReturnType<typeof transcriptRows> {
+  const view = timelineView(client), source = client.projection.visibleTurnItems, setup = threadWorktreeSetup(client);
+  const openKey = [...view.open].sort().join('\u0001'), revertKey = JSON.stringify(view.revert);
+  const timestampFormat = client.local.deviceSettings.timestampFormat;
+  const itemPresentationRevision = turnItemPresentationRevision(client);
+  const previous = transcriptRowsCache.get(client);
+  if (previous && previous.source === source && previous.revision === client.revision
+    && previous.threadEpoch === client.threadEpoch && previous.threadId === client.threadId
+    && previous.setupSource === setup.snapshot && previous.setupPreparing === setup.preparing && previous.setupDetailsOpen === worktreeDetailsOpen(client)
+    && previous.itemPresentationRevision === itemPresentationRevision
+    && previous.openKey === openKey && previous.viewNonce === view.nonce && previous.revertKey === revertKey
+    && previous.timestampFormat === timestampFormat) return previous.rows;
+  const rows = transcriptRows(client, true);
+  if (client.revision > 0) transcriptRowsCache.set(client, { source, revision: client.revision, threadEpoch: client.threadEpoch,
+    threadId: client.threadId, setupSource: setup.snapshot, setupPreparing: setup.preparing, setupDetailsOpen: worktreeDetailsOpen(client),
+    itemPresentationRevision, openKey, viewNonce: view.nonce, revertKey, timestampFormat, rows });
+  return rows;
+}
+const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+const legacyAutomationPrefix = /^\[Triggered by schedule task: [^\r\n]+\]\r?\n\r?\n/;
+const legacyAutomationMessageId = /^scheduled-task-message:(.+):\d+:(?:scheduled|manual)$/;
+export function mobileMessageTime(value: unknown): string { const stamp = Date.parse(str(value)); return Number.isFinite(stamp) ? timeFormatter.format(stamp) : ''; }
+
+// Pinned mobile userMessageIntentBadge.ts preserves a promoted message's queued origin.
+function userIntentBadge(intent: unknown): { label: string; description: string; tone: 'queued' | 'steer' } | null {
+  switch (intent) {
+    case 'queued_turn': return { label: 'queued', description: 'Queued behind the active turn', tone: 'queued' };
+    case 'steer': return { label: 'steer', description: 'Steered the active turn', tone: 'steer' };
+    case 'promoted_queued_to_steer': return { label: 'queued → steer', description: 'Originally queued, then promoted to steer the active turn', tone: 'steer' };
+    default: return null;
+  }
+}
+
+/** Adapts shared derived row types, preserving their ids and disclosure ownership. */
+export function mobileThreadRows(client: T3Client, now: number, dark = false, routeKey = '', html?: ThreadHtmlPresentation): ThreadRow[] {
+  const markdown = mobileThreadMarkdownCache(client, dark, routeKey);
+  const rows = threadRows(client, now, dark, routeKey, html, markdown);
+  markdown.commit(); return rows;
+}
+
+function threadRows(client: T3Client, now: number, dark = false, routeKey = '', html?: ThreadHtmlPresentation,
+  markdown?: ReturnType<typeof mobileThreadMarkdownCache>): ThreadRow[] {
+  mobileThreadForkObserveProjection(client);
+  const source = mobileTranscriptRows(client), projected = projectedThreadItems(client);
+  const view = timelineView(client), rows: ThreadRow[] = [];
+  for (const message of source) {
+    // Pinned mobile buildThreadFeed omits checkpoints, including populated changes.
+    if (message.kind === 'checkpoint') continue;
+    const projectedItem = projected.get(message.id), item = projectedItem?.item, user = message.kind === 'user', fork = item?.type === 'fork' ? projectedItem?.row : undefined;
+    const intent = user && item?.type === 'user_message' ? userIntentBadge(item.inputIntent) : null;
+    const automation = user && item?.type === 'user_message' && (item.scheduledTaskId !== undefined
+      || legacyAutomationPrefix.test(str(item.text)) && (legacyAutomationMessageId.test(str(item.messageId)) || item.createdBy === 'agent'));
+    const agent = user && item?.type === 'user_message' && !automation && item.createdBy === 'agent';
+    // Shared desktop renders '(empty response)'; mobile deliberately skips blank assistant rows.
+    // The shared timeline keeps lifecycle events on its immutable desktop shape.
+    // Mobile gives handoffs their divider row and keeps the endpoint summary in
+    // the row body so Contract can expose the same compact context transition.
+    const handoff = message.kind === 'event' && message.title === 'Context handoff';
+    const rowKind = handoff ? 'handoff' : message.kind;
+    const body = fork ? '' : handoff ? str(message.detail) : message.kind === 'assistant' && item ? str(item.text) : message.body;
+    const media = arr(item?.attachments).filter(attachment => str(attachment.id)).map(attachment => ({ id: str(attachment.id), name: str(attachment.name),
+      kind: attachment.type === 'image' ? 'image' : /^video\//.test(str(attachment.mimeType)) ? 'video' : 'file',
+      url: cachedAttachmentUrl(client, str(attachment.id)) ?? '' }));
+    if (message.kind === 'assistant' && !body.trim() && !media.length) continue;
+    const toggleOp = message.kind === 'work' ? 'chatlocal:fold' : message.kind === 'attempt' ? 'chatlocal:attempt'
+      : ['group', 'live', 'thinking'].includes(message.kind) && message.groupId ? 'chatlocal:group' : '';
+    const showMeta = user || ['assistant', 'plan'].includes(message.kind) && message.meta !== false && message.completed === true && message.streaming !== true;
+    const title = fork ? '' : message.kind === 'working' && message.startedMs ? `${message.title} ${elapsed(now - message.startedMs)}` : message.title;
+    rows.push({ id: message.id, kind: rowKind, title, body, blocks: markdown?.blocks(`message:${message.id}`, body) ?? [], user,
+      timestamp: mobileMessageTime(user ? item?.startedAt ?? message.createdAt : item?.updatedAt ?? message.createdAt), showMeta,
+      streaming: message.streaming === true, attribution: automation ? 'Sent by automation' : agent ? 'Sent by another agent' : '', senderThreadId: agent ? message.targetId ?? '' : '',
+      intent: intent?.label ?? '', intentDescription: intent?.description ?? '', intentTone: intent?.tone ?? '', copyConfiguration: item && ['user', 'assistant', 'plan'].includes(message.kind) ? JSON.stringify({ id: message.id,
+        owner: { origin: client.origin, environment: client.environmentId, generation: client.generation, project: client.projectId,
+          thread: client.threadId, epoch: client.threadEpoch, route: routeKey,
+          sourceThread: str(projectedItem?.row.sourceThreadId), sourceItem: str(projectedItem?.row.sourceItemId) },
+        text: item.type === 'proposed_plan' ? str(item.markdown) : ['user_message', 'assistant_message'].includes(str(item.type)) ? str(item.text) : '' }) : '',
+      expanded: message.expanded === true, toggleOp, toggleId: message.groupId ?? message.runId ?? '', failed: message.failed === true || handoff && message.tone === 'danger',
+      live: message.live === true, htmlRender: message.kind === 'html-render' && html
+        ? mobileHtmlRenderSnapshot(client, html.context, message.htmlRenderKey ?? '', true, html.width, html.theme, html.iconColor) : emptyHtmlRender, media, first: false, last: false, ...mobileThreadForkPresentation(client, message.id),
+      activities: fork ? [mobileForkLifecycleActivity(fork, client, now, dark, routeKey)] : (['group', 'live'].includes(message.kind) ? [] : message.activities ?? []).map(activity => {
+        const shown = mobileThreadActivity(activity, projected.get(activity.id)?.row, client, now, dark, mobileMessageTime(activity.timestamp), routeKey);
+        // Parse only visible reasoning; tools keep literal command/result output.
+        return { ...shown, reasoningBlocks: shown.reasoning && shown.expanded ? markdown?.blocks(`reasoning:${activity.id}`, shown.output) ?? [] : [] };
+      }) });
+  }
+  for(const pending of mobileThreadOutbox(client,now)) {
+    const record=pending.record;
+    rows.push({id:`outbox:${record.messageId}`,kind:'pending',title:pending.reason,body:record.text,
+      blocks:markdown?.blocks(`pending:${record.messageId}`,record.text)??[],user:true,timestamp:pending.acknowledged?mobileMessageTime(record.createdAt):'Pending',
+      showMeta:true,streaming:false,attribution:'',senderThreadId:'',intent:threadOutboxStatus(pending.status),intentDescription:'',intentTone:'',copyConfiguration:'',expanded:false,
+      toggleOp:pending.canRetry?'outbox:retry':'',toggleId:pending.owner,failed:pending.status==='recovery-required',live:false,activities:[],
+      canFork:false,forkKey:'',forkBusy:false,htmlRender:emptyHtmlRender,media:record.attachments.map(file=>({id:file.id,name:file.name,kind:file.kind==='image'?'image':'file',
+        url:threadOutboxPreview(client,record,file,now)})),first:false,last:false});
+  }
+  rows.forEach((row, index) => { row.first = index === 0; row.last = index === rows.length - 1; });
+  return rows;
+}
+function elapsed(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  return seconds < 60 ? `${seconds}s` : seconds < 3600 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}m`;
+}
+
+export function mobileThreadComposer(client: T3Client): ThreadComposerState {
+  const run = activeRun(client.projection), running = !!run, queue = queueState(client.projection), edit = mobileQueuedEditPresentation(client), target = mobileComposerTarget(client);
+  const provider = arr(client.config.providers).find(provider => provider.instanceId === client.providerId);
+  const model = arr(provider?.models).find(model => model.slug === client.modelId);
+  const selection = { instanceId: client.providerId, model: client.modelId }, modelReady = mobileModelSelectionReady(client.config, selection);
+  const modelUnavailable = client.connection === 'connected' && mobileModelSelectionUnavailable(client.config, selection);
+  const uploads = mobileComposerAttachmentUploadSnapshot(client);
+  const uploadPending = Object.values(uploads.states).some(state => state === 'uploading');
+  const uploadFailed = Object.values(uploads.states).some(state => state === 'failed');
+  const requests = requestPresentation(client), followUp = running && !queue.canSteer ? 'queue' : followUpBehavior(client);
+  const action = primaryAction(client, threadPhase(client.projection));
+  const blockedReason = uploadPending ? 'Wait for attachments to finish uploading.' : uploadFailed ? 'Retry or remove the failed attachment.'
+    : edit.saving ? 'Saving…' : edit.uncertain ? 'Resolve the pending queued edit before sending.' : client.pending?.uncertain ? 'Check the synchronized thread before retrying.'
+    : edit.editing ? '' : requests.approvals.length ? 'Resolve this approval request to continue.' : requests.questions.length ? 'Answer the pending question to continue.'
+    : action.sendStatus;
+  const canOperate = client.writable, canStop = canOperate && !client.pending && !client.busy && running;
+  // Offline-outbox admission is not the desktop transport's contract; preserve its real refusal until the mobile outbox exists.
+  const canSend = edit.editing ? edit.canSave && modelReady : canOperate && !client.pending && !client.busy && modelReady && !!client.projectId && !blockedReason && !uploadPending && !uploadFailed && (!!client.draft.trim() || client.snapshotDrafts.length > 0);
+  const sendLabel = edit.editing ? 'Update queued message' : running ? followUp === 'steer' ? 'Steer' : 'Queue' : 'Send';
+  return { editing: edit.editing, saving: edit.saving, canCancel: edit.canCancel, editNotice: edit.error, editNoticeDismissKey: mobileQueuedEditDismissKey(client), editPendingId: edit.pendingId, canRetryEdit: edit.canRetry, contentOwner: target.owner, draft: mobileComposerTargetText(client, target) ?? '', placeholder: 'Ask the repo agent, or run a command…', canSend, canStop, showStop: !client.draft.trim() && client.snapshotDrafts.length === 0 && canStop && !edit.editing,
+    canOperate, showReadOnlyNotice: client.connection === 'connected' && !canOperate, sendLabel, sendSymbol: edit.editing ? 'checkmark' : running ? followUp === 'steer' ? 'arrow.turn.left.up' : 'list.number' : 'arrow.up',
+    blockedReason, modelLabel: str(model?.name, client.modelId), providerDriver: str(provider?.driver), providerIconURL: mobileProviderIconURL(provider?.iconUrl),
+    modelUnavailable, running, queueCount: queue.queued.length };
+}
+
+/** Read after the stable snapshot reader; supplied time owns all duration labels. */
+export function mobileThread(now: number, dark = false, client: T3Client = mobileClient, routeKey = '', includeRows = true, html?: ThreadHtmlPresentation): ThreadSnapshot {
+  const rows = includeRows ? mobileThreadRows(client, now, dark, routeKey, html) : [], loaded = !!client.thread;
+  const loading = !loaded && ['connected', 'connecting', 'reconnecting'].includes(client.connection);
+  const requests = mobileThreadErrorView(client, requestPresentation(client));
+  const answerFiles = includeRows ? mobileAnswerFilesRequest(client, visibleAnswerFiles(rows), now)
+    : { owner: mobileAnswerFilesOwner(client), request: '' };
+  return { pendingInput: emptyPendingInput(), queuedCanSelect: false, queuedFailed: false, queuedCanEdit: false, queued: false, queuedOwner: '', queuedStatus: '', queuedReason: '', queuedCanRetry: false, answerFilesOwner: answerFiles.owner, answerFilesRequest: answerFiles.request, revision: client.revision, environmentId: client.environmentId, threadId: client.threadId,
+    title: str(obj(client.projection.thread).title), loaded, loading, rows,
+    emptyTitle: loaded ? 'No conversation yet' : loading ? '' : 'Messages not cached',
+    emptyDetail: loaded ? 'Ask the agent to inspect the repo, run a command, or continue the active thread.' : loading ? '' : 'Reconnect this environment to load the conversation.',
+    error: requests.error, errorWarning: requests.errorWarning, errorSummary: requests.errorSummary, errorExpandable: requests.errorExpandable, errorLimit: requests.errorLimit,
+    uncertain: client.pending?.uncertain === true, hasMore: client.thread?.hasMore === true, historyRevision: client.historyRevision,
+    ...mobileThreadHistory(client, routeKey, includeRows), readsNeeded: includeRows && timelineReadsNeeded(client),
+    approvals: requests.approvals.map(approval => {
+      const item = arr(client.projection.turnItems).slice().reverse().find(item => item.requestId === approval.id);
+      const request = arr(client.projection.runtimeRequests).find(request => request.id === approval.id);
+      // Mobile preserves server option order and has its own three-option fallback.
+      const options = Array.isArray(item?.options) ? arr(item.options) : [
+        { decision: 'accept', label: 'Allow once' }, { decision: 'acceptForSession', label: 'Allow session' }, { decision: 'decline', label: 'Decline' }];
+      return { id: approval.id, title: approval.appName || str(item?.requestKind, str(request?.kind)), detail: approval.detail,
+        warning: str(options.find(option => option.warning)?.warning),
+        disabled: !approval.canRespond || approval.responding, reason: approval.responseReason,
+        options: options.map(option => ({ id: str(option.decision), label: str(option.label), warning: str(option.warning),
+          tone: option.decision === 'accept' ? 'primary' : option.decision === 'decline' ? 'danger' : 'secondary' })) };
+    }), composer: mobileThreadComposer(client) };
+}
+
+/** Root owns this awaited resource/mutation; native handles are never saved between answers. */
+export async function mobileThreadPrepare(nativeInput: Native | null | undefined, now: number) {
+  const native = nativeInput?.available ? letGoAware(mobileNative(nativeInput)) : nativeInput;
+  if(native?.available)await prepareThreadOutboxPreviews(mobileClient,native,now);
+  if (native?.available && mobileClient.ready && mobileClient.threadId) {
+    await Promise.all([
+      syncWorktreeSetup(mobileClient, native),
+      refreshTimelineReads(mobileClient, native),
+      attachmentUrls(mobileClient, native, now),
+    ]);
+    await toolImageUrls(mobileClient, native, now);
+  }
+  return { revision: mobileClient.revision, pending: timelineReadsNeeded(mobileClient) };
+}
+
+/** Same real command seam as root; no manufactured success or alternate reducer. */
+export function mobileThreadAction(args: unknown[], native: Native | null | undefined, storage: Files) {
+  return mobileCommand(args, native, storage);
+}
+
+function visibleAnswerFiles(rows: ThreadRow[]): string[] {
+  return rows.flatMap(row => row.activities.flatMap(activity => activity.expanded
+    ? activity.answerHistory.flatMap(question => question.files.map(file => file.id)) : []));
+}
+/** A dedicated root mutation owns this request; transcript rendering stays pure. */
+export async function mobileThreadAnswerFilesPrepare(owner: string, request: string, now: number,
+  nativeInput: Native | null | undefined, client: T3Client = mobileClient) {
+  const native = nativeInput?.available ? letGoAware(mobileNative(nativeInput)) : nativeInput;
+  await mobilePrepareAnswerFiles(client, native, now, owner, request, visibleAnswerFiles(threadRows(client, now)));
+  return { revision: client.revision };
+}

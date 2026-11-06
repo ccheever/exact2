@@ -1,0 +1,44 @@
+use Control, Primary, Muted from "../shared/shapes.contract"
+use AppConfirm from "../shell/shell-panels.contract"
+use DialogFinalFocus from "../shared/dialog-trap.contract"
+
+shape PromptLinkView
+  show: bool
+  title: string
+  description: string
+  busy: bool
+  clone: bool
+  cloneLabel: string
+  withoutProject: bool
+  checkout: bool
+  pairing: string // a `t3code://pair` link's confirmation title, while it waits
+  pairingBusy: bool
+
+component PromptLinkPage
+  props
+    link: PromptLinkView
+    left: number
+    canvas: string
+    run: action
+  view
+    if link.show
+      column position="absolute" top=52 bottom=0 left=left right=0 z-index=2 background-color=canvas align-items="center" justify-content="center" padding="1.5rem" box-sizing="border-box" testId="prompt-link-page"
+        column width="100%" max-width="28rem" align-items="center" gap="0.5rem"
+          text link.title font-size="1.125rem" line-height="1.75rem" font-weight=500 text-align="center" testId="prompt-link-title"
+          if link.description != ""
+            text link.description font-size="0.875rem" line-height="1.5rem" text-align="center" class=Muted testId="prompt-link-description"
+          if link.clone or link.withoutProject or link.checkout
+            row margin-top="1.25rem" gap="0.5rem" justify-content="center" flex-wrap="wrap"
+              if link.clone
+                button class=Primary press=run("clone") disabled=link.busy testId="prompt-link-clone"
+                  text link.cloneLabel
+              if link.withoutProject
+                button class=Control press=run("without-project") disabled=link.busy testId="prompt-link-without-project"
+                  text "Use without project"
+              if link.checkout
+                button class=Primary press=run("checkout") disabled=link.busy testId="prompt-link-checkout"
+                  text (link.busy ? "Checking out..." : "Check out")
+    // DesktopWebLinkCoordinator's pairFromLink: the host is confirmed before the link's one-time token is spent.
+    DialogFinalFocus(open=(link.pairing != ""), owner="pairing-link-confirm")
+    if link.pairing != ""
+      AppConfirm(title=link.pairing, body="", destructive=false, busy=link.pairingBusy, confirmId="pairing-link-confirm", confirmLabel="Confirm", cancel=run("pair-cancel"), confirm=run("pair-confirm"))

@@ -1,0 +1,48 @@
+// The composer toolbar's labels at their natural widths, measured
+// from laid-out text instead of estimated (T3 Code, MIT; see LICENSE-T3:
+// chat/restingComposerControlsMeasurement.ts reads each label's scrollWidth from
+// labels that stay mounted while icons replace them). Each label is drawn once
+// at the toolbar's size (14pt regular),
+// invisible and out of flow, and reports its width through the app module's
+// t3-anchor hook (T3Composer.swift); composer-measure.ts reads the widths.
+
+component LabelProbe
+  inject
+    composerScope: string // a side chat's composer reports under its own names (thread-scope.ts)
+  props
+    name: string
+    label: string
+    xs: bool
+  view
+    box hatch="t3-anchor" data-anchor=`${composerScope}${name}` display="flex" flex-direction="row" flex-shrink=0
+      text (label == "" ? " " : label) font-size=(xs ? "0.75rem" : "0.875rem") font-weight=400 line-height=(xs ? "1rem" : "1.25rem") white-space="nowrap" flex-shrink=0
+
+component ComposerLabelProbes
+  props
+    model: string
+    traits: string
+    runtime: string
+    plan: string
+  view
+    column position="absolute" left=0 top=0 opacity=0 pointer-events="none" aria-hidden=true align-items="flex-start" testId="composer-label-probes"
+      LabelProbe(name="m-model-sm", label=model, xs=false)
+      LabelProbe(name="m-traits-sm", label=traits, xs=false)
+      LabelProbe(name="m-runtime-sm", label=runtime, xs=false)
+      LabelProbe(name="m-plan-sm", label=plan, xs=false)
+
+// Menu texts the app sizes its menus by (composer-menus.ts): each text at its
+// own size and weight, one probe each, keyed by the anchor name it reports under.
+shape TextProbe
+  key: string
+  text: string
+  size: number
+  weight: number
+
+component TextProbes
+  props
+    probes: TextProbe[]
+  view
+    column position="absolute" left=0 top=0 opacity=0 pointer-events="none" aria-hidden=true align-items="flex-start" testId="composer-text-probes"
+      for probe in probes key=probe.key
+        box hatch="t3-anchor" data-anchor=probe.key display="flex" flex-direction="row" flex-shrink=0
+          text probe.text font-size=probe.size font-weight=probe.weight line-height=`${probe.size + 4}px` white-space="nowrap" flex-shrink=0

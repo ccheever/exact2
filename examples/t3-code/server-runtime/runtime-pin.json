@@ -1,0 +1,15 @@
+{
+  "comment": "The embedded T3 server: the official T3 Code CLI release archive (Node single executable) of the Beta release v0.1.7, cut at the reference pin 322f6544df itself, whose version is CLIENT_VERSION (version-skew.ts). stage-runtime.mjs downloads it, checks it against the release's SHA256SUMS and this hash, checks every Mach-O file with `codesign --verify --strict` (the release signs them with a Developer ID), and puts it beside this file; the app unpacks it into <T3 home>/runtime/versions/<version> at first launch. T3 Code is MIT (LICENSE-T3).",
+  "version": "0.1.7",
+  "tag": "v0.1.7",
+  "commit": "322f6544dfad0a3c8a0c8cbecf2c7f7874b14268",
+  "referencePin": "322f6544df",
+  "commitsBeforeReferencePin": 0,
+  "repository": "pingdotgg/t3code",
+  "asset": "t3-0.1.7-darwin-arm64.tar.gz",
+  "size": 110020388,
+  "sha256": "fecfb296ed142942d0cb2dee1c53a6faca54a4012a312a470d4dc6c3215d1ab3",
+  "signing": "developer-id",
+  "url": "https://github.com/pingdotgg/t3code/releases/download/v0.1.7/t3-0.1.7-darwin-arm64.tar.gz",
+  "checksumsUrl": "https://github.com/pingdotgg/t3code/releases/download/v0.1.7/SHA256SUMS"
+}

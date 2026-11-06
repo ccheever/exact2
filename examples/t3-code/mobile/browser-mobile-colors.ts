@@ -1,0 +1,12 @@
+// @ref examples/t3-code/mobile/docs/1130.010-mobile-browser-devices.decision.md#connection-and-command-ownership
+import { mobileGlassColors, mobileTheme } from './design';
+import { mobileReviewColors } from './review-colors';
+export function mobilePreviewColors(scheme: string, palette = 't3-code') {
+  const theme = mobileTheme(scheme, palette), look = mobileReviewColors(scheme, palette), glass = mobileGlassColors(scheme, palette);
+  const colors = { background: theme.sheet, foreground: look.foreground, muted: look.muted, icon: look.icon,
+    secondary: theme.secondary, secondaryForeground: theme.secondaryForeground, border: look.border, input: theme.colors.input, inputBorder: theme.colors.inputBorder, placeholder: theme.colors.placeholder,
+    primary: look.primary, primaryForeground: look.primaryForeground, subtle: look.subtle,
+    glassTint: glass.glassTint, glassFallback: glass.glassFallback };
+  return { ...colors, stream: JSON.stringify({ background: colors.background, foreground: colors.foreground, muted: colors.muted,
+    buttonBackground: colors.secondary, buttonForeground: colors.secondaryForeground, buttonBorder: colors.border }) };
+}

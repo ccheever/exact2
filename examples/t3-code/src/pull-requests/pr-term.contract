@@ -1,0 +1,7 @@
+// A host's words for a change request (details/git-logic.ts termView): "MR" and "merge request" on GitLab,
+// "PR" and "pull request" on the other hosts, "change request" on one no host claims. `title` opens a sentence.
+shape PrTerm
+  short: string
+  singular: string
+  plural: string
+  title: string

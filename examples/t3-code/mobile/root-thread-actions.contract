@@ -1,0 +1,138 @@
+use Change, ThreadHistoryAnchor from "./app-shapes.contract"
+members App
+  state historyAnchors = [ThreadHistoryAnchor(route="", environment="", thread="", key="", offset=0, revision=0)].slice(0, 0)
+  state historyAnchorKey = ""
+  state historyAnchorOffset = 0
+  state historyAnchorRoute = ""
+  state historyAnchorEnvironment = ""
+  state historyAnchorThread = ""
+  state historyAnchorRevision = 0
+  state historyAnchorRestorePending = false
+  state threadEndFollowEnabled = true
+  state threadEndFollowOwner = ""
+  mutation threadHistoryChanged as shape Change queue refreshes data, threadData then didThreadHistoryChanged
+  action threadHistoryScroll(x: number, y: number, e: ScrollEvent)
+    if top(nav).name.startsWith("thread")
+      let route = `${top(nav).id}`
+      let environment = threadData.environmentId
+      let thread = threadData.threadId
+      if historyAnchorRoute != route or historyAnchorEnvironment != environment or historyAnchorThread != thread
+        if historyAnchorKey != ""
+          historyAnchors = historyAnchors.filter((saved) => not (saved.route == historyAnchorRoute and saved.environment == historyAnchorEnvironment and saved.thread == historyAnchorThread)).concat([ThreadHistoryAnchor(route=historyAnchorRoute, environment=historyAnchorEnvironment, thread=historyAnchorThread, key=historyAnchorKey, offset=historyAnchorOffset, revision=historyAnchorRevision)]).slice(-100)
+        match historyAnchors.filter((saved) => saved.route == route and saved.environment == environment and saved.thread == thread).at(-1)
+          case some(saved)
+            historyAnchorKey = saved.key
+            historyAnchorOffset = saved.offset
+            historyAnchorRevision = saved.revision
+            historyAnchorRestorePending = false
+          case none
+            historyAnchorKey = ""
+            historyAnchorOffset = 0
+            historyAnchorRevision = threadData.historyRevision
+            historyAnchorRestorePending = false
+        historyAnchorRoute = route
+        historyAnchorEnvironment = environment
+        historyAnchorThread = thread
+      let followOwner = `${threadData.environmentId}:${threadData.threadId}`
+      let atEnd = e.scrollHeight <= e.clientHeight or e.scrollTop + e.clientHeight >= e.scrollHeight - 1
+      if threadEndFollowOwner != followOwner
+        threadEndFollowOwner = followOwner
+      if threadEndFollowEnabled != atEnd
+        threadEndFollowEnabled = atEnd
+      if atEnd and e.scrollHeight > 0 and (historyAnchorKey != "" or historyAnchorOffset != 0 or historyAnchorRevision != threadData.historyRevision or historyAnchorRestorePending)
+        historyAnchorKey = ""
+        historyAnchorOffset = 0
+        historyAnchorRevision = threadData.historyRevision
+        historyAnchorRestorePending = false
+        historyAnchors = historyAnchors.filter((saved) => not (saved.route == historyAnchorRoute and saved.environment == historyAnchorEnvironment and saved.thread == historyAnchorThread))
+      match e.firstVisibleKey
+        case some(key)
+          if (not atEnd or e.scrollHeight <= 0) and not (historyAnchorKey != "" and threadData.historyRevision > historyAnchorRevision)
+            if key != historyAnchorKey or e.firstVisibleOffset != historyAnchorOffset or historyAnchorRoute != route or historyAnchorEnvironment != environment or historyAnchorThread != thread or historyAnchorRevision != threadData.historyRevision
+              historyAnchorKey = key
+              historyAnchorOffset = e.firstVisibleOffset
+              historyAnchorRoute = route
+              historyAnchorEnvironment = environment
+              historyAnchorThread = thread
+              historyAnchorRevision = threadData.historyRevision
+              historyAnchorRestorePending = false
+              historyAnchors = historyAnchors.filter((saved) => not (saved.route == historyAnchorRoute and saved.environment == historyAnchorEnvironment and saved.thread == historyAnchorThread)).concat([ThreadHistoryAnchor(route=historyAnchorRoute, environment=historyAnchorEnvironment, thread=historyAnchorThread, key=historyAnchorKey, offset=historyAnchorOffset, revision=historyAnchorRevision)]).slice(-100)
+        case none
+          if not (historyAnchorKey != "" and threadData.historyRevision > historyAnchorRevision) and (historyAnchorKey != "" or historyAnchorOffset != 0 or historyAnchorRevision != threadData.historyRevision or historyAnchorRestorePending)
+            historyAnchorKey = ""
+            historyAnchorOffset = 0
+            historyAnchorRestorePending = false
+            historyAnchors = historyAnchors.filter((saved) => not (saved.route == historyAnchorRoute and saved.environment == historyAnchorEnvironment and saved.thread == historyAnchorThread))
+  action threadScrollToEnd
+    if top(nav).name.startsWith("thread") and threadData.rows.length > 0
+      match threadData.rows.at(-1)
+        case some(row)
+          haptic("selection")
+          threadEndFollowEnabled = true
+          historyAnchorKey = ""
+          historyAnchorOffset = 0
+          historyAnchorRevision = threadData.historyRevision
+          historyAnchorRestorePending = false
+          historyAnchors = historyAnchors.filter((saved) => not (saved.route == `${top(nav).id}` and saved.environment == threadData.environmentId and saved.thread == threadData.threadId))
+          scrollIntoView("thread-feed", row.id, offset=1000000, behavior="smooth")
+        case none
+          threadEndFollowEnabled = true
+  action didThreadHistoryChanged
+    let route = `${top(nav).id}`
+    let environment = threadData.environmentId
+    let thread = threadData.threadId
+    if historyAnchorRoute != route or historyAnchorEnvironment != environment or historyAnchorThread != thread
+      if historyAnchorKey != ""
+        historyAnchors = historyAnchors.filter((saved) => not (saved.route == historyAnchorRoute and saved.environment == historyAnchorEnvironment and saved.thread == historyAnchorThread)).concat([ThreadHistoryAnchor(route=historyAnchorRoute, environment=historyAnchorEnvironment, thread=historyAnchorThread, key=historyAnchorKey, offset=historyAnchorOffset, revision=historyAnchorRevision)]).slice(-100)
+      match historyAnchors.filter((saved) => saved.route == route and saved.environment == environment and saved.thread == thread).at(-1)
+        case some(saved)
+          historyAnchorKey = saved.key
+          historyAnchorOffset = saved.offset
+          historyAnchorRevision = saved.revision
+          historyAnchorRestorePending = false
+          if saved.key != ""
+            scrollIntoView("thread-feed", saved.key, offset=saved.offset, behavior="instant")
+            historyAnchorRevision = threadData.historyRevision
+            historyAnchors = historyAnchors.filter((entry) => not (entry.route == route and entry.environment == environment and entry.thread == thread)).concat([ThreadHistoryAnchor(route=route, environment=environment, thread=thread, key=saved.key, offset=saved.offset, revision=historyAnchorRevision)]).slice(-100)
+        case none
+          historyAnchorKey = ""
+          historyAnchorOffset = 0
+          historyAnchorRevision = threadData.historyRevision
+          historyAnchorRestorePending = false
+      historyAnchorRoute = route
+      historyAnchorEnvironment = environment
+      historyAnchorThread = thread
+    if historyAnchorKey != "" and historyAnchorRoute == route and historyAnchorEnvironment == environment and historyAnchorThread == thread and not historyAnchorRestorePending and threadData.historyRevision > historyAnchorRevision
+      scrollIntoView("thread-feed", historyAnchorKey, offset=historyAnchorOffset, behavior="instant")
+      historyAnchorRevision = threadData.historyRevision
+      historyAnchorRestorePending = false
+      historyAnchors = historyAnchors.filter((saved) => not (saved.route == historyAnchorRoute and saved.environment == historyAnchorEnvironment and saved.thread == historyAnchorThread)).concat([ThreadHistoryAnchor(route=historyAnchorRoute, environment=historyAnchorEnvironment, thread=historyAnchorThread, key=historyAnchorKey, offset=historyAnchorOffset, revision=historyAnchorRevision)]).slice(-100)
+  action threadAction(op: string, id: string, value: string)
+    if op == "outbox:edit"
+      if not pending(outboxEdited)
+        send outboxEdited = outboxEdit(id, `${top(nav).id}`)
+    else if op == "outbox:retry"
+      if not pending(outboxChanged)
+        send outboxChanged = outboxAction("retry", id, wallTime.epochAtZero + performanceNow())
+    else if top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
+      if op == "open-agent"
+        if id != "" and top(nav).name == "thread"
+          openAgent(data.environmentId, id)
+      else if op == "html-render"
+        send htmlRenderChanged = htmlRenderEvent(htmlRenderContext.context, id, value, `${top(nav).id}`, htmlRenderContext.full)
+      else if op == "fork-response"
+        if not pending(selected) and not pending(routeSelected)
+          haptic("selection")
+          send selected = threadFork(id, value, `${top(nav).id}`)
+      else if op == "queue-open"
+        blur()
+        composerFocusIdentity = ""
+        nav = push(nav, path("threadQueue", data.environmentId, data.threadId))
+      else if (op == "send" or op == "send-alternate") and threadSubmission.ordinary
+        if not pending(changed) and not pending(threadSubmissionChanged)
+          send threadSubmissionChanged = threadSubmissionAction(threadSubmissionInput, op, "", value, id, `${top(nav).id}`, wallTime.epochAtZero + performanceNow())
+      else if op == "chatlocal:history-auto" or op == "chatlocal:history-retry"
+        send threadHistoryChanged = command(op, id, value, `${wallTime.epochAtZero + performanceNow()}`, taskGuardOwner, taskGuardRoute)
+      else
+        lastOperation = "thread-action"
+        send changed = command(op, id, value, op.startsWith("pending-input:") ? `${top(nav).id}\n${top(nav).url}` : `${wallTime.epochAtZero + performanceNow()}`, taskGuardOwner, taskGuardRoute)

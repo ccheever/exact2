@@ -1,0 +1,173 @@
+/* Chromium's PDF viewer (BSD, The Chromium Authors: chrome/browser/resources/pdf — pdf_viewer.css, index.css,
+   elements/viewer_toolbar.css, viewer_page_selector.css, viewer_pdf_sidenav.css, viewer_thumbnail*.css,
+   viewer_bookmark.css, viewer_properties_dialog.css, cr_elements' cr-icon-button, cr-action-menu and cr-dialog), as
+   Electron 44.10 ships it. It is dark whatever the theme; only Document properties follows it. */
+.browser-pdf {
+  --toolbar-height: 56px;
+  --toolbar-background: rgb(60, 60, 60);
+  --side-background: rgb(40, 41, 42);
+  --border: rgb(94, 94, 94);
+  --toolbar-text: rgb(241, 241, 241);
+  --focus-outline: rgb(154, 160, 166);
+  --selection: rgba(255, 255, 255, 0.3);
+  --blue-300: rgb(138, 180, 248);
+  position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden;
+  background: rgb(40, 40, 40); color: rgb(232, 234, 237);
+  font-family: system-ui, sans-serif; font-size: 13px; line-height: 154%;
+  -webkit-font-smoothing: auto;
+}
+.browser-pdf button { font-family: system-ui, sans-serif; }
+
+/* cr-icon-button */
+.browser-pdf .cr-icon-button {
+  display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center;
+  width: 36px; height: 36px; margin: 0; padding: 0; border: none; border-radius: 50%;
+  background: none; color: var(--toolbar-text); fill: currentColor; cursor: pointer; outline: none;
+}
+.browser-pdf .cr-icon-button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); }
+.browser-pdf .cr-icon-button:focus-visible { box-shadow: inset 0 0 0 2px var(--focus-outline); }
+.browser-pdf .cr-icon-button:disabled { opacity: 0.38; cursor: default; }
+
+/* viewer-toolbar */
+#toolbar-host { position: relative; z-index: 1; }
+#toolbar {
+  position: relative; display: flex; align-items: center; height: var(--toolbar-height); padding: 0 16px;
+  background-color: var(--toolbar-background); color: white;
+}
+#start { display: flex; flex: 1; align-items: center; overflow: hidden; padding-inline-end: 20px; }
+#title { margin-inline-start: 16px; overflow: hidden; font-size: 0.87rem; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+#center { display: flex; align-items: center; }
+#end { display: flex; flex: 1; align-items: center; justify-content: flex-end; padding-inline-start: 20px; white-space: nowrap; }
+#center, #end { transition: opacity 100ms cubic-bezier(0, 0, 0.2, 1); }
+#toolbar[data-loading] #center, #toolbar[data-loading] #end { opacity: 0; visibility: hidden; }
+.vertical-separator { width: 1px; height: 20px; background: rgba(255, 255, 255, 0.3); }
+#zoom-controls { display: flex; align-items: center; padding: 0 4px; }
+#toolbar input {
+  max-height: var(--toolbar-height); margin: 0 4px; padding: 0 4px; border: none; outline: none;
+  background: rgba(0, 0, 0, 0.5); color: inherit; caret-color: currentColor;
+  font: inherit; line-height: inherit; text-align: center; width: 5ch;
+}
+#toolbar input::selection { background-color: var(--selection); }
+#fit { margin-inline-start: 12px; }
+#print, #more { margin-inline-start: 4px; }
+.print-frame { position: fixed; width: 0; height: 0; border: 0; visibility: hidden; }
+#more.open { background-color: rgba(255, 255, 255, 0.24); }
+.progress { position: absolute; bottom: 0; left: 0; width: 100%; height: 3px; background: var(--blue-300); opacity: 0; visibility: hidden; }
+#toolbar[data-loading] .progress { opacity: 1; visibility: visible; transform-origin: left; animation: browser-pdf-progress 1.2s ease-in-out infinite; }
+@keyframes browser-pdf-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* viewer-page-selector */
+#page-selector { display: inline-flex; align-items: center; height: 36px; margin-inline-end: 20px; direction: ltr; font-size: 0.81rem; color: #fff; text-align: center; }
+#toolbar #page-selector input, #pagelength { width: calc(max(2, var(--page-length-digits, 1)) * 1ch + 1px); }
+#toolbar #page-selector input { margin: 0; color: white; }
+#divider { margin: 0 4px; }
+
+/* Chromium's width and height breakpoints, on the viewer's own box (`data-narrow`, `data-short`): the frame's media
+   queries do not see its size in every host. */
+.browser-pdf[data-narrow~="600"] :is(#title, #zoom-controls input) { display: none; }
+.browser-pdf[data-narrow~="500"] :is(#start, #fit) { display: none; }
+.browser-pdf[data-narrow~="420"] #center { display: none; }
+.browser-pdf[data-narrow~="420"] #end { padding-inline-start: initial; }
+.browser-pdf:is([data-narrow~="200"], [data-short]) #toolbar-host { display: none; }
+
+/* cr-action-menu, the viewer's dark one */
+#menu {
+  position: fixed; z-index: 10; min-width: 128px; padding: 8px 0; border-radius: 4px;
+  background-color: rgb(32, 33, 36); color: rgb(232, 234, 237);
+  box-shadow: rgba(0, 0, 0, 0.3) 0 1px 2px 0, rgba(0, 0, 0, 0.15) 0 3px 6px 2px;
+}
+#menu .dropdown-item {
+  display: flex; align-items: center; box-sizing: border-box; width: 100%; min-height: 32px;
+  padding: 8px 16px 8px 12px; border: none; border-radius: 0; background: none; color: inherit;
+  font: inherit; text-align: start; white-space: nowrap; cursor: pointer; user-select: none; outline: none;
+}
+#menu .dropdown-item:focus { background-color: rgb(95, 99, 104); }
+#menu .dropdown-item:focus-visible { outline: solid 2px var(--focus-outline); outline-offset: -2px; }
+#menu .dropdown-item:disabled { opacity: 0.38; cursor: default; }
+#menu .check-container { display: inline-flex; width: 16px; margin-inline-end: 12px; fill: currentColor; }
+#menu hr { margin: 0; border: none; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+
+/* The sidebar and the pages */
+#container { position: relative; display: flex; flex: 1; min-height: 0; overflow: hidden; }
+#sidenav-container {
+  width: 300px; overflow: hidden; border-inline-end: 1px solid var(--border); visibility: visible;
+  transition: transform 250ms cubic-bezier(0.6, 0, 0, 1), visibility 250ms;
+}
+#sidenav-container[data-closed] {
+  width: 0; border: none; transform: translateX(-100%); visibility: hidden;
+  transition: transform 200ms cubic-bezier(0.6, 0, 0, 1), visibility 200ms, width 0ms 200ms;
+}
+.browser-pdf:is([data-narrow~="500"], [data-short]) #sidenav-container { display: none; }
+#sidenav { display: flex; width: 300px; height: 100%; background-color: var(--side-background); overflow: hidden; }
+#icons { display: flex; flex-direction: column; min-width: 64px; }
+.button-wrapper { position: relative; display: flex; align-items: center; height: 36px; margin: 12px 0; width: 100%; }
+.button-wrapper::before { content: ""; display: block; flex-shrink: 0; width: 4px; height: 100%; border-radius: 0 3px 3px 0; }
+.button-wrapper.selected::before { background: var(--blue-300); }
+.button-wrapper .cr-icon-button { margin: 0 auto; }
+.button-wrapper.selected .cr-icon-button { color: var(--blue-300); }
+#sidenav-content { flex: 1; min-width: 0; color: white; overflow-x: hidden; }
+#thumbnails { box-sizing: border-box; height: 100%; overflow: auto; padding-bottom: 24px; text-align: center; outline: none; }
+#icons:not([hidden]) + #sidenav-content #thumbnails { padding-inline-end: 28px; }
+.thumbnail { display: block; padding-top: 24px; outline: none; }
+.thumbnail-box {
+  display: inline-flex; align-items: center; justify-content: center; width: 108px; height: 140px; margin: 0 auto 12px;
+  background-color: white; cursor: pointer;
+}
+.thumbnail[data-active] .thumbnail-box { box-shadow: 0 0 0 6px var(--blue-300); }
+.thumbnail:focus-visible .thumbnail-box { box-shadow: 0 0 0 2px var(--blue-300); }
+.thumbnail[data-active]:focus-visible .thumbnail-box { box-shadow: 0 0 0 8px var(--blue-300); }
+.thumbnail canvas { display: block; opacity: 0.5; }
+.thumbnail[data-active] canvas { opacity: 1; }
+.thumbnail canvas:hover { opacity: 0.7; }
+.thumbnail[data-active] canvas:hover { opacity: 0.7; }
+.page-number { line-height: 1; }
+
+/* viewer-document-outline, viewer-bookmark */
+#outline { height: 100%; overflow: auto; padding-inline-end: 20px; padding-top: 20px; box-sizing: border-box; }
+.bookmark-item { position: relative; display: flex; align-items: flex-start; padding: 5px 0; cursor: pointer; transition: background-color 100ms ease-out; }
+.bookmark-item:hover { background-color: rgb(95, 99, 104); }
+.bookmark-item:active { background-color: rgba(255, 255, 255, 0.25); }
+.expand-container { position: relative; flex-shrink: 0; width: 28px; }
+.expand-container::before { content: "."; visibility: hidden; }
+.bookmark .expand { position: absolute; top: calc((100% - 28px) / 2); left: 0; width: 28px; height: 28px; transition: transform 150ms; }
+.bookmark[data-shown] > .bookmark-item .expand { transform: rotate(90deg); }
+.bookmark-title { overflow: hidden; text-overflow: ellipsis; outline: none; }
+.bookmark-title:focus-visible { outline: auto -webkit-focus-ring-color; }
+
+#main { position: relative; flex: 1; min-width: 0; overflow: hidden; }
+#scroller { position: relative; height: 100%; overflow: auto; direction: ltr; outline: none; }
+#sizer { position: relative; }
+.browser-pdf .page { position: absolute; background: white; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); }
+.browser-pdf .page canvas { display: block; width: 100%; height: 100%; }
+.load-failed { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: rgb(241, 241, 241); }
+
+/* viewer-properties-dialog in cr-dialog */
+.dialog-backdrop { position: absolute; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.6); }
+.dialog {
+  min-width: 320px; max-width: calc(100% - 32px); border-radius: 8px; overflow: hidden;
+  background: white; color: rgb(31, 31, 31); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+.dialog-backdrop[data-scheme="dark"] .dialog { background: rgb(41, 42, 45); color: rgb(227, 227, 227); }
+.dialog-title { padding: 20px 20px 16px; font-size: calc(15 / 13 * 1em); line-height: 1; }
+.dialog-body { padding: 0 20px; }
+.dialog table { border-spacing: 0; }
+.dialog .name { padding-inline-end: 12px; vertical-align: top; }
+.dialog .value { min-width: 200px; max-width: 300px; overflow: hidden; color: rgb(95, 99, 104); text-overflow: ellipsis; white-space: nowrap; }
+.dialog-backdrop[data-scheme="dark"] .dialog .value { color: rgb(154, 160, 166); }
+.dialog #keywords { white-space: normal; }
+.dialog .break > td { padding-bottom: 8px; border-bottom: 1px solid rgb(218, 220, 224); }
+.dialog-backdrop[data-scheme="dark"] .dialog .break > td { border-bottom-color: rgba(255, 255, 255, 0.1); }
+.dialog .break + tr > td { padding-top: 8px; }
+.dialog-buttons { display: flex; justify-content: flex-end; padding: 16px; }
+.action-button {
+  height: 36px; padding: 8px 16px; border: none; border-radius: 18px; background: rgb(11, 87, 208); color: white;
+  font-weight: 500; cursor: pointer;
+}
+.dialog-backdrop[data-scheme="dark"] .action-button { background: rgb(168, 199, 250); color: rgb(6, 46, 111); }
+.action-button:focus-visible { outline: 2px solid rgb(11, 87, 208); outline-offset: 2px; }
+
+/* Present: the pages alone on black, one at a time. */
+.browser-pdf[data-present] #toolbar-host, .browser-pdf[data-present] #sidenav-container { display: none; }
+.browser-pdf[data-present], .browser-pdf[data-present] #scroller { background: black; }
+.browser-pdf[data-present] #scroller { overflow: hidden; }
+.browser-pdf[data-present] .page { box-shadow: none; }

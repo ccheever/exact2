@@ -614,6 +614,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationDetent" => AttrTarget::Prop(p("navigationDetent")),
         "navigationInitialDetent" => AttrTarget::Prop(p("navigationInitialDetent")),
         "navigationGrabber" => AttrTarget::Prop(p("navigationGrabber")),
+        "navigationSystemBars" => AttrTarget::Prop(p("navigationSystemBars")),
         // @ref LLP 1125 D11 — the Screen Wake Lock API's one type, on any element.
         "wakelock" => AttrTarget::Prop(p("wakelock")),
         // @ref LLP 1133.029 D1 — the Screen Orientation API's lock types, on any element.
@@ -767,6 +768,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
         "aria-current" => AttrTarget::Prop(p("accessibilityCurrent")), // Depot: a nav link's page
         "aria-sort" => AttrTarget::Prop(p("accessibilitySort")),
+        "aria-rowcount" => AttrTarget::Prop(p("accessibilityRowCount")),
+        "aria-colcount" => AttrTarget::Prop(p("accessibilityColumnCount")),
+        "aria-rowindex" => AttrTarget::Prop(p("accessibilityRowIndex")),
+        "aria-colindex" => AttrTarget::Prop(p("accessibilityColumnIndex")),
         // @ref LLP 1153 D7 — a table cell's, held to its tag by `tables::check`.
         "colspan" => AttrTarget::Prop(PropId::ColSpan),
         "rowspan" => AttrTarget::Prop(PropId::RowSpan),

@@ -1,0 +1,51 @@
+{
+  "name": "t3-code-generate",
+  "private": true,
+  "description": "The clone's generated sources and the diagram and math pages' vendored builds (generate.mjs): built from these pinned packages and committed inputs, never committed. The app build (data/build.rs) runs it.",
+  "type": "module",
+  "dependencies": {
+    "@betteroffice/docx": "0.4.3",
+    "@betteroffice/fonts": "0.4.0",
+    "@betteroffice/pptx": "0.2.0",
+    "@betteroffice/xlsx": "0.3.0",
+    "@pierre/highlights": "0.2.0",
+    "@pierre/theme": "2.0.0",
+    "@pierre/trees": "1.0.0-beta.4",
+    "@shikijs/langs": "4.2.0",
+    "dompurify": "3.4.16",
+    "effect": "4.0.5",
+    "entities": "8.1.0",
+    "fast-xml-parser": "5.7.3",
+    "jszip": "3.10.1",
+    "katex": "0.16.47",
+    "lucide": "0.564.0",
+    "lucide-react": "0.564.0",
+    "mdast-util-directive": "3.1.0",
+    "micromark-extension-directive": "4.0.0",
+    "micromark-util-character": "2.1.1",
+    "morphicons": "1.7.1",
+    "oniguruma-parser": "0.12.2",
+    "oniguruma-to-es": "4.3.6",
+    "pdfjs-dist": "6.4.299",
+    "pele": "1.8.0",
+    "remark-gfm": "4.0.1",
+    "remark-parse": "11.0.0",
+    "saxes": "6.0.0",
+    "sql.js": "1.15.0",
+    "unbash": "5.0.0",
+    "unified": "11.0.5"
+  },
+  "overrides": {
+    "@nodable/entities": "2.1.1",
+    "core-util-is": "1.0.2",
+    "fast-xml-builder": "1.2.0",
+    "mdast-util-find-and-replace": "3.0.2",
+    "mdast-util-gfm-strikethrough": "2.0.0",
+    "micromark-extension-gfm-table": "2.1.1",
+    "strnum": "2.4.2",
+    "xml-naming": "0.1.0"
+  },
+  "devDependencies": {
+    "happy-dom": "20.10.2"
+  }
+}

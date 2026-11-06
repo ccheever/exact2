@@ -1,0 +1,6 @@
+{
+  "purpose.local-network": "T3 Code connects to devices on your local network for remote environments and commands run by terminals and coding agents.",
+  "purpose.camera": "T3 Code lets commands run by terminals and coding agents use the camera.",
+  "purpose.microphone": "T3 Code lets commands run by terminals and coding agents use the microphone.",
+  "purpose.notifications": "T3 Code tells you when a thread finishes, fails, or needs input or approval."
+}

@@ -1,0 +1,305 @@
+// T3 Code 9c161462c9 (MIT; see LICENSE-T3): ChatMarkdown.tsx's media lines — the
+// "Image unavailable · <alt>" label (ChatMarkdownImageFallback), ChatMarkdownImage's 16:9 loading
+// slot, ChatMarkdownAssetImage and ChatMarkdownVideo — each wrapped in MediaActions. `detail` is
+// why the media is unavailable when the cause is known (client-runtime state/assets.ts
+// MISSING_FILE_ACCESS_MESSAGE for a session without `filesystem:read`).
+use ShellIcon from "../shell/shell-icons.contract"
+use AttachmentUrl from "../timeline/timeline-attachments.contract"
+use MediaActions, MediaOpenLink, MediaPreviewActions from "./media-actions.contract"
+use AudioChip from "../timeline/timeline-audio.contract"
+use CodeTip from "../timeline/code-tips.contract"
+use LinkMenuRow, FileLinkButton from "../timeline/link-menus.contract"
+use ChipInk, inkOf, docKind from "../timeline/markdown-chip-inks.contract"
+use FileTypeIcon from "../shared/timeline-files.contract"
+use HoverTip, hoverTipAtFrame from "../shell/hover-layer.contract" // a linked image's focus tooltips, in the window's hover layer
+
+// ChatMarkdownMediaUnavailableLabel inside its muted chip (ChatMarkdownImageFallback); `kind` image, video or audio. The chip
+// is an inline-block whose line is 18.5px: its inline-flex row stands on the icon's bottom, 2.5px above the text strut's
+// top, so the chip is 28.5px tall with its row 5px down.
+component MediaUnavailableLabel
+  props
+    alt: string
+    kind: string
+    detail: string
+  view
+    row gap="0.375rem" align-items="center" align-self="flex-start" max-width="100%" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.40625rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" background-color="light-dark(#f4f4f566, #ffffff06)" role="alert" testId="markdown-media-unavailable"
+      ShellIcon(name="triangle-alert", size=14, color="light-dark(#71717b, #a1a1a1)")
+      text [kind == "audio" ? "Audio unavailable" : kind == "video" ? "Video unavailable" : "Image unavailable", alt, detail].filter((part) => part != "").join(" · ") font-size="0.75rem" line-height="1rem" line-clamp=1 color="light-dark(#71717b, #a1a1a1)"
+
+// ChatMarkdownImage's standalone failure: the 16:9 frame the image
+// held while it loaded (CHAT_MARKDOWN_IMAGE_FRAME_CLASS_NAME), the label centred in it, where an image in a line of text
+// or one that can never load is ChatMarkdownImageFallback's chip.
+component MediaFailedFrame
+  props
+    alt: string
+    detail: string
+  view
+    row width="100%" max-width="30rem" aspect-ratio="16 / 9" padding="0.5rem" box-sizing="border-box" gap="0.375rem" align-items="center" justify-content="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" background-color="light-dark(#f4f4f599, #ffffff0a)" role="alert" testId="markdown-media-failed"
+      ShellIcon(name="triangle-alert", size=14, color="light-dark(#71717b, #a1a1a1)")
+      text ["Image unavailable", alt, detail].filter((part) => part != "").join(" · ") font-size="0.75rem" line-height="1rem" line-clamp=2 text-align="center" color="light-dark(#71717b, #a1a1a1)"
+
+// A sound's signed source ("" while it is signed) and whether its signing failed (`media-failed:<path>`).
+shape AudioSource
+  src: string
+  failed: bool
+fn audioSource(urls: AttachmentUrl[], target: string, access: string): AudioSource = AudioSource(src=(access == "direct" ? target : urls.filter((entry) => entry.id == target and entry.url != "").map((entry) => entry.url).join("")), failed=(access == "environment" and urls.filter((entry) => entry.id == `media-failed:${target.slice(6)}`).length > 0))
+
+// A Markdown image (ChatMarkdown's `img` renderer): its chip (media-views.ts markdownMediaChips: `size` the kind, `icon`
+// the access, `target` the URL or the signed URL's key, `detail` the actions' source) and the signed URLs (`media:<path>`,
+// `media-failed:<path>`). `standalone` (an image line, or an image that is the only content of its paragraph, list item
+// or quote: markStandaloneImages, markdown_media.rs) is ChatMarkdownImage's figure: the 16:9 slot while it loads, kept
+// with the label in it when it fails. An image inside a line of text
+// has a zero-size status span while it loads and ChatMarkdownImageFallback's chip when it fails. A video is
+// ChatMarkdownVideo (MediaVideoPlayer) either way: the 16:9 slot, the player, its failure slot with Retry video.
+// `link`: inside a link's text (MarkdownAnchor's `<a>` around the `<img>`), where the settled image has no preview of its
+// own (expandableMarkdownImageProps returns early inside an `<a>`): the link node around it, named `linkLabel`, takes the
+// press and the menu, a web link's favicon first when `favicon` (the image starts the link).
+// T3 Code 7c3b3b3605ef (#21363): a sound (`kind` "audio") is its audio chip (InlineAudioPreview over AudioChip), named
+// `tip`, whose name opens `source` (the host file; "" for a web URL); a file of no media kind ("file") is its file chip
+// (MarkdownFileChip), with `label`, `access` its Pierre icon, `tip` its full path, `target` the path a lookup resolves
+// and `menu` the file link's rows.
+component MarkdownMedia
+  inject
+    galleryIds: string[]
+    markdownScheme: string
+  props
+    alt: string
+    kind: string
+    access: string
+    target: string
+    tip: string
+    source: string
+    urls: AttachmentUrl[]
+    local: action
+    standalone: bool
+    link: string
+    linkLabel: string
+    favicon: bool
+    // The document the image belongs to (its chips' owner), whose images the expanded preview steps through, and the
+    // occurrence's node id (owner, block, run).
+    owner: string
+    nodeId: string
+    label: string
+    menu: LinkMenuRow[]
+    imageWidth: number
+    imageHeight: number
+  derive visual = kind == "image" or kind == "video"
+  derive url = access == "direct" ? target : urls.filter((entry) => entry.id == target and entry.url != "").map((entry) => entry.url).join("")
+  derive refused = access == "environment" and urls.filter((entry) => entry.id == `media-failed:${target.slice(6)}`).length > 0
+  // ChatMarkdownAssetImage's knownSize: the signed file's dimensions as size styles (media-views.ts knownSizeUrls).
+  derive knownWidth = access == "environment" ? urls.filter((entry) => entry.id == `media-width:${target.slice(6)}`).map((entry) => entry.url).join("") : ""
+  derive knownRatio = access == "environment" ? urls.filter((entry) => entry.id == `media-ratio:${target.slice(6)}`).map((entry) => entry.url).join("") : ""
+  derive knownMaxWidth = access == "environment" ? urls.filter((entry) => entry.id == `media-max-width:${target.slice(6)}`).map((entry) => entry.url).join("") : ""
+  derive unavailableDetail = access == "environment" and urls.filter((entry) => entry.id == `media-noaccess:${target.slice(6)}`).length > 0 ? "This connection cannot read host files. Pair again with a new link to view it." : ""
+  view
+    if kind == "file"
+      MarkdownFileChip(label=label, icon=access, tip=tip, target=target, menu=menu, local=local, testId=`markdown-file-${nodeId}`)
+    // In a line the label sits where the line's alignment puts it (the box), and on its own it keeps its own width.
+    if kind != "file" and access == "blocked" and not standalone
+      box flex-shrink=1 min-width=0 max-width="100%"
+        MediaUnavailableLabel(alt=alt, kind=kind, detail="")
+    if kind != "file" and access == "blocked" and standalone
+      MediaUnavailableLabel(alt=alt, kind=kind, detail="")
+    // The chip reads its source and failure once, from the `for`: a derive would be substituted, with its scan of
+    // `urls`, into each of the chip's reads.
+    if kind == "audio" and access != "blocked"
+      for sound in [audioSource(urls, target, access)] key=target
+        AudioChip(name=tip, src=sound.src, failed=sound.failed, open=local("media-open-file", source, ""), report=local("audio-playing", owner), id=nodeId)
+    if visual and access != "blocked" and refused
+      MediaActions(source=source, tip=tip, local=local, elementId="", testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"), full=false, showTooltip=true)
+        if kind == "video"
+          column width="100%" max-width="40rem" aspect-ratio="16 / 9" padding="1rem" box-sizing="border-box" gap="0.75rem" align-items="center" justify-content="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" background-color="light-dark(#f4f4f566, #ffffff06)" role="alert"
+            row gap="0.375rem" align-items="center"
+              ShellIcon(name="triangle-alert", size=14, color="light-dark(#71717b, #a1a1a1)")
+              text (alt != "" ? `Video unavailable · ${alt}` : "Video unavailable") font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
+        if kind != "video" and standalone
+          MediaFailedFrame(alt=alt, detail=unavailableDetail)
+        if kind != "video" and not standalone
+          MediaUnavailableLabel(alt=alt, kind="image", detail=unavailableDetail)
+    // While the URL is signed: the 16:9 slot, or for an inline image a zero-size span (its width 0 makes it 0 tall).
+    if visual and access != "blocked" and not refused and url == ""
+      box width=(standalone or kind == "video" ? "100%" : "0px") max-width="40rem" aspect-ratio="16 / 9" border-radius="0.5rem" background-color="light-dark(#f4f4f599, #ffffff0a)" role="status" aria-label=(kind == "video" ? "Loading video" : "Loading image")
+    if visual and access != "blocked" and not refused and url != ""
+      MarkdownMediaBody(url=url, alt=alt, kind=kind, tip=tip, source=source, framed=(access == "environment"), original=(access == "direct" and (target.startsWith("http:") or target.startsWith("https:"))), local=local, standalone=standalone, link=link, linkLabel=linkLabel, favicon=favicon, open=local("image-md-open", target, `${owner}\n${nodeId}\n${galleryIds.map((id) => `media-${owner}-${id}`).indexOf(nodeId)}\n${markdownScheme}`), nodeId=nodeId, imageWidth=imageWidth, imageHeight=imageHeight, knownWidth=knownWidth, knownRatio=knownRatio, knownMaxWidth=knownMaxWidth)
+
+// A file of no media kind written as an image (`![report](report.pdf)`): the file chip a link to it draws (ChatMarkdown's
+// img renderer, fileLinkChip; markdown.contract InlineFileChip and FileChipFace): its press opens the file in Files, its
+// menu is the file link's, its tooltip the full path. A document's chip takes its type's ink.
+component MarkdownFileChip
+  inject
+    chipInks: ChipInk[]
+  props
+    label: string
+    icon: string
+    tip: string
+    target: string
+    menu: LinkMenuRow[]
+    local: action
+    testId: string
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  derive ink = inkOf(chipInks, docKind(label) != "" ? docKind(label) : "mention")
+  view
+    row height="1.421875rem" flex-shrink=0 align-items="center" padding-left=1 padding-right=1 hover=hover
+      CodeTip(label=tip, side="top", offset=21)
+        FileLinkButton(label=label, tip=tip, target=target, menu=menu, local=local, testId=testId)
+          row direction="ltr" gap="0.175rem" align-items="center"
+            FileTypeIcon(token=icon, size=14)
+            text label font-size="0.875rem" font-weight=500 line-height="1.0625rem" white-space="pre" color=ink text-decoration-line=(hovered ? "underline" : "none")
+
+// ChatMarkdownImage / ChatMarkdownVideo once the URL is known. A video that fails shows
+// MediaVideoPlayer's slot: Retry video loads it again; the open link is "Open original" for an
+// authored web URL (OpenMediaLink), else "Open in browser" with the signed URL.
+component MarkdownMediaBody
+  inject
+    linkOpen: action
+    linkMenu: action
+    hoverTipAt: action
+    keyboardLast: bool
+    rem: number
+  props
+    url: string
+    alt: string
+    kind: string
+    tip: string
+    source: string
+    original: bool
+    local: action
+    standalone: bool
+    link: string
+    linkLabel: string
+    favicon: bool
+    // Opens the expanded image dialog on this image (timeline-attachments.ts `image-md-open`), and the button's id.
+    open: action
+    nodeId: string
+    imageWidth: number
+    imageHeight: number
+    // The signed file's size styles, which apply where the source names no size ("" when the server reports none).
+    knownWidth: string
+    knownRatio: string
+    knownMaxWidth: string
+    // A workspace image (ChatMarkdownAssetImage) is framed, in a link too: rounded-lg border border-border/40.
+    framed: bool
+  derive known = imageWidth == 0 and imageHeight == 0 and knownWidth != ""
+  state failed = false
+  action broke(reason: string)
+    let ignored = reason
+    failed = true
+  action retry
+    failed = false
+  // Inside a link the anchor and the picture are two Tab stops, as the reference's `<a>` holds MediaActions' `<img>`
+  // (tabIndex 0); the anchor's `tabindex` keeps it one with Keyboard Navigation off, as Chromium's `<a>` is. Each opens its tooltip on a visible focus, as Base UI's do: a web link its URL (the anchor's Tooltip,
+  // side top), the picture its path or URL (MediaActions' code tooltip). A pointer over the picture opens neither, as the
+  // reference's two nested triggers leave both closed. The ContextMenu key on the anchor shows a web link's menu at its
+  // centre (its `contextPopover`); on the picture, as a right click there, the media menu (MediaActions' handlers on the
+  // `<img>` stop it before the `<a>`). Enter on the picture follows nothing.
+  // The anchor's tooltip stands on its inline box, not on the picture: 16.5px of 14px text on the line's baseline, whose
+  // top is 9.8125px above the middle of the picture (`vertical-align: middle`), as the `<a>`'s getBoundingClientRect is.
+  action linkTip(on: bool)
+    ringAt("link", on)
+    if keyboardLast or not on
+      let box = frame(`${nodeId}-link`)
+      let picture = frame(nodeId)
+      hoverTipAt(HoverTip(key=`${nodeId}-link`, kind="tip", text=link, lines=[], side="top", align="center", x=box.x, y=picture.y + picture.height / 2 - 9.8125, width=box.width, height=16.5, estimate=1.65625 * rem, wide=0, testId="markdown-link-tooltip"), "trigger", on)
+  action pictureTip(on: bool)
+    ringAt("picture", on)
+    if tip != "" and (keyboardLast or not on)
+      hoverTipAt(hoverTipAtFrame(nodeId, "code-focus", tip, [], "top", "center", frame(nodeId), (floor(tip.length / 68) + 1) * 1.1171875 * rem + 0.625 * rem, "media-tooltip"), "trigger", on)
+  // Which of the two stops shows Chromium's focus ring (FocusRing), for a keyboard's focus as `:focus-visible` does.
+  state ring = ""
+  action ringAt(stop: string, on: bool)
+    if on and keyboardLast
+      ring = stop
+    if not on and ring == stop
+      ring = ""
+  action linkedMenu
+    focus(nodeId)
+    local("media-menu", source, "pointer")
+  action linkedMenuKey(k: string, e: KeyboardEvent)
+    if k == "ContextMenu" or (e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey and k == "F10")
+      preventDefault()
+      stopPropagation()
+      pictureTip(false)
+      local("media-menu", source, "key")
+  // ChatMarkdownImage failedSrc: the URL whose picture reported `error` (exact2 #121).
+  state brokenUrl = ""
+  action imageBroke(reason: string)
+    let ignored = reason
+    brokenUrl = url
+  view
+    if kind == "video" or (brokenUrl != "" and brokenUrl == url)
+      MediaActions(source=source, tip=tip, local=local, elementId="", testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"), full=false, showTooltip=true)
+        if kind == "video" and failed
+          column role="alert" width="100%" max-width="40rem" aspect-ratio="16 / 9" min-height="7rem" padding="1rem" box-sizing="border-box" gap="0.75rem" align-items="center" justify-content="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" background-color="light-dark(#f4f4f566, #ffffff06)" testId="markdown-video-failed"
+            row gap="0.375rem" align-items="center" max-width="100%"
+              ShellIcon(name="triangle-alert", size=14, color="light-dark(#71717b, #a1a1a1)")
+              text (alt != "" ? `Video unavailable · ${alt}` : "Video unavailable") font-size="0.875rem" line-height="1.25rem" line-clamp=2 text-align="center" color="light-dark(#71717b, #a1a1a1)"
+            row flex-wrap="wrap" gap="0.5rem" align-items="center" justify-content="center"
+              button press=retry aria-label="Retry video" testId="markdown-video-retry" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#f4f4f5, #ffffff0f)" display="flex" flex-direction="row" align-items="center" tabindex=0
+                svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" fill="none" stroke="light-dark(#18181b, #f5f5f5)" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+                  path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8M21 3v5h-5"
+                text "Retry video" font-size="0.8125rem" line-height="1.125rem" font-weight=500 white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
+              MediaOpenLink(url=(url.startsWith("http:") or url.startsWith("https:") or url.startsWith("blob:") ? url : ""), label=(original ? "Open original" : url.startsWith("blob:") ? "Download video" : "Open in browser"), icon=(url.startsWith("blob:") ? "download" : "external-link"), dark=false, testId="markdown-video-open")
+        if kind == "video" and not failed
+          video url controls=true playsinline=true preload="metadata" aria-label=(alt != "" ? alt : "Video preview") error=broke width="100%" max-width="40rem" aspect-ratio="16 / 9" border-radius="0.5rem" background-color="#000000" object-fit="contain" testId="markdown-media-video"
+        if kind != "video" and standalone
+          MediaFailedFrame(alt=alt, detail="")
+        if kind != "video" and not standalone
+          MediaUnavailableLabel(alt=alt, kind="image", detail="")
+    // The settled image is the button "Preview <alt>" (ChatMarkdownImage's <img> with expandableMarkdownImageProps), or
+    // inside a link its picture (LinkedPicture), which does not expand.
+    if kind != "video" and not (brokenUrl != "" and brokenUrl == url) and link != "" and httpLink(link)
+      link id=`${nodeId}-link` href=link press=linkOpen("link", link) contextmenu=linkMenu(link) contextPopover="chat-link-menu" focus=linkTip(true) blur=linkTip(false) tabindex=0 aria-label=linkLabel title="" cursor="pointer" text-decoration-line="none" outline="none" position="relative" display="flex" flex-direction="row" flex-shrink=1 min-width=0 max-width="100%" align-items="flex-start" testId="markdown-linked-image"
+        if favicon
+          box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
+            // Lucide's globe, as the link's first word draws it (TimelineIcon "globe").
+            svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color="light-dark(#1447e6, #50a2ff)" fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+              path d="M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"
+        LinkedPicture(nodeId=nodeId, alt=alt, ringed=(ring == "picture"), tip=pictureTip, menu=linkedMenu, menuKey=linkedMenuKey)
+          image url aria-label=alt error=imageBroke width=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth}px` : known ? knownWidth : "auto") height="auto" aspect-ratio=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth} / ${imageHeight}` : known ? knownRatio : "auto") max-width=(imageWidth > 0 ? (imageHeight > 0 ? `min(100%, 30rem, ${30 * imageWidth / imageHeight}rem)` : `min(100%, 30rem, ${imageWidth}px)`) : known ? knownMaxWidth : "100%") max-height=(imageHeight > 0 and imageWidth == 0 ? `min(30rem, ${imageHeight}px)` : "30rem") object-fit="contain" border-radius="0.5rem" box-sizing="border-box" border-width=(framed ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" testId="markdown-media-image"
+        if ring == "link"
+          FocusRing(inset=0, radius=4)
+    // A mailto, irc, xmpp or fragment link has no menu or tooltip of its own (the anchor's handlers return for it).
+    if kind != "video" and not (brokenUrl != "" and brokenUrl == url) and link != "" and not httpLink(link)
+      link id=`${nodeId}-link` href=link press=linkOpen("link", link) focus=ringAt("link", true) blur=ringAt("link", false) tabindex=0 aria-label=linkLabel title="" cursor="pointer" text-decoration-line="none" outline="none" position="relative" display="flex" flex-direction="row" flex-shrink=1 min-width=0 max-width="100%" align-items="flex-start" testId="markdown-linked-image"
+        LinkedPicture(nodeId=nodeId, alt=alt, ringed=(ring == "picture"), tip=pictureTip, menu=linkedMenu, menuKey=linkedMenuKey)
+          image url aria-label=alt error=imageBroke width=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth}px` : known ? knownWidth : "auto") height="auto" aspect-ratio=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth} / ${imageHeight}` : known ? knownRatio : "auto") max-width=(imageWidth > 0 ? (imageHeight > 0 ? `min(100%, 30rem, ${30 * imageWidth / imageHeight}rem)` : `min(100%, 30rem, ${imageWidth}px)`) : known ? knownMaxWidth : "100%") max-height=(imageHeight > 0 and imageWidth == 0 ? `min(30rem, ${imageHeight}px)` : "30rem") object-fit="contain" border-radius="0.5rem" box-sizing="border-box" border-width=(framed ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" testId="markdown-media-image"
+        if ring == "link"
+          FocusRing(inset=0, radius=4)
+    if kind != "video" and not (brokenUrl != "" and brokenUrl == url) and link == ""
+      MediaPreviewActions(source=source, tip=tip, label=`Preview ${alt.trim() != "" ? alt.trim() : "image"}`, open=open, local=local, testId="markdown-image-actions", nodeId=nodeId, fit=standalone)
+        image url aria-label=alt error=imageBroke width=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth}px` : known ? knownWidth : "auto") height="auto" aspect-ratio=(imageWidth > 0 and imageHeight > 0 ? `${imageWidth} / ${imageHeight}` : known ? knownRatio : "auto") max-width=(imageWidth > 0 ? (imageHeight > 0 ? `min(100%, 30rem, ${30 * imageWidth / imageHeight}rem)` : `min(100%, 30rem, ${imageWidth}px)`) : known ? knownMaxWidth : "100%") max-height=(imageHeight > 0 and imageWidth == 0 ? `min(30rem, ${imageHeight}px)` : "30rem") object-fit="contain" border-radius="0.5rem" box-sizing="border-box" border-width=(framed ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" testId="markdown-media-image"
+
+// The picture of a linked image (MarkdownMediaBody): MediaActions' trigger on the `<img>` inside the `<a>`, its own Tab
+// stop, whose focus shows its tooltip and whose right click or menu key shows the media menu; a press goes on to the link.
+component LinkedPicture
+  props
+    nodeId: string
+    alt: string
+    ringed: bool
+    tip: action
+    menu: action
+    menuKey: action
+  slot
+  view
+    box id=nodeId tabindex=0 focus=tip(true) blur=tip(false) contextmenu=menu key=menuKey aria-label=alt title="" hatch="t3-media" data-media-kind="actions" outline="none" position="relative" display="flex" flex-direction="row" flex-shrink=1 min-width=0 max-width="100%" testId="markdown-linked-picture"
+      children
+      if ringed
+        FocusRing(inset=1, radius=6)
+
+// Chromium's focus ring (`outline: auto` in `--ring` at 50%, as the reference's `outline-ring/50` sets it): a 2px ring
+// with `radius` as its outer radius and, outside it, a 1px ring in white (#101010 in the dark), `inset` px inside the
+// box it rings. The 2px ring starts 2px inside a picture (`outline-offset: -2px`), with its 8px corners less that, and
+// 1px inside a link's `<a>`, with 4px corners.
+component FocusRing
+  props
+    inset: number
+    radius: number
+  view
+    box position="absolute" top=inset left=inset right=inset bottom=inset border-width=1 border-style="solid" border-color="light-dark(#ffffff, #101010)" border-radius=`${radius + 1}px` pointer-events="none"
+      box position="absolute" top=0 left=0 right=0 bottom=0 border-width=2 border-style="solid" border-color="light-dark(#1b4ed880, #346bf180)" border-radius=`${radius}px`
+
+// Whether a link is an http(s) one: only such an anchor has the app's menu and its URL as a tooltip (ChatMarkdown's
+// faviconHost).
+fn httpLink(href: string): bool = href.startsWith("http://") or href.startsWith("https://")

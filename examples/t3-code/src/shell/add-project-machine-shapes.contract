@@ -1,0 +1,55 @@
+// AddProjectToMachineDialog as add-project-dialog.ts addMachineView builds it.
+
+shape AddMachineTarget
+  id: string
+  label: string
+  machine: string
+  selected: bool
+
+// One ignored file: its size, or "Over 1 MB" for a file too large to copy (disabled).
+shape AddMachineFile
+  path: string
+  size: string
+  checked: bool
+  disabled: bool
+
+shape AddMachine
+  open: bool
+  // One per opening: the folder field's own text belongs to the opening that typed it.
+  key: string
+  description: string
+  sourceLabel: string
+  sourceMachine: string
+  // MiddleTruncate's head and tail of the source's folder (splitForMiddleTruncate; no tail when it fits).
+  sourcePath: string
+  sourceHead: string
+  sourceTail: string
+  // "no files", or "+ N files" under the arrow.
+  fileSummary: string
+  // The machine Select when there is more than one.
+  targets: AddMachineTarget[]
+  // The picker's popup at its measured labels' width.
+  targetMenuWidth: number
+  targetLabel: string
+  targetMachine: string
+  targetShown: bool
+  destination: string
+  destinationHead: string
+  destinationTail: string
+  // The SSH / HTTPS toggle, when the remote can be written both ways.
+  protocolShown: bool
+  protocol: string
+  remoteUrl: string
+  folderLabel: string
+  canListFiles: bool
+  countLabel: string
+  // "All" or "None"; empty when no file can be copied.
+  allLabel: string
+  files: AddMachineFile[]
+  filesNote: string
+  filesError: bool
+  truncatedNote: string
+  error: string
+  submitLabel: string
+  canSubmit: bool
+  submitting: bool

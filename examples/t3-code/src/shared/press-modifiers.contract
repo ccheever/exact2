@@ -1,0 +1,5 @@
+// A press's own modifier keys (its MouseEvent: a ⌘-click, a ⇧-click; a keyboard, assistive or shortcut press holds
+// none), named as the clients read them: "meta", "control", "alt", "shift", joined by "+" in that order, "" for none.
+// The Send button, chat links and pull request links pass them with their press; the composer's send chords pass
+// their keydown's (app.contract composerKeyEvent).
+fn heldModifiers(meta: bool, ctrl: bool, alt: bool, shift: bool): string = [(meta ? "meta" : ""), (ctrl ? "control" : ""), (alt ? "alt" : ""), (shift ? "shift" : "")].filter((name) => name != "").join("+")

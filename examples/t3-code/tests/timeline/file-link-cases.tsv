@@ -1,0 +1,34 @@
+# Chat link destinations and whether each is a file link (a chip) or stays a plain link, as parseMarkdownFileLink
+# and resolveMarkdownFileLinkTarget decide at T3 Code 7c3b3b3605ef. data/src/markdown_links.rs (chat_file_link) and
+# tests/timeline/file-links.test.ts (chatFileLink) both read this table. Columns: the destination, chip or plain, why.
+patches/	chip	a folder link may end in a slash
+docs/My%20Folder/	chip	an encoded folder link
+pastexam/線性代數/exam_易志偉.pdf	chip	names in any script
+線性代數/考試.pdf	chip	names in any script
+Résumé%20final.pdf	chip	an encoded name
+資料.備份	chip	an extension in any script
+Café.md	chip	a multibyte letter at byte 3 (no drive letter)
+my图.png	chip	a multibyte letter at byte 3
+Makefile	chip	a known extensionless name
+Dockerfile:8	chip	a position is not the file's
+src/a.ts:3	chip	a relative path with a position
+~/notes.md	chip	home-relative
+../o/a.md	chip	parent-relative
+/Users/me/notes	chip	a POSIX root prefix
+/repo/README	chip	a file-shaped basename
+C:\repo\notes	chip	a Windows drive path
+file:///repo/a.ts	chip	a file URL
+file://localhost/repo/a.ts	chip	localhost is this machine
+file://C:/repo/a.ts	chip	a drive letter where the host would be starts the path
+file://C|/repo/a.ts	chip	the URL parser reads C| as C:
+file:///C:/repo/a.ts	chip	a drive path in a file URL
+patches	plain	a bare name
+notes	plain	a bare name
+TODO:12	plain	a bare name with a position
+https://example.com/docs	plain	a web link
+/chat/settings#L3	plain	an app route
+/api/v1	plain	no file-shaped basename
+\\attacker.test\s\x.ts	plain	a network path
+/\attacker.test\s\x.ts	plain	a network path written with a slash
+file://attacker.test/s/x.ts	plain	a file URL on another host is a network path
+file://attacker.test\s\x.ts	plain	a backslash is a slash in a file URL

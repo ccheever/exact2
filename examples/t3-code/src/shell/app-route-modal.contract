@@ -1,0 +1,85 @@
+// AppRouteModal (T3 Code 96fc7b9551 components/AppRouteModal.tsx, from 3faeb9e6f9 #24847): Settings and Usage open
+// as a large modal over the page that opened them, which stays drawn under the dialog backdrop (background 60%
+// light, 64% dark, blur 4px). The viewport insets the sheet by sm:p-6 lg:p-10; the sheet fills it up to 80 × 60 rem,
+// with rounded-2xl, a border and shadow-2xl/40 from 640 pt up. The sheet fades and scales from 98.5% over 150 ms
+// ease-out as it opens and closes, the backdrop fades over 200 ms (ui/dialog-styles.ts). A press that starts and ends
+// on the backdrop closes it; the caller's close button takes Escape. Tab stays inside, as Base UI's focus trap keeps
+// it (dialog-trap.contract): past the last stop it wraps to `first`, before the first to the page's last control
+// (RouteFocusGuard), else `last`. While the narrow window's sidebar sheet is open (`under`), the sheet holds the
+// keyboard whichever opened first, as Base UI's newest modal Dialog does: this modal takes no focus as it opens and
+// is hidden from assistive technology, but stays drawn over the sheet (z-50 over z-sheet) and takes presses.
+// The popup is no Tab stop, so a dialog over it that closes gives the focus to its first stop, not to the popup, as
+// Base UI's return does (FloatingFocusManager getFirstTabbableElement): `data-dialog-return="first"` asks the window's
+// return (app-window.contract dialogClosed) to enter the end guard, which focuses that stop.
+use Tip from "./shell-tip.contract"
+use FocusGuard, RouteFocusGuard, DialogOpenFocus from "../shared/dialog-trap.contract"
+use PgIcon from "../shared/pages-icons.contract"
+
+// The viewport's inset by the window's media width (sm:p-6 lg:p-10).
+fn routeModalInset(media: number): string = media >= 1024 ? "2.5rem" : (media >= 640 ? "1.5rem" : "0rem")
+// The sheet's width in pt at a viewport width and media width: what the caller lays its header out by (its container
+// queries).
+fn routeModalWidth(width: number, media: number): number = min(1280, width - (media >= 1024 ? 80 : (media >= 640 ? 48 : 0)))
+
+keyframes routeModalBackdropIn
+  from opacity=0
+  to opacity=1
+keyframes routeModalBackdropOut
+  from opacity=1
+  to opacity=0
+keyframes routeModalSheetIn
+  from opacity=0 scale=0.985
+  to opacity=1 scale=1
+keyframes routeModalSheetOut
+  from opacity=1 scale=1
+  to opacity=0 scale=0.985
+
+component AppRouteModal
+  inject
+    mediaWidth: number // the window's width as the reference's media queries see it (app.contract)
+    dialogEntered: action
+    dialogFallback: action
+  props
+    label: string
+    modalId: string
+    canvas: string
+    border: string
+    backdrop: string
+    inert: bool
+    under: bool
+    first: string
+    last: string
+    close: action
+  slot
+  derive dialogTargets = [first, last]
+  view
+    box position="absolute" left=0 top=0 width="100%" height="100%" background-color=backdrop backdrop-filter="blur(4px)" animation="routeModalBackdropIn 200ms cubic-bezier(0.4, 0, 0.2, 1) both" -exact-exit-animation="routeModalBackdropOut 200ms cubic-bezier(0.4, 0, 0.2, 1) both" press=close aria-hidden=true testId=`${modalId}-backdrop` id=`${modalId}-backdrop` data-paint="canvas" data-pick="canvas"
+    // The sheet is centred in this layer, so scaling the layer scales the sheet about its own centre.
+    row position="absolute" left=0 top=0 width="100%" height="100%" padding=routeModalInset(mediaWidth) box-sizing="border-box" align-items="center" justify-content="center" pointer-events="none" animation="routeModalSheetIn 150ms cubic-bezier(0, 0, 0.2, 1) both" -exact-exit-animation="routeModalSheetOut 150ms cubic-bezier(0, 0, 0.2, 1) both"
+      row position="relative" width="100%" height="100%" max-width="80rem" max-height="60rem" min-width=0 min-height=0 overflow="hidden" pointer-events="auto" background-color=canvas border-radius=(mediaWidth >= 640 ? "1rem" : "0rem") border-width=(mediaWidth >= 640 ? 1 : 0) border-style="solid" border-color=border box-shadow=(mediaWidth >= 640 ? "0 25px 50px -12px #00000066" : "none") box-sizing="border-box" role="dialog" aria-label=label aria-hidden=under tabindex=-1 inert=inert testId=modalId id=modalId data-paint="canvas" data-pick="canvas" data-dialog-focus="open" data-dialog-return="first" focusin=dialogEntered(modalId) key=dialogFallback(modalId, dialogTargets)
+        RouteFocusGuard(guardId=`${modalId}-guard-start`, targets=dialogTargets, popup=modalId)
+        // initialFocus is the popup itself: no stray focus ring.
+        DialogOpenFocus(target=(under ? "" : modalId))
+        children
+        FocusGuard(guardId=`${modalId}-guard-end`, targets=dialogTargets, popup=modalId)
+
+// AppRouteModalClose: Button icon-sm ghost (size-7 from sm, control radius), its XIcon at size-4 in the foreground,
+// "Close (Esc)" below it. `escape` says whether it holds the Escape shortcut (the page may own Escape itself).
+component AppRouteModalClose
+  props
+    closeId: string
+    escape: bool
+    color: string
+    hoverFill: string
+    dismiss: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  // The focus is blurred first, so a field of the floating theme editor, which stays, keeps none.
+  action leave
+    blur()
+    dismiss()
+  view
+    Tip(label="Close (Esc)", side="bottom", align="center", offset=4)
+      button id=closeId press=leave hover=hover aria-label="Close" aria-keyshortcuts=(escape ? "Escape" : "") cursor="pointer" width="1.75rem" height="1.75rem" padding=0 border-width=0 border-radius="0.5rem" background-color=(over ? hoverFill : "#00000000") display="flex" align-items="center" justify-content="center" flex-shrink=0 testId=closeId title="" data-focus-stop="enabled"
+        PgIcon(name="x", size=16, color=color)

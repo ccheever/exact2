@@ -1,0 +1,89 @@
+// The parsed Markdown a reply draws (markdown.rs): its blocks, and a block's runs, table rows and columns.
+use FindPart from "./thread-find.contract"
+shape ChatRun
+  id: string
+  text: string
+  weight: number
+  slant: string
+  mono: bool
+  href: string
+  kind: string
+  icon: string
+  // Every run of a link: the whole link's text (markdown.rs link_labels), the link node's name on its first word, the
+  // mark that hides its other words; "" elsewhere and on a link that starts with a code span (it draws no link node).
+  label: string
+  // A media run inside a link's text: the link's destination (MarkdownAnchor's `<a>` around the `<img>`); "" elsewhere.
+  link: string
+  // Inside a GFM strikethrough (`<del>`): drawn with a line through.
+  strike: bool
+  // A raw HTML image's media run (markdown_media.rs inline_html_image): its authored size in px (0 when unsaid) and
+  // its dark appearance's href ("" when it has none); `href` is the light one's.
+  width: number
+  height: number
+  dark: string
+  findParts: FindPart[]
+shape ChatCell
+  id: string
+  runs: ChatRun[]
+// A table row (markdown_tables.rs): its cells, one per column.
+shape ChatTableRow
+  id: string
+  header: bool
+  cells: ChatCell[]
+// A table column: the cell that sizes it (drawn invisibly in every row, so the
+// host's own metrics set the width) and its share of any spare room (its estimated width).
+shape ChatColumn
+  id: string
+  sizer: ChatRun[]
+  header: bool
+  grow: number
+  // GFM alignment from the table's rule row: "left", "right" or "center" (markdown_table_align.rs).
+  align: string
+shape ChatBlock
+  id: string
+  kind: string
+  depth: number
+  marker: string
+  text: string
+  href: string
+  header: bool
+  runs: ChatRun[]
+  cells: ChatCell[]
+  gap: number
+  flow: bool
+  rows: ChatTableRow[]
+  columns: ChatColumn[]
+  markdown: string
+  csv: string
+  closedFence: bool
+  // A GFM task item (markdown_links.rs task_items): "open", "done" or "", and its `[`'s offset in the file's text,
+  // -1 where the checkbox is GFM's disabled one (the transcript, a read-only file).
+  task: string
+  taskOffset: number
+  // An ordered list item's marker gutter in `ch` when the list's widest marker has several digits
+  // (markdown_headings.rs list_gutters), 0 for the default 1.25rem.
+  gutter: number
+  // The block's own words' direction (markdown_direction.rs): "rtl", "ltr", or "" without letters.
+  dir: string
+  dark: string // an image's `prefers-color-scheme: dark` source; `href` holds the light one (markdown-parse Html)
+  width: number // an HTML image's authored size in px, 0 when unsaid
+  height: number
+  // The `text-align` of a `<p align>` or `<div align>` around the block (markdown-parse Block), "" for the reader's.
+  align: string
+  findParts: FindPart[]
+  // A code block's find part each line starts in, then its last part (markdown_find.rs find_lines); none for one part.
+  findLines: number[]
+
+// The reference's focus ring on a link (Chromium's `outline: auto 1px` in `--ring` at 50%, `outline-offset: -2px`): 2px
+// wide with a 4px outer radius, 1px inside the `<a>`'s inline box, which is 16.5px tall and 3px below the top of its
+// 22.75px line. A link laid out word by word (FlowRuns) draws it in parts, one per run: each run its top and bottom
+// edges, the first its start, the last its end.
+component LinkRing
+  props
+    first: bool
+    last: bool
+  view
+    box position="absolute" top="0.25rem" left=(first ? "1px" : "0px") right=(last ? "1px" : "0px") height="0.90625rem" box-sizing="border-box" border-style="solid" border-color="light-dark(#1b4ed880, #346bf180)" border-top-width=2 border-bottom-width=2 border-left-width=(first ? 2 : 0) border-right-width=(last ? 2 : 0) border-top-left-radius=(first ? "4px" : "0px") border-bottom-left-radius=(first ? "4px" : "0px") border-top-right-radius=(last ? "4px" : "0px") border-bottom-right-radius=(last ? "4px" : "0px") pointer-events="none"
+
+// Whether the run at `index` is its link's last word or code span (LinkRing): the next run is not the link's.
+fn ringEnd(runs: ChatRun[], index: number, href: string): bool = runs.slice(index + 1, index + 2).filter((next) => next.kind == "link" and next.href == href).length == 0

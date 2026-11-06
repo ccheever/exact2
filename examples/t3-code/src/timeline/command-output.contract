@@ -1,0 +1,43 @@
+// T3 Code 9c161462c9 CommandOutputPanel.tsx (MIT, LICENSE-T3).
+shape CommandSpan
+  id: string
+  text: string
+  light: string
+  dark: string
+  bgLight: string
+  bgDark: string
+  bold: bool
+  dim: bool
+  italic: bool
+  underline: bool
+  strike: bool
+component CommandOutput
+  props
+    id: string
+    spans: CommandSpan[]
+    truncated: bool
+    codeSize: number
+  state top = 0
+  state atEdge = true
+  state portHeight = 0
+  state contentHeight = 0
+  action scrolled(x: number, y: number)
+    top = y
+    atEdge = contentHeight - y - portHeight <= 8
+  action portSized(width: number, height: number)
+    portHeight = height
+    if atEdge
+      top = max(0, contentHeight - height)
+  action contentSized(width: number, height: number)
+    contentHeight = height
+    if atEdge
+      top = max(0, height - portHeight)
+  view
+    column width="100%"
+      if truncated
+        text "Earlier output not shown" font-size=codeSize font-style="italic" line-height=1.625 color="light-dark(#71717b, #a1a1a1)"
+      scroll scroll=scrolled scrollTop=top resize=portSized width="100%" max-height="20rem" overflow-x="hidden" aria-label="Command output" testId=`command-output-${id}`
+        column resize=contentSized width="100%"
+          text width="100%" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size=codeSize line-height=1.625 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #a1a1a1)"
+            for span in spans key=span.id
+              text span.text color=`light-dark(${span.light}, ${span.dark})` background-color=`light-dark(${span.bgLight}, ${span.bgDark})` font-weight=(span.bold ? 600 : 400) opacity=(span.dim ? 0.65 : 1) font-style=(span.italic ? "italic" : "normal") text-decoration-line=(span.underline and span.strike ? "underline line-through" : span.underline ? "underline" : span.strike ? "line-through" : "none")

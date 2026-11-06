@@ -1,0 +1,48 @@
+// The history swipe's edge arrow, ported from T3 Code v0.1.6 (MIT, see LICENSE-T3):
+// apps/web/src/components/HistorySwipeNavigation.tsx's SwipeIndicator. The reference recognises the two-finger swipe
+// itself from wheel events and steps history once the fingers have gone 120 px. Here the swipe is AppKit's, under
+// System Settings › Swipe between pages: the window root's `historyswipe` hears it as AppKit tracks it (LLP 1115.000
+// D5.5), and AppKit takes the step. AppKit steps a lift at rest from a `gestureAmount` of 0.25, so the arrow is
+// armed there, where the reference's is armed at its 120 px.
+
+// SwipeIndicatorState, with the main content's bounds read as the swipe began. `shown` is the reference's
+// `swipe !== null`: once a swipe has begun the arrow stays mounted, faded out between swipes.
+shape HistorySwipe
+  shown: bool
+  tracking: bool
+  back: bool
+  progress: number
+  y: number
+  left: number
+  width: number
+  height: number
+
+fn historySwipeIdle(): HistorySwipe = HistorySwipe(shown=false, tracking=false, back=true, progress=0, y=0, left=0, width=0, height=0)
+fn historySwipeProgress(e: HistorySwipeEvent): number = min(1, e.amount / 0.25)
+// One report of the tracking: `began` sets the way, the pointer's height and the bounds (left, width, height: the
+// main content beside the sidebar); `changed` moves the arrow; `ended` (the step goes) and `cancelled` fade it out
+// where it stands, as the reference's release does.
+fn historySwipeStep(s: HistorySwipe, e: HistorySwipeEvent, left: number, width: number, height: number): HistorySwipe = e.phase == "began" ? HistorySwipe(shown=true, tracking=true, back=(e.direction == "back"), progress=historySwipeProgress(e), y=e.clientY, left=left, width=width, height=height) : (e.phase == "changed" ? HistorySwipe(s, tracking=true, progress=historySwipeProgress(e)) : HistorySwipe(s, tracking=false))
+
+// A circle pinned to the edge of the main content that peeks in up to half its width: size-14, rounded-full,
+// bg-muted and text-foreground (dark: black and white), the arrow at pr-2 or pl-2; hidden past the edge by
+// 100% − progress × 50% of its width. While tracking it follows at once; released, its opacity and transform ease
+// out over 200 ms. The 16 px arrow is at 40% until armed, then 100%, over 100 ms.
+component HistorySwipeArrow
+  props
+    swipe: HistorySwipe
+  view
+    box aria-hidden=true pointer-events="none" position="absolute" left=swipe.left top=0 width=swipe.width height=swipe.height overflow="hidden" z-index=100 testId="history-swipe"
+      if swipe.back
+        HistorySwipeCircle(swipe=swipe)
+      else
+        box position="absolute" right=0 top=0 width=0 height=swipe.height
+          HistorySwipeCircle(swipe=swipe)
+
+component HistorySwipeCircle
+  props
+    swipe: HistorySwipe
+  view
+    row position="absolute" left=(swipe.back ? 0 : -56) top=max(0, min(swipe.y - 28, swipe.height - 56)) width=56 height=56 box-sizing="border-box" border-radius=9999 align-items="center" justify-content=(swipe.back ? "flex-end" : "flex-start") padding-right=(swipe.back ? 8 : 0) padding-left=(swipe.back ? 0 : 8) background-color="light-dark(#fafafa, #000000)" color="light-dark(#18181b, #ffffff)" opacity=(swipe.tracking ? 1 : 0) translate=`${(swipe.back ? -1 : 1) * (100 - swipe.progress * 50) * 0.56}px 0px` transition=(swipe.tracking ? "opacity 0ms" : "opacity 200ms ease-out, translate 200ms ease-out") testId="history-swipe-arrow"
+      svg width=16 height=16 viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 opacity=(swipe.progress >= 1 ? 1 : 0.4) transition="opacity 100ms" aria-hidden=true
+        path d=(swipe.back ? "M12 19l-7-7 7-7M19 12H5" : "M5 12h14M12 5l7 7-7 7")

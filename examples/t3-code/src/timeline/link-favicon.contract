@@ -1,0 +1,29 @@
+// A web link's favicon (MarkdownExternalLink's MarkdownLinkFavicon, T3 Code 5d3d78ab93; MIT, see LICENSE-T3), 14pt:
+// a source-control host's mark, the public favicon service's icon (rounded-sm; blank while it loads, as a lazy
+// `<img>` is), or Lucide's globe when there is neither or the icon fails to load. `icon` is the run's
+// (markdown_favicon.rs): "brand:<kind>", an https URL, or "".
+use TimelineIcon from "./timeline-icons-kit.contract"
+use BrandGitHub, BrandGitLab, BrandBitbucket, BrandGitCafe, BrandForgejo from "../settings/settings-brands.contract"
+
+component LinkFavicon
+  props
+    icon: string
+    color: string
+  state failed = ""
+  action didFail(message: string)
+    failed = icon
+  view
+    if icon == "brand:github"
+      BrandGitHub(size=14)
+    else if icon == "brand:gitlab"
+      BrandGitLab(size=14)
+    else if icon == "brand:bitbucket"
+      BrandBitbucket(size=14)
+    else if icon == "brand:gitcafe"
+      BrandGitCafe(size=14)
+    else if icon == "brand:forgejo"
+      BrandForgejo(size=14)
+    else if icon.startsWith("https://") and failed != icon
+      image icon width="0.875rem" height="0.875rem" object-fit="contain" border-radius="0.125rem" aria-hidden=true error=didFail
+    else
+      TimelineIcon(name="globe", size=14, color=color)

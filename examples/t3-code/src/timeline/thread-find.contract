@@ -1,0 +1,84 @@
+use Icon from "../shared/icons.contract"
+use FieldPlaceholder from "../shared/field-placeholder.contract"
+shape ThreadFindView
+  open: bool
+  query: string
+  focus: number
+  count: string
+  error: string
+  pending: bool
+  complete: bool
+  empty: bool
+  navigation: number
+  entry: string
+  occurrence: number
+  highlight: string
+  attention: bool
+shape FindPart
+  id: string
+  text: string
+  find: number
+  // Where the part starts in its run's or block's text, in UTF-16 units, counted once by its producer (markdown_find.rs
+  // find_parts). Summed here per part, as markdown.contract CodeToken `at` would be, FindToken's condition sums twice:
+  // about 10 list steps a part, past the runner's 65,536 an evaluation at about 6,550 parts, where the binding traps
+  // and is unset, so the later parts lose their find marks.
+  at: number
+// A line drawn outside the Markdown (a workflow opening's title, description, a phase title) in highlight parts.
+shape FindLine
+  id: string
+  parts: FindPart[]
+fn findPaint(mark: number): string = mark >= 2 ? "light-dark(#f59e0b, #f59e0b)" : mark == 1 ? "light-dark(#fbbf2466, #fbbf2459)" : "#00000000"
+component FindParts
+  props
+    parts: FindPart[]
+  view
+    for part in parts key=part.id
+      text part.text background-color=findPaint(part.find) id=(part.find == 3 ? "thread-find-active" : "") color=(part.find >= 2 ? "#171717" : "inherit")
+// The find parts a code token's lines hold (markdown.contract CodeBlock), by the part each line starts in and, last,
+// the block's last part (markdown_find.rs find_lines): from its first line's to the next line's after its last, so a
+// token walks its own lines' parts, not the block's. A block of one part has no lines: its part is 0.
+fn findFrom(lines: number[], line: number): number = sum(lines.slice(line, line + 1))
+fn findTo(lines: number[], line: number): number = sum(lines.slice(line + 1, line + 2)) + 1
+component FindToken
+  props
+    value: string
+    at: number
+    parts: FindPart[]
+  view
+    for part in parts key=part.id
+      if part.at < at + value.length and part.at + part.text.length > at
+        text value.slice(max(0, part.at - at), min(value.length, part.at + part.text.length - at)) id=(part.find == 3 and at <= part.at and at + value.length > part.at ? "thread-find-active" : "") background-color=findPaint(part.find) color=(part.find >= 2 ? "#171717" : "inherit")
+// ThreadFindBar.tsx (MIT reference, see LICENSE-T3): InputGroup variant "popover" size "lg", a 36 pt pill in
+// dropdown-glass (the popover at 83.6%, drawn opaque here as there is no backdrop blur; its border the contrast
+// foreground at 10%, 18% while the field has the focus, with no ring), the field's 14 pt text 10 pt in, then the addon:
+// the count (text-xs, at least 40 pt, centred) and three 24 pt round ghost buttons with 16 pt muted glyphs.
+component ThreadFindBar
+  props
+    find: ThreadFindView
+    local: action
+  state focused = true
+  action key(k: string, e: KeyboardEvent)
+    // ThreadFindBar ignores a key that confirms an input method's candidate.
+    if k == "Enter" and not e.isComposing
+      local((e.shiftKey ? "find-previous" : "find-next"), "", "")
+    if k == "Escape" and not e.isComposing
+      local("find-close", "", "")
+  action edit(value: string)
+    local("find-query", "", value)
+  action focusChanged(on: bool)
+    focused = on
+  derive stuck = find.empty or find.pending or not find.complete or find.query.trim() == ""
+  view
+    row width="100%" height=36 box-sizing="border-box" align-items="center" border-radius=16 border-width=1 border-style="solid" border-color=(focused ? "light-dark(#18181b2e, #f5f5f52e)" : "light-dark(#18181b1a, #f5f5f51a)") background-color="light-dark(#ffffff, #0e0e0e)" role="search" aria-label="Find in thread" aria-busy=(find.pending or not find.complete) testId="thread-find-bar"
+      input type="search" value=find.query input=edit key=key focus=focusChanged(true) blur=focusChanged(false) id="thread-find-query" aria-label="Find in thread" placeholder="Find in thread" class=FieldPlaceholder maxlength=200 spellcheck=false autocomplete="off" autofocus=true flex=1 min-width=0 height=26 padding-left=9 padding-right=6 box-sizing="border-box" border-width=0 background-color="#00000000" font-size=14 line-height=26 color="light-dark(#18181b, #f5f5f5)" outline="none" autocorrect="off" data-editable="yes"
+      row flex-shrink=0 height=24 padding-right=4 gap=2 align-items="center"
+        text find.count aria-live="polite" min-width=40 text-align="center" font-size=12 line-height=16 font-variant-numeric="tabular-nums" color=(find.empty ? "light-dark(#e40014, #ff6467)" : "light-dark(#71717b, #a1a1a1)")
+        if find.error != ""
+          button press=local("find-retry", "", "") height=24 padding-left=8 padding-right=8 border-width=0 border-radius=8 background-color="#00000000" title="" tabindex=0
+            text "Retry" font-size=12 font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+        button press=local("find-previous", "", "") disabled=stuck aria-label="Previous match" width=24 height=24 padding=0 border-width=0 border-radius=12 background-color="#00000000" display="flex" align-items="center" justify-content="center" opacity=(stuck ? 0.64 : 1) title="" tabindex=0
+          Icon(name="chevron-up", size=16, color="light-dark(#71717b, #a1a1a1)")
+        button press=local("find-next", "", "") disabled=stuck aria-label="Next match" width=24 height=24 padding=0 border-width=0 border-radius=12 background-color="#00000000" display="flex" align-items="center" justify-content="center" opacity=(stuck ? 0.64 : 1) title="" tabindex=0
+          Icon(name="chevron", size=16, color="light-dark(#71717b, #a1a1a1)")
+        button press=local("find-close", "", "") aria-label="Close find" width=24 height=24 padding=0 border-width=0 border-radius=12 background-color="#00000000" display="flex" align-items="center" justify-content="center" title="" tabindex=0
+          Icon(name="x", size=16, color="light-dark(#71717b, #a1a1a1)")

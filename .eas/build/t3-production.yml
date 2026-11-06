@@ -1,0 +1,32 @@
+build:
+  name: T3 Code iOS production
+  steps:
+    - eas/checkout
+    - eas/install_node_modules
+    - eas/resolve_build_config
+    - eas/resolve_apple_team_id_from_credentials:
+        id: resolve_apple_team
+    - t3_archive:
+        inputs:
+          team_id: ${ steps.resolve_apple_team.apple_team_id }
+          build_number: ${ eas.job.version.buildNumber }
+    - eas/upload_artifact:
+        name: Upload T3 Code IPA
+        inputs:
+          type: application-archive
+          path: .exact/t3-production/T3Code.ipa
+    - eas/upload_artifact:
+        name: Upload T3 Code provenance
+        inputs:
+          type: build-artifact
+          path: .exact/t3-production/*.json
+
+functions:
+  t3_archive:
+    name: Build and inspect signed T3 Code archive
+    path: ./t3-archive
+    inputs:
+      - name: team_id
+        type: string
+      - name: build_number
+        type: string
