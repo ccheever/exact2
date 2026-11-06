@@ -179,7 +179,9 @@ const REAL = ['rt.js', 'uploads.js', 'held.js', 'font-family.js', 'observers.js'
 for (const f of REAL) copyFileSync(webJs(f), resolve(dir, f));
 for (const [file, source] of standIns(REAL)) writeFileSync(resolve(dir, file), source);
 // A view transition that holds every tree update (shared.js's commit returns before its callback).
-writeFileSync(resolve(dir, 'shared.js'), 'export const commit = (tail) => { globalThis.heldTail = tail; return true; };');
+const shared = readFileSync(webJs('shared.js'), 'utf8');
+const presenceBridge = shared.slice(shared.indexOf('export function presence('), shared.indexOf("const NAME ="));
+writeFileSync(resolve(dir, 'shared.js'), `${presenceBridge}\nexport const commit = (tail) => { globalThis.heldTail = tail; return true; };`);
 writeFileSync(resolve(dir, 'presence-glue.js'), 'globalThis.exact.presence = () => ({ before() {}, after() {}, exit() {} });');
 // ts-data.js over a scripted store (the storage test below), written before
 // anything is imported from here: the loader reads this directory once.

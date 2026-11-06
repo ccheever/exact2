@@ -53,9 +53,10 @@ component App
   plays when an `if` arm turns false or a `for` row leaves: the node leaves layout at once,
   inert, and the rest move by their layout transition. Not inside a screen being popped,
   nor on Linux.
-- **Layout transition** is a transition without a property. It moves the box and resizes its
-  surface (background, border, shadow); children jump to their place, unscaled. With
-  `sharedElement=` a node flies from the old one's place on iOS, macOS and the web, not Linux.
+- **Layout transition** moves a box and resizes its surface (background, border, shadow)
+  with no property name. Children jump, unscaled. Compute its value with
+  ``still ? "none" : `${ms}ms ease` ``. `sharedElement=` flies from the old box on iOS,
+  macOS and the web, not Linux.
 - **One after another:** delays (`"a 200ms both, b 300ms 200ms both"`, the stagger above by
   `i`). A state change when it ends is a gated task's `after(ms, action)`. A `sequence`
   is sound and haptics, not motion.

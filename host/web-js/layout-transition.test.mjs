@@ -54,7 +54,8 @@ test('a bound layout transition slides while it holds a curve, jumps at none, an
     const page = await (await browser.newContext({ viewport: { width: 400, height: 700 } })).newPage();
     await page.goto(server.url.href);
     await page.waitForFunction(() => globalThis.exact?.presenceLive);
-    // The ops presence hears, as wasm's batch would carry them: one only for a view gaining (before) or losing or gaining (after) the row.
+    // The ops presence hears (shared.js `presence`): before the update, one for each view whose layout binding the commit
+    // has queued, which may gain the row (read without evaluating it); after, one for each view whose row was written.
     await page.evaluate(() => {
       const p = globalThis.exact.presenceLive, heard = globalThis.heard = [];
       for (const k of ['before', 'after']) { const f = p[k].bind(p); p[k] = (batch, views) => { heard.push([k, (batch.ops ?? []).length]); return f(batch, views); }; }
@@ -70,18 +71,18 @@ test('a bound layout transition slides while it holds a curve, jumps at none, an
       return { css: second.style.getPropertyValue('--exact-layout-transition'), moving: playing && Math.abs(shown - second.getBoundingClientRect().top) > 1 };
     }, id);
     expect(await press('drop')).toEqual({ css: '2000 0 linear', moving: true });
-    expect(await heard()).toEqual([['before', 0], ['after', 0]]);
+    expect(await heard()).toEqual([['before', 1], ['after', 0]]);
     expect(await press('motion')).toEqual({ css: '', moving: false });
-    expect(await heard()).toEqual([['before', 0], ['after', 1]]);
-    // Calm: nothing to measure (no op), and it jumps.
+    expect(await heard()).toEqual([['before', 1], ['after', 1]]);
+    // Calm: measured, as its binding is queued with the region above it, and it jumps.
     expect(await press('drop')).toEqual({ css: '', moving: false });
-    expect(await heard()).toEqual([['before', 0], ['after', 0]]);
+    expect(await heard()).toEqual([['before', 1], ['after', 0]]);
     // Gained in the commit that moves it (First goes again).
     expect(await press('both')).toEqual({ css: '2000 0 linear', moving: true });
     expect(await heard()).toEqual([['before', 1], ['after', 1]]);
     // Lost in the commit that moves it: it jumps, and nothing plays it after.
     expect(await press('both')).toEqual({ css: '', moving: false });
-    expect(await heard()).toEqual([['before', 0], ['after', 1]]);
+    expect(await heard()).toEqual([['before', 1], ['after', 1]]);
     expect(await page.evaluate(() => globalThis.exact.presenceLive.tracking())).toBe(false);
   } finally {
     await browser?.close();
