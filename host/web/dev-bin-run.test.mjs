@@ -38,7 +38,7 @@ test('the dev bin rebuilds nothing when nothing changed, and sees a new asset ro
   mkdirSync(resolve(app.dir, 'target'), { recursive: true }); // a cold tree has none yet
   let release;
   for (const end = Date.now() + 1_500_000; ;) {
-    try { release = takeLock(resolve(app.dir, 'target', MARK + '.flock')); break; } catch (e) { if (!/has held it/.test(e.message) || Date.now() > end) throw e; }
+    try { release = takeLock(resolve(app.dir, 'target', MARK + '.flock')); break; } catch (e) { if (e.code !== 'ELOCKED' || Date.now() > end) throw e; }
   }
   let made = false;
   try {

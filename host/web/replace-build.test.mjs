@@ -4,6 +4,7 @@
 // two renames, EXACT_DIRECTORY_EXCHANGE=0) the swap still lands whole. A
 // swap that fails leaves the build as it was.
 import { expect, test } from 'bun:test';
+import { lockHeld } from './build-lock.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -71,7 +72,8 @@ test('a first build creates missing parent directories before taking the lock', 
     expect(readFileSync(join(dist, 'index.html'), 'utf8')).toBe('<p>new');
     expect(readFileSync(join(dist, 'assets', 'app.css'), 'utf8')).toBe('p { color: red; }');
     expect(existsSync(stage)).toBe(false);
-    expect(existsSync(`${dist}.lock`)).toBe(false);
+    expect(existsSync(`${dist}.lock`)).toBe(true);
+    expect(lockHeld(`${dist}.lock`)).toBe(false);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

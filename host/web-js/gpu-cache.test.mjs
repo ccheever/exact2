@@ -5,11 +5,12 @@
 // running copyGpuCache with a build of its own (three files written a beat apart, each naming the loop), so a copy of a
 // tree another loop is removing or rewriting shows as a missing file or a mix of names.
 import { afterEach, expect, test } from 'bun:test';
+import { takeLock, withLock, lockHeld } from '../web/build-lock.mjs';
 import { spawnOwned, stopAll } from '../../scripts/test-children.mjs';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, toNamespacedPath } from 'node:path';
 
 const MODULE = resolve(new URL('./gpu-cache.mjs', import.meta.url).pathname);
 const LOCK = resolve(new URL('../web/build-lock.mjs', import.meta.url).pathname);
@@ -60,7 +61,7 @@ function whose(out) {
   return names[0][0];
 }
 const waitFor = async path => { for (let i = 0; !existsSync(path); i++) { if (i > 3000) throw new Error(`${path} never came`); await Bun.sleep(10); } };
-const leftovers = cache => readdirSync(join(cache, '..')).filter(name => name !== 'app').sort();
+const leftovers = cache => readdirSync(join(cache, '..')).filter(name => name !== 'app' && name !== 'app.lock').sort();
 
 test('two loops at once, one held before its rename, each copy a complete cache', async () => {
   const { cache } = setup(), hold = join(dir, 'hold');
@@ -133,7 +134,7 @@ function tree(path, name) {
 
 test('a build killed between its renames leaves the cache it replaced, put back by the next', async () => {
   const { cache } = setup(), dead = deadPid();
-  // As that build left it: its lock, the cache it replaced at .previous, its finished stage, no cache.
+  // A killed build leaves its diagnostic PID, the previous cache and its finished stage.
   tree(`${cache}.previous`, 'p');
   tree(`${cache}.stage-${dead}-1`, 'q');
   writeFileSync(`${cache}.lock`, String(dead));
@@ -146,80 +147,132 @@ test('a build killed between its renames leaves the cache it replaced, put back 
   expect(whose(warm.out)).toBe('p');
 }, 60_000);
 
-test('waiters take the lock one at a time, wait for a live holder of either kind, and take it from one killed', async () => {
+test('build locks keep one inode, release once, and treat their contents only as diagnostics', () => {
+  dir = mkdtempSync(join(tmpdir(), 'exact-gpu-cache-'));
+  const lock = join(dir, 'app.lock');
+  expect(lockHeld(lock)).toBe(false);
+  expect(existsSync(lock)).toBe(false);
+  const release = takeLock(lock), inode = statSync(lock).ino;
+  expect(lockHeld(lock)).toBe(true);
+  release();
+  expect(lockHeld(lock)).toBe(false);
+  expect(existsSync(lock)).toBe(true);
+  expect(statSync(lock).ino).toBe(inode);
+  writeFileSync(lock, String(process.ppid));
+  expect(lockHeld(lock)).toBe(false);
+  const next = takeLock(lock);
+  release();
+  expect(lockHeld(lock)).toBe(true);
+  const realNow = Date.now;
+  let now = 0, timeout;
+  Date.now = () => (now += 30001);
+  try { takeLock(lock); } catch (e) { timeout = e; } finally { Date.now = realNow; }
+  expect(timeout?.code).toBe('ELOCKED');
+  expect(lockHeld(lock)).toBe(true);
+  next();
+  writeFileSync(lock, 'incomplete diagnostic');
+  expect(() => withLock(lock, () => { throw new Error('build failed'); })).toThrow('build failed');
+  expect(lockHeld(lock)).toBe(false);
+  expect(statSync(lock).ino).toBe(inode);
+  expect(readFileSync(lock, 'utf8')).toBe(String(process.pid));
+});
+
+test('a lock probe needs only read access, with or without an OS holder', () => {
+  dir = mkdtempSync(join(tmpdir(), 'exact-gpu-cache-'));
+  const lock = join(dir, 'app.lock');
+  writeFileSync(lock, '0');
+  let release;
+  try {
+    chmodSync(lock, 0o444);
+    expect(lockHeld(lock)).toBe(false);
+    chmodSync(lock, 0o644);
+    release = takeLock(lock);
+    chmodSync(lock, 0o444);
+    expect(lockHeld(lock)).toBe(true);
+  } finally {
+    chmodSync(lock, 0o644);
+    release?.();
+  }
+});
+
+test('shared inspection readers are not reported as build owners', () => {
+  dir = mkdtempSync(join(tmpdir(), 'exact-gpu-cache-'));
+  const lock = join(dir, 'app.lock');
+  writeFileSync(lock, '0');
+  const { dlopen } = import.meta.require('bun:ffi');
+  let release;
+  try {
+    if (process.platform === 'win32') {
+      const { symbols } = dlopen('kernel32.dll', {
+        CreateFileW: { args: ['ptr', 'u32', 'u32', 'ptr', 'u32', 'u32', 'u64'], returns: 'u64' },
+        LockFileEx: { args: ['u64', 'u32', 'u32', 'u32', 'u32', 'ptr'], returns: 'i32' },
+        CloseHandle: { args: ['u64'], returns: 'i32' },
+      });
+      const handle = symbols.CreateFileW(Buffer.from(toNamespacedPath(lock) + '\0', 'utf16le'), 0x80000000, 3, null, 3, 0x80, 0);
+      expect(BigInt(handle)).not.toBe(0xffffffffffffffffn);
+      release = () => symbols.CloseHandle(handle);
+      const overlapped = new Uint8Array(32);
+      new DataView(overlapped.buffer).setUint32(16, 64, true);
+      expect(symbols.LockFileEx(handle, 1, 0, 1, 0, overlapped)).not.toBe(0);
+    } else {
+      const { symbols } = dlopen(process.platform === 'darwin' ? '/usr/lib/libSystem.B.dylib' : 'libc.so.6', { flock: { args: ['i32', 'i32'], returns: 'i32' } });
+      const fd = openSync(lock, 'r');
+      release = () => closeSync(fd);
+      expect(symbols.flock(fd, 5)).toBe(0); // LOCK_SH | LOCK_NB
+    }
+    expect(lockHeld(lock)).toBe(false);
+  } finally { release?.(); }
+});
+
+test('waiters exclude one another and take the same lock after its holder is killed', async () => {
   dir = mkdtempSync(join(tmpdir(), 'exact-gpu-cache-'));
   const lock = join(dir, 'app.lock'), inside = join(dir, 'inside');
   writeFileSync(join(dir, 'waiter.mjs'), `
-import { withLock } from ${JSON.stringify(LOCK)};
-import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { withLock, lockHeld } from ${JSON.stringify(LOCK)};
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 const nap = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-// 'old': a checkout from before the flock, its lock as replaceBuild took it (the file made exclusively, naming its pid).
-const oldLock = (lock, fn) => {
-  const alive = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
-  for (;;) {
-    try { writeFileSync(lock, String(process.pid), { flag: 'wx' }); break; }
-    catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-      let owner = 0, age = 0;
-      try { owner = Number(readFileSync(lock, 'utf8')); age = Date.now() - statSync(lock).mtimeMs; } catch { continue; }
-      if (Number.isInteger(owner) && owner > 0 ? !alive(owner) : age > 1000) { rmSync(lock, { force: true }); continue; }
-      nap(10);
-    }
-  }
-  try { return fn(); } finally { rmSync(lock, { force: true }); }
-};
-const take = process.argv[2] === 'old' ? oldLock : withLock;
 if (process.argv[2] === 'hold') withLock(${JSON.stringify(lock)}, () => { writeFileSync(${JSON.stringify(join(dir, 'holding'))}, ''); for (;;) nap(1000); });
-// All at once; a second holder at once finds the first's mark and fails.
 writeFileSync(${JSON.stringify(dir)} + '/ready-' + process.pid, '');
 while (!existsSync(${JSON.stringify(join(dir, 'go'))})) nap(1);
-take(${JSON.stringify(lock)}, () => { writeFileSync(${JSON.stringify(inside)}, '', { flag: 'wx' }); nap(20); rmSync(${JSON.stringify(inside)}); });
+if (process.argv[2] === 'waiting') {
+  if (!lockHeld(${JSON.stringify(lock)})) throw new Error('holder has no OS lock');
+  writeFileSync(${JSON.stringify(dir)} + '/blocked-' + process.pid, '');
+}
+withLock(${JSON.stringify(lock)}, () => {
+  writeFileSync(${JSON.stringify(inside)}, '', { flag: 'wx' });
+  nap(20); // Work under the lock, giving every contender an opportunity to overlap.
+  rmSync(${JSON.stringify(inside)});
+});
 `);
   const waiter = (mode = 'quick') => {
     const child = spawn(process.execPath, [join(dir, 'waiter.mjs'), mode], { stdio: ['ignore', 'ignore', 'pipe'] });
     waiting.add(child);
     let said = '';
     child.stderr.on('data', data => { said += data; });
-    return { child, exited: new Promise(ok => child.once('exit', code => ok({ code, said }))) };
+    return { child, exited: new Promise(ok => child.once('exit', code => { waiting.delete(child); ok({ code, said }); })) };
   };
+  writeFileSync(lock, String(deadPid()));
+  const inode = statSync(lock).ino;
   for (let round = 0; round < 10; round++) {
-    // As a killed build of the file lock left it, naming its pid.
-    writeFileSync(lock, String(deadPid()));
     rmSync(join(dir, 'go'), { force: true });
     for (const name of readdirSync(dir)) if (name.startsWith('ready-')) rmSync(join(dir, name));
     const waiters = Array.from({ length: 8 }, () => waiter().exited);
     while (readdirSync(dir).filter(name => name.startsWith('ready-')).length < 8) await Bun.sleep(5);
     writeFileSync(join(dir, 'go'), '');
     for (const ran of await Promise.all(waiters)) expect(ran).toEqual({ code: 0, said: '' });
+    expect(statSync(lock).ino).toBe(inode);
+    expect(lockHeld(lock)).toBe(false);
   }
-  expect(existsSync(lock)).toBe(false);
-  // A file lock's live holder (a checkout without the flock, or the fallback: this process's pid, no flock) is waited for.
-  writeFileSync(lock, String(process.pid));
-  writeFileSync(join(dir, 'go'), '');
-  const behind = waiter();
-  await Bun.sleep(1500);
-  expect(behind.child.exitCode).toBe(null);
-  rmSync(lock);
-  expect(await behind.exited).toEqual({ code: 0, said: '' });
-  // A flock holder is waited for by a flock taker and by an old checkout's file lock; killed, it holds up neither.
   const holder = waiter('hold');
   await waitFor(join(dir, 'holding'));
-  const next = waiter(), old = waiter('old');
-  await Bun.sleep(1500);
-  expect([next.child.exitCode, old.child.exitCode]).toEqual([null, null]);
+  expect(lockHeld(lock)).toBe(true);
+  const next = Array.from({ length: 8 }, () => waiter('waiting'));
+  await Promise.all(next.map(({ child }) => waitFor(join(dir, 'blocked-' + child.pid))));
+  expect(next.every(({ child }) => child.exitCode === null)).toBe(true);
+  expect(existsSync(inside)).toBe(false);
   holder.child.kill('SIGKILL');
-  const since = Date.now();
-  expect(await next.exited).toEqual({ code: 0, said: '' });
-  expect(await old.exited).toEqual({ code: 0, said: '' });
-  expect(Date.now() - since).toBeLessThan(5000);
-  expect(existsSync(lock)).toBe(false);
-  // And an old checkout's live holder is waited for by a flock taker (above, this process's pid standing in for it), here
-  // as a process taking the old lock for real while a flock taker and another old one wait.
-  rmSync(join(dir, 'go'), { force: true });
-  for (const name of readdirSync(dir)) if (name.startsWith('ready-')) rmSync(join(dir, name));
-  const mixed = ['old', 'quick', 'old', 'quick', 'old', 'quick'].map(mode => waiter(mode).exited);
-  while (readdirSync(dir).filter(name => name.startsWith('ready-')).length < 6) await Bun.sleep(5);
-  writeFileSync(join(dir, 'go'), '');
-  for (const ran of await Promise.all(mixed)) expect(ran).toEqual({ code: 0, said: '' });
-  expect(existsSync(lock)).toBe(false);
+  await holder.exited;
+  for (const ran of await Promise.all(next.map(w => w.exited))) expect(ran).toEqual({ code: 0, said: '' });
+  expect(lockHeld(lock)).toBe(false);
+  expect(statSync(lock).ino).toBe(inode);
 }, 120_000);

@@ -1,34 +1,68 @@
-// The lock builds take for work of milliseconds on a tree others read: replaceBuild's swap of dist (serve.mjs) and the
-// JS build's GPU cache rename and copy (host/web-js/gpu-cache.mjs). Under Bun on macOS and Linux it is the kernel's
-// flock on the lock file, as scripts/sweep.mjs takes Cargo's: released when its holder exits, killed or not, so a lock a
-// killed build left is never stolen (a stale lock file cannot be removed atomically: two waiters that both judge it
-// left over each remove it, the second the one the first had just taken). Elsewhere (no bun:ffi, Windows) it is a file
-// made exclusively, naming its pid, taken over when that pid is gone. The two agree on the file, so a checkout of
-// either kind (or of before the flock) and this one exclude each other: it names its holder's pid while held and is
-// removed on release (by a flock holder still holding it, the path's inode checked, a taker of the removed inode
-// opening again), and a flock taker that finds it naming another live pid waits for that holder. (Races left between
-// kinds: a file-lock waiter removing a killed holder's file as a flock taker takes it; a file-lock holder stalled over
-// 2 ms between making its file and writing its pid.)
-import { closeSync, fstatSync, ftruncateSync, openSync, readFileSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
+// Build swaps and GPU-cache copies share a persistent lock file. Removing it would let a waiter lock the old
+// inode while another opens a new one under the same name. The PID is diagnostic; only the OS grants ownership.
+import { closeSync, ftruncateSync, openSync, writeSync } from 'node:fs';
+import { constants as os } from 'node:os';
+import { toNamespacedPath } from 'node:path';
 
-const LOCK_SH = 1, LOCK_EX = 2, LOCK_NB = 4;
-let flock;
-const kernel = () => {
-  if (flock !== undefined) return flock;
-  flock = null;
-  if (typeof Bun === 'undefined' || process.platform === 'win32') return flock;
-  try {
-    const { dlopen, FFIType } = import.meta.require('bun:ffi');
-    flock = dlopen(process.platform === 'darwin' ? '/usr/lib/libSystem.B.dylib' : 'libc.so.6', { flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 } }).symbols.flock;
-  } catch { /* the file lock below */ }
-  return flock;
-};
-const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
-const holder = (lock) => { try { return readFileSync(lock, 'utf8').trim() || 'unknown'; } catch { return 'unknown'; } };
-const waitFor = (lock, started) => {
-  if (Date.now() - started > 30000) throw new Error(`${lock}: process ${holder(lock)} has held it for 30 s; remove it if that process is not a build`);
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
-};
+let locking;
+function kernel() {
+  if (locking) return locking;
+  const { dlopen, read } = import.meta.require('bun:ffi');
+  if (process.platform === 'win32') {
+    const { symbols } = dlopen('kernel32.dll', {
+      CreateFileW: { args: ['ptr', 'u32', 'u32', 'ptr', 'u32', 'u32', 'u64'], returns: 'u64' },
+      LockFileEx: { args: ['u64', 'u32', 'u32', 'u32', 'u32', 'ptr'], returns: 'i32' },
+      WriteFile: { args: ['u64', 'ptr', 'u32', 'ptr', 'ptr'], returns: 'i32' },
+      SetEndOfFile: { args: ['u64'], returns: 'i32' },
+      CloseHandle: { args: ['u64'], returns: 'i32' },
+      GetLastError: { args: [], returns: 'u32' },
+    });
+    const fail = (operation, code = symbols.GetLastError()) => Object.assign(new Error(`${operation}: Win32 error ${code}`), { code: code === 2 || code === 3 ? 'ENOENT' : 'EIO' });
+    locking = {
+      open(path, create) {
+        // Read/write sharing keeps all contenders on the same file; deletion is refused while any handle is open.
+        const handle = symbols.CreateFileW(Buffer.from(toNamespacedPath(path) + '\0', 'utf16le'), create ? 0xc0000000 : 0x80000000, 3, null, create ? 4 : 3, 0x80, 0);
+        if (BigInt(handle) === 0xffffffffffffffffn) throw fail(`open build lock ${path}`);
+        return handle;
+      },
+      take(handle, exclusive) {
+        // Lock byte 64, beyond the PID: Windows byte locks also deny reads, so diagnostic reads stay outside it.
+        // OVERLAPPED.Offset is 16 bytes into the 64-bit structure; the event and high offset stay zero.
+        const overlapped = new Uint8Array(32);
+        new DataView(overlapped.buffer).setUint32(16, 64, true);
+        if (symbols.LockFileEx(handle, exclusive ? 3 : 1, 0, 1, 0, overlapped)) return true; // fail immediately
+        const code = symbols.GetLastError();
+        if (code === 33) return false;
+        throw fail('lock build output', code);
+      },
+      mark(handle) {
+        const pid = Buffer.from(String(process.pid)), written = new Uint32Array(1);
+        if (!symbols.WriteFile(handle, pid, pid.length, written, null)) throw fail('write build lock owner');
+        if (written[0] !== pid.length) throw new Error(`write build lock owner: wrote ${written[0]} of ${pid.length} bytes`);
+        if (!symbols.SetEndOfFile(handle)) throw fail('truncate build lock owner');
+      },
+      close: handle => { if (!symbols.CloseHandle(handle)) throw fail('close build lock'); },
+    };
+  } else {
+    const errno = process.platform === 'darwin' ? '__error' : '__errno_location';
+    const { symbols } = dlopen(process.platform === 'darwin' ? '/usr/lib/libSystem.B.dylib' : 'libc.so.6', {
+      flock: { args: ['i32', 'i32'], returns: 'i32' }, [errno]: { args: [], returns: 'ptr' },
+    });
+    locking = {
+      open: (path, create) => openSync(path, create ? 'a+' : 'r'),
+      take(fd, exclusive) {
+        // NFS needs write access for LOCK_EX; inspection uses LOCK_SH.
+        if (symbols.flock(fd, exclusive ? 6 : 5) === 0) return true;
+        const code = read.i32(symbols[errno]());
+        if (code === os.errno.EWOULDBLOCK || code === os.errno.EINTR) return false;
+        throw new Error(`cannot lock build output: errno ${code}`);
+      },
+      mark(fd) { ftruncateSync(fd, 0); writeSync(fd, String(process.pid)); },
+      close: closeSync,
+    };
+  }
+  return locking;
+}
 
 /** `fn()` while this process holds `lock`, waiting up to 30 s for another holder. */
 export function withLock(lock, fn) {
@@ -38,64 +72,24 @@ export function withLock(lock, fn) {
 
 /** `lock` taken, waiting up to 30 s for another holder: what releases it. */
 export function takeLock(lock) {
-  const started = Date.now(), lockFile = kernel();
-  if (!lockFile) return takeFileLock(lock, started);
-  for (;;) {
-    const fd = openSync(lock, 'a+');
-    let held = false;
-    try {
-      if (lockFile(fd, LOCK_EX | LOCK_NB) !== 0) { waitFor(lock, started); continue; }
-      // Held, unless the file was removed or replaced since it was opened (a lock on a name no one else opens).
-      let same = false;
-      try { same = statSync(lock).ino === fstatSync(fd).ino; } catch { /* removed */ }
-      if (!same) continue;
-      // A file lock's holder (it takes no flock): waited for. Its file is made, then written: an empty one is read again
-      // a moment later (one this taker made itself stays empty, the flock keeping other flock takers out).
-      let text = readFileSync(fd, 'utf8');
-      if (!text) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2); text = readFileSync(lock, 'utf8'); }
-      const owner = Number(text);
-      if (Number.isInteger(owner) && owner > 0 && owner !== process.pid && alive(owner)) { waitFor(lock, started); continue; }
-      ftruncateSync(fd, 0); writeSync(fd, String(process.pid));
-      held = true;
-      return () => {
-        try { if (statSync(lock).ino === fstatSync(fd).ino) rmSync(lock, { force: true }); } catch { /* removed */ }
-        finally { closeSync(fd); }
-      };
-    } finally { if (!held) closeSync(fd); }
-  }
-}
-
-/** Whether a holder has `lock` now. */
-export function lockHeld(lock) {
-  const lockFile = kernel();
-  if (!lockFile) {
-    let owner;
-    try { owner = Number(readFileSync(lock, 'utf8')); } catch { return false; }
-    if (!Number.isInteger(owner) || owner <= 0) return true; // being written: a holder is starting
-    return alive(owner);
-  }
-  let fd;
-  try { fd = openSync(lock, 'r'); } catch { return false; }
+  const osLock = kernel(), handle = osLock.open(lock, true), started = Date.now();
   try {
-    if (lockFile(fd, LOCK_SH | LOCK_NB) !== 0) return true;
-    // No flock on it: a file lock's holder, or what a killed holder left.
-    const owner = Number(readFileSync(fd, 'utf8'));
-    return Number.isInteger(owner) && owner > 0 ? alive(owner) : false;
-  } finally { closeSync(fd); }
+    while (!osLock.take(handle, true)) {
+      if (Date.now() - started > 30000) throw Object.assign(new Error(`${lock}: timed out after 30 s waiting for another build; wait for it to finish`), { code: 'ELOCKED' });
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+    osLock.mark(handle);
+  } catch (e) { osLock.close(handle); throw e; }
+  let held = true;
+  return () => { if (held) { held = false; osLock.close(handle); } };
 }
 
-function takeFileLock(lock, started) {
-  for (;;) {
-    try { writeFileSync(lock, String(process.pid), { flag: 'wx' }); break; }
-    catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-      let owner = 0, age = 0;
-      try { owner = Number(readFileSync(lock, 'utf8')); age = Date.now() - statSync(lock).mtimeMs; } catch { continue; }
-      // A lock whose owner is gone, or that names none after a second, is left over (two waiters may both take it:
-      // the race the flock above has not).
-      if (Number.isInteger(owner) && owner > 0 ? !alive(owner) : age > 1000) { rmSync(lock, { force: true }); continue; }
-      waitFor(lock, started);
-    }
-  }
-  return () => rmSync(lock, { force: true });
+/** Whether a build owns `lock` now. */
+export function lockHeld(lock) {
+  const osLock = kernel();
+  let handle;
+  try { handle = osLock.open(lock, false); }
+  catch (e) { if (e.code === 'ENOENT') return false; throw e; }
+  try { return !osLock.take(handle, false); }
+  finally { osLock.close(handle); }
 }
