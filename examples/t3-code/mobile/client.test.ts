@@ -242,7 +242,7 @@ describe('pinned shared sources', () => {
         : name === 'shell-vcs.ts' ? 'c280acc1806c4e1fea5d4797b1278b99b5ee2ba0' : name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
         : ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
           ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
-      const adapted = ['client.ts', 'client-ops-composer.ts', 'client-ops-sidebar.ts', 'composer-controls.ts', 'domain.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts', 'composer-editor-files.ts', 'timeline-rows.ts', 'timeline-presentation.ts', 'timeline-item-fetch.ts', 'protocol.ts', 'r5-composer-citation.ts', 'media-views.ts', 'timeline-attachments.ts'].includes(name);
+      const adapted = ['client.ts', 'client-ops-composer.ts', 'client-ops-sidebar.ts', 'composer-controls.ts', 'connections.ts', 'domain.ts', 'project-clones-live.ts', 'r8-pointer-reconnect.ts', 'r4-git-branch.ts', 'composer-editor.ts', 'composer-editor-files.ts', 'timeline-rows.ts', 'timeline-presentation.ts', 'timeline-item-fetch.ts', 'protocol.ts', 'r5-composer-citation.ts', 'media-views.ts', 'timeline-attachments.ts'].includes(name);
       if (name === 'word-diff.ts') expect(local.slice(0, 3)).toEqual([
         '// GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.',
         '// Unchanged body from examples/t3-code/word-diff.ts; engine/span source extracted from',
@@ -289,6 +289,9 @@ describe('pinned shared sources', () => {
           '  const payload = object(event.payload, "event.payload");\n  if (family === "turnItems" && isUnknownTurnItem(payload)) return { ...state, sequence };\n  if (threadEvents.has(type)) validateEntity(payload, "threads", "event.payload");')
         .replace('  const older = objects(page.items, "history page.items").map((row, index) => validateRow(row, `history page.items[${index}]`));',
           '  const older = objects(page.items, "history page.items").filter(row => !isUnknownTurnItem(row.item))\n    .map((row, index) => validateRow(row, `history page.items[${index}]`));');
+      if (name === 'connections.ts') expected = expected.replace(
+        'const splitKey = (key: string) => { const index = key.indexOf(\'\\n\'); return index < 0 ? [\'\', \'\'] : [key.slice(0, index), key.slice(index + 1)]; };',
+        "const splitKey = (key: string) => { const index = key.indexOf('\\n'); return index < 0 ? ['', ''] : [key.slice(0, index), key.slice(index + 1)]; };\n\n/** Server labels can carry a possessive suffix twice after a rename. Keep\n * every rendered environment surface readable without rewriting saved data. */\nexport function normalizeEnvironmentLabel(label: string): string {\n  return label.replace(/(['’])s(['’])s(?=\\b)/g, '$1s');\n}");
       if (name === 'timeline-item-fetch.ts') expected = '// Mobile parity: expose a presentation revision so redraw caches observe local detail changes.\n' + expected
         .replace('interface Cache { connection: string; details: Map<string, Detail>; open: Map<string, OpenItem> }',
           'interface Cache { connection: string; details: Map<string, Detail>; open: Map<string, OpenItem>; presentationRevision: number }')
@@ -679,13 +682,13 @@ describe('GitHub routing permissions', () => {
     const { environmentSources } = await import('./shared/connections');
     const { T3Client } = await import('./shared/client');
     const { gitHubRoutingConnectionKey } = await import('./shared/connection-routes');
-    const saved = [{ origin: 'https://host.example', environmentId: 'env', label: 'Host', enabled: false, routes: [{ id: 'direct', origin: 'https://host.example', credential: 'https://host.example' }] }];
+    const saved = [{ origin: 'https://host.example', environmentId: 'env', label: "Nate's’s Mac Mini", enabled: false, routes: [{ id: 'direct', origin: 'https://host.example', credential: 'https://host.example' }] }];
     const sources = environmentSources(new T3Client(), saved, new Map());
     const key = gitHubRoutingConnectionKey(sources[0]!);
     expect(key).not.toBeNull();
     const preferences = JSON.stringify({ githubRouting: { [key!]: 'read-write' } });
     expect(mobileRoutingRows(sources, saved, preferences, true)).toEqual([
-      { id: 'https://host.example\nenv', label: 'Host', url: 'https://host.example/', permission: 'read-write', disabled: false },
+      { id: 'https://host.example\nenv', label: "Nate's Mac Mini", url: 'https://host.example/', permission: 'read-write', disabled: false },
     ]);
     expect(mobileRoutingRows(sources, saved, preferences, false)[0]?.disabled).toBe(true);
     const changed = [{ ...sources[0]!, routes: [{ id: 'direct', origin: 'https://new-host.example' }] }];

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'bun:test';
 import { answer } from './app';
+import { connectionView } from './presentation';
 import { overlayMobilePreferenceChoices } from './settings-preferences';
 import { contractComponent, value, type Env } from '../tests/support/contract-action-fixture';
 
@@ -210,6 +211,18 @@ describe('generated source dispatcher', () => {
 });
 
 describe('stable snapshot reader and pure root projection', () => {
+  test('connection settings clean a duplicated possessive at the display boundary', () => {
+    const view = connectionView({
+      catalogLoaded: true, nativeAvailable: true, revision: 0, faviconRevision: 0, ready: false, busy: false, error: '',
+      environmentId: 'duplicate-label', threadId: '', projectId: '', generation: 0, environmentLabel: "Nate's’s Mac Mini",
+      statusMessage: '', routing: [], environments: [{ key: 'duplicate-label', environmentId: 'duplicate-label', state: 'reconnecting', machine: 'mac-mini',
+        label: "Nate's’s Mac Mini", origin: 'http://example.test', enabled: true, active: true, status: '', error: '', traceId: '', routeCount: 0, routes: [], relayManaged: false }],
+      projects: [], threads: [], shellLoaded: false, writable: false, connection: 'reconnecting', projection: null, draft: null, scopes: [], configLive: false,
+      shellLive: false, threadLive: false, config: {}, shell: { projects: [], threads: [], sequence: 0 }, thread: null,
+    } as never, 'light');
+    expect(view.environments[0]?.label).toBe("Nate's Mac Mini");
+  });
+
   test('theme, clock and local data projections stay synchronous while the native reader is paused', async () => {
     const { mobileClient, mobileSnapshotProjection } = await import('./client');
     const { mobileGitFeedbackError, mobileGitFeedbackSnapshot } = await import('./git-feedback');

@@ -3,6 +3,7 @@
 // ThreadNavigationSidebar and the app-owned react-native-screens patch.
 import { mobileHomeProjects, mobileHomeSources, type HomeOptions, type HomeSource } from './home';
 import { mobileTheme } from './design';
+import { normalizeEnvironmentLabel } from './shared/connections';
 import { logicalKey } from './shared/r6-polish-groups';
 
 export interface HomeChromeEnvironment { environmentId: string; label: string }
@@ -18,9 +19,7 @@ export interface HomeWorkspaceFacts {
 
 /** Server labels can carry a possessive suffix twice after a rename. Keep the
  * Home connection sentence readable without rewriting the saved label. */
-export function homeConnectionEnvironmentLabel(label: string): string {
-  return label.replace(/(['’])s(['’])s(?=\b)/g, '$1s');
-}
+export const homeConnectionEnvironmentLabel = normalizeEnvironmentLabel;
 export function homeConnectionTitle(state?: HomeWorkspaceFacts) {
   if (!state || !(state.networkStatus === 'offline' || state.connectionError !== null
     || state.hasConnectingEnvironment || state.hasPendingShellSnapshot

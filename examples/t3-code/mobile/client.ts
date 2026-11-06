@@ -21,7 +21,7 @@ import { mobileNewTaskEditorRefresh } from './new-task-editor';
 import { mobileSend } from './composer-behavior';
 import { mobileDraftChanged } from './draft';
 import { mobilePendingInputCommand, mobilePendingInputRetry } from './pending-input';
-import { decodePrefs, environmentSources, machineKind, savedStatus } from './shared/connections';
+import { decodePrefs, environmentSources, machineKind, normalizeEnvironmentLabel, savedStatus } from './shared/connections';
 import { connectionRouteAddress, connectionRouteKind, connectionRouteLabel, gitHubRoutingConnectionKey, hasRelayRoute } from './shared/connection-routes';
 import { arr, obj, str, type Obj } from './shared/domain';
 import { letGo, letGoAware } from './shared/let-go';
@@ -175,7 +175,7 @@ export function mobileRoutingRows(sources: ReturnType<typeof environmentSources>
   return sources.filter(source => saved.some(entry => entry.environmentId === source.environmentId)).map(source => {
     const key = gitHubRoutingConnectionKey(source);
     const label = str(saved.find(entry => entry.environmentId === source.environmentId)?.mobileLabel) || source.label;
-    return { id: source.key, label, url: source.routes.map(connectionRouteAddress).find(address => address !== null) || 'T3 Connect',
+    return { id: source.key, label: normalizeEnvironmentLabel(label), url: source.routes.map(connectionRouteAddress).find(address => address !== null) || 'T3 Connect',
       permission: key ? prefs.githubRouting[key] || 'off' : 'off', disabled: !ready || key === null };
   });
 }
