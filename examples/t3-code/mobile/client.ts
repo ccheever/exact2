@@ -212,7 +212,17 @@ export async function mobileSnapshotRead(nativeInput: Native | null | undefined,
   let metadataPublished = false;
   const preparationNative: Native | null | undefined = preparationSource ? {
     available: preparationSource.available,
-    watch: topic => preparationSource.watch(topic),
+    watch: topic => {
+      try { preparationSource.watch(topic); }
+      catch (error) {
+        // Exact can retire the root answer while this deliberately detached
+        // preparation pass is still loading. Treat only that lifetime error as
+        // supersession; other native failures remain visible to the owner.
+        if (error instanceof Error && error.message === 'native.watch outside an answer')
+          throw new ClientError(error.message, 'superseded');
+        throw error;
+      }
+    },
     async later(request) {
       if (obj(request).op !== 'environments') return preparationSource.later(request);
       const first = !preparationCatalogRead; preparationCatalogRead = true;
