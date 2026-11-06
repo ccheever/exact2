@@ -1,5 +1,8 @@
 # Queue
 
+- **The Caltrain web smoke rejects a rewritten frame URL** (2026-11-06). `scripts/smoke.mjs` expects `/deck/index.html` in `frameNode.url`, but the JS build reports `./deck/index.html`. The app's authored tests pass and the same smoke assertion fails on main `70365218ab`. Check asset URL rewriting and the agent tree's URL contract before changing the assertion.
+- **Two Linux network fixtures fail with main's sources in the web checkout** (2026-11-06). `an_orderly_exit_waits_for_a_request_with_effects` leaves `must_finish()` true, and `a_failed_snapshot_is_asked_for_again` times out. Both fail after restoring main's compiler and Linux production files in this checkout; a separate main worktree passes them, including when its binary runs here. Check the build and transport inputs before changing either timeout.
+
 - **The JS symbol fixtures fail before exercising symbols on main** (2026-11-05). `host/web/tests/js-symbols.test.mjs` imports a missing `Hooks` export in its unit fixtures; its browser server also returns 404 for shared modules such as `/web/timer-observations.js`, leaving readiness pending. All seven cases fail on main and with the list fix. Repair the fixture imports and module serving before assessing symbol behavior.
 - **The touch press test crosses its scroll-suppression assertion on main** (2026-11-05). In `host/web/tests/press.test.mjs`, "a pressable that declares no feedback dims while pressed" expects no pressed mark after a recent scroll at line 541 and sees one on both main and the list branch. Check the event timing and suppression rule before changing either.
 
