@@ -28,6 +28,7 @@ import { letGo, letGoAware } from './shared/let-go';
 import { bridgeReply, ClientError, nativeFiles, parsePairing, type Files, type Native } from './shared/protocol';
 import { pairingFields } from './shared/r10-connect-pairing';
 import { EnvironmentFleet, fleet, trimOrigin } from './shared/settings-b-fleet';
+import { mobileCacheFleetSync } from './mobile-client-cache-fleet';
 import type { T3Client } from './shared/client';
 
 export const mobileClient = new MobileDraftClient();
@@ -308,6 +309,20 @@ export async function mobileSnapshotRead(nativeInput: Native | null | undefined,
     snapshotReadPublished++;
     metadataPublished = true;
   }
+  // A reconnecting launch has no focused shell for MobileDraftClient.refresh to
+  // adopt. Hydrate independently of that network attempt after the catalog read
+  // has published saved identities, then wake Home when cached rows arrive.
+  void (async () => {
+    if (!preparationNative?.available) return;
+    const before = mobileClient.revision;
+    await mobileCacheFleetSync(fleet, preparationNative, mobileClient);
+    if (mobileClient.revision === before) return;
+    try { await preparationNative.later({ op: 'r10Wake', topic: 't3.notify', generation: mobileClient.generation }); }
+    catch (error) { if (!letGo(error)) throw error; }
+  })().catch(error => {
+    if (letGo(error)) return;
+    if (reading === snapshotReadStarted) { mobileClient.error = error instanceof Error ? error.message : String(error); mobileClient.revision++; }
+  });
   // Recovery owns its own epochs, so a later root read can supersede this one
   // without allowing an old preparation failure to poison the initial shell.
   void preparationHandled;
