@@ -29,3 +29,4 @@ or the transcript projection cache.
 
 - 2026-11-06: focused Home, scroll and cache tests pass (23 tests, 5,928 assertions).
 - 2026-11-06: full mobile suite passes (4,312 tests, 2 skipped); rebuilt iOS runtime shows the offline Home state with the tab bar as a sibling outside the scroll area.
+- 2026-11-06: post-fix iOS rebuild survives a light/dark appearance change and Add environment navigation without the retired-answer banner; captures are `/tmp/t3-mobile-parity-home-light.png` and `/tmp/t3-mobile-parity-add-environment-dark.png`.
