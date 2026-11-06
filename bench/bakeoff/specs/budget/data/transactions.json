@@ -1,0 +1,962 @@
+[
+ {
+  "id": 1,
+  "date": "2026-01-01",
+  "merchant": "Market",
+  "category": "Food",
+  "amount": 0.08,
+  "note": "reimbursable"
+ },
+ {
+  "id": 2,
+  "date": "2026-02-02",
+  "merchant": "Rail pass",
+  "category": "Travel",
+  "amount": 0.25,
+  "note": ""
+ },
+ {
+  "id": 3,
+  "date": "2026-03-03",
+  "merchant": "Bookshop",
+  "category": "Home",
+  "amount": 0.42,
+  "note": ""
+ },
+ {
+  "id": 4,
+  "date": "2026-04-04",
+  "merchant": "Cafe",
+  "category": "Health",
+  "amount": 0.59,
+  "note": ""
+ },
+ {
+  "id": 5,
+  "date": "2026-05-05",
+  "merchant": "Pharmacy",
+  "category": "Fun",
+  "amount": 0.76,
+  "note": ""
+ },
+ {
+  "id": 6,
+  "date": "2026-06-06",
+  "merchant": "Hardware",
+  "category": "Food",
+  "amount": 0.93,
+  "note": ""
+ },
+ {
+  "id": 7,
+  "date": "2026-07-07",
+  "merchant": "Market",
+  "category": "Travel",
+  "amount": 1.1,
+  "note": ""
+ },
+ {
+  "id": 8,
+  "date": "2026-08-08",
+  "merchant": "Rail pass",
+  "category": "Home",
+  "amount": 1.27,
+  "note": "reimbursable"
+ },
+ {
+  "id": 9,
+  "date": "2026-09-09",
+  "merchant": "Bookshop",
+  "category": "Health",
+  "amount": 1.44,
+  "note": ""
+ },
+ {
+  "id": 10,
+  "date": "2026-10-10",
+  "merchant": "Cafe",
+  "category": "Fun",
+  "amount": 1.61,
+  "note": ""
+ },
+ {
+  "id": 11,
+  "date": "2026-01-11",
+  "merchant": "Pharmacy",
+  "category": "Food",
+  "amount": 1.78,
+  "note": ""
+ },
+ {
+  "id": 12,
+  "date": "2026-02-12",
+  "merchant": "Hardware",
+  "category": "Travel",
+  "amount": 1.95,
+  "note": ""
+ },
+ {
+  "id": 13,
+  "date": "2026-03-13",
+  "merchant": "Market",
+  "category": "Home",
+  "amount": 2.12,
+  "note": ""
+ },
+ {
+  "id": 14,
+  "date": "2026-04-14",
+  "merchant": "Rail pass",
+  "category": "Health",
+  "amount": 2.29,
+  "note": ""
+ },
+ {
+  "id": 15,
+  "date": "2026-05-15",
+  "merchant": "Bookshop",
+  "category": "Fun",
+  "amount": 2.46,
+  "note": "reimbursable"
+ },
+ {
+  "id": 16,
+  "date": "2026-06-16",
+  "merchant": "Cafe",
+  "category": "Food",
+  "amount": 2.63,
+  "note": ""
+ },
+ {
+  "id": 17,
+  "date": "2026-07-17",
+  "merchant": "Pharmacy",
+  "category": "Travel",
+  "amount": 2.8,
+  "note": ""
+ },
+ {
+  "id": 18,
+  "date": "2026-08-18",
+  "merchant": "Hardware",
+  "category": "Home",
+  "amount": 2.97,
+  "note": ""
+ },
+ {
+  "id": 19,
+  "date": "2026-09-19",
+  "merchant": "Market",
+  "category": "Health",
+  "amount": 3.14,
+  "note": ""
+ },
+ {
+  "id": 20,
+  "date": "2026-10-20",
+  "merchant": "Rail pass",
+  "category": "Fun",
+  "amount": 3.31,
+  "note": ""
+ },
+ {
+  "id": 21,
+  "date": "2026-01-21",
+  "merchant": "Bookshop",
+  "category": "Food",
+  "amount": 3.48,
+  "note": ""
+ },
+ {
+  "id": 22,
+  "date": "2026-02-22",
+  "merchant": "Cafe",
+  "category": "Travel",
+  "amount": 3.65,
+  "note": "reimbursable"
+ },
+ {
+  "id": 23,
+  "date": "2026-03-23",
+  "merchant": "Pharmacy",
+  "category": "Home",
+  "amount": 3.82,
+  "note": ""
+ },
+ {
+  "id": 24,
+  "date": "2026-04-24",
+  "merchant": "Hardware",
+  "category": "Health",
+  "amount": 3.99,
+  "note": ""
+ },
+ {
+  "id": 25,
+  "date": "2026-05-25",
+  "merchant": "Market",
+  "category": "Fun",
+  "amount": 4.16,
+  "note": ""
+ },
+ {
+  "id": 26,
+  "date": "2026-06-26",
+  "merchant": "Rail pass",
+  "category": "Food",
+  "amount": 4.33,
+  "note": ""
+ },
+ {
+  "id": 27,
+  "date": "2026-07-27",
+  "merchant": "Bookshop",
+  "category": "Travel",
+  "amount": 4.5,
+  "note": ""
+ },
+ {
+  "id": 28,
+  "date": "2026-08-01",
+  "merchant": "Cafe",
+  "category": "Home",
+  "amount": 4.67,
+  "note": ""
+ },
+ {
+  "id": 29,
+  "date": "2026-09-02",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 4.84,
+  "note": "reimbursable"
+ },
+ {
+  "id": 30,
+  "date": "2026-10-03",
+  "merchant": "Hardware",
+  "category": "Fun",
+  "amount": 5.01,
+  "note": ""
+ },
+ {
+  "id": 31,
+  "date": "2026-01-04",
+  "merchant": "Market",
+  "category": "Food",
+  "amount": 5.18,
+  "note": ""
+ },
+ {
+  "id": 32,
+  "date": "2026-02-05",
+  "merchant": "Rail pass",
+  "category": "Travel",
+  "amount": 5.35,
+  "note": ""
+ },
+ {
+  "id": 33,
+  "date": "2026-03-06",
+  "merchant": "Bookshop",
+  "category": "Home",
+  "amount": 5.52,
+  "note": ""
+ },
+ {
+  "id": 34,
+  "date": "2026-04-07",
+  "merchant": "Cafe",
+  "category": "Health",
+  "amount": 5.69,
+  "note": ""
+ },
+ {
+  "id": 35,
+  "date": "2026-05-08",
+  "merchant": "Pharmacy",
+  "category": "Fun",
+  "amount": 5.86,
+  "note": ""
+ },
+ {
+  "id": 36,
+  "date": "2026-06-09",
+  "merchant": "Hardware",
+  "category": "Food",
+  "amount": 6.03,
+  "note": "reimbursable"
+ },
+ {
+  "id": 37,
+  "date": "2026-07-10",
+  "merchant": "Market",
+  "category": "Travel",
+  "amount": 6.2,
+  "note": ""
+ },
+ {
+  "id": 38,
+  "date": "2026-08-11",
+  "merchant": "Rail pass",
+  "category": "Home",
+  "amount": 6.37,
+  "note": ""
+ },
+ {
+  "id": 39,
+  "date": "2026-09-12",
+  "merchant": "Bookshop",
+  "category": "Health",
+  "amount": 6.54,
+  "note": ""
+ },
+ {
+  "id": 40,
+  "date": "2026-10-13",
+  "merchant": "Cafe",
+  "category": "Fun",
+  "amount": 6.71,
+  "note": ""
+ },
+ {
+  "id": 41,
+  "date": "2026-01-14",
+  "merchant": "Pharmacy",
+  "category": "Food",
+  "amount": 6.88,
+  "note": ""
+ },
+ {
+  "id": 42,
+  "date": "2026-02-15",
+  "merchant": "Hardware",
+  "category": "Travel",
+  "amount": 7.05,
+  "note": ""
+ },
+ {
+  "id": 43,
+  "date": "2026-03-16",
+  "merchant": "Market",
+  "category": "Home",
+  "amount": 7.22,
+  "note": "reimbursable"
+ },
+ {
+  "id": 44,
+  "date": "2026-04-17",
+  "merchant": "Rail pass",
+  "category": "Health",
+  "amount": 7.39,
+  "note": ""
+ },
+ {
+  "id": 45,
+  "date": "2026-05-18",
+  "merchant": "Bookshop",
+  "category": "Fun",
+  "amount": 7.56,
+  "note": ""
+ },
+ {
+  "id": 46,
+  "date": "2026-06-19",
+  "merchant": "Cafe",
+  "category": "Food",
+  "amount": 7.73,
+  "note": ""
+ },
+ {
+  "id": 47,
+  "date": "2026-07-20",
+  "merchant": "Pharmacy",
+  "category": "Travel",
+  "amount": 7.9,
+  "note": ""
+ },
+ {
+  "id": 48,
+  "date": "2026-08-21",
+  "merchant": "Hardware",
+  "category": "Home",
+  "amount": 8.07,
+  "note": ""
+ },
+ {
+  "id": 49,
+  "date": "2026-09-22",
+  "merchant": "Market",
+  "category": "Health",
+  "amount": 8.24,
+  "note": ""
+ },
+ {
+  "id": 50,
+  "date": "2026-10-23",
+  "merchant": "Rail pass",
+  "category": "Fun",
+  "amount": 8.41,
+  "note": "reimbursable"
+ },
+ {
+  "id": 51,
+  "date": "2026-01-24",
+  "merchant": "Bookshop",
+  "category": "Food",
+  "amount": 8.58,
+  "note": ""
+ },
+ {
+  "id": 52,
+  "date": "2026-02-25",
+  "merchant": "Cafe",
+  "category": "Travel",
+  "amount": 8.75,
+  "note": ""
+ },
+ {
+  "id": 53,
+  "date": "2026-03-26",
+  "merchant": "Pharmacy",
+  "category": "Home",
+  "amount": 8.92,
+  "note": ""
+ },
+ {
+  "id": 54,
+  "date": "2026-04-27",
+  "merchant": "Hardware",
+  "category": "Health",
+  "amount": 9.09,
+  "note": ""
+ },
+ {
+  "id": 55,
+  "date": "2026-05-01",
+  "merchant": "Market",
+  "category": "Fun",
+  "amount": 9.26,
+  "note": ""
+ },
+ {
+  "id": 56,
+  "date": "2026-06-02",
+  "merchant": "Rail pass",
+  "category": "Food",
+  "amount": 9.43,
+  "note": ""
+ },
+ {
+  "id": 57,
+  "date": "2026-07-03",
+  "merchant": "Bookshop",
+  "category": "Travel",
+  "amount": 9.6,
+  "note": "reimbursable"
+ },
+ {
+  "id": 58,
+  "date": "2026-08-04",
+  "merchant": "Cafe",
+  "category": "Home",
+  "amount": 9.77,
+  "note": ""
+ },
+ {
+  "id": 59,
+  "date": "2026-09-05",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 9.94,
+  "note": ""
+ },
+ {
+  "id": 60,
+  "date": "2026-10-06",
+  "merchant": "Hardware",
+  "category": "Fun",
+  "amount": 10.11,
+  "note": ""
+ },
+ {
+  "id": 61,
+  "date": "2026-01-07",
+  "merchant": "Market",
+  "category": "Food",
+  "amount": 10.28,
+  "note": ""
+ },
+ {
+  "id": 62,
+  "date": "2026-02-08",
+  "merchant": "Rail pass",
+  "category": "Travel",
+  "amount": 10.45,
+  "note": ""
+ },
+ {
+  "id": 63,
+  "date": "2026-03-09",
+  "merchant": "Bookshop",
+  "category": "Home",
+  "amount": 10.62,
+  "note": ""
+ },
+ {
+  "id": 64,
+  "date": "2026-04-10",
+  "merchant": "Cafe",
+  "category": "Health",
+  "amount": 10.79,
+  "note": "reimbursable"
+ },
+ {
+  "id": 65,
+  "date": "2026-05-11",
+  "merchant": "Pharmacy",
+  "category": "Fun",
+  "amount": 10.96,
+  "note": ""
+ },
+ {
+  "id": 66,
+  "date": "2026-06-12",
+  "merchant": "Hardware",
+  "category": "Food",
+  "amount": 11.13,
+  "note": ""
+ },
+ {
+  "id": 67,
+  "date": "2026-07-13",
+  "merchant": "Market",
+  "category": "Travel",
+  "amount": 11.3,
+  "note": ""
+ },
+ {
+  "id": 68,
+  "date": "2026-08-14",
+  "merchant": "Rail pass",
+  "category": "Home",
+  "amount": 11.47,
+  "note": ""
+ },
+ {
+  "id": 69,
+  "date": "2026-09-15",
+  "merchant": "Bookshop",
+  "category": "Health",
+  "amount": 11.64,
+  "note": ""
+ },
+ {
+  "id": 70,
+  "date": "2026-10-16",
+  "merchant": "Cafe",
+  "category": "Fun",
+  "amount": 11.81,
+  "note": ""
+ },
+ {
+  "id": 71,
+  "date": "2026-01-17",
+  "merchant": "Pharmacy",
+  "category": "Food",
+  "amount": 11.98,
+  "note": "reimbursable"
+ },
+ {
+  "id": 72,
+  "date": "2026-02-18",
+  "merchant": "Hardware",
+  "category": "Travel",
+  "amount": 12.15,
+  "note": ""
+ },
+ {
+  "id": 73,
+  "date": "2026-03-19",
+  "merchant": "Market",
+  "category": "Home",
+  "amount": 12.32,
+  "note": ""
+ },
+ {
+  "id": 74,
+  "date": "2026-04-20",
+  "merchant": "Rail pass",
+  "category": "Health",
+  "amount": 12.49,
+  "note": ""
+ },
+ {
+  "id": 75,
+  "date": "2026-05-21",
+  "merchant": "Bookshop",
+  "category": "Fun",
+  "amount": 12.66,
+  "note": ""
+ },
+ {
+  "id": 76,
+  "date": "2026-06-22",
+  "merchant": "Cafe",
+  "category": "Food",
+  "amount": 12.83,
+  "note": ""
+ },
+ {
+  "id": 77,
+  "date": "2026-07-23",
+  "merchant": "Pharmacy",
+  "category": "Travel",
+  "amount": 13,
+  "note": ""
+ },
+ {
+  "id": 78,
+  "date": "2026-08-24",
+  "merchant": "Hardware",
+  "category": "Home",
+  "amount": 13.17,
+  "note": "reimbursable"
+ },
+ {
+  "id": 79,
+  "date": "2026-09-25",
+  "merchant": "Market",
+  "category": "Health",
+  "amount": 13.34,
+  "note": ""
+ },
+ {
+  "id": 80,
+  "date": "2026-10-26",
+  "merchant": "Rail pass",
+  "category": "Fun",
+  "amount": 13.51,
+  "note": ""
+ },
+ {
+  "id": 81,
+  "date": "2026-01-27",
+  "merchant": "Bookshop",
+  "category": "Food",
+  "amount": 13.68,
+  "note": ""
+ },
+ {
+  "id": 82,
+  "date": "2026-02-01",
+  "merchant": "Cafe",
+  "category": "Travel",
+  "amount": 13.85,
+  "note": ""
+ },
+ {
+  "id": 83,
+  "date": "2026-03-02",
+  "merchant": "Pharmacy",
+  "category": "Home",
+  "amount": 14.02,
+  "note": ""
+ },
+ {
+  "id": 84,
+  "date": "2026-04-03",
+  "merchant": "Hardware",
+  "category": "Health",
+  "amount": 14.19,
+  "note": ""
+ },
+ {
+  "id": 85,
+  "date": "2026-05-04",
+  "merchant": "Market",
+  "category": "Fun",
+  "amount": 14.36,
+  "note": "reimbursable"
+ },
+ {
+  "id": 86,
+  "date": "2026-06-05",
+  "merchant": "Rail pass",
+  "category": "Food",
+  "amount": 14.53,
+  "note": ""
+ },
+ {
+  "id": 87,
+  "date": "2026-07-06",
+  "merchant": "Bookshop",
+  "category": "Travel",
+  "amount": 14.7,
+  "note": ""
+ },
+ {
+  "id": 88,
+  "date": "2026-08-07",
+  "merchant": "Cafe",
+  "category": "Home",
+  "amount": 14.87,
+  "note": ""
+ },
+ {
+  "id": 89,
+  "date": "2026-09-08",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 15.04,
+  "note": ""
+ },
+ {
+  "id": 90,
+  "date": "2026-10-09",
+  "merchant": "Hardware",
+  "category": "Fun",
+  "amount": 15.21,
+  "note": ""
+ },
+ {
+  "id": 91,
+  "date": "2026-01-10",
+  "merchant": "Market",
+  "category": "Food",
+  "amount": 15.38,
+  "note": ""
+ },
+ {
+  "id": 92,
+  "date": "2026-02-11",
+  "merchant": "Rail pass",
+  "category": "Travel",
+  "amount": 15.55,
+  "note": "reimbursable"
+ },
+ {
+  "id": 93,
+  "date": "2026-03-12",
+  "merchant": "Bookshop",
+  "category": "Home",
+  "amount": 15.72,
+  "note": ""
+ },
+ {
+  "id": 94,
+  "date": "2026-04-13",
+  "merchant": "Cafe",
+  "category": "Health",
+  "amount": 15.89,
+  "note": ""
+ },
+ {
+  "id": 95,
+  "date": "2026-05-14",
+  "merchant": "Pharmacy",
+  "category": "Fun",
+  "amount": 16.06,
+  "note": ""
+ },
+ {
+  "id": 96,
+  "date": "2026-06-15",
+  "merchant": "Hardware",
+  "category": "Food",
+  "amount": 16.23,
+  "note": ""
+ },
+ {
+  "id": 97,
+  "date": "2026-07-16",
+  "merchant": "Market",
+  "category": "Travel",
+  "amount": 16.4,
+  "note": ""
+ },
+ {
+  "id": 98,
+  "date": "2026-08-17",
+  "merchant": "Rail pass",
+  "category": "Home",
+  "amount": 16.57,
+  "note": ""
+ },
+ {
+  "id": 99,
+  "date": "2026-09-18",
+  "merchant": "Bookshop",
+  "category": "Health",
+  "amount": 16.74,
+  "note": "reimbursable"
+ },
+ {
+  "id": 100,
+  "date": "2026-10-19",
+  "merchant": "Cafe",
+  "category": "Fun",
+  "amount": 16.91,
+  "note": ""
+ },
+ {
+  "id": 101,
+  "date": "2026-01-20",
+  "merchant": "Pharmacy",
+  "category": "Food",
+  "amount": 17.08,
+  "note": ""
+ },
+ {
+  "id": 102,
+  "date": "2026-02-21",
+  "merchant": "Hardware",
+  "category": "Travel",
+  "amount": 17.25,
+  "note": ""
+ },
+ {
+  "id": 103,
+  "date": "2026-03-22",
+  "merchant": "Market",
+  "category": "Home",
+  "amount": 17.42,
+  "note": ""
+ },
+ {
+  "id": 104,
+  "date": "2026-04-23",
+  "merchant": "Rail pass",
+  "category": "Health",
+  "amount": 17.59,
+  "note": ""
+ },
+ {
+  "id": 105,
+  "date": "2026-05-24",
+  "merchant": "Bookshop",
+  "category": "Fun",
+  "amount": 17.76,
+  "note": ""
+ },
+ {
+  "id": 106,
+  "date": "2026-06-25",
+  "merchant": "Cafe",
+  "category": "Food",
+  "amount": 17.93,
+  "note": "reimbursable"
+ },
+ {
+  "id": 107,
+  "date": "2026-07-26",
+  "merchant": "Pharmacy",
+  "category": "Travel",
+  "amount": 18.1,
+  "note": ""
+ },
+ {
+  "id": 108,
+  "date": "2026-08-27",
+  "merchant": "Hardware",
+  "category": "Home",
+  "amount": 18.27,
+  "note": ""
+ },
+ {
+  "id": 109,
+  "date": "2026-09-01",
+  "merchant": "Market",
+  "category": "Health",
+  "amount": 18.44,
+  "note": ""
+ },
+ {
+  "id": 110,
+  "date": "2026-10-02",
+  "merchant": "Rail pass",
+  "category": "Fun",
+  "amount": 18.61,
+  "note": ""
+ },
+ {
+  "id": 111,
+  "date": "2026-01-03",
+  "merchant": "Bookshop",
+  "category": "Food",
+  "amount": 18.78,
+  "note": ""
+ },
+ {
+  "id": 112,
+  "date": "2026-02-04",
+  "merchant": "Cafe",
+  "category": "Travel",
+  "amount": 18.95,
+  "note": ""
+ },
+ {
+  "id": 113,
+  "date": "2026-03-05",
+  "merchant": "Pharmacy",
+  "category": "Home",
+  "amount": 19.12,
+  "note": "reimbursable"
+ },
+ {
+  "id": 114,
+  "date": "2026-04-06",
+  "merchant": "Hardware",
+  "category": "Health",
+  "amount": 19.29,
+  "note": ""
+ },
+ {
+  "id": 115,
+  "date": "2026-05-07",
+  "merchant": "Market",
+  "category": "Fun",
+  "amount": 19.46,
+  "note": ""
+ },
+ {
+  "id": 116,
+  "date": "2026-06-08",
+  "merchant": "Rail pass",
+  "category": "Food",
+  "amount": 19.63,
+  "note": ""
+ },
+ {
+  "id": 117,
+  "date": "2026-07-09",
+  "merchant": "Bookshop",
+  "category": "Travel",
+  "amount": 19.8,
+  "note": ""
+ },
+ {
+  "id": 118,
+  "date": "2026-08-10",
+  "merchant": "Cafe",
+  "category": "Home",
+  "amount": 19.97,
+  "note": ""
+ },
+ {
+  "id": 119,
+  "date": "2026-09-11",
+  "merchant": "Pharmacy",
+  "category": "Health",
+  "amount": 20.14,
+  "note": ""
+ },
+ {
+  "id": 120,
+  "date": "2026-10-12",
+  "merchant": "Hardware",
+  "category": "Fun",
+  "amount": 20.31,
+  "note": "reimbursable"
+ }
+]
