@@ -13,10 +13,11 @@ interactive hit target.
 
 ## Lean in
 
-The workspace wrapper now passes pointer input through to the selected tab panel
-and only the selected route at the top of that tab's stack is visible and
-interactive. Older routes and inactive tab panels remain mounted for state
-retention but cannot cover the active route. Settings remains a root tab with
+The workspace and tab-panel wrappers pass pointer input through. The selected
+route stays mounted for state retention, but its wrapper also passes input
+through to the direct header and body row, which explicitly restore interaction
+for their controls. Older routes and inactive tab panels remain hidden and
+inert, so they cannot cover the active route. Settings remains a root tab with
 the native header's Close control; pushed Settings routes keep the tab stack and
 native Back behavior.
 
@@ -24,8 +25,8 @@ native Back behavior.
 
 The first signed drive exposed full-screen retained route wrappers covering
 Settings, PRs and Usage rows. The corrected Contract gates visibility and hit
-testing to the active route; a fresh signed-device drive is required to verify
-the fix after rebuilding.
+testing to the active route and passes input through the route wrapper; a fresh
+signed-device drive is required to verify the fix after rebuilding.
 
 ## Checkpoints
 
