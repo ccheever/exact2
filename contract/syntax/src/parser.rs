@@ -238,6 +238,27 @@ impl Parser {
         }
     }
 
+    /// A `match` arm's `some` or `none` after `case`. A value there
+    /// (`case "unread"`, `case _`) is a switch's pattern, which `match` does not
+    /// take: it matches an option only.
+    fn case_word(&mut self, w: &'static str) -> R<Span> {
+        let value = match self.peek_kind() {
+            TokenKind::Ident(x) => x != "some" && x != "none",
+            TokenKind::Str(_) | TokenKind::Number(_) | TokenKind::Template(_) => true,
+            _ => false,
+        };
+        if value {
+            return self.err(
+                "syntax-expected",
+                format!(
+                    "a `match` case is `some(x)` or `none`, found {}: `match` takes an option; to choose by a value, compare it: `if x == \"a\"` in a view or an action, `x == \"a\" ? a : b` in an expression",
+                    describe(self.peek_kind())
+                ),
+            );
+        }
+        self.expect_word(w)
+    }
+
     fn newline(&mut self) -> R<()> {
         match self.peek_kind() {
             TokenKind::Newline => {
@@ -1072,7 +1093,7 @@ impl Parser {
                     p.case_end(Some(&var), "statements")?;
                     some = Some((var, p.block(|q| q.stmt())?));
                 } else {
-                    p.expect_word("none")?;
+                    p.case_word("none")?;
                     if none.is_some() {
                         return duplicate("match arm", "none", case_span, span);
                     }

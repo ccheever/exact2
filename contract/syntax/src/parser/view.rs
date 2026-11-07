@@ -139,7 +139,7 @@ impl Parser {
             self.case_end(Some(&var), "elements")?;
             Ok((Some(var), case_span))
         } else {
-            self.expect_word("none")?;
+            self.case_word("none")?;
             self.case_end(None, "elements")?;
             Ok((None, case_span))
         }

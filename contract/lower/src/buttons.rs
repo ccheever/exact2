@@ -269,7 +269,7 @@ fn button_style_edit(kind: &Bare, reason: &str) -> String {
         // The reason leads: for the face it names the edit that keeps what
         // the attribute was for (LLP 1116.018).
         Bare::Face => format!(
-            "{reason}. A native button's face is `text`s and a symbol `image`, sized by `font-size`; {custom}"
+            "{reason}. A native button's face is `text`s and a symbol `image`, the symbol sized by `font-size` on the `image` (`font-size=\"-exact-title3\"`); {custom}"
         ),
         Bare::Drops(written) => format!(
             "to keep the native button, remove `{written}` (it drops the platform's appearance); {custom}"
