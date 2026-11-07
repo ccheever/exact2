@@ -312,7 +312,9 @@ component Home
         align-items="center"
         justify-content="center"
         padding-left=28
-        padding-right=28
+        // On Duo, the native vertical tab rail is an occlusion rather than a
+        // normal safe-area inset. Keep this centered empty state clear of it.
+        padding-right=(28 + trailingReservation)
         padding-top=(fullPageFrame ? measuredSafeTop + 72 : 0)
         padding-bottom=emptyClearance
         column max-width=430 width="100%"

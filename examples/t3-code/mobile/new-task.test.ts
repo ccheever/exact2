@@ -165,7 +165,7 @@ test('only the original New Task entry presents a sheet; Change Project stays in
   expect(presentation('settings', 'settings', 'original', true)).toEqual(['', 'fullscreen', '']);
   for (const name of ['threadModel', 'newTaskModel']) expect(presentation(name, name)).toEqual(['composer', 'modal', 'large']);
   expect(presentation('threadQueue', 'queue')).toEqual(['', 'modal', '65% 95%']);
-  for (const name of ['connect', 'connections']) expect(presentation(name, name)).toEqual(['true', 'modal', '']);
+  for (const name of ['connect', 'connections']) expect(presentation(name, name)).toEqual(['true', 'modal', '55% 70%']);
   for (const name of ['gitOverview', 'threadTerminalCapture']) expect(presentation(name, name)).toEqual(['', 'modal', '']);
   for (const name of ['homeArrange', 'threadBrowser', 'threadDevices', 'settingsLegal']) expect(presentation(name, name)).toEqual(['', 'fullscreen', '']);
 });

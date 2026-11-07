@@ -71,6 +71,7 @@ final class T3ContentGeometry: ExactNativeInstance {
     private var previous: NSDictionary?
     private var alive = true
     private var hingeInteraction: UIInteraction?
+    private var railRefreshWork: DispatchWorkItem?
     override var view: UIView { root }
     static let factory = ExactNativeFactory { props, events in
         let instance = T3ContentGeometry(events: events)
@@ -107,6 +108,7 @@ final class T3ContentGeometry: ExactNativeInstance {
             rebind(owner: owner)
         }
         refresh()
+        scheduleRailRefresh()
     }
 
     private func rebind(owner: String) {
@@ -140,11 +142,27 @@ final class T3ContentGeometry: ExactNativeInstance {
 
     private func refresh() {
         guard alive else { return }
-        if root.window !== observedWindow || root.superview !== observedParent
+        let moved = root.window !== observedWindow || root.superview !== observedParent
+        if moved
             || lifetime.attached != (root.window != nil && root.superview != nil) {
             rebind(owner: lifetime.owner)
+            if root.window != nil { scheduleRailRefresh() }
         }
         publish()
+    }
+
+    /// A vertical tab rail can be installed after the route's geometry probe
+    /// has already published its first packet. Its reserved-region callback
+    /// then does not relayout this descendant, so take one delayed measurement
+    /// after UIKit has finished placing the window-level tab bar.
+    private func scheduleRailRefresh() {
+        railRefreshWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.alive else { return }
+            self.refresh()
+        }
+        railRefreshWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
     }
 
     private func publish() {
@@ -216,6 +234,8 @@ final class T3ContentGeometry: ExactNativeInstance {
         previous = nil
         publish()
         alive = false
+        railRefreshWork?.cancel()
+        railRefreshWork = nil
         root.changed = nil
         if let hingeInteraction { root.removeInteraction(hingeInteraction) }
         hingeInteraction = nil

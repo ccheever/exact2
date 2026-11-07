@@ -175,6 +175,7 @@ test('Home uses a ready route-local height and safe top for its transparent empt
   expect(home.attribute('padding-right=(listId == "sidebar-list"', 'padding-right', home.state(), {
     ...scope, contentGeometry: { ...metrics(), reservedRegions: [{ kind: 'occlusion', x: 300, y: 10, width: 176, height: 60 }] },
   })).toBe(176);
+  expect(home.attribute('padding-right=(28 + trailingReservation)', 'padding-right', home.state(), scope)).toBe(54);
 });
 
 test('route geometry exposes only a right-edge occlusion reservation', () => {
@@ -207,4 +208,10 @@ test('thread content consumes only the measured trailing reservation', () => {
   expect(source).toContain('trailingReservation=threadTrailingReservation');
   expect(appText('mobile/thread.contract')).toContain('padding-right=(horizontalPadding + trailingReservation)');
   expect(source).toContain('right=threadTrailingReservation');
+});
+
+test('pairing routes keep their form clear of the Duo rail', () => {
+  const source = appText('mobile/route-content.contract');
+  expect(source).toContain('derive routeTrailingReservation = contentGeometryTrailingReservation(contentGeometry)');
+  expect(source).toContain('routeName == "connect" or routeName == "connections" ? `calc(20px + env(safe-area-inset-right) + ${routeTrailingReservation}px)`');
 });

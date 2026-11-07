@@ -64,7 +64,8 @@ function expandedWorkspaceRoute(): ContractTerm[] {
   }
   const entry = findEntry(children);
   if (!entry) throw new Error('Expanded root has no actual router-entry loop.');
-  return terms(terms(entry[6])[0]);
+  // Keep the route wrapper, header branch, and body row as siblings.
+  return terms(entry[6]);
 }
 function elementAttribute(node: ContractTerm, name: string): ContractTerm | undefined {
   const parts = terms(node);
@@ -129,15 +130,17 @@ test('the app root exposes the three workspace tab panels to the native containe
 
 test('expanded routes put native headers first and ordinary inspector columns below the bar', () => {
   const route = expandedWorkspaceRoute();
-  for (const name of ['home', 'thread', 'threadFiles', 'threadFile', 'threadReview', 'newTask', 'newTaskDraft', 'settings', 'settingsAppearance', 'connect']) {
+  // Home owns its toolbar through the native HomeChrome component. It is not
+  // a direct Contract header, so UIKit must not try to project it as one.
+  for (const name of ['thread', 'threadFiles', 'threadFile', 'threadReview', 'newTask', 'newTaskDraft', 'settings', 'settingsAppearance', 'connect']) {
     for (const mode of [{ fileInspectorSupported: false, inspectorMounted: false, inspectorRouteId: '7' },
       { fileInspectorSupported: true, inspectorMounted: true, inspectorRouteId: '7' },
       { fileInspectorSupported: true, inspectorMounted: true, inspectorRouteId: '99' }]) {
       const scope = { entry: { id: 7, name }, workspace: { sidebarMounted: false, ...mode }, filesData: { error: '' } };
-      const children = routeParts(terms(route[5]), scope);
-      expect(children[0]?.slice(0, 2), `${name}: UIKit needs a direct header`).toEqual(['.element', 'header']);
-      expect(children[1]?.slice(0, 2), `${name}: content and inspector share the body row`).toEqual(['.element', 'row']);
-      const columns = routeParts(terms(children[1]![5]), scope);
+      const children = routeParts(route, scope);
+      expect(children[1]?.slice(0, 2), `${name}: UIKit needs a direct header`).toEqual(['.element', 'header']);
+      expect(children[2]?.slice(0, 2), `${name}: content and inspector share the body row`).toEqual(['.element', 'row']);
+      const columns = routeParts(terms(children[2]![5]), scope);
       expect(columns[0]?.slice(0, 2)).toEqual(['.element', 'column']);
       // The inspector is a separate public tab panel; the route stack stays a
       // single column so UIKit can move it without reparenting route content.

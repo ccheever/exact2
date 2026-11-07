@@ -226,6 +226,20 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     #endif
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        // A page sheet's detent changes the mount's window origin after UIKit
+        // attaches the presentation. Regrid authored route siblings from that
+        // new origin so a partial sheet keeps its header and scroll body inside
+        // the visible sheet instead of retaining the root viewport's frame.
+        host?.presenter.regridAll()
+        // UIKit applies the sheet's final detent transform after this layout
+        // callback. Regrid once more on the next run-loop turn so authored
+        // siblings observe the settled presentation origin as well.
+        if let presenter = host?.presenter {
+            DispatchQueue.main.async { [weak self, weak presenter] in
+                guard let self, self.viewIfLoaded?.window != nil else { return }
+                presenter?.regridAll()
+            }
+        }
         // The keyboard probe lays the sheet out as its keyboard layout guide
         // moves, where its routes end (`OwnerBlocks.block`)
         host?.presenter.owners.publish()
