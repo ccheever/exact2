@@ -30,6 +30,13 @@ export class MalformedOperation extends Error {
   }
 }
 
+/** A drive's flag written in a step (`"screenshot x.png --scale 3"`, `"state thread --json"`) is refused naming where it goes,
+ * not read as one of the step's words; a number after it is its value. `own`: the step's own flags (`state … --full`). */
+export function refuseDriveFlag(host, op, args, own = []) {
+  const flag = args.findIndex((a) => a.startsWith('--') && !own.includes(a)), value = /^\d/.test(args[flag + 1] ?? '') ? 1 : 0;
+  if (flag >= 0) throw new MalformedOperation(`${op}: ${args[flag]} is a flag of the drive, not of the step: write it before the steps, as \`${host} ${args.slice(flag, flag + 1 + value).join(' ')} "${[op, ...args.filter((_, i) => i < flag || i > flag + value)].join(' ')}"\``);
+}
+
 export async function operationReply(carrier, req) {
   let reply;
   try { reply = MalformedOperation.reply(await carrier.ask(req)); }

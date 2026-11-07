@@ -680,7 +680,7 @@ state    [epoch E · incarnation I · clock C ms], then one line per other secti
          state [{name}] is {size}, over the 8.0 KB printed whole [· the tags]
          {section} {its JSON on one line}: slots, derives, then the smallest, up to 2 KB between them (`STATE_SHOWN`)
          not shown: {section} {size} · … (largest first)
-         one section: "state {largest}" … | one key: "state {name}.{key}" | one item: "state {name}.0"; all of it: "state [{name}] --full", or --json
+         one section: "state {largest}" … | one key: "state {name}.{key}" | one item: "state {name}.0"; all of it: "state [{name}] --full", or the drive flag --json
 tap      [ERROR {error} · ]tapped #{id} "{target}" [· at X,Y] · delivery D · epoch E
          [· incarnation I, when not 1] · clock C ms [· key=JSON for each other field but carrier and mode]
 type     the same, `typed`; a reply with an error or `delivery: unsupported` reads `tap`｜`type`, a contact's phase `tap {phase}`,

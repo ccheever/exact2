@@ -26,7 +26,7 @@ test('a state over 8 KB prints its size, its small sections, the others\' sizes 
     'slots {"n":0}',
     'focus {"logical":3}',
     'not shown: resources 5.9 KB · derives 2.9 KB',
-    'one section: "state resources", or a state, derive or resource by name, dotted: "state resources.<key>"; all of it: "state --full", or --json',
+    'one section: "state resources", or a state, derive or resource by name, dotted: "state resources.<key>"; all of it: "state --full", or the drive flag --json',
   ].join('\n'));
   // The app's own states come before the host's small sections.
   const host = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`h${i}`, 'x'.repeat(30)]));
@@ -37,8 +37,8 @@ test('a state over 8 KB prints its size, its small sections, the others\' sizes 
   // A named read: its keys, and the path to one.
   expect(render('state', { a: 'x'.repeat(9000), b: 1 }, { name: 'transport' }).split('\n')).toEqual([
     'state transport is 8.8 KB, over the 8.0 KB printed whole', 'b 1', 'not shown: a 8.8 KB',
-    'one key: "state transport.a"; all of it: "state transport --full", or --json']);
-  expect(render('state', Array(5000).fill(1), { name: 'rows' }).split('\n').slice(1)).toEqual(['5000 items', 'one item: "state rows.0"; all of it: "state rows --full", or --json']);
+    'one key: "state transport.a"; all of it: "state transport --full", or the drive flag --json']);
+  expect(render('state', Array(5000).fill(1), { name: 'rows' }).split('\n').slice(1)).toEqual(['5000 items', 'one item: "state rows.0"; all of it: "state rows --full", or the drive flag --json']);
   expect(render('state', { slots: { n: 1 }, clock: 0 })).toBe('clock 0 ms\nslots {"n":1}');
 });
 

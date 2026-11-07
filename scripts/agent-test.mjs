@@ -1129,9 +1129,10 @@ export function faultRequest(op, args, origins = [], say = console.warn) {
   return rawFaultRequest(op, [args[0], resolveFaultPrefix(args[1], origins, say), ...args.slice(2)]);
 }
 
-/** The same persistence/fault behavior as an authored test's web reload. */
+/** The same persistence/fault behavior as an authored test's web reload. A native drive is one launch, so the
+ * refusal names what proves a relaunch there: the next drive. */
 export async function reloadWeb(s) {
-  if (s.host!=='web') throw new Error('reload in an interactive drive supports web; native authored tests relaunch their host');
+  if (s.host!=='web') throw new Error(`reload in an interactive drive supports web; on ${s.host} each drive is a new launch, so run a second drive to see a relaunch${s.keptStore ? ` (it opens on the store \`${s.keptStore}\` this one kept)` : ''}, and an authored test's \`reload\` relaunches the host`);
   const state=await s.state(), background=state.background;
   if (background && background.queued+background.inFlight) {
     const result=await s.clock('data');
