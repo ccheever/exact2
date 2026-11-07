@@ -44,6 +44,7 @@ public final class ExactView: UIView {
     var inspectionOwned: [UIView] { keyboardProbe.map { [$0] } ?? [] }
     private var editingObservers: [NSObjectProtocol] = []
     private var sceneObserver: NSObjectProtocol?
+    private var sceneActivationObserver: NSObjectProtocol?
     /// The adapter's hook for the first root's `viewport-fit` and its
     /// canvas colour (the window's background under the safe areas is the
     /// window's business).
@@ -98,13 +99,26 @@ public final class ExactView: UIView {
         #endif
         // While the scene is in the background UIKit can size the primary
         // container for the other display (the iPhone Duo's inner one while
-        // its cover shows), and nothing lays it out again on return:
-        // `fitOwner` puts it back. An activation alone already does
-        // (`PageFacts`).
+        // its cover shows), and nothing lays it out again on return. A
+        // prewarmed launch can also skip `willEnterForeground` entirely, so
+        // both lifecycle edges refit the Exact viewport and its native owner.
         sceneObserver = NotificationCenter.default.addObserver(forName: UIScene.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] note in
             MainActor.assumeIsolated {
                 guard let self, let scene = note.object as? UIScene, scene === self.window?.windowScene else { return }
-                self.session.presenter.navigation.fitOwner()
+                self.refitForScene(scene)
+            }
+        }
+        sceneActivationObserver = NotificationCenter.default.addObserver(forName: UIScene.didActivateNotification, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self, let scene = note.object as? UIScene, scene === self.window?.windowScene else { return }
+                self.refitForScene(scene)
+                // UIKit may finish the Duo display handoff one turn after the
+                // activation notification. Re-read the final window bounds
+                // before the first visible frame on that display.
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, scene === self.window?.windowScene else { return }
+                    self.refitForScene(scene)
+                }
             }
         }
         session.presenter.observeKeyboard()
@@ -140,7 +154,19 @@ public final class ExactView: UIView {
 
     required init?(coder: NSCoder) { nil }
     deinit {
-        (editingObservers + [sceneObserver].compactMap { $0 }).forEach(NotificationCenter.default.removeObserver)
+        (editingObservers + [sceneObserver, sceneActivationObserver].compactMap { $0 }).forEach(NotificationCenter.default.removeObserver)
+    }
+
+    /// Reconcile the session viewport and any UIKit-owned navigation
+    /// container after a scene display handoff. The parent window owns the
+    /// constraints, so laying it out first is what restores a retained view
+    /// that was framed for the other Duo display.
+    private func refitForScene(_ scene: UIScene) {
+        guard scene === window?.windowScene, scene.activationState != .unattached else { return }
+        window?.layoutIfNeeded()
+        setNeedsLayout()
+        layoutIfNeeded()
+        session.presenter.navigation.fitOwner()
     }
 
     /// A zero-size dependent makes UIKit lay this view out as its keyboard

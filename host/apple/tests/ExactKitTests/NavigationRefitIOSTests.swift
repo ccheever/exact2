@@ -45,22 +45,38 @@ final class NavigationRefitIOSTests: XCTestCase {
         return (session, try XCTUnwrap(session.presenter.navigation.primaryOwner))
     }
 
-    /// A return to the foreground of the view's scene refits the container,
-    /// and one of no scene of the view's does not. An activation refits it
-    /// through the page's facts, whose batch lays it out (`PageFacts`).
+    /// A return to the foreground or activation of the view's scene refits
+    /// its native container. Page facts also update in the same lifecycle
+    /// batch (`PageFacts`).
     func testTheContainerIsRefitWhenItsSceneReturnsToTheForeground() throws {
         guard let scene = hostedWindowScene() else { throw missing("scene", "the container is refit for the scene its view is in") }
         let (session, owner) = try fixture(scene)
         let fitted = session.presenter.navigation.ownerFrame(owner, in: try XCTUnwrap(owner.view.superview))
         let off = fitted.insetBy(dx: 0, dy: 80)
-        owner.view.frame = off
-        NotificationCenter.default.post(name: UIScene.willEnterForegroundNotification, object: nil)
-        XCTAssertEqual(owner.view.frame, off, "a return to the foreground of no scene of the view's")
         for name in [UIScene.willEnterForegroundNotification, UIScene.didActivateNotification] {
             owner.view.frame = off
             NotificationCenter.default.post(name: name, object: scene)
             XCTAssertEqual(owner.view.frame, fitted, "\(name.rawValue) for the view's scene")
         }
+    }
+
+    /// A prewarmed Duo launch can deliver `didActivate` without a matching
+    /// `willEnterForeground`. The Exact viewport must be restored with the
+    /// native navigation owner in that path, or the system rail is visible
+    /// over a blank app canvas.
+    func testSceneActivationRefitsTheViewportAndNativeOwnerTogether() throws {
+        guard let scene = hostedWindowScene() else { throw missing("scene", "scene activation refits the retained viewport") }
+        let (session, owner) = try fixture(scene)
+        let view = try XCTUnwrap(session.view)
+        let expectedViewport = view.bounds
+        let fittedOwner = session.presenter.navigation.ownerFrame(owner, in: try XCTUnwrap(owner.view.superview))
+        owner.view.frame = fittedOwner.insetBy(dx: 0, dy: 80)
+        session.presenter.viewport.frame = expectedViewport.offsetBy(dx: 0, dy: 48)
+
+        NotificationCenter.default.post(name: UIScene.didActivateNotification, object: scene)
+
+        XCTAssertEqual(owner.view.frame, fittedOwner, "activation restores the native owner")
+        XCTAssertEqual(session.presenter.viewport.frame, expectedViewport, "activation restores the Exact viewport")
     }
 }
 #endif
