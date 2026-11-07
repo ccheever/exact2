@@ -40,6 +40,7 @@ export function homeConnectionTitle(state?: HomeWorkspaceFacts) {
 /** Root owns these values, search RPCs and navigation. No credentials or sample rows. */
 export interface HomeChromeInput {
   routeKey: string;
+  selectedTab?: string;
   layout: 'compact' | 'sidebar';
   query: string;
   environmentId?: string;
@@ -71,7 +72,7 @@ export function mobileHomeChrome(input: HomeChromeInput, sources: HomeSource[] =
     .map(project => ({ key: project.key, label: project.title }));
   const projectKey = projects.some(project => project.key === input.projectKey) ? input.projectKey! : '';
   const theme = mobileTheme(input.scheme ?? 'light', input.palette);
-  const configuration = { routeKey: input.routeKey, layout: input.layout, query: input.query,
+  const configuration = { routeKey: input.routeKey, layout: input.layout, selectedTab: input.selectedTab ?? 'home', query: input.query,
     environmentId, projectKey, environments, projects, status: homeConnectionTitle(input.workspace),
     colors: { foreground: theme.foreground, muted: theme.colors.muted, iconMuted: theme.colors.iconMuted, subtle: theme.colors.subtle } };
   return { configuration: JSON.stringify(configuration), environmentId, projectKey,

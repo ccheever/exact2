@@ -327,9 +327,16 @@ private struct T3SettingsHeaderConfig: Decodable {
     struct Environment: Decodable { let id: String; let label: String; let subtitle: String; let symbol: String; let selected: Bool }
     struct Project: Decodable { let id: String; let label: String; let selected: Bool }
     let routeKey: String; let visitToken: String; let close: Bool; let back: Bool; let filtered: Bool; let all: Bool
+    let search: Bool?; let query: String?
     let selectedCount: Int; let projectKey: String; let projectLabel: String
     let environments: [Environment]; let projects: [Project]
     let addActionID: String?; let addEnabled: Bool?; let compactRoot: Bool?
+}
+private final class T3SettingsSearchDelegate: NSObject, UISearchResultsUpdating {
+    var changed: ((String) -> Void)?
+    func updateSearchResults(for searchController: UISearchController) {
+        changed?(searchController.searchBar.text ?? "")
+    }
 }
 private final class T3SettingsHeaderPort: ExactNativeInstance {
     private weak var owner: T3SettingsNavigation?
@@ -337,11 +344,22 @@ private final class T3SettingsHeaderPort: ExactNativeInstance {
     private let port = UIView()
     private var config: T3SettingsHeaderConfig?
     private var right: [UIBarButtonItem] = []
+    private var searchController: UISearchController?
+    private let searchDelegate = T3SettingsSearchDelegate()
+    private var settingQuery = false
     private var leadingItems: [UIBarButtonItem]?
     private var previousLeading: (items: [UIBarButtonItem]?, hidesBack: Bool, supplements: Bool)?
     private var key = ""
     override var view: UIView { port }
-    init(owner: T3SettingsNavigation, events: ExactNativeEvents) { self.owner = owner; super.init(events: events); port.isUserInteractionEnabled = false }
+    init(owner: T3SettingsNavigation, events: ExactNativeEvents) {
+        self.owner = owner
+        super.init(events: events)
+        port.isUserInteractionEnabled = false
+        searchDelegate.changed = { [weak self] value in
+            guard let self, !self.settingQuery, let route = self.route, let config = self.config else { return }
+            self.emit("search", value, key: config.routeKey, token: config.visitToken, route: route)
+        }
+    }
     override func setProps(_ props: [String: String]) throws {
         guard let data = props["configuration"]?.data(using: .utf8), let next = try? JSONDecoder().decode(T3SettingsHeaderConfig.self, from: data), !next.routeKey.isEmpty, !next.visitToken.isEmpty else { throw ExactNativeRefusal("Settings header needs a valid configuration, route key and visit token.") }
         if key != next.routeKey { detach(); owner?.unbind(self, key: key); key = next.routeKey }
@@ -383,8 +401,30 @@ private final class T3SettingsHeaderPort: ExactNativeInstance {
             close.accessibilityLabel = "Close settings"; close.accessibilityIdentifier = "settings-close"
             if config.compactRoot == true { right.append(close) } else { right.insert(close, at: 0) }
         }
-        route.controller.navigationItem.rightBarButtonItems = right
         let item = route.controller.navigationItem
+        if config.search == true {
+            let search = searchController ?? UISearchController(searchResultsController: nil)
+            search.obscuresBackgroundDuringPresentation = false
+            search.hidesNavigationBarDuringPresentation = false
+            search.searchResultsUpdater = searchDelegate
+            search.searchBar.placeholder = "Search settings"
+            search.searchBar.autocapitalizationType = .none
+            search.searchBar.autocorrectionType = .no
+            search.searchBar.accessibilityLabel = "Search settings"
+            search.searchBar.accessibilityIdentifier = "settings-search"
+            let value = config.query ?? ""
+            settingQuery = true
+            if search.searchBar.text != value { search.searchBar.text = value }
+            settingQuery = false
+            item.searchController = search
+            item.hidesSearchBarWhenScrolling = false
+            searchController = search
+        } else if let searchController, item.searchController === searchController {
+            searchController.searchResultsUpdater = nil
+            item.searchController = nil
+            self.searchController = nil
+        }
+        route.controller.navigationItem.rightBarButtonItems = right
         if config.compactRoot == true || config.back {
             captureLeading(item)
             leadingItems = nil
@@ -414,6 +454,7 @@ private final class T3SettingsHeaderPort: ExactNativeInstance {
         case "project": permitted = value.isEmpty || config.projects.contains { $0.id == value }
         case "close": permitted = config.close && value.isEmpty
         case "back": permitted = config.back && value.isEmpty
+        case "search": permitted = config.search == true
         default: permitted = false
         }
         guard permitted, let data = try? JSONSerialization.data(withJSONObject: ["kind": kind, "value": value, "requestRoute": key, "visitToken": token]) else { return }
@@ -442,8 +483,12 @@ private final class T3SettingsHeaderPort: ExactNativeInstance {
         if let route {
             restoreLeading(route.controller.navigationItem)
             if route.controller.navigationItem.rightBarButtonItems == right { route.controller.navigationItem.rightBarButtonItems = nil }
+            if let searchController, route.controller.navigationItem.searchController === searchController {
+                searchController.searchResultsUpdater = nil
+                route.controller.navigationItem.searchController = nil
+            }
         }
-        route = nil; right = []
+        searchController = nil; route = nil; right = []
     }
     override func destroy() { detach(); owner?.unbind(self, key: key) }
 }

@@ -9,16 +9,21 @@ use WorkspaceEntry from "./mobile-workspace.contract"
 use homeAutomationPath from "./home-routes.contract"
 
 fn newTaskModal(name: string, route: string, session: string, split: bool): bool = name == "newTask" and route == session and not split
-// Settings is a root tab on compact phones, so it stays in the tab stack with
-// the bar visible. Its child pages use the normal stack back action. Split
-// layouts still present the settings root as a full-screen detail pane.
+// Settings is a persistent workspace tab. Its list owns the primary column and
+// child pages use the normal stack, so the tab bar and Duo rail remain available
+// while Settings is selected. Only routes that are actual sheets or immersive
+// pages opt into a presentation here.
 fn mobileRouteFormSheet(name: string, route: string, session: string, split: bool): string = name == "threadModel" or name == "newTaskModel" ? "composer" : newTaskModal(name, route, session, split) ? "new-task" : name == "connections" or name == "connect" ? "true" : ""
-fn mobileRoutePresentation(name: string, route: string, session: string, split: bool): string = name == "homeArrange" or name == "threadBrowser" or name == "threadDevices" or name == "settingsLegal" or (name == "settings" and split) ? "fullscreen" : name == "threadModel" or name == "newTaskModel" or newTaskModal(name, route, session, split) or name == "threadQueue" or name.startsWith("git") or name == "connections" or name == "connect" or name == "threadTerminalCapture" ? "modal" : ""
+fn mobileRoutePresentation(name: string, route: string, session: string, split: bool): string = name == "homeArrange" or name == "threadBrowser" or name == "threadDevices" or name == "settingsLegal" ? "fullscreen" : name == "threadModel" or name == "newTaskModel" or newTaskModal(name, route, session, split) or name == "threadQueue" or name == "threadAgents" or name == "threadReviewComment" or name == "settingsScheduledModel" or name.startsWith("git") or name == "connections" or name == "connect" or name == "threadTerminalCapture" ? "modal" : ""
+// Keep the native status-bar/reselect-to-top owner aligned with the scroll or
+// list that the route actually renders. An empty owner is intentional for
+// pages whose content is a native surface or has no single scrollport.
+fn mobileRouteScroll(name: string, route: string, session: string, split: bool, fileInspector: bool): string = name == "newTask" ? "new-task-projects-scroll" : name == "threadQueue" ? "mobile-queue-scroll" : name == "home" ? "home-list" : name == "thread" or (name == "threadFiles" and fileInspector) ? "thread-feed" : name == "threadFiles" ? "workspace-files" : name == "threadFile" or name == "newTaskFile" ? "file-source" : name == "gitOverview" ? "git-overview-scroll" : name == "gitCommit" ? "git-commit-scroll" : name == "gitConfirm" ? "git-confirm-scroll" : name == "gitBranches" ? "git-branches-scroll" : name == "threadReview" ? "review-diff" : name == "threadTerminalCapture" ? "terminal-capture-lines" : name == "settingsScheduledTasks" ? "scheduled-tasks-scroll" : name == "settingsScheduledNew" or name == "settingsScheduledEdit" ? "scheduled-editor-scroll" : name == "settingsScheduledModel" ? "scheduled-model-scroll" : name == "settingsScheduledBranch" ? "scheduled-branch-scroll" : name == "settingsThreads" ? "settings-thread-preferences-scroll" : name == "settingsProjectOverview" ? "settings-project-scroll" : name == "settingsNotifications" ? "settings-notifications-scroll" : name == "settingsUsage" ? "settings-usage-scroll" : name == "settingsUsageAccount" ? "settings-usage-account-scroll" : name.startsWith("settingsScheduled") ? "" : name == "settings" ? "settings-scroll" : name == "settingsServer" ? "settings-server-scroll" : name == "settingsProviders" ? "settings-provider-scroll" : name == "settingsAppearance" ? "settings-appearance-scroll" : name == "settingsChoice" ? "settings-choice-scroll" : name == "settingsAbout" or name == "settingsClientStorage" or name == "settingsDiagnostics" or name == "settingsOpenSourceLicenses" ? "settings-information-scroll" : name == "settingsOpenSourceLicense" or name == "settingsLegal" ? "" : name == "archive" ? "archive-list" : name == "pullRequests" ? "pull-requests-list" : name == "pullRequestsDetail" ? "pull-request-detail-scroll" : name == "threadAgents" ? "agents-sheet" : name.startsWith("addProject") ? `add-project-scroll-${route}` : name == "newTaskDraft" ? `new-task-hero-scroll-${route}` : name == "threadMedia" or name == "threadDraftMedia" or name == "newTaskMedia" ? "attachment-document" : name == "threadReviewComment" or name == "threadBrowser" or name == "threadDevices" or name == "threadTerminal" ? "" : name == "homeArrange" ? "home-arrangement-scroll" : name == "threadModel" or name == "newTaskModel" ? "composer-settings-list" : name == "threadModelOption" or name == "newTaskModelOption" or name == "threadRuntime" or name == "newTaskRuntime" ? "composer-choices-list" : name == "newTaskEnvironments" ? "new-task-environments-scroll" : name == "newTaskBranches" ? "new-task-branches-scroll" : name == "notfound" ? `scroll-${route}` : `scroll-${route}`
 // ThreadQueueControl uses 0.65 and 0.95 snap fractions. Exact's navigation
 // host accepts percentage detents and maps them to UIKit custom detents.
 // Expo's ConnectionsNewRouteScreen is a resizable form sheet. Keep the
 // workspace underneath it and expose the same two resting heights on iOS.
-fn mobileRouteDetent(name: string, route: string, session: string, split: bool): string = name == "threadQueue" ? "65% 95%" : name == "connect" or name == "connections" ? "55% 70%" : name == "threadModel" or name == "newTaskModel" or newTaskModal(name, route, session, split) ? "large" : ""
+fn mobileRouteDetent(name: string, route: string, session: string, split: bool): string = name == "threadQueue" ? "65% 95%" : name == "threadAgents" ? "50%" : name == "threadReviewComment" ? "55%" : name == "gitOverview" ? "55%" : name == "gitCommit" ? "80%" : name == "gitBranches" ? "55%" : name == "gitConfirm" ? "55% 70%" : name == "connect" or name == "connections" ? "55% 70%" : name == "settingsScheduledModel" or name == "threadModel" or name == "newTaskModel" or newTaskModal(name, route, session, split) ? "large" : ""
 
 shape HomeReplyPlan
   archiveRefresh: number
@@ -52,6 +57,7 @@ shape SettingsVisit
 shape SettingsVisitPlan
   records: SettingsVisit[]
   close: bool
+  query: string
 fn settingsContentRoute(name: string): bool = ["settingsNotifications", "settingsThreads", "settingsProjectOverview", "settingsServer", "settingsProviders", "settingsAppearance", "settingsChoice", "settingsScheduledTasks", "settingsScheduledNew", "settingsScheduledEdit", "settingsScheduledModel", "settingsScheduledBranch", "settingsAbout", "settingsClientStorage", "settingsDiagnostics", "settingsOpenSourceLicenses", "settingsOpenSourceLicense", "settingsUsage", "settingsUsageAccount", "archive", "environments", "environmentDetail"].includes(name)
 fn settingsRootOwner(roots: WorkspaceEntry[], content: WorkspaceEntry[]): SettingsVisitOwner = match first(roots.slice(roots.length - 1, roots.length)) {
   case some(root) => SettingsVisitOwner(visitToken=`root:${root.id}`, routeKey=root.id),
@@ -75,9 +81,9 @@ fn settingsOperationRecords(previous: SettingsVisit[], entries: WorkspaceEntry[]
     ? settingsLiveRecords(previous, entries).filter(record => record.visitToken != event.visitToken).concat([SettingsVisit(visitToken=event.visitToken, selection=settingsApplyOperation(settingsVisitSelection(previous, event.visitToken), event))])
     : settingsLiveRecords(previous, entries)
 )
-fn settingsEventPlan(previous: SettingsVisit[], reply: option<SettingsScopeEvent>, entries: WorkspaceEntry[], routeKey: string): SettingsVisitPlan = match reply {
-  case some(event) => SettingsVisitPlan(records=settingsOperationRecords(previous, entries, event), close=settingsLiveTokens(entries).includes(event.visitToken) and event.requestRoute == routeKey and (event.kind == "close" or event.kind == "back")),
-  case none => SettingsVisitPlan(records=settingsLiveRecords(previous, entries), close=false)
+fn settingsEventPlan(previous: SettingsVisit[], reply: option<SettingsScopeEvent>, entries: WorkspaceEntry[], routeKey: string, currentQuery: string): SettingsVisitPlan = match reply {
+  case some(event) => SettingsVisitPlan(records=settingsOperationRecords(previous, entries, event), close=settingsLiveTokens(entries).includes(event.visitToken) and event.requestRoute == routeKey and (event.kind == "close" or event.kind == "back"), query=(event.kind == "search" ? event.value : currentQuery)),
+  case none => SettingsVisitPlan(records=settingsLiveRecords(previous, entries), close=false, query=currentQuery)
 }
 shape PairingCameraPlan
   next: PairingUi

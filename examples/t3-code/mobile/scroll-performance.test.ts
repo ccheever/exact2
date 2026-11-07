@@ -61,6 +61,9 @@ test('feed scrollports measure authored padding and avoid animating stream corre
   expect(thread).toContain('button appearance="none" press=action("fork-response", row.id, row.forkKey)');
   expect(app).toContain('width=(mobileRoutePresentation(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView) == "fullscreen" ? viewport.width : workspace.contentSettledWidth)');
   expect(app).toContain('max-width=(mobileRoutePresentation(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView) == "fullscreen" ? viewport.width : "100%")');
+  expect(appText('mobile/route-content.contract')).toContain('routeContentWidth = workspace.usesSplitView and (routeName == "settings" or routeName == "homeArrange" or routeName == "threadBrowser" or routeName == "threadDevices" or routeName == "settingsLegal") ? viewport.width : workspace.contentSettledWidth');
+  expect(appText('mobile/pull-requests.contract')).toContain('scroll id="pull-requests-list" flex=1 min-height=0');
+  expect(appText('mobile/pull-requests.contract')).toContain('scroll id="pull-request-detail-scroll" flex=1 min-height=0');
   expect(app).toContain('overflow-x="hidden" overflow-y="hidden" background-color=look.sheet');
 });
 
@@ -100,5 +103,48 @@ test('New Task virtualizes project rows while empty chooser content has no stale
   const app = appText('mobile/app.contract'), task = appText('mobile/new-task.contract');
   expect(task).toContain('list id="new-task-projects-scroll" virtualized=true estimated-item-height=49');
   expect(task).toContain('for project in data.projects key=project.id');
-  expect(app).toContain('entry.name == "newTask" ? "new-task-projects-scroll"');
+  const root = appText('mobile/mobile-root-state.contract');
+  expect(app).toContain('navigationScroll=(entry.name == "home" ? (home.fullPageEmpty ? "" : "home-list") : mobileRouteScroll(');
+  expect(root).toContain('name == "newTask" ? "new-task-projects-scroll"');
+  expect(root).toContain('name == "newTaskEnvironments" ? "new-task-environments-scroll"');
+  expect(root).toContain('name == "newTaskBranches" ? "new-task-branches-scroll"');
+  expect(task).toContain('list id="new-task-environments-scroll"');
+  expect(task).toContain('scroll id="new-task-branches-scroll"');
+  expect(task).toContain('list id="new-task-branches-scroll" virtualized=true');
+});
+
+test('Every route scroll owner names a rendered native scroll or list', () => {
+  const root = appText('mobile/mobile-root-state.contract');
+  const sources = Object.fromEntries([
+    ['agents-sheet', 'mobile/agent-activity.contract'],
+    ['home-arrangement-scroll', 'mobile/home-arrangement.contract'],
+    ['terminal-capture-lines', 'mobile/terminal-mobile.contract'],
+    ['attachment-document', 'mobile/attachment-document.contract'],
+    ['composer-settings-list', 'mobile/composer-settings.contract'],
+    ['composer-choices-list', 'mobile/composer-settings.contract'],
+    ['scheduled-model-scroll', 'mobile/settings-scheduled.contract'],
+    ['scheduled-branch-scroll', 'mobile/settings-scheduled.contract'],
+    ['settings-usage-account-scroll', 'mobile/settings-usage.contract'],
+    ['new-task-environments-scroll', 'mobile/new-task.contract'],
+    ['new-task-branches-scroll', 'mobile/new-task.contract'],
+  ].map(([id, file]) => [id, appText(file)]));
+  for (const [id, source] of Object.entries(sources)) expect(source).toContain(`id="${id}"`);
+  expect(root).toContain('name == "threadAgents" ? "agents-sheet"');
+  expect(root).toContain('name == "homeArrange" ? "home-arrangement-scroll"');
+  expect(root).toContain('name == "threadTerminalCapture" ? "terminal-capture-lines"');
+  expect(root).toContain('name == "threadMedia" or name == "threadDraftMedia" or name == "newTaskMedia" ? "attachment-document"');
+  expect(root).toContain('name == "threadModel" or name == "newTaskModel" ? "composer-settings-list"');
+  expect(root).toContain('name == "threadModelOption" or name == "newTaskModelOption" or name == "threadRuntime" or name == "newTaskRuntime" ? "composer-choices-list"');
+  expect(root).toContain('name == "settingsScheduledModel" ? "scheduled-model-scroll"');
+  expect(root).toContain('name == "settingsScheduledBranch" ? "scheduled-branch-scroll"');
+  expect(root).toContain('name == "settingsUsageAccount" ? "settings-usage-account-scroll"');
+});
+
+test('compact Home search stays attached while contract echoes a typed query', () => {
+  const chrome = appText('mobile/modules/apple/T3HomeChrome.swift');
+  expect(chrome).toContain('let active = searchController.isActive || item.searchController?.isActive == true');
+  expect(chrome).toContain('if active {');
+  expect(chrome).toContain('if item.searchController !== searchController { item.searchController = searchController }');
+  expect(chrome).toContain('} else {');
+  expect(chrome).toContain('searchController.isActive = true');
 });

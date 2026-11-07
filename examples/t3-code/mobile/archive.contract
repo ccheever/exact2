@@ -123,7 +123,7 @@ component Archive
     refresh()
   view
     if data.items.length == 0
-      scroll flex=1 min-height=0 refresh=reload testId="archive-empty-scroll"
+      scroll id="archive-list" flex=1 min-height=0 refresh=reload testId="archive-empty-scroll"
         column padding-left=16
           padding-right=16
           padding-top=4

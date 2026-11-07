@@ -115,7 +115,7 @@ component PullRequestDetail
           button press=reloadAction margin-top=10 testId="pull-request-detail-retry"
             text "Try again"
       else
-        scroll flex=1 min-height=0 testId="pull-request-detail-scroll" keyboardDismissMode="on-drag" scrollbar-width="none" touch-action="pan-y"
+        scroll id="pull-request-detail-scroll" flex=1 min-height=0 testId="pull-request-detail-scroll" keyboardDismissMode="on-drag" scrollbar-width="none" touch-action="pan-y"
           column padding-left=16 padding-right=16 padding-top=12 padding-bottom=28 gap=10
             row align-items="center" gap=8
               text data.repository font-size=13 font-weight=700 flex=1
@@ -186,8 +186,7 @@ component PullRequests
     reloadAction()
   view
     column flex=1 min-height=0 font-family="DM Sans"
-      row padding-left=16 padding-right=16 padding-top=4 padding-bottom=8 align-items="center" gap=8
-        text "Pull Requests" role="heading" aria-level=2 font-size=20 font-weight=700 flex=1
+      row padding-left=16 padding-right=16 padding-top=4 padding-bottom=8 align-items="center" justify-content="flex-end" gap=8
         button press=reload aria-label="Refresh pull requests" testId="pull-requests-refresh" padding=8
           t3-symbol symbol-name="arrow.clockwise" width=18 height=18
       row padding-left=16 padding-right=16 padding-bottom=10 gap=8
@@ -209,7 +208,7 @@ component PullRequests
           text (data.empty != "" ? data.empty : "No pull requests") role="heading" aria-level=3 font-weight=700 text-align="center"
           text (data.emptyDetail != "" ? data.emptyDetail : "Pull requests from every project in this workspace appear here.") margin-top=7 text-align="center"
       else
-        scroll flex=1 min-height=0 testId="pull-requests-list"
+        scroll id="pull-requests-list" flex=1 min-height=0 testId="pull-requests-list"
           for group in data.groups key=group.key
             column padding-left=16 padding-right=16 padding-top=12
               row align-items="center" padding-bottom=6

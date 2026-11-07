@@ -108,38 +108,38 @@ test('compact Settings binds its own physical toolbar to the shared logical visi
  scopeTransport();const rows=environmentRows();
  const prepare=(compact:boolean,routeKey:string,selection=allSelection())=>answer('settingsRoot',['{}','light',rows,0,'1',selection,0,routeKey,compact,'root:1']);
  const regular=prepare(false,'2'), compact=prepare(true,'2');
- expect(obj(JSON.parse(compact.header))).toEqual({...obj(JSON.parse(regular.header)),close:true,back:false,compactRoot:true});
- expect(obj(JSON.parse(regular.header))).toMatchObject({routeKey:'1',visitToken:'root:1',close:false,back:true,compactRoot:false});
+ expect(obj(JSON.parse(compact.header))).toEqual({...obj(JSON.parse(regular.header)),close:false,back:false,compactRoot:false});
+ expect(obj(JSON.parse(regular.header))).toMatchObject({routeKey:'1',visitToken:'root:1',close:false,back:false,compactRoot:false});
  expect(compact.projectHeader).toBe(regular.projectHeader);
  expect(obj(JSON.parse(compact.projectHeader))).toMatchObject({routeKey:'2',visitToken:'root:1',close:false,back:false});
  expect(scopeOperation('environment','b',compact.projectHeader)).toEqual({kind:'environment',value:'b',visitToken:'root:1',requestRoute:'2',availableEnvironmentIds:['a','b']});
  const projectKey=String(obj((obj(JSON.parse(compact.projectHeader)).projects as Obj[])[0]).id);
  const selection={allEnvironments:false,environmentIds:['a'],projectKey};
  const next=prepare(true,'3',selection);
- expect(obj(JSON.parse(next.header))).toMatchObject({routeKey:'1',visitToken:'root:1',compactRoot:true,all:false,projectKey});
+ expect(obj(JSON.parse(next.header))).toMatchObject({routeKey:'1',visitToken:'root:1',compactRoot:false,all:false,projectKey});
  expect(obj(JSON.parse(next.projectHeader))).toMatchObject({routeKey:'3',visitToken:'root:1',close:false,back:false,all:false,projectKey});
  expect(obj(JSON.parse(next.serverScope)).environmentIds).toEqual(['a']);
  const splitAgain=prepare(false,'3',selection);
- expect(obj(JSON.parse(splitAgain.header))).toEqual({...obj(JSON.parse(next.header)),close:false,back:true,compactRoot:false});
+ expect(obj(JSON.parse(splitAgain.header))).toEqual({...obj(JSON.parse(next.header)),close:false,back:false,compactRoot:false});
  expect(splitAgain.projectHeader).toBe(next.projectHeader);expect(splitAgain.serverScope).toBe(next.serverScope);
  expect(prepare(true,'3',selection)).toEqual(next);
- expect(scopeOperation('close','',compact.header,'root:1','1')).toMatchObject({kind:'close',requestRoute:'1',visitToken:'root:1'});
+ expect(scopeOperation('close','',compact.header,'root:1','1')).toEqual({kind:'',value:'',visitToken:'',requestRoute:'',availableEnvironmentIds:[]});
 });
 
-test('only regular Settings root admits its current native Back event', () => {
+ test('Settings root leaves dismissal to workspace tab selection', () => {
  const fixture=scopeTransport(), rows=environmentRows();
  const prepare=(compact:boolean)=>answer('settingsRoot',['{}','light',rows,0,'1',allSelection(),0,'2',compact,'root:1']);
  const regular=prepare(false), compact=prepare(true);
  const scheduled=answer('scheduledHeader',['{}',rows,'3',allSelection(),false,'root:1']);
- expect(obj(JSON.parse(scheduled.configuration))).toMatchObject({routeKey:'3',visitToken:'root:1',close:false,back:false});
- expect(scopeOperation('back','',regular.header,'root:1','1')).toEqual({kind:'back',value:'',visitToken:'root:1',requestRoute:'1',availableEnvironmentIds:['a','b']});
  const refused={kind:'',value:'',visitToken:'',requestRoute:'',availableEnvironmentIds:[]};
+ expect(obj(JSON.parse(scheduled.configuration))).toMatchObject({routeKey:'3',visitToken:'root:1',close:false,back:false});
+ expect(scopeOperation('back','',regular.header,'root:1','1')).toEqual(refused);
  for(const [header,token,route,value] of [
   [regular.header,'root:9','1',''],[regular.header,'root:1','9',''],[regular.header,'root:1','1','unexpected'],
   [compact.header,'root:1','1',''],[regular.projectHeader,'root:1','2',''],[scheduled.configuration,'root:1','3',''],
  ]) expect(scopeOperation('back',value!,header!,token!,route!)).toEqual(refused);
  expect(scopeOperation('close','',regular.header,'root:1','1')).toEqual(refused);
- expect(scopeOperation('close','',compact.header,'root:1','1')).toMatchObject({kind:'close',requestRoute:'1',visitToken:'root:1'});
+ expect(scopeOperation('close','',compact.header,'root:1','1')).toEqual(refused);
  expect(fixture.calls).toEqual([]);
 });
 
@@ -162,4 +162,19 @@ test('Settings header admission refuses stale physical routes, logical visits an
  const unavailable=answer('settingsRoot',['{}','light',rows,0,'1',{allEnvironments:false,environmentIds:[],projectKey},0,'2',false,'root:1']);
  expect(obj(JSON.parse(unavailable.projectHeader))).toMatchObject({projectKey,projectLabel:'Unavailable project',all:false});
  expect(obj(JSON.parse(unavailable.serverScope)).environmentIds).toEqual([]);
+});
+
+test('Settings search filters rows and stays owned by the native header visit', () => {
+  scopeTransport();
+  const rows = environmentRows();
+  const data = answer('settingsRoot', ['{}', 'light', rows, 0, '1', allSelection(), 0, '1', false, 'root:1', 'appearance']);
+  const root = obj(data.root);
+  const sections = root.sections as Obj[];
+  expect(sections).toHaveLength(1);
+  expect(sections[0]?.title).toBe('Interface');
+  expect((sections[0]?.rows as Obj[]).map(row => row.label)).toEqual(['Appearance']);
+  expect(obj(JSON.parse(data.header))).toMatchObject({ search: true, query: 'appearance', close: false, back: false });
+  expect(scopeOperation('search', 'keyboard', data.header, 'root:1', '1')).toMatchObject({
+    kind: 'search', value: 'keyboard', visitToken: 'root:1', requestRoute: '1',
+  });
 });

@@ -253,7 +253,7 @@ component SettingsScheduledModel
     field: action
     menu: action
   view
-    scroll flex=1 min-height=0 background-color=colors.sheet
+    scroll id="scheduled-model-scroll" flex=1 min-height=0 background-color=colors.sheet
       column padding=17.5 padding-bottom=bottom gap=14 font-family="DM Sans"
         if not data.present
           text "Open a scheduled task form first." color=colors.muted font-size=roles.body.size
@@ -292,7 +292,7 @@ component SettingsScheduledBranch
   action origin(value: bool)
     field("startFromOrigin", value ? "true" : "false")
   view
-    scroll flex=1 min-height=0 background-color=colors.sheet
+    scroll id="scheduled-branch-scroll" flex=1 min-height=0 background-color=colors.sheet
       column padding=17.5 padding-bottom=bottom gap=14 font-family="DM Sans"
         if not data.present
           text "Open a scheduled task form first." color=colors.muted font-size=roles.body.size

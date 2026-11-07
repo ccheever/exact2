@@ -162,11 +162,18 @@ test('only the original New Task entry presents a sheet; Change Project stays in
   expect(presentation('newTask', 'original', 'original', true)).toEqual(['', '', '']);
   expect(presentation('newTask', 'change-project', 'original', true)).toEqual(['', '', '']);
   expect(presentation('settings', 'settings')).toEqual(['', '', '']);
-  expect(presentation('settings', 'settings', 'original', true)).toEqual(['', 'fullscreen', '']);
+  expect(presentation('settings', 'settings', 'original', true)).toEqual(['', '', '']);
   for (const name of ['threadModel', 'newTaskModel']) expect(presentation(name, name)).toEqual(['composer', 'modal', 'large']);
   expect(presentation('threadQueue', 'queue')).toEqual(['', 'modal', '65% 95%']);
   for (const name of ['connect', 'connections']) expect(presentation(name, name)).toEqual(['true', 'modal', '55% 70%']);
-  for (const name of ['gitOverview', 'threadTerminalCapture']) expect(presentation(name, name)).toEqual(['', 'modal', '']);
+  expect(presentation('gitOverview', 'git')).toEqual(['', 'modal', '55%']);
+  expect(presentation('gitCommit', 'git-commit')).toEqual(['', 'modal', '80%']);
+  expect(presentation('gitBranches', 'git-branches')).toEqual(['', 'modal', '55%']);
+  expect(presentation('gitConfirm', 'git-confirm')).toEqual(['', 'modal', '55% 70%']);
+  expect(presentation('threadAgents', 'agents')).toEqual(['', 'modal', '50%']);
+  expect(presentation('threadReviewComment', 'review-comment')).toEqual(['', 'modal', '55%']);
+  expect(presentation('settingsScheduledModel', 'scheduled-model')).toEqual(['', 'modal', 'large']);
+  expect(presentation('threadTerminalCapture', 'terminal-capture')).toEqual(['', 'modal', '']);
   for (const name of ['homeArrange', 'threadBrowser', 'threadDevices', 'settingsLegal']) expect(presentation(name, name)).toEqual(['', 'fullscreen', '']);
 });
 

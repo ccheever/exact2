@@ -66,7 +66,7 @@ private struct T3ChromeConfiguration: Decodable {
     struct Status: Decodable { let label: String; let progress: Bool }
     struct Colors: Decodable { let foreground: String; let muted: String; let iconMuted: String; let subtle: String }
     var routeKey: String
-    let layout: String; let query: String
+    let layout: String; let selectedTab: String?; let query: String
     let environmentId: String; let projectKey: String
     let environments: [Environment]; let projects: [Project]
     let status: Status; let colors: Colors
@@ -220,15 +220,52 @@ private extension UIViewController {
 private enum T3TabIcon {
     /// Some SF Symbol names are introduced in a later OS symbol set than the
     /// host app's deployment target. Keep Expo's preferred glyph first, then
-    /// use a stable equivalent so a tab never degrades to a title-only item.
+    /// use a stable equivalent. The final vector fallback matters for the
+    /// native tab bar: UIKit accepts a nil item image without reporting an
+    /// error, which leaves a tab present but visually empty.
     static func image(_ names: [String]) -> UIImage? {
-        guard let image = names.lazy.compactMap({ UIImage(systemName: $0) }).first else { return nil }
+        guard let image = names.lazy.compactMap({ UIImage(systemName: $0) }).first ?? fallback(names) else { return nil }
         let canvas = CGSize(width: 28, height: 28)
         let scale = min(24 / image.size.width, 24 / image.size.height)
         let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         return UIGraphicsImageRenderer(size: canvas).image { _ in
             image.draw(in: CGRect(x: (canvas.width - size.width) / 2, y: (canvas.height - size.height) / 2, width: size.width, height: size.height))
         }.withRenderingMode(.alwaysTemplate)
+    }
+
+    private static func fallback(_ names: [String]) -> UIImage? {
+        let name = names.first ?? ""
+        let filled = name.contains(".fill")
+        let size = CGSize(width: 24, height: 24)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            let stroke = UIColor.black
+            stroke.setStroke(); stroke.setFill()
+            switch name {
+            case "bubble.left", "bubble.left.fill":
+                let bubble = UIBezierPath(roundedRect: CGRect(x: 3, y: 3, width: 18, height: 14), cornerRadius: 3)
+                let tail = UIBezierPath(); tail.move(to: CGPoint(x: 5, y: 16)); tail.addLine(to: CGPoint(x: 5, y: 21)); tail.addLine(to: CGPoint(x: 11, y: 17))
+                if filled { bubble.fill(); tail.fill() } else { bubble.lineWidth = 1.8; bubble.stroke(); tail.lineWidth = 1.8; tail.stroke() }
+            case "arrow.triangle.pull", "arrow.triangle.branch":
+                let path = UIBezierPath(); path.lineWidth = 1.8; path.lineCapStyle = .round; path.lineJoinStyle = .round
+                path.move(to: CGPoint(x: 7, y: 8)); path.addLine(to: CGPoint(x: 7, y: 18)); path.move(to: CGPoint(x: 7, y: 11)); path.addLine(to: CGPoint(x: 17, y: 7)); path.addLine(to: CGPoint(x: 17, y: 17)); path.stroke()
+                for point in [CGPoint(x: 7, y: 5), CGPoint(x: 7, y: 21), CGPoint(x: 17, y: 20)] { UIBezierPath(arcCenter: point, radius: 2.4, startAngle: 0, endAngle: .pi * 2, clockwise: true).stroke() }
+            case "chart.bar.xaxis", "chart.bar":
+                for (x, height) in [(4, 9), (10, 15), (16, 12)] { UIBezierPath(roundedRect: CGRect(x: CGFloat(x), y: 20 - CGFloat(height), width: 4, height: CGFloat(height)), cornerRadius: 1).fill() }
+                let axis = UIBezierPath(); axis.lineWidth = 1.5; axis.move(to: CGPoint(x: 3, y: 21)); axis.addLine(to: CGPoint(x: 21, y: 21)); axis.stroke()
+            case "gearshape", "gearshape.fill":
+                let center = CGPoint(x: 12, y: 12)
+                let ring = UIBezierPath(arcCenter: center, radius: 6.5, startAngle: 0, endAngle: .pi * 2, clockwise: true)
+                ring.lineWidth = filled ? 4.5 : 2.2; ring.stroke()
+                for index in 0..<8 {
+                    let angle = CGFloat(index) * .pi / 4
+                    let start = CGPoint(x: center.x + cos(angle) * 8, y: center.y + sin(angle) * 8)
+                    let end = CGPoint(x: center.x + cos(angle) * 10, y: center.y + sin(angle) * 10)
+                    let tooth = UIBezierPath(); tooth.lineWidth = filled ? 3.2 : 2.2; tooth.lineCapStyle = .round; tooth.move(to: start); tooth.addLine(to: end); tooth.stroke()
+                }
+            default:
+                return
+            }
+        }
     }
 }
 
@@ -356,8 +393,16 @@ private final class T3HomeChromeView: ExactNativeInstance {
             attachedLayout = mode
             if glass { if #available(iOS 26.0, *) { makeGlassToolbar(route) } }
             else {
-                makeHeaderSearch(route)
-                if config.layout == "sidebar" { makeSidebarTabs(route) }
+                // iOS 27 gives the unfolded Duo a vertical system rail.
+                // Keep UIKit's rail on the window so its occlusion packet,
+                // hit targets and selected state remain one owner. Older
+                // split devices retain the app-owned footer bar.
+                if #available(iOS 26.0, *), config.layout == "sidebar" && route.controller.t3UsesVerticalSystemBar {
+                    makeSystemTabs(route)
+                } else {
+                    makeHeaderSearch(route)
+                    if config.layout == "sidebar" { makeSidebarTabs(route) }
+                }
             }
             // Native edits retain their text and caret across asynchronous root echoes.
             replaceQuery(query)
@@ -368,14 +413,15 @@ private final class T3HomeChromeView: ExactNativeInstance {
         item.backButtonDisplayMode = .minimal
         // Pinned Stack.tsx GLASS_HEADER_OPTIONS uses the leading editor title.
         if #available(iOS 26.0, *) { item.style = .editor }
-        let settings = UIBarButtonItem(image: UIImage(systemName: config.layout == "sidebar" ? "gearshape" : "ellipsis"), primaryAction: UIAction { [weak self] _ in self?.emit("settings") })
-        settings.accessibilityLabel = "Open settings"; settings.accessibilityIdentifier = "home-settings"
+        let settings = config.layout == "sidebar" ? UIBarButtonItem(image: UIImage(systemName: "gearshape"), primaryAction: UIAction { [weak self] _ in self?.emit("settings") }) : nil
+        settings?.accessibilityLabel = "Open settings"; settings?.accessibilityIdentifier = "home-settings"
         if config.layout == "sidebar" {
             let filter = UIBarButtonItem(image: UIImage(systemName: config.sidebarFilterIcon), menu: menu())
             filter.accessibilityLabel = "Filter threads"; filter.accessibilityIdentifier = "home-filter"
             // UIKit orders rightBarButtonItems from the trailing edge inward.
-            installedRight = [filter, settings]
-        } else { installedRight = [settings] }
+            installedRight = [filter]
+            if let settings { installedRight.append(settings) }
+        } else { installedRight = [] }
         if config.layout == "compact" {
             let compose = UIBarButtonItem(image: UIImage(systemName: "square.and.pencil"), primaryAction: UIAction { [weak self] _ in self?.emit("compose") })
             compose.accessibilityLabel = "New chat"
@@ -386,15 +432,23 @@ private final class T3HomeChromeView: ExactNativeInstance {
             // Exact does not expose react-native-screens' integratedButton
             // placement. Keep the affordance in the navigation bar and attach
             // UIKit's search controller only when the button is activated.
-            item.searchController = nil
-            let search = UIBarButtonItem(image: UIImage(systemName: "magnifyingglass"), primaryAction: UIAction { [weak route, weak searchController] _ in
-                guard let route, let searchController else { return }
-                route.controller.navigationItem.searchController = searchController
-                searchController.isActive = true
-            })
-            search.accessibilityLabel = "Search threads"
-            search.accessibilityIdentifier = "workspace-search"
-            installedRight.insert(search, at: 0)
+            // Contract echoes arrive for every keystroke. Do not detach an active
+            // controller while its text field owns first responder, or the first
+            // character closes search on compact iOS.
+            let active = searchController.isActive || item.searchController?.isActive == true
+            if active {
+                if item.searchController !== searchController { item.searchController = searchController }
+            } else {
+                item.searchController = nil
+                let search = UIBarButtonItem(image: UIImage(systemName: "magnifyingglass"), primaryAction: UIAction { [weak route, weak searchController] _ in
+                    guard let route, let searchController else { return }
+                    route.controller.navigationItem.searchController = searchController
+                    searchController.isActive = true
+                })
+                search.accessibilityLabel = "Search threads"
+                search.accessibilityIdentifier = "workspace-search"
+                installedRight.insert(search, at: 0)
+            }
         }
         item.rightBarButtonItems = installedRight
         if !glass && config.layout == "compact" {
@@ -406,9 +460,30 @@ private final class T3HomeChromeView: ExactNativeInstance {
             route.controller.setToolbarItems(installedToolbar, animated: false)
             route.controller.navigationController?.setToolbarHidden(false, animated: false)
         }
+        updateTabSelection()
         filter?.setImage(UIImage(systemName: config.filterIcon), for: .normal)
         filter?.menu = menu()
         updateStatus(); updateWidth()
+    }
+
+    private func selectedTabIndex() -> Int? {
+        switch config?.selectedTab {
+        case "home", "threads": return 0
+        case "pullRequests": return 1
+        case "settingsUsage", "usage": return 2
+        case "settings": return 3
+        default: return nil
+        }
+    }
+
+    private func updateTabSelection() {
+        guard let index = selectedTabIndex() else { return }
+        if let controller = systemTabController, controller.selectedIndex != index {
+            controller.selectedIndex = index
+        }
+        if let bar = sidebarTabBar, let items = bar.items, items.indices.contains(index), bar.selectedItem !== items[index] {
+            bar.selectedItem = items[index]
+        }
     }
     private func updateBackVisibility() {
         guard isAttached, let config, let route else { return }
@@ -523,7 +598,6 @@ private final class T3HomeChromeView: ExactNativeInstance {
             item.accessibilityIdentifier = "workspace-sidebar-tab-\(key)"
             return item
         }
-        bar.selectedItem = bar.items?.first
         let delegate = T3SidebarTabDelegate(keys: keys) { [weak self] key in self?.emit("tab", key) }
         bar.delegate = delegate
         root.addSubview(bar)
@@ -535,6 +609,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         ])
         sidebarTabBar = bar
         sidebarTabDelegate = delegate
+        updateTabSelection()
     }
 
     @available(iOS 26.0, *)
@@ -543,7 +618,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         // the horizontal bar on phones and the vertical system rail on Duo.
         makeHeaderSearch(route)
         let keys = ["threads", "pullRequests", "usage", "settings"]
-        let labels = ["Chats", "PRs", "Usage", "Settings"]
+        let labels = ["Chats", "Pull Requests", "Usage", "Settings"]
         let symbols = [["text.bubble", "bubble.left"], ["arrow.triangle.pull", "arrow.triangle.branch"], ["chart.bar.xaxis", "chart.bar"], ["gearshape"]]
         let controller = T3SystemTabController()
         let children = keys.map { _ in T3TabPlaceholderController() }
@@ -559,7 +634,6 @@ private final class T3HomeChromeView: ExactNativeInstance {
             item.accessibilityIdentifier = "workspace-tab-\(keys[index])"
             if index == 0 { item.selectedImage = T3TabIcon.image(["text.bubble.fill", "bubble.left.fill", "bubble.left"]) }
         }
-        controller.selectedIndex = 0
         let delegate = T3SystemTabDelegate(keys: keys) { [weak self] key in self?.emit("tab", key) }
         controller.delegate = delegate
         controller.view.translatesAutoresizingMaskIntoConstraints = false
@@ -587,6 +661,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         controller.didMove(toParent: parent)
         systemTabController = controller
         systemTabDelegate = delegate
+        updateTabSelection()
         DispatchQueue.main.async { [weak controller] in
             guard let controller else { return }
             controller.view.superview?.bringSubviewToFront(controller.view)

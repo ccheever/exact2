@@ -90,7 +90,7 @@ component HomeArrangement
       // Retire actual handle/list identities when an external order changes.
       // Local expansion remains with this component; closing unmounts it.
       for version in [data.version] key=version
-        scroll flex=1 min-height=0 width="100%" overflow-y="scroll" overflow-x="hidden"
+        scroll id="home-arrangement-scroll" flex=1 min-height=0 width="100%" overflow-y="scroll" overflow-x="hidden"
           testId="home-arrangement-scroll"
           column width="100%"
             HomeArrangementSection(section="pinned", title="Pinned", rows=data.pinned, expanded=true, collapsible=false, version=version, blocked=data.blocked, colors=colors, toggle=toggle, drop=dropped)

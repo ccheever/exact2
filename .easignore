@@ -2,6 +2,9 @@
 .git/
 node_modules/
 target/
+examples/t3-code/target/
+examples/t3-code/mobile/target/
+host/apple/.build/
 **/node_modules/
 **/.exact/
 **/.build/

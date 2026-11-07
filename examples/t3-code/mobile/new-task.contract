@@ -66,7 +66,7 @@ component NewTaskEnvironments
     action: action
     colors: ComposerColors
   view
-    list flex=1 min-height=0 padding-left=16 padding-right=16 background-color=colors.sheet
+    list id="new-task-environments-scroll" flex=1 min-height=0 padding-left=16 padding-right=16 background-color=colors.sheet
       for environment in data.environments key=environment.id
         button press=action("environment", environment.id, "") disabled=environment.disabled text-align="left" role="radio" aria-checked=environment.selected
           min-height=49 padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5 background-color=colors.groupedCard
@@ -104,13 +104,13 @@ component NewTaskBranches
       action("branch-more", "", "")
   view
     if data.branches.length == 0
-      column flex=1 min-height=0 padding-left=16 padding-right=16 background-color=colors.sheet
+      scroll id="new-task-branches-scroll" flex=1 min-height=0 padding-left=16 padding-right=16 background-color=colors.sheet
         if data.workspaceMode == "worktree"
           NewTaskBranchOrigin(data=data, change=changeOrigin, colors=colors)
         column flex=1 min-height=0 align-items="center" justify-content="center"
           text data.branchEmpty padding=28 text-align="center" font-size=14 line-height="19px" color=colors.muted
     else
-      list virtualized=true flex=1 min-height=0 padding-left=16 padding-right=16 reachend=loadMore background-color=colors.sheet
+      list id="new-task-branches-scroll" virtualized=true flex=1 min-height=0 padding-left=16 padding-right=16 reachend=loadMore background-color=colors.sheet
         for item in newTaskBranchRows(data.branches, data.workspaceMode == "worktree") key=item.key
           column
             match item.branch
