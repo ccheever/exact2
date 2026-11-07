@@ -1165,8 +1165,10 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   does nothing. Cause: with `touch-action` at `auto` a horizontal pan is the
   platform's, as in a browser, so the swipe never begins. Fix:
   `touch-action="pan-y"` on the swiped node, which leaves vertical scrolling to the
-  page. Messages also gives the bubble `transition="translate -exact-spring(300, 30, 1)"`,
-  which moves it with the finger; that does not arm the gesture. (Chat2 DIARY,
+  page. The bubble follows the finger with or without a `transition`; the one
+  Messages gives it, `transition="translate -exact-spring(300, 30, 1)"`, springs it
+  back after the lift and does not arm the gesture
+  ([Swipe to reply](contract-for-agents.md#swipe-to-reply)). (Chat2 DIARY,
   which credited the transition, about 20 minutes; reproduced with `agent ios
   --touch platform`, 2026-10-04.) **Candidate diagnostic:** the compiler could
   warn on a `swiperight` without `touch-action`, as on a `pan`.

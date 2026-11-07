@@ -37,15 +37,15 @@ component Chat
           list id="transcript" appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=true flex=1 min-height=0
             for m in thread key=m.id
               row justify-content=(m.mine ? "flex-end" : "flex-start") padding="3px 12px"
-                text m.body padding="8px 12px" border-radius=18 max-width="75%" overflow-wrap="anywhere"
+                text m.body padding="8px 12px" border-radius=18 max-width="75%" overflow-wrap="break-word"
                   background-color=(m.mine ? "AccentColor" : "-exact-fill") color=(m.mine ? "AccentColorText" : "-exact-label")
                   testId=`message-${m.id}`
-          row align-items="flex-end" margin="6px 12px" padding="4px 4px 4px 12px" border-radius=20
+          row align-items="flex-end" margin="6px 12px" padding="0 4px 0 12px" border-radius=20
             border="1px solid -exact-separator"
             textarea id="composer" value=draft input=edit rows=1 field-sizing="content" max-height=140
-              placeholder="Message" aria-label="Message" testId="composer" flex=1 min-width=0
+              placeholder="Message" aria-label="Message" testId="composer" flex=1 min-width=0 padding="12px 0"
               border="none" background-color="transparent"
-            button press=post disabled=(draft.trim() == "" or pending(sent)) buttonStyle="filled"
+            button press=post disabled=(draft.trim() == "" or pending(sent)) buttonStyle="filled" margin="4px 0"
               retainFocus=true aria-label="Send" testId="send"
               image "symbol:send"
 ```
@@ -74,4 +74,4 @@ test "a sent message lands; the composer clears"
 
 - `interactive-widget` keeps the composer over the keyboard; Send keeps it up.
 - A send scrolls to the end, as Messages does; `scrollFollowEnd` follows only from there.
-- `anywhere` breaks a long word (a URL), as UIKit does. Yours: no name; a group names others'.
+- `break-word` breaks a long word (a URL), as UIKit does. Yours: no name; a group names others'.
