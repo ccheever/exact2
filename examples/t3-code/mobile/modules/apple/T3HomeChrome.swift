@@ -66,7 +66,7 @@ private struct T3ChromeConfiguration: Decodable {
     struct Status: Decodable { let label: String; let progress: Bool }
     struct Colors: Decodable { let foreground: String; let muted: String; let iconMuted: String; let subtle: String }
     var routeKey: String
-    let layout: String; let query: String
+    let layout: String; let selectedTab: String?; let query: String
     let environmentId: String; let projectKey: String
     let environments: [Environment]; let projects: [Project]
     let status: Status; let colors: Colors
@@ -368,14 +368,15 @@ private final class T3HomeChromeView: ExactNativeInstance {
         item.backButtonDisplayMode = .minimal
         // Pinned Stack.tsx GLASS_HEADER_OPTIONS uses the leading editor title.
         if #available(iOS 26.0, *) { item.style = .editor }
-        let settings = UIBarButtonItem(image: UIImage(systemName: config.layout == "sidebar" ? "gearshape" : "ellipsis"), primaryAction: UIAction { [weak self] _ in self?.emit("settings") })
-        settings.accessibilityLabel = "Open settings"; settings.accessibilityIdentifier = "home-settings"
+        let settings = config.layout == "sidebar" ? UIBarButtonItem(image: UIImage(systemName: "gearshape"), primaryAction: UIAction { [weak self] _ in self?.emit("settings") }) : nil
+        settings?.accessibilityLabel = "Open settings"; settings?.accessibilityIdentifier = "home-settings"
         if config.layout == "sidebar" {
             let filter = UIBarButtonItem(image: UIImage(systemName: config.sidebarFilterIcon), menu: menu())
             filter.accessibilityLabel = "Filter threads"; filter.accessibilityIdentifier = "home-filter"
             // UIKit orders rightBarButtonItems from the trailing edge inward.
-            installedRight = [filter, settings]
-        } else { installedRight = [settings] }
+            installedRight = [filter]
+            if let settings { installedRight.append(settings) }
+        } else { installedRight = [] }
         if config.layout == "compact" {
             let compose = UIBarButtonItem(image: UIImage(systemName: "square.and.pencil"), primaryAction: UIAction { [weak self] _ in self?.emit("compose") })
             compose.accessibilityLabel = "New chat"
@@ -406,9 +407,30 @@ private final class T3HomeChromeView: ExactNativeInstance {
             route.controller.setToolbarItems(installedToolbar, animated: false)
             route.controller.navigationController?.setToolbarHidden(false, animated: false)
         }
+        updateTabSelection()
         filter?.setImage(UIImage(systemName: config.filterIcon), for: .normal)
         filter?.menu = menu()
         updateStatus(); updateWidth()
+    }
+
+    private func selectedTabIndex() -> Int? {
+        switch config?.selectedTab {
+        case "home", "threads": return 0
+        case "pullRequests": return 1
+        case "settingsUsage", "usage": return 2
+        case "settings": return 3
+        default: return nil
+        }
+    }
+
+    private func updateTabSelection() {
+        guard let index = selectedTabIndex() else { return }
+        if let controller = systemTabController, controller.selectedIndex != index {
+            controller.selectedIndex = index
+        }
+        if let bar = sidebarTabBar, let items = bar.items, items.indices.contains(index), bar.selectedItem !== items[index] {
+            bar.selectedItem = items[index]
+        }
     }
     private func updateBackVisibility() {
         guard isAttached, let config, let route else { return }
@@ -523,7 +545,6 @@ private final class T3HomeChromeView: ExactNativeInstance {
             item.accessibilityIdentifier = "workspace-sidebar-tab-\(key)"
             return item
         }
-        bar.selectedItem = bar.items?.first
         let delegate = T3SidebarTabDelegate(keys: keys) { [weak self] key in self?.emit("tab", key) }
         bar.delegate = delegate
         root.addSubview(bar)
@@ -535,6 +556,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         ])
         sidebarTabBar = bar
         sidebarTabDelegate = delegate
+        updateTabSelection()
     }
 
     @available(iOS 26.0, *)
@@ -559,7 +581,6 @@ private final class T3HomeChromeView: ExactNativeInstance {
             item.accessibilityIdentifier = "workspace-tab-\(keys[index])"
             if index == 0 { item.selectedImage = T3TabIcon.image(["text.bubble.fill", "bubble.left.fill", "bubble.left"]) }
         }
-        controller.selectedIndex = 0
         let delegate = T3SystemTabDelegate(keys: keys) { [weak self] key in self?.emit("tab", key) }
         controller.delegate = delegate
         controller.view.translatesAutoresizingMaskIntoConstraints = false
@@ -587,6 +608,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         controller.didMove(toParent: parent)
         systemTabController = controller
         systemTabDelegate = delegate
+        updateTabSelection()
         DispatchQueue.main.async { [weak controller] in
             guard let controller else { return }
             controller.view.superview?.bringSubviewToFront(controller.view)

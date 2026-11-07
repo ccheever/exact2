@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { decodeHomeChromeEvent, homeConnectionTitle } from './home-chrome';
+import { decodeHomeChromeEvent, homeConnectionTitle, mobileHomeChrome } from './home-chrome';
 
 describe('native Home chrome events', () => {
   test('accepts workspace tab selections and rejects unknown event kinds', () => {
@@ -15,5 +15,10 @@ describe('native Home chrome events', () => {
     });
     expect(homeConnectionTitle({ networkStatus: 'online', connectionError: null, connectingEnvironments: [{ environmentLabel: "Nate's Mac Mini" }],
       hasConnectingEnvironment: true, hasPendingShellSnapshot: false, hasLoadedShellSnapshot: true, hasReadyEnvironment: false }).label).toBe("Reconnecting to Nate's Mac Mini");
+  });
+
+  test('keeps the native tab selection in the chrome configuration', () => {
+    const configuration = JSON.parse(mobileHomeChrome({ routeKey: 'home', layout: 'compact', selectedTab: 'settingsUsage', query: '', environments: [] }).configuration);
+    expect(configuration.selectedTab).toBe('settingsUsage');
   });
 });

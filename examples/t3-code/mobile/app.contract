@@ -458,12 +458,12 @@ component App
   derive appTab = nav.tab
   derive appTabRoot = match first(nav.tabs.filter(tab => tab.name == nav.tab)) { case some(tab) => tab.stack.length == 1, case none => true }
   derive homeRouteKey = match nav.tabs.filter(tab => tab.name == "home").at(0) { case some(tab) => match tab.stack.at(0) { case some(route) => `${route.id}`, case none => "home" }, case none => "home" }
-  resource chrome = homeChrome(homeRouteKey, homeQuery, homeEnvironment, homeProject, appearance.scheme, layout.safeBottom, layout.liquidGlass, data.revision, data.environments, appearance.groupingMode, "compact") as shape HomeChromeView
+  resource chrome = homeChrome(homeRouteKey, homeQuery, homeEnvironment, homeProject, appearance.scheme, layout.safeBottom, layout.liquidGlass, data.revision, data.environments, appearance.groupingMode, "compact", appTab) as shape HomeChromeView
   state sidebarQuery = ""
   state sidebarEnvironment = ""
   state sidebarProject = ""
   state sidebarSettledCount = 10
-  resource sidebarChrome = homeChrome(workspace.sidebarRouteKey, sidebarQuery, sidebarEnvironment, sidebarProject, appearance.scheme, layout.safeBottom, layout.liquidGlass, data.revision, data.environments, appearance.groupingMode, "sidebar") as shape HomeChromeView
+  resource sidebarChrome = homeChrome(workspace.sidebarRouteKey, sidebarQuery, sidebarEnvironment, sidebarProject, appearance.scheme, layout.safeBottom, layout.liquidGlass, data.revision, data.environments, appearance.groupingMode, "sidebar", appTab) as shape HomeChromeView
   resource sidebarHome = homeView(data.revision, wallTime.epochAtZero + elapsed, sidebarQuery, sidebarSettledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, sidebarChrome.environmentId, sidebarChrome.projectKey, `${workspace.environmentId}:${workspace.threadId}`, appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible, data.environments, "sidebar", data.catalogLoaded) as shape HomeView
   mutation sidebarEvent as shape ChromeEvent then didSidebarEvent
   action sidebarChromeEvent(value: string)
