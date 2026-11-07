@@ -189,6 +189,11 @@ test('route geometry exposes only a right-edge occlusion reservation', () => {
   expect(fns.contentGeometryTrailingReservation({ ...metrics(), state: 'unavailable' })).toBe(0);
 });
 
+test('active route content restores input through retained route wrappers', () => {
+  const source = appText('mobile/route-content.contract');
+  expect(source).toContain('row pointer-events=(focused ? "auto" : "none") flex=1 min-height=0 width="100%"');
+});
+
 test('thread content consumes only the measured trailing reservation', () => {
   const source = appText('mobile/route-content.contract');
   expect(source).toContain('derive threadTrailingReservation = contentGeometryTrailingReservation(contentGeometry)');
