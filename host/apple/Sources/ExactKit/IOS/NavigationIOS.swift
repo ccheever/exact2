@@ -1338,6 +1338,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             // its tablist (§3.7).
             DispatchQueue.main.async { [weak self, weak navigationController] in
                 if let navigationController { self?.settleTablist(navigationController) }
+                self?.presenter.menus.resumeAfterRouteDismissal()
             }
             // At rest: a large title's insets are sampled now (§9.10).
             coversChanged()

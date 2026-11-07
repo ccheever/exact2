@@ -28,17 +28,19 @@ final class MenuHost {
     /// A press whose caller presents what its command opens (a pull-down, a
     /// confirmation): `invoke` still runs a command that closes.
     var presentationOwner: NodeView?
-    /// Logical visibility can reopen before UIKit finishes dismissing the old alert.
+    /// Alerts wait in request order until the visible confirmation has left.
     private struct PendingConfirmation {
         let popover: NodeView, source: NodeView?, modal: Bool
         let incarnation: UInt64, sourceIncarnation: UInt64?
         var fields: [PromptField.Snapshot] = []
+        var relocating = false
         init(_ popover: NodeView, _ source: NodeView?, modal: Bool) {
             self.popover = popover; self.source = source; self.modal = modal
             incarnation = popover.incarnation; sourceIncarnation = source?.incarnation
         }
+        func matches(_ node: NodeView) -> Bool { popover === node && incarnation == node.incarnation }
     }
-    private var pendingConfirmation: PendingConfirmation?
+    private var pendingConfirmations: [PendingConfirmation] = []
     private var waitingShows = 0 // `showModal`'s retries behind a leaving menu or sheet: in flight for `clock settle`
     /// Under the agent, the popovers open in their painted presentation
     /// (LLP 1021 D4), by `id`: each in the top layer while open, as macOS's
@@ -65,7 +67,7 @@ final class MenuHost {
     /// Whether a confirmation's button was chosen and its press has not yet
     /// landed: it lands once UIKit has dismissed the alert.
     var choosing: Bool { confirmation?.finishing == true }
-    var nativeConfirmation: NodeView? { pendingConfirmation?.popover ?? (confirmation?.finishing == false ? confirmation?.popover : nil) }
+    var nativeConfirmation: NodeView? { confirmation?.finishing == false ? confirmation?.popover : pendingConfirmations.first?.popover }
     /// How many popovers the agent has opened: each one's place in the stack.
     private var opened = 0
     private final class Lifted {
@@ -129,8 +131,12 @@ final class MenuHost {
         // Paint ordinary menus for the agent; confirmations use UIKit with either input carrier (LLP 1021 D4).
         guard let presenter else { return }
         observeTouches()
+        discardPendingConfirmations { pending in
+            !live(pending.popover) || !pending.matches(pending.popover) || (!pending.relocating &&
+                pending.source.map { !live($0) || $0.incarnation != pending.sourceIncarnation } == true)
+        }
         if let owner = confirmation, !owner.fields.isEmpty { followPrompt(owner) }
-        if let owner = confirmation, !valid(owner) { resetConfirmation() }
+        if let owner = confirmation, !valid(owner) { resetConfirmation(preservingPending: true) }
         sheets.sync()
         var popovers: [String: NodeView] = [:]
         for (name, entry) in agentOpen {
@@ -344,10 +350,7 @@ final class MenuHost {
         let source = sourceId.flatMap { id in presenter.views.values.first { $0.props["id"] == id } }
         if sourceId != nil && source == nil { presenter.session?.log("\(command) refused: no source has that id"); return }
         if command == "hidePopover" || command == "togglePopover" && isOpen(pop) {
-            if pendingConfirmation?.popover === pop {
-                pendingConfirmation = nil
-                presenter.popoverEvents.changed(pop, open: false)
-            }
+            discardPendingConfirmations { $0.matches(pop) }
             if let owner = confirmation, owner.popover === pop { finish(owner, chosen: nil) }
             else { drop(name) }
             #if os(iOS)
@@ -478,7 +481,7 @@ final class MenuHost {
         guard let pop = owner.popover, !owner.finishing else { return }
         let shown = pop.confirmationRows.filter(\.isPromptField)
         guard shown.count == owner.fields.count, zip(shown, owner.fields).allSatisfy({ $0 === $1.node }) else {
-            resetConfirmation()
+            resetConfirmation(preservingPending: true)
             return
         }
         for (entry, button) in zip(owner.actions, owner.buttons) {
@@ -496,6 +499,7 @@ final class MenuHost {
         confirmation = nil
         owner.popover?.queueDialogClose()
         if let pop = owner.popover { presenter?.popoverEvents.changed(pop, open: false) }
+        DispatchQueue.main.async { [weak self] in self?.resumeAfterRouteDismissal() }
     }
     /// `chosen` is the selected action, nil for the cancel.
     private func finish(_ owner: Confirmation, chosen: NodeView?) {
@@ -522,25 +526,22 @@ final class MenuHost {
                 guard let self, self.confirmation === owner else { return }
                 let action = owner.chosen.flatMap { self.valid(owner) && self.valid(owner, chosen: $0) ? $0 : nil }
                 self.confirmation = nil
-                let pending = self.pendingConfirmation
-                self.pendingConfirmation = nil
-                if let pending {
-                    let pop = pending.popover
-                    if pop.incarnation != pending.incarnation || pending.source?.incarnation != pending.sourceIncarnation ||
-                        !self.openConfirmation(from: pending.source, popover: pop, modal: pending.modal, dispatchPress: false, announce: false) {
-                        self.presenter?.popoverEvents.changed(pop, open: false)
-                    }
-                }
+                self.resumeAfterRouteDismissal()
                 if let action { self.presenter?.press(action.id) }
             }
             owner.popover?.queueDialogClose()
         }
     }
-    private func resetConfirmation() {
-        if let pending = pendingConfirmation {
-            pendingConfirmation = nil
+    private func discardPendingConfirmations(where removed: (PendingConfirmation) -> Bool) {
+        guard !pendingConfirmations.isEmpty else { return }
+        let discarded = pendingConfirmations.filter(removed)
+        pendingConfirmations.removeAll(where: removed)
+        for pending in discarded where live(pending.popover) && pending.matches(pending.popover) {
             presenter?.popoverEvents.changed(pending.popover, open: false)
         }
+    }
+    private func resetConfirmation(preservingPending: Bool = false) {
+        if !preservingPending { discardPendingConfirmations { _ in true } }
         guard let owner = confirmation else { return }
         confirmation = nil
         if !owner.finishing, let pop = owner.popover { presenter?.popoverEvents.changed(pop, open: false) }
@@ -548,28 +549,30 @@ final class MenuHost {
         owner.fields.forEach { $0.end() }
         // Only this session's alert; never dismiss through a containing app's
         // root controller, which might now present something unrelated.
-        owner.alert.dismiss(animated: false) { _ = owner }
+        owner.alert.dismiss(animated: false) { [weak self, owner] in
+            _ = owner
+            if preservingPending { DispatchQueue.main.async { [weak self] in self?.resumeAfterRouteDismissal() } }
+        }
     }
     func retire(over controller: UIViewController, removing route: NodeView) -> () -> Void {
         let endSheets = sheets.retire(over: controller, removing: route)
-        if let pending = pendingConfirmation, presenter?.authored(pending.popover, inside: route) == true {
-            pendingConfirmation = nil
-            presenter?.popoverEvents.changed(pending.popover, open: false)
-        }
+        discardPendingConfirmations { presenter?.authored($0.popover, inside: route) == true }
         guard let owner = confirmation, ViewPresentation.isPresented(owner.alert, above: controller) else { return endSheets }
         // A selected action still belongs to its dismissal callback and its validity checks.
         guard !owner.finishing else { return endSheets }
         confirmation = nil
         if let pop = owner.popover {
-            if pendingConfirmation == nil, live(pop), presenter?.authored(pop, inside: route) == false {
-                pendingConfirmation = PendingConfirmation(pop, owner.source, modal: owner.modal)
-                pendingConfirmation?.fields = owner.fields.compactMap { $0.snapshot() }
+            if live(pop), presenter?.authored(pop, inside: route) == false {
+                var pending = PendingConfirmation(pop, owner.source, modal: owner.modal)
+                pending.fields = owner.fields.compactMap { $0.snapshot() }
+                pending.relocating = true
+                pendingConfirmations.insert(pending, at: 0)
             } else {
                 presenter?.popoverEvents.changed(pop, open: false)
             }
         }
         owner.finishing = true
-        owner.fields.forEach { $0.end(relocating: pendingConfirmation.map { $0.popover === owner.popover } == true) }
+        owner.fields.forEach { $0.end(relocating: pendingConfirmations.contains { $0.popover === owner.popover }) }
         // The route's presenting controller dismisses the whole stack once.
         // Removing route content is not HTML dialog.close(), so sends no close.
         return { [owner] in
@@ -577,16 +580,17 @@ final class MenuHost {
             endSheets()
         }
     }
-    func preservesFocus(_ id: UInt32) -> Bool { sheets.preservesFocus(id) || pendingConfirmation?.fields.contains { $0.node?.id == id && $0.node === presenter?.views[id] && $0.node?.incarnation == $0.incarnation } == true }
+    func preservesFocus(_ id: UInt32) -> Bool { sheets.preservesFocus(id) || pendingConfirmations.contains { $0.fields.contains { $0.node?.id == id && $0.node === presenter?.views[id] && $0.node?.incarnation == $0.incarnation } } }
     func resumeAfterRouteDismissal() {
         guard let presenter, !presenter.modals.inTransition, !presenter.navigation.inTransition, sheets.resumeAfterRouteDismissal(),
-              confirmation == nil, let pending = pendingConfirmation else { return }
-        pendingConfirmation = nil
-        let pop = pending.popover
-        let source = pending.source.flatMap { live($0) && $0.incarnation == pending.sourceIncarnation && $0.window != nil ? $0 : nil }
-        if pop.incarnation != pending.incarnation ||
-            !openConfirmation(from: source, popover: pop, modal: pending.modal, dispatchPress: false, announce: false, restoring: pending.fields) {
-            presenter.popoverEvents.changed(pop, open: false)
+              confirmation == nil else { return }
+        while confirmation == nil, !pendingConfirmations.isEmpty {
+            let pending = pendingConfirmations.removeFirst(), pop = pending.popover
+            let source = pending.source.flatMap { live($0) && $0.incarnation == pending.sourceIncarnation && $0.window != nil ? $0 : nil }
+            if pop.incarnation != pending.incarnation || (!pending.relocating && pending.source != nil && source == nil) ||
+                !openConfirmation(from: source, popover: pop, modal: pending.modal, dispatchPress: false, announce: false, restoring: pending.fields) {
+                presenter.popoverEvents.changed(pop, open: false)
+            }
         }
     }
     func reset() {
@@ -802,7 +806,7 @@ final class MenuHost {
     /// Whether `node`, a popover, is open: its confirmation presented, or,
     /// under the agent, its painted presentation shown.
     func isOpen(_ node: NodeView) -> Bool {
-        if pendingConfirmation?.popover === node || confirmation?.popover === node && confirmation?.finishing == false || sheets.isOpen(node) { return true }
+        if pendingConfirmations.contains(where: { $0.matches(node) }) || confirmation?.popover === node && confirmation?.finishing == false || sheets.isOpen(node) { return true }
         #if os(iOS)
         if context.isOpen(node) || overlays.values.contains(where: { ($0 as? MenuButton).map { $0.popover === node && $0.isMenuOpen } == true }) { return true }
         if nativeMenus.values.contains(where: { $0.popover === node && $0.isMenuOpen }) { return true }
@@ -981,7 +985,7 @@ final class MenuHost {
     }
     func unmounted() { focus.reset(); resetConfirmation(); sheets.reset() }
     var inTransition: Bool {
-        if sheets.inTransition || pendingConfirmation != nil || waitingShows > 0 { return true }
+        if sheets.inTransition || confirmation == nil && !pendingConfirmations.isEmpty || waitingShows > 0 { return true }
         guard let owner = confirmation else { return false }
         return owner.finishing || owner.alert.isBeingPresented || owner.alert.isBeingDismissed
     }
@@ -1083,9 +1087,8 @@ final class MenuHost {
     /// behind a leaving one, or its sheet
     private func hideConfirmation(_ pop: NodeView) {
         if let owner = confirmation, owner.popover === pop, !owner.finishing { finish(owner, chosen: nil) }
-        else if let pending = pendingConfirmation, pending.popover === pop {
-            pendingConfirmation = nil
-            presenter?.popoverEvents.changed(pop, open: false)
+        else if let pending = pendingConfirmations.first(where: { $0.matches(pop) }) {
+            discardPendingConfirmations { $0.matches(pop) }
             if pending.modal { pop.queueDialogClose() }
             coverClosed()
         }
@@ -1180,7 +1183,7 @@ final class MenuHost {
     /// reopen waiting on its predecessor's dismissal counts, a finishing
     /// alert does not
     func openModally(_ pop: NodeView) -> Bool? {
-        if let pending = pendingConfirmation, pending.popover === pop { return pending.modal }
+        if let pending = pendingConfirmations.first(where: { $0.matches(pop) }) { return pending.modal }
         if let owner = confirmation, owner.popover === pop, !owner.finishing { return owner.modal }
         return sheets.isOpen(pop) ? true : nil
     }
@@ -1210,11 +1213,10 @@ final class MenuHost {
             }
             modal = now.action == .showModal
         }
-        if confirmation?.finishing == true {
+        if confirmation != nil {
             guard !isOpen(pop), showable(pop), source.map({ eligible($0) }) ?? true,
                   unconfirmable(pop, modal: modal) == nil, prompts(pop) || Self.choosable(rows(of: pop, modal: modal).actions, { choosable($0, in: pop) }) else { return false }
-            if let previous = pendingConfirmation { presenter?.popoverEvents.changed(previous.popover, open: false) }
-            pendingConfirmation = PendingConfirmation(pop, source, modal: modal)
+            pendingConfirmations.append(PendingConfirmation(pop, source, modal: modal))
             presenter?.popoverEvents.changed(pop, open: true)
             return true
         }
@@ -1338,41 +1340,6 @@ final class MenuHost {
             else { owner.alert.dismiss(animated: false) }
         }
         return true
-    }
-    /// The alert's preferred action, drawn bold and taking a hardware
-    /// Return: the Mac's default button (`AlertsMac.defaultRow`, LLP 1115.000
-    /// D7.3), the one `filled` action that is not destructive, when exactly
-    /// one is; emphasis never picks among several. A prompt's Return is its
-    /// first action that is not destructive (`PromptField.returned`), so
-    /// there the filled action is preferred only when it is that one: the
-    /// action drawn bold is always the one Return presses.
-    static func preferredAction(_ actions: [NodeView], cancel: NodeView? = nil, prompt: Bool) -> Int? {
-        let destructive = actions.map { $0.props["destructive"] == "true" }
-        let filled = actions.indices.filter { !destructive[$0] && actions[$0].face?.style == "filled" }
-        // A filled cancel is one of the candidates on the Mac, and never the default.
-        guard filled.count == 1, prompt || cancel?.face?.style != "filled" else { return nil }
-        return !prompt || destructive.firstIndex(of: false) == filled[0] ? filled[0] : nil
-    }
-    /// LLP 1115 D6, by the HIG: a confirmation — explanatory text, a
-    /// cancel, at most three buttons — is an alert, centred, its Cancel
-    /// kept (React Native's `Alert.alert`, SwiftUI's `.alert`). Anything
-    /// else is an action sheet: UIKit's unanchored one on a compact screen
-    /// when it has a cancel to show (UIKit draws no cancel in a popover), else a
-    /// popover, which a tap outside dismisses. An alert has no outside (LLP
-    /// 1115.000 D13.4), so a `dialog` of the alert's shape whose author wrote
-    /// `closedby="any"` (`outside`) is the dismissible form too.
-    /// Something can be chosen: an action that is choosable, or none at
-    /// all, the one-button alert whose button is its cancel.
-    private static func choosable(_ actions: [NodeView], _ test: (NodeView) -> Bool) -> Bool {
-        actions.isEmpty || actions.contains(where: test)
-    }
-    private static func style(texts: Int, actions: Int, cancels: Int, compact: Bool, outside: Bool) -> Confirmation.Style {
-        if !outside, ConfirmationShape.isAlert(texts: texts, actions: actions, cancels: cancels) { return .alert }
-        #if os(tvOS)
-        return .sheet
-        #else
-        return cancels > 0 && compact ? .sheet : .popover
-        #endif
     }
     #if !os(tvOS)
     private func anchor(_ presentation: UIPopoverPresentationController, at source: NodeView, area: String) {
