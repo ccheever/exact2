@@ -192,7 +192,7 @@ describe('root tab navigation', () => {
     expect(appContract).toContain('data-mobile-form-sheet=mobileRouteFormSheet(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView)');
   });
 
-  test('selecting a tab preserves its existing stack and Settings exits from either header action', () => {
+  test('selecting a tab preserves its existing stack and Settings returns through tab selection', () => {
     const root = contractComponent('mobile/app.contract', 'App');
     const home = { id: 'home', name: 'home' }, settings = { id: 'settings', name: 'settings' };
     const state: Env = { nav: [home, settings], settingsVisits: [], settingsEvent: { kind: 'close' }, workspaceEntries: [] };

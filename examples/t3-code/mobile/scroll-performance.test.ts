@@ -63,6 +63,7 @@ test('feed scrollports measure authored padding and avoid animating stream corre
   expect(app).toContain('max-width=(mobileRoutePresentation(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView) == "fullscreen" ? viewport.width : "100%")');
   expect(appText('mobile/route-content.contract')).toContain('routeContentWidth = workspace.usesSplitView and (routeName == "settings" or routeName == "homeArrange" or routeName == "threadBrowser" or routeName == "threadDevices" or routeName == "settingsLegal") ? viewport.width : workspace.contentSettledWidth');
   expect(appText('mobile/pull-requests.contract')).toContain('scroll id="pull-requests-list" flex=1 min-height=0');
+  expect(appText('mobile/pull-requests.contract')).toContain('scroll id="pull-request-detail-scroll" flex=1 min-height=0');
   expect(app).toContain('overflow-x="hidden" overflow-y="hidden" background-color=look.sheet');
 });
 

@@ -115,7 +115,7 @@ component PullRequestDetail
           button press=reloadAction margin-top=10 testId="pull-request-detail-retry"
             text "Try again"
       else
-        scroll flex=1 min-height=0 testId="pull-request-detail-scroll" keyboardDismissMode="on-drag" scrollbar-width="none" touch-action="pan-y"
+        scroll id="pull-request-detail-scroll" flex=1 min-height=0 testId="pull-request-detail-scroll" keyboardDismissMode="on-drag" scrollbar-width="none" touch-action="pan-y"
           column padding-left=16 padding-right=16 padding-top=12 padding-bottom=28 gap=10
             row align-items="center" gap=8
               text data.repository font-size=13 font-weight=700 flex=1
