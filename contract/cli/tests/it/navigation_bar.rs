@@ -132,3 +132,53 @@ fn a_header_button_that_presses_nothing_is_named() {
     result.unwrap();
     assert_eq!(warnings.len(), 1, "{warnings:?}");
 }
+
+/// The iOS bar draws a readout from the texts, symbols and sized dots it
+/// holds and hides one that holds none, an activity indicator alone: the
+/// warning names what it draws, for a readout under an `if` too.
+#[test]
+fn a_readout_the_bar_cannot_draw_is_named() {
+    // The header's warnings: a literal fill earns `lower-colour-one-scheme` too.
+    let header_warnings = |items: &str| {
+        let header =
+            format!("header\n            text \"Log\" role=\"heading\" aria-level=2\n{items}");
+        let src = stack("", "", "").replace("column \n", &format!("{header}\n          column\n"));
+        let (result, warnings) = contract::compile_warned(&src);
+        result.unwrap();
+        warnings
+            .into_iter()
+            .filter(|w| w.id.starts_with("lower-header-"))
+            .map(|w| (w.span.line, w.message))
+            .collect::<Vec<_>>()
+    };
+    let readout = |inner: &str| {
+        format!("            row role=\"status\" aria-label=\"Signing in\"\n              {inner}")
+    };
+    let branch = "            if e.name == \"home\"\n              row role=\"status\" aria-label=\"Signing in\"\n                progress aria-label=\"Signing in\"\n            else\n              button disabled=true\n                text \"Sign In\"";
+    for (items, line) in [
+        (readout("progress aria-label=\"Signing in\""), 11),
+        // A fill with no size is no dot.
+        (readout("column background-color=\"#16a34a\""), 11),
+        (branch.to_string(), 12),
+    ] {
+        let warnings = header_warnings(&items);
+        assert_eq!(warnings.len(), 1, "{items}: {warnings:?}");
+        let (at, says) = &warnings[0];
+        assert_eq!(*at, line, "{items}");
+        assert!(
+            says.starts_with(
+                "this readout (`role=\"status\"`) in this route's `header` is not shown on iOS"
+            ) && says.contains("texts, symbols (`image \"symbol:…\"`) and sized dots"),
+            "{says}"
+        );
+    }
+    // A text, a symbol or a sized dot is drawn: no warning.
+    for inner in [
+        "progress aria-label=\"Signing in\"\n              text \"Signing in\"",
+        "image \"symbol:sf/atom\"",
+        "column width=7 height=7 border-radius=3.5 background-color=\"#16a34a\"",
+    ] {
+        let warnings = header_warnings(&readout(inner));
+        assert!(warnings.is_empty(), "{inner}: {warnings:?}");
+    }
+}
