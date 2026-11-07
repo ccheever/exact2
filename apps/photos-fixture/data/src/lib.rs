@@ -30,7 +30,7 @@ const SOURCES: [(&str, &[u8]); 3] = [
     ),
     (
         "gainmap-iso.jpg",
-        include_bytes!("../../../color-gallery/assets/gainmap-iso.jpg"),
+        include_bytes!("../../../ui-gallery/assets/gainmap-iso.jpg"),
     ),
 ];
 

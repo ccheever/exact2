@@ -1,8 +1,8 @@
 {
   "$schema": "../../scripts/app.schema.json",
-  "name": "Color Gallery",
-  "short_name": "Color Gallery",
-  "id": "com.exact.colorgallery",
+  "name": "UI Gallery",
+  "short_name": "UI Gallery",
+  "id": "com.exact.uigallery",
   "start_url": "/",
   "display": "standalone",
   "theme_color": "#ffffff",
@@ -15,8 +15,8 @@
     }
   ],
   "app": {
-    "id": "com.exact.colorgallery",
-    "name": "Color Gallery"
+    "id": "com.exact.uigallery",
+    "name": "UI Gallery"
   },
   "host": {
     "ios": {

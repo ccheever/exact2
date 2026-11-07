@@ -31,9 +31,13 @@ class LabelledSegmentedControl: UISegmentedControl {
             let id = segmentIDs.indices.contains(index) ? segmentIDs[index] : nil
             if view.accessibilityLabel != label { view.accessibilityLabel = label }
             if view.accessibilityIdentifier != id { view.accessibilityIdentifier = id }
-            let unavailable = segmentUnavailable.indices.contains(index) && segmentUnavailable[index]
-            if unavailable { view.accessibilityTraits.insert(.notEnabled) }
-            else { view.accessibilityTraits.remove(.notEnabled) }
+            let unavailable = !isEnabled || !isEnabledForSegment(at: index) ||
+                (segmentUnavailable.indices.contains(index) && segmentUnavailable[index])
+            var traits = view.accessibilityTraits
+            if unavailable { traits.insert(.notEnabled) } else { traits.remove(.notEnabled) }
+            if index == selectedSegmentIndex { traits.insert(.selected) } else { traits.remove(.selected) }
+            // Write only changed traits so UIKit's computed selection is not frozen by an unchanged override
+            if view.accessibilityTraits != traits { view.accessibilityTraits = traits }
         }
     }
 }
@@ -256,15 +260,19 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         tab.props[tab.props["accessibilityRole"] == "radio" ? "accessibilityChecked" : "accessibilitySelected"] == "true"
     }
 
-    /// Whether the owner takes input. `visibility` is read on the owner
-    /// alone: its value is computed, and a box under a hidden one may set it
-    /// back to `visible`.
-    private func available(_ owner: UIView) -> Bool {
-        if (owner as? NodeView)?.cssVisibilityHidden == true { return false }
+    /// Keep enabled state independent of a route's temporary containment.
+    /// Activation also requires a visible owner in a window. `visibility`
+    /// is computed on the owner: a child may restore it to `visible`.
+    private func available(_ owner: NodeView, forActivation: Bool = true) -> Bool {
+        if owner.cssVisibilityHidden || owner.authoredInert { return false }
+        for case let node as NodeView in presenter.logicalAncestry(of: owner) {
+            if node.style["display"]?.string == "none" { return false }
+        }
+        guard forActivation else { return true }
         var ancestor: UIView? = owner
         while let view = ancestor {
-            if view.isHidden || (view as? NodeView)?.props["inert"] == "true" { return false }
-            ancestor = presenter.eventParent(of: view)
+            if view.isHidden { return false }
+            ancestor = view.superview
         }
         return owner.window != nil
     }
@@ -445,7 +453,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         let left = PixelGrid.length(box.minX, from: origin, vertical: false, scale: scale), right = PixelGrid.length(box.maxX, from: origin, vertical: false, scale: scale)
         let frame = CGRect(x: left, y: owner.bounds.minY, width: right - left, height: owner.bounds.height)
         if bar.frame != frame { bar.frame = frame }
-        assign(bar, \.isUserInteractionEnabled, available(owner))
+        assign(bar, \.isUserInteractionEnabled, available(owner, forActivation: false))
         assign(bar, \.accessibilityLabel, owner.props["accessibilityLabel"])
         let current = bar.items ?? []
         // Made with the symbol and, for a path, the size its glyph was drawn at.
@@ -537,9 +545,9 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             owner.accessibilityTraits.remove(.tabBar)
             decide(owner, "projected to UISegmentedControl (\(tabs.count) segments)")
             adopt(owner, tabs)
-            // A control new under its owner is made, titled, measured and placed with no animation inside one UIKit
-            // has open, as UIKit sizes it to fit while it is made and titled; one that showed moves with its owner
-            owner.moveOrPlace(new: controls[owner.id]?.superview !== owner) { segment(owner, tabs) }
+            // Finish native layout in the same unanimated update as selection: UIKit can defer
+            // positioning its selection indicator until the control receives its final frame
+            UIView.performWithoutAnimation { segment(owner, tabs) }
         }
     }
 
@@ -559,7 +567,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             return value
         }()
         if control.superview !== owner { owner.addSubview(control) }
-        assign(control, \.isEnabled, available(owner))
+        assign(control, \.isEnabled, available(owner, forActivation: false))
         // The authored colour belongs to UIKit's control, within its native height and corners.
         assign(control, \.backgroundColor, owner.uiColor("background_color"))
         owner.applyBoxLayer()
@@ -572,7 +580,9 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         }
         for (index, tab) in tabs.enumerated() {
             content(tab, at: index, in: control)
-            control.setEnabled(!tab.disabled, forSegmentAt: index)
+            if control.isEnabledForSegment(at: index) == tab.disabled {
+                control.setEnabled(!tab.disabled, forSegmentAt: index)
+            }
         }
         control.accessibilityIdentifier = owner.props["testId"]
         control.segmentLabels = tabs.map(Self.segmentLabel)
@@ -582,7 +592,9 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         // A choice the finger made and the control has not reported yet
         // stays; resetting it would make the report name the old segment.
         let pending = control.isTracking || control.selectedSegmentIndex != control.settled
-        if control.selectedSegmentIndex != selected, !pending { control.selectedSegmentIndex = selected }
+        if control.selectedSegmentIndex != selected, !pending {
+            control.selectedSegmentIndex = selected
+        }
         if control.selectedSegmentIndex == selected { control.settled = selected }
         // As wide as the content box and its own height, centred in it
         // (LLP 1116.019 D1): a taller box (an authored height, a stretch)
@@ -598,6 +610,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         // each segment its content's share, so "Temperature" keeps its
         // letters beside "Length" (LLP 1116.004 D2).
         assign(control, \.apportionsSegmentWidthsByContent, frame.width + 0.5 < natural(owner.id, control).width)
+        if !pending { control.layoutIfNeeded() }
     }
 
     /// A title segment's accessibility label: its tab's name where that is

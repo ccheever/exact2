@@ -244,6 +244,89 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertFalse(segments.isEnabled, "inert disables it too")
     }
 
+    func testSegmentsKeepTheirEnabledStateWhileTheirRouteIsOffscreen() throws {
+        let p = tablist([2: face("Day"), 3: face("Week"), 4: face("Month")])
+        defer { window.isHidden = true }
+        let owner = try XCTUnwrap(p.views[1]), control = try XCTUnwrap(p.segments.control(of: 1))
+        let parent = try XCTUnwrap(owner.superview)
+        owner.removeFromSuperview()
+        p.segments.sync()
+        XCTAssertTrue(control.isEnabled, "an offscreen route does not disable its controls")
+        XCTAssertEqual(p.segments.activate(try XCTUnwrap(p.views[3])), false, "an offscreen control takes no input")
+        p.apply(wireBatch([
+            ["op": "props", "id": 2, "set": ["accessibilitySelected": "false"]],
+            ["op": "props", "id": 4, "set": ["accessibilitySelected": "true"]],
+        ]))
+        XCTAssertEqual(control.selectedSegmentIndex, 2, "a shared choice reaches the offscreen route")
+        parent.addSubview(owner)
+        XCTAssertTrue(control.isEnabled, "showing the route needs no unrelated state update to enable it")
+        XCTAssertEqual(control.selectedSegmentIndex, 2)
+        parent.isHidden = true
+        p.segments.sync()
+        XCTAssertTrue(control.isEnabled, "a covered route keeps the control's authored state")
+        parent.isHidden = false
+        owner.props["inert"] = "true"
+        p.segments.sync()
+        XCTAssertFalse(control.isEnabled, "authored inert still disables the control")
+    }
+
+    func testModelSelectionAndFinalSegmentLayoutDoNotInheritRouteAnimations() throws {
+        guard hostedWindowScene() != nil else {
+            throw missing("scene", "UIKit's rendered selection needs an app's window")
+        }
+        let p = tablist([2: face("Day"), 3: face("Week"), 4: face("Month")])
+        defer { p.reset(); window.isHidden = true }
+        let control = try XCTUnwrap(p.segments.control(of: 1))
+        control.layoutIfNeeded()
+        func animations(_ layer: CALayer) -> [String] {
+            (layer.animationKeys() ?? []) + (layer.sublayers ?? []).flatMap(animations)
+        }
+        func clear(_ layer: CALayer) {
+            layer.removeAllAnimations()
+            layer.sublayers?.forEach(clear)
+        }
+        clear(control.layer)
+        UIView.animate(withDuration: 1) {
+            p.apply(wireBatch([
+                ["op": "props", "id": 2, "set": ["accessibilitySelected": "false"]],
+                ["op": "props", "id": 4, "set": ["accessibilitySelected": "true"]],
+                ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 170.0, "h": 40.0],
+            ]))
+        }
+        CATransaction.flush()
+        XCTAssertEqual(control.selectedSegmentIndex, 2)
+        XCTAssertTrue(animations(control.layer).isEmpty, "native selection and layout finish without a deferred animation")
+    }
+
+    func testSegmentLabelsKeepSelectionAndAvailabilityCurrent() throws {
+        let control = LabelledSegmentedControl(items: ["One", "Two"])
+        control.frame = CGRect(x: 0, y: 0, width: 300, height: 32)
+        control.segmentIDs = ["one", "two"]
+        control.selectedSegmentIndex = 0
+        control.layoutIfNeeded()
+        let segments = control.segmentViews
+        XCTAssertEqual(segments.count, 2)
+        guard segments.count == 2 else { return }
+        XCTAssertTrue(segments[0].accessibilityTraits.contains(.selected))
+        control.selectedSegmentIndex = 1
+        control.labelSegments()
+        XCTAssertFalse(segments[0].accessibilityTraits.contains(.selected))
+        XCTAssertTrue(segments[1].accessibilityTraits.contains(.selected))
+        control.segmentUnavailable = [false, true]
+        control.labelSegments()
+        XCTAssertTrue(segments[1].accessibilityTraits.contains(.notEnabled))
+        control.isEnabled = false
+        control.labelSegments()
+        XCTAssertTrue(segments.allSatisfy { $0.accessibilityTraits.contains(.notEnabled) })
+        control.isEnabled = true
+        control.segmentUnavailable = [false, false]
+        control.selectedSegmentIndex = 0
+        control.labelSegments()
+        XCTAssertTrue(segments[0].accessibilityTraits.contains(.selected))
+        XCTAssertFalse(segments[1].accessibilityTraits.contains(.selected))
+        XCTAssertFalse(segments.contains { $0.accessibilityTraits.contains(.notEnabled) })
+    }
+
     func testASegmentedTablistsBackgroundBelongsToTheNativeControlAndReturnsWithItsAuthoredTabs() throws {
         let p = tablist([2: face("Day"), 3: face("Week"), 4: face("Month")])
         defer { window.isHidden = true }

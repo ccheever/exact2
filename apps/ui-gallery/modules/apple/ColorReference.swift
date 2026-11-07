@@ -14,6 +14,37 @@ final class ColorReference: ExactModule {
     }
 
     #if os(iOS)
+    private let sharedBackgrounds = NSMapTable<UIViewController, NSNumber>.weakToStrongObjects()
+
+    override func tabContainer(_ contents: ExactTabContents) -> UIViewController? { GallerySplit(contents) }
+
+    override func route(_ route: ExactRoute) {
+        let shared = route.element("range-bar") != nil
+        if route.isNew || sharedBackgrounds.object(forKey: route.controller)?.boolValue != shared {
+            let appearance = UINavigationBarAppearance()
+            if shared {
+                // Draw the header and range controls through one material instead of overlapping two blurs
+                appearance.configureWithTransparentBackground()
+            } else {
+                appearance.configureWithDefaultBackground()
+                appearance.backgroundEffect = UIBlurEffect(style: .systemMaterial)
+                appearance.backgroundColor = .clear
+            }
+            appearance.shadowColor = .clear
+            route.controller.navigationItem.standardAppearance = appearance
+            route.controller.navigationItem.scrollEdgeAppearance = appearance
+            route.controller.navigationItem.compactAppearance = appearance
+            route.controller.navigationItem.compactScrollEdgeAppearance = appearance
+            sharedBackgrounds.setObject(NSNumber(value: shared), forKey: route.controller)
+        }
+        if #available(iOS 27.0, *) {
+            let item = route.controller.navigationItem
+            if item.navigationBarMinimization.minimizationBehavior != .onScrollDown {
+                item.navigationBarMinimization.minimizationBehavior = .onScrollDown
+            }
+        }
+    }
+
     private struct Probe { weak var view: UIView?; let diagnostics: ExactDiagnostics; let kind: String; let limit: String }
     private var probes: [String: Probe] = [:]
     private var reports: [String: [String: Any]] = [:]
@@ -23,6 +54,13 @@ final class ColorReference: ExactModule {
     override func element(_ element: ExactElement) {
         #if os(iOS)
         guard #available(iOS 26, *), let view = element.view else { return }
+        if element.hatch == .stickyLimit, element.isNew {
+            // Keep the authored wrapper unpainted so Exact recognizes it as a native control bar
+            let background = RangeBarBackground(frame: view.bounds)
+            background.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            view.insertSubview(background, at: 0)
+            element.owns(view: background, "Range bar background")
+        }
         let limit = element.data[.limit] ?? "no-limit"
         if element.hatch == .hdrReference, element.isNew {
             let reference = UIView(frame: CGRect(x: 0, y: 0, width: 116, height: 112))

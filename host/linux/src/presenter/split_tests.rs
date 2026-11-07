@@ -702,6 +702,35 @@ fn a_shell_bar_room_takes_back_the_split() {
     assert!(p.host.runner().inactive(id(&p, "a")));
 }
 
+struct SplitSurface;
+impl crate::presenter::top::SurfacePainter for SplitSurface {
+    fn record(&mut self, _: (f32, f32), _: f32, _: &mut dyn FnMut(&mut dyn Backend)) -> Vec<u32> {
+        Vec::new()
+    }
+}
+
+#[test]
+fn shell_bar_support_keeps_an_authored_header_split_adaptive() {
+    let source = APP.replace("SPLIT", "280").replace(
+        "column navigationKey=",
+        "column navigationBar=\"none\" navigationKey=",
+    );
+    let mut p = boot_source(1200., &source);
+    p.serve_windows(Box::new(SplitSurface));
+    p.host.set_bar_room(Some((60., 0.))).unwrap();
+    assert_eq!(p.after_commit(), None);
+    tap(&mut p, "a");
+    assert!(p.host.bars().routes.is_empty());
+    assert!(p.host.bars().tabs.is_none());
+    assert_eq!(split(&p).list_width, 280.);
+    assert_eq!(p.host.route_visibility(id(&p, "a")), (false, false));
+    assert_eq!(p.resize(400., 800.), None);
+    assert!(state(&mut p).is_null());
+    assert_eq!(p.host.route_visibility(id(&p, "a")), (true, true));
+    regression::act(&mut p, "back", vec![]);
+    assert_eq!(p.host.route_visibility(id(&p, "a")), (false, false));
+}
+
 #[test]
 fn split_cover_and_content_stay_stable_across_sync_and_resize() {
     let mut p = boot(1200., "auto");

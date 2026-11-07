@@ -1,0 +1,136 @@
+test "text styles and color samples are present and animate"
+  clock data
+  expect tree has "text-styles"
+  expect tree has "text-underlined"
+  expect tree has "text-struck"
+  expect tree has "text-mixed"
+  expect tree has "text-half-alpha"
+  expect tree has "text-transparent"
+  expect tree has "text-sharp-shadow"
+  expect tree has "text-blur-shadow"
+  expect tree has "text-vibrant"
+  expect tree has "text-wrapped"
+  expect tree has "text-clamped"
+  expect tree has "text-ellipsis"
+  expect tree has "text-justified"
+  expect tree has "text-combining"
+  expect tree has "text-arabic"
+  expect tree has "text-hebrew"
+  expect tree has "text-devanagari"
+  expect tree has "text-cjk"
+  expect tree has "text-emoji"
+  expect tree has "text-tall"
+  expect text "text-changing" == "Original words"
+  expect text "text-numeric" == "109.01"
+  tap "text-animate"
+  clock settle
+  expect text "text-changing" == "Changed words"
+  expect text "text-numeric" == "128.90"
+  tap "text-animate"
+  clock settle
+  expect text "text-changing" == "Original words"
+  expect text "text-numeric" == "109.01"
+  tap "section-textcolors"
+  clock data
+  expect tree has "text-color-srgb-red-light"
+  expect tree has "text-color-display-p3-red-dark"
+  expect tree has "text-color-oklch-red-light"
+  tap "section-css"
+  clock data
+  expect tree has "srgb"
+  tap "section-profiles"
+  clock data
+  tap "section-images"
+  clock data
+  expect tree has "pictures"
+  tap "section-hdr"
+  clock data
+  tap "section-effects"
+  clock data
+  expect tree has "transition-toggle"
+  tap "section-media"
+  clock data
+  expect tree has "canvas-p3"
+  tap "section-menus"
+  clock data
+  expect tree has "lift-picked"
+  tap "section-typography"
+  clock data
+  expect text "text-changing" == "Original words"
+
+test "HDR range choices stay enabled across native sections" on ios
+  clock data
+  expect tree has "range-typography"
+  expect text "range-typography-title" == "Dynamic range limit"
+  expect tree missing "range-typography-note"
+  tap "range-typography-standard"
+  expect state limit == "standard"
+  tap "section-textcolors"
+  clock data
+  expect enabled "range-textcolors-no-limit"
+  expect state limit == "standard"
+  tap "range-textcolors-no-limit"
+  expect state limit == "no-limit"
+  tap "section-css"
+  clock data
+  expect state limit == "no-limit"
+  tap "range-css-constrained"
+  tap "section-profiles"
+  clock data
+  expect state limit == "constrained"
+  tap "range-profiles-standard"
+  tap "section-images"
+  clock data
+  expect state limit == "standard"
+  tap "section-hdr"
+  clock data
+  expect tree missing "range-hdr"
+  tap "section-effects"
+  clock data
+  expect state limit == "standard"
+  tap "section-media"
+  clock data
+  expect state limit == "standard"
+  tap "range-media-no-limit"
+  tap "section-menus"
+  clock data
+  expect tree missing "range-menus"
+  tap "section-typography"
+  clock data
+  expect state limit == "no-limit"
+
+test "the browser offers range choices only for HDR images" on web
+  clock data
+  expect tree missing "range-typography"
+  tap "section-textcolors"
+  clock data
+  expect tree missing "range-textcolors"
+  tap "section-css"
+  clock data
+  expect tree missing "range-css"
+  tap "section-profiles"
+  clock data
+  expect tree missing "range-profiles"
+  tap "section-images"
+  clock data
+  expect text "range-images-title" == "Dynamic range limit"
+  expect tree missing "range-images-note"
+  tap "range-images-standard"
+  expect state limit == "standard"
+  tap "section-hdr"
+  clock data
+  expect tree missing "range-hdr"
+  tap "section-effects"
+  clock data
+  expect tree missing "range-effects"
+  tap "section-media"
+  clock data
+  expect tree missing "range-media"
+  tap "section-images"
+  clock data
+  expect state limit == "standard"
+  tap "range-images-no-limit"
+  expect state limit == "no-limit"
+  tap "section-menus"
+  clock data
+  expect tree missing "range-menus"

@@ -109,6 +109,34 @@ final class AudioControlsIOSTests: XCTestCase {
 final class HDRVideoIOSTests: XCTestCase {
     private var fixtures: URL { Bundle.module.url(forResource: "ColorFixtures", withExtension: nil)! }
 
+    func testNativePlayerFollowsItsViewBetweenRouteControllers() throws {
+        let p = Presenter()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 360, height: 200))
+        let root = UIViewController(), route = UIViewController()
+        window.rootViewController = root
+        root.view.addSubview(p.viewport)
+        p.viewport.frame = window.bounds
+        window.makeKeyAndVisible()
+        defer { p.reset(); window.isHidden = true }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "video", "props": ["src": fixtures.appendingPathComponent("sdr.mp4").absoluteString, "controls": "true", "muted": "true", "paused": "true", "playsinline": "true"]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 180.0, "h": 100.0],
+        ]))
+        let player = try XCTUnwrap(root.children.first, "AVKit is contained by the view's current controller")
+        root.addChild(route)
+        root.view.addSubview(route.view)
+        route.didMove(toParent: root)
+        p.viewport.removeFromSuperview()
+        XCTAssertNil(player.parent, "lifting a route releases its previous controller before remounting")
+        route.view.addSubview(p.viewport)
+        XCTAssertTrue(player.parent === route, "remounting a route updates AVKit's controller parent")
+        p.viewport.removeFromSuperview()
+        XCTAssertNil(player.parent, "a detached route leaves no player under its previous controller")
+        root.view.addSubview(p.viewport)
+        XCTAssertTrue(player.parent === root, "a later presentation contains the same player again")
+    }
+
     func testVideoFixturesRetainTheirTransferAndDecodeEveryFrame() throws {
         for (name, hdr, transfer, primaries) in [
             ("sdr.mp4", false, "ITU_R_709_2", "ITU_R_709_2"),

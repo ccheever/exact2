@@ -7,7 +7,13 @@ use std::collections::BTreeSet;
 
 // Microsoft list/details: stacked at 320–640 epx, beside at 641; SplitView's
 // OpenPaneLength defaults to 320. The neutral web shell splits at 900 px.
-const THRESHOLD: f32 = if cfg!(windows) { 641. } else { 900. };
+const THRESHOLD: f32 = if cfg!(target_os = "android") {
+    840.
+} else if cfg!(windows) {
+    641.
+} else {
+    900.
+};
 const LIST_WIDTH: f32 = 320.;
 const MIN_LIST: f32 = 200.;
 const MIN_DETAIL: f32 = 320.;
@@ -267,7 +273,11 @@ impl<D: DataSource> Presenter<D> {
             self.host.navigation.split.retained.insert(key, rule.list);
         }
         let rule = rule?;
-        if self.host.navigation.bars.room.is_some() || self.separate_surface_windows() {
+        if (self.host.navigation.bars.room.is_some()
+            && (!self.host.navigation.bars.routes.is_empty()
+                || self.host.navigation.bars.tabs.is_some()))
+            || (self.separate_surface_windows() && self.host.navigation.bars.room.is_none())
+        {
             return None;
         }
         let kernel = self.host.kernel();
