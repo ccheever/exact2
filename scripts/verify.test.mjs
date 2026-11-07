@@ -1123,6 +1123,34 @@ test('a finding on a view only one scheme shows is accepted by the testId that s
   assert.match(r.text, /check ios · dark \(1 accepted\): no findings/);
 });
 
+test('a target in a sheet iOS draws scaled is said with the authored size that reaches the minimum', async () => {
+  const { scaledTargetNotes } = await import('./agent-check.mjs');
+  const layout = { nodes: [], scaled: [{ route: '3', presentation: 'sheet', scale: 0.96 }] };
+  assert.deepEqual(scaledTargetNotes(layout, 44), [
+    'route 3 is a sheet the platform draws at 0.96 of its laid-out size: its boxes are the authored frames × 0.96, not the app\'s doing, so a target in it authored at 46 pt is drawn at 44',
+  ]);
+  assert.deepEqual(scaledTargetNotes({ nodes: [] }, 44), []);
+  assert.deepEqual(scaledTargetNotes(null, 44), []);
+  // `check` on iOS asks `layout` only when it found a target under the minimum, and prints the note under its findings.
+  const { checkOp } = await import('./agent-check.mjs');
+  const { encodePng } = await import('./png.mjs');
+  const row = { id: 5, x: 18, y: 428, w: 367, h: 42, control: 'press', sized: 'author' };
+  const session = (items) => {
+    const asked = [];
+    return { asked, host: 'ios', tagged: (r) => r, prefer: async () => {},
+      op: async ({ op }) => (op === 'check' ? { scheme: 'light', target: 44, viewport: { w: 402, h: 874 }, items } : { nodes: [] }),
+      layout: async () => { asked.push('layout'); return layout; },
+      carrier: { screenshot: async (path) => { writeFileSync(path, encodePng({ width: 4, height: 4, data: new Uint8Array(64).fill(255) })); return { scale: 1 }; } } };
+  };
+  const small = session([row]);
+  const r = await checkOp(small);
+  assert.match(r.text, /target .*367×42 pt, under the 44×44 minimum/);
+  assert.match(r.text, /\n {2}note: route 3 is a sheet .* authored at 46 pt is drawn at 44$/);
+  const fine = session([{ ...row, h: 44 }]);
+  assert.doesNotMatch((await checkOp(fine)).text, /note:/);
+  assert.deepEqual(fine.asked, []);
+});
+
 // LLP 1116.019 D2: each screen again at the largest text size; what spills is said once, where, with a remedy that keeps the
 // text's size, counted in the last line without failing the run (LLP 1116.020 D4).
 test('the largest text size: its findings once each with the screens they were on and a remedy, counted, never failing; a screen it could not read is named', async () => {
