@@ -23,8 +23,10 @@ const built = existsSync(resolve(DIST, '.exact-build.json'))
   && readFileSync(resolve(DIST, '.exact-build.json'), 'utf8').includes('com.exact.excord');
 
 let fixture: ReturnType<typeof startFixture>, server: Server, browser: any, base = '', pages = 0, fixtureOrigin = '';
+let slotNames: string[];
 beforeAll(async () => {
   if (!built) return;
+  slotNames = (await import(resolve(DIST, '.gen/names.js'))).default[0];
   const { serveBuildTree } = await import(resolve(ROOT, 'host/web/serve.mjs'));
   const { bootedGeneration, leaseGeneration } = await import(resolve(ROOT, 'host/web/generations.mjs'));
   // The fixture listens where the build was baked to reach it: this checkout's fixture port (main d7e95a567d),
@@ -177,6 +179,118 @@ async function generalWithLinks(a: Awaited<ReturnType<typeof app>>) {
   await a.tap('inject-links');
   await a.data();
   await a.settle();
+}
+
+test.skipIf(!built)(
+  'older history keeps the visible message in place across animation frames at the exact top',
+  async (): Promise<void> => withHeldHistory(async (page: any, history: HeldHistory): Promise<void> => {
+    await page.locator('#transcript').evaluate((el: any): void => el.scrollTo({top:0, behavior:'instant'}));
+    await page.waitForFunction((): boolean => {
+      const list = document.getElementById('transcript') as any;
+      return Boolean(!list.$list.pending && list.querySelector(`[data-listitemkey="${list.$list.idents[0]}"]`));
+    });
+    await history.requested;
+    const saved = await page.locator('#transcript').evaluate((list: any): {key:string; top:number} => {
+      const key = list.$list.idents[0], row = list.querySelector(`[data-listitemkey="${key}"]`);
+      const top = row.getBoundingClientRect().top - list.getBoundingClientRect().top;
+      const watch = (globalThis as any).historyFrames = {active:true, positions:[]};
+      const frame = (): void => {
+        if (!watch.active) { return; }
+        const row = list.querySelector(`[data-listitemkey="${key}"]`);
+        watch.positions.push(row ? row.getBoundingClientRect().top - list.getBoundingClientRect().top : null);
+        requestAnimationFrame((): void => { setTimeout(frame, 0); });
+      };
+      requestAnimationFrame((): void => { setTimeout(frame, 0); });
+      return {key, top};
+    });
+    const reply = page.waitForResponse((response: any): boolean => response.url().includes('/messages?') && response.url().includes('before='));
+    history.release();
+    expect((await reply).ok()).toBe(true);
+    await page.waitForFunction((key: string): boolean => {
+      const list = document.getElementById('transcript') as any;
+      return Boolean(list.$list.idents[0] !== key && list.$list.index.pos.has(key) && !list.$list.pending);
+    }, saved.key);
+    const frames = await page.evaluate((): number => (globalThis as any).historyFrames.positions.length);
+    await page.waitForFunction((frames: number): boolean => (globalThis as any).historyFrames.positions.length >= frames + 2, frames);
+    const positions = await page.evaluate((): (number|null)[] => {
+      const watch = (globalThis as any).historyFrames;
+      watch.active = false;
+      return watch.positions;
+    });
+    expect(positions.length).toBeGreaterThan(0);
+    expect(positions.filter((top): boolean => top === null || Math.abs(top - saved.top) > 1)).toEqual([]);
+  }),
+  60_000,
+);
+
+test.skipIf(!built)(
+  'deleting the saved top message during paging leaves history prefetch free',
+  async (): Promise<void> => withHeldHistory(async (page: any, history: HeldHistory): Promise<void> => {
+    const slots = {topKey:slotNames.indexOf('topKey'), historyStart:slotNames.indexOf('historyStart'), leadHeld:slotNames.indexOf('leadHeld')};
+    await page.locator('#transcript').evaluate((el: any): void => el.scrollTo({top:0, behavior:'instant'}));
+    await history.requested;
+    // Wait out the opening correction before establishing the exact-top overlap
+    await page.evaluate((): Promise<void> => new Promise((resolve): void => {
+      requestAnimationFrame((): void => { requestAnimationFrame((): void => resolve()); });
+    }));
+    await page.locator('#transcript').evaluate((el: any): void => el.scrollTo({top:0, behavior:'instant'}));
+    await page.waitForFunction((indices: typeof slots): boolean => {
+      const list = document.getElementById('transcript') as any, state = (globalThis as any).exact.state[0];
+      return Boolean(list.scrollTop <= 0.5 && !list.$list.pending && state[indices.topKey]() !== '' && state[indices.historyStart]()
+        && list.querySelector(`[data-listitemkey="${list.$list.idents[0]}"]`));
+    }, slots);
+    const saved = await page.evaluate((index: number): {key:string; first:string; count:number} => {
+      const list = (document.getElementById('transcript') as any).$list;
+      return {key:(globalThis as any).exact.state[0][index](), first:list.idents[0], count:list.items.length};
+    }, slots.topKey);
+    const deletion = await fetch(`${fixtureOrigin}/control/delete`, {method:'POST', headers:{'content-type':'application/json'},
+      body:JSON.stringify({channel_id:GENERAL, message_id:saved.key})});
+    expect(deletion.ok).toBe(true);
+    await page.waitForFunction((key: string): boolean => !(document.getElementById('transcript') as any).$list.index.pos.has(`s:${key}`), saved.key);
+    const overlap = await page.evaluate((indices: typeof slots): [string, boolean] => {
+      const state = (globalThis as any).exact.state[0];
+      return [state[indices.topKey](), state[indices.historyStart]()];
+    }, slots);
+    expect(overlap).toEqual([saved.key, true]);
+    const reply = page.waitForResponse((response: any): boolean => response.url().includes('/messages?') && response.url().includes('before='));
+    history.release();
+    expect((await reply).ok()).toBe(true);
+    await page.waitForFunction((saved: {first:string; count:number}): boolean => {
+      const list = (document.getElementById('transcript') as any).$list;
+      return list.idents[0] !== saved.first && list.items.length > saved.count && !list.pending;
+    }, saved);
+    await page.waitForFunction((): boolean => {
+      const mutation = (globalThis as any).exact.mutations.find((mutation: any): boolean => mutation.name === 'paged');
+      return !mutation.ticket && mutation.due === Infinity;
+    });
+    expect(await page.evaluate((index: number): boolean => (globalThis as any).exact.state[0][index](), slots.leadHeld)).toBe(false);
+  }),
+  60_000,
+);
+
+type HeldHistory = { requested: Promise<void>; release: () => void };
+
+async function withHeldHistory(check: (page: any, history: HeldHistory) => Promise<void>): Promise<void> {
+  const context = await browser.newContext({ viewport:{width:1100, height:760} });
+  const page = await context.newPage();
+  const gate = Promise.withResolvers<void>(), requested = Promise.withResolvers<void>();
+  let released = false;
+  const release = (): void => { released = true; gate.resolve(); };
+  try {
+    await page.route(/\/api\/v9\/channels\/[^/]+\/messages\?/, async (route: any): Promise<void> => {
+      if (new URL(route.request().url()).searchParams.has('before') && !released) {
+        requested.resolve();
+        await gate.promise;
+      }
+      await route.continue();
+    });
+    await page.goto(base);
+    await page.waitForFunction((): boolean => {
+      const list = document.getElementById('transcript') as any;
+      return Boolean(list?.$list?.items.length > 40 && !list.$list.pending);
+    });
+    await check(page, {requested:requested.promise, release});
+  } finally { release(); await context.close(); }
 }
 
 test.skipIf(!built)('the browser\'s Forward to a channel\'s address opens it; Back returns', async () => {
