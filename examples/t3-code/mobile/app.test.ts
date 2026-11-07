@@ -185,6 +185,14 @@ describe('root tab navigation', () => {
     expect(appContract).toContain('column role=\"tabpanel\" id=(workspace.usesSplitView and tab.name == appTab ? \"workspace-panel\" : `panel-${tab.name}`) position=\"absolute\" top=0 left=0 right=0 bottom=0 visibility=(tab.name == appTab ? \"visible\" : \"hidden\") aria-hidden=(tab.name != appTab) pointer-events=\"none\"');
     expect(appContract).toContain('column id=`mobile-route-${entry.id}` navigationKey=`${entry.id}` pointer-events=\"none\" visibility=(tab.name == appTab and entry.id == top(nav).id ? \"visible\" : \"hidden\") aria-hidden=(tab.name != appTab or entry.id != top(nav).id)');
     expect(appTabsContract).toContain('row role=\"tablist\" aria-label=\"T3 Code sections\"');
+    expect(appTabsContract).toContain('button role=\"tab\" aria-label=\"Chats\"');
+    expect(appTabsContract).toContain('button role=\"tab\" aria-label=\"Pull Requests\"');
+    expect(appTabsContract).toContain('button role=\"tab\" aria-label=\"Usage\"');
+    expect(appTabsContract).toContain('button role=\"tab\" aria-label=\"Settings\"');
+    expect(appTabsContract).not.toContain('text \"Chats\"');
+    expect(appTabsContract).not.toContain('text \"PRs\"');
+    expect(appTabsContract).not.toContain('text \"Usage\"');
+    expect(appTabsContract).not.toContain('text \"Settings\"');
     expect(appTabsContract).toContain('aria-selected=(appTab == \"settings\") press=selectTab(\"settings\")');
     expect(appContract).toContain('if (change.kind == \"close\" or change.kind == \"back\") and top(nav).name == \"settings\"\n            nav = select(nav, \"home\")');
     expect(appContract).toContain('id=\"workspace-shell\" position=\"relative\"');
