@@ -162,7 +162,8 @@ export function runCaps(root = process.cwd()) {
     const text = readFileSync(abs, 'utf8');
     if (GENERATED_MARKER.test(text.slice(0, 512))) { generated += 1; continue; }
     scanned += 1;
-    const lines = text.split('\n').length;
+    // As `wc -l` and an editor count: the empty string after a final newline is no line.
+    const lines = text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
     if (maxLines !== null && lines > maxLines) oversize.push({ f, lines });
   }
   counted.push(`source files: ${scanned} scanned, ${generated} skipped as generated` +
