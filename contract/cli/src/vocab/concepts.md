@@ -980,6 +980,10 @@ component App
   false`, React Navigation's `hideWhenScrolling={false}`).
 - `flex-wrap` and `width="100%"` give the field its own line on the web; iOS places it
   itself. A field in the content with a Search button beside it is a web form's, a tell.
+- While the person searches, iOS hides the bar and its buttons
+  (`hidesNavigationBarDuringPresentation`). In a sheet whose bar holds Save or Send, put the
+  field in the content, above the list, so the bar stays; in a half-height sheet on iOS 26
+  the bar's field also sits at the sheet's bottom edge.
 - A test types the query: `type "search" "gro"`, and `type "search" ""` to clear it.
 
 The same field queries a server when a `resource` takes the query as its argument: each
