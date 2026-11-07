@@ -47,7 +47,7 @@ component AgentActivity
     bottomInset: number
     open: action
   view
-    scroll flex=1 min-height=0 testId="agents-sheet"
+    scroll id="agents-sheet" flex=1 min-height=0 testId="agents-sheet"
       column padding-left=17.5
         padding-right=17.5
         padding-bottom=(max(bottomInset, 16) + 8)

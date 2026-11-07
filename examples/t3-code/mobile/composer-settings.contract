@@ -13,7 +13,7 @@ component ComposerSettings
     bottomClearance: number
   derive providersCollapsible = data.query.trim() == "" and data.filter == ""
   view
-    list flex=1 min-height=0 background-color=colors.sheet keyboardDismissMode=(bottomClearance > 7 ? "on-drag" : "")
+    list id="composer-settings-list" flex=1 min-height=0 background-color=colors.sheet keyboardDismissMode=(bottomClearance > 7 ? "on-drag" : "")
       if data.error.length > 0
         text data.error margin=14 font-size=14 line-height="19px" color=colors.danger
       if data.empty.length > 0
@@ -77,7 +77,7 @@ component ComposerChoices
     choose: action
     colors: ComposerColors
   view
-    list flex=1 min-height=0 padding-left=16 padding-right=16 padding-top=16 background-color=colors.sheet
+    list id="composer-choices-list" flex=1 min-height=0 padding-left=16 padding-right=16 padding-top=16 background-color=colors.sheet
       column min-width=0 align-items="stretch" border-radius=14 overflow="hidden" background-color=colors.groupedCard
         for choice in rows key=choice.id
           button press=choose(choice.id) disabled=choice.disabled text-align="left" role="radio" aria-checked=choice.selected

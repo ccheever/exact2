@@ -468,7 +468,7 @@ component SettingsUsageAccount
     reveal: action
     redeem: action
   view
-    scroll flex=1 min-height=0 background-color=colors.sheet
+    scroll id="settings-usage-account-scroll" flex=1 min-height=0 background-color=colors.sheet
       column padding=17.5 padding-bottom=bottom gap=17.5 font-family="DM Sans"
         if not data.present
           text data.error color=colors.muted font-size=roles.body.size
