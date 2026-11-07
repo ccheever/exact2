@@ -71,7 +71,6 @@ fn bake_source<D: contract::DataSource>(
     let app = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join(app_dir);
     println!("cargo:rerun-if-env-changed=EXACT_ASSET_ROOTS");
     for path in [
-        "app.contract",
         "app.json",
         ".shells/app.json",
         "assets",
@@ -84,6 +83,10 @@ fn bake_source<D: contract::DataSource>(
             println!("cargo:rerun-if-changed={}", path.display());
         }
     }
+    // The plan reads the whole Contract source graph, not just its root. Keep
+    // Cargo's build-script fingerprint aligned with the compiler's imports so
+    // an edit to a component file reruns this bake.
+    contract::rerun_if_changed(&app.join("app.contract"));
     let manifest = contract::Manifest::read(&app.join(".shells"))
         .unwrap_or_else(|e| panic!("resolved app.json: {e}"));
     let mut plan = contract::compile_path(&app.join("app.contract"))
@@ -178,6 +181,30 @@ const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));"#
 mod tests {
     use super::*;
     use exact_runner::Value;
+
+    #[test]
+    fn contract_source_graph_includes_imported_sources() {
+        let dir = std::env::temp_dir().join(format!("game-contract-watch-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let root = dir.join("app.contract");
+        let imported = dir.join("personal-inventory.contract");
+        fs::write(&root, "use Inventory from \"./personal-inventory.contract\"\ncomponent App\n  view\n    Inventory()\n").unwrap();
+        fs::write(
+            &imported,
+            "component Inventory\n  view\n    text \"inventory\"\n",
+        )
+        .unwrap();
+        let graph = contract::source_graph(&root);
+        assert!(graph
+            .sources
+            .iter()
+            .any(|source| source.path.ends_with("app.contract")));
+        assert!(graph
+            .sources
+            .iter()
+            .any(|source| source.path.ends_with("personal-inventory.contract")));
+        fs::remove_dir_all(dir).unwrap();
+    }
     #[test]
     fn empty_v5_call_binds_every_surface_default() {
         #[derive(Default)]
