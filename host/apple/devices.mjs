@@ -269,9 +269,6 @@ export function chooseSimulator(pick = process.env.EXACT_SIM, { tv = false, hint
   // What `used` remembers: a simulator named, or one the installed-app check chose.
   let chosen = Boolean(pick);
   if (!pick && booted.length > 1) {
-    // An app's bundle id is its own (`exact new` suffixes it), so the simulator it is installed on is the one
-    // its last build or drive used; another session's app is not there. A bundle id two apps share (a port renamed
-    // to its original's) is on several: of those, the one this app last used.
     const has = app ? booted.filter((d) => read('xcrun', ['simctl', 'get_app_container', d.udid, app]).status === 0) : [];
     const mine = has.length > 1 ? has.find((d) => d.udid === last) : null;
     if (has.length === 1 || mine) {
