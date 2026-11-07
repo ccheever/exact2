@@ -710,20 +710,14 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
         observe(s);
         // A reply that left rows unbuilt owes the next slice a report.
         enqueue(s, !delivering || freshRows || snapshot.pending === true);
-        if (freshRows && velocity(s) === 0) fresh.add(s);
+        if (freshRows) fresh.add(s);
       }
-      // Rows built at rest (a list opening at its end, a window replaced,
-      // the rows a report's correction brought in) are measured and
-      // reported before the next frame, as a native host measures its rows
-      // in the batch that built them: that frame's scroll event, which runs
-      // before its animation frame callbacks, would otherwise read the port
-      // where their estimates put it, and the frame paint it there. Two
-      // such reports a list a frame (the first report's correction is made
-      // on estimates, the second on the rows measured; a window the second
-      // moves onto unmeasured rows waits for the frame), outside the shared
-      // budget, which lists opening together would exhaust; in all, two for
-      // each list an app's own commit built and four more, so lists the
-      // reports' replies mount again and again cannot hold the frame off.
+      // Measure new rows before paint, including during scrolling, so scroll
+      // events read measured geometry. Allow two early reports per list
+      // per frame to measure size changes and check their corrections.
+      // Use a separate allowance of four reports plus two per list with new
+      // rows in an app commit. Apply these limits to feedback replies so
+      // repeated corrections cannot postpone painting indefinitely.
       if (fresh.size) {
         // The last frame's time names the frame these reports come before;
         // a frame's flush renews them too, where there is no timeline.

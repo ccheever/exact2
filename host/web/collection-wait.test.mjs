@@ -103,6 +103,43 @@ function sharedPort() {
   return { controller, port, seen, gestures, animating, timers, snapshot, run };
 }
 
+test('fresh rows are measured before paint while a scroll is still moving', async () => {
+  const result = await evaluate(`(async () => {
+    globalThis.wf?.controller.dispose();
+    const root = document.getElementById('root');
+    root.innerHTML = '<div data-view="1" style="height:180px;width:320px;overflow:auto"><div data-view="2" style="height:40px"></div><div data-view="4" style="height:60px"></div><div style="height:5000px"></div></div>';
+    const views = new Map([...root.querySelectorAll('[data-view]')].map(el => [+el.dataset.view, el]));
+    const port = views.get(1), frames = [], reports = [];
+    let clock = 1000;
+    const controller = createController({ root, views, now:() => clock,
+      requestFrame(fn) { frames.push(fn); return frames.length; }, cancelFrame() {},
+      report(bytes) { const d = new DataView(bytes.buffer); reports.push({velocity:d.getFloat64(80, true), size:d.getFloat64(112, true)}); }
+    });
+    globalThis.wf = {controller};
+    const snapshot = (revision, epoch = '1') => ({view:1, revision, scrollSequence:'0', totalExtent:5100, count:100,
+      rows:[{view:2, root:2, index:0, start:0, size:40, epoch}, {view:4, root:4, index:1, start:40, size:60, epoch:'1'}], correction:null});
+    controller.commit([snapshot('1')]);
+    frames.splice(0).forEach(fn => fn());
+    await Promise.resolve();
+    for (const top of [20, 40]) {
+      clock += 16; port.scrollTop = top; port.dispatchEvent(new Event('scroll'));
+      frames.splice(0).forEach(fn => fn());
+    }
+    const velocity = reports.at(-1).velocity, before = reports.length;
+    views.get(2).style.height = '90px';
+    controller.commit([snapshot('2', '2')]);
+    await Promise.resolve(); await Promise.resolve();
+    const added = reports.slice(before);
+    controller.dispose(); delete globalThis.wf;
+    return {velocity, added};
+  })()`);
+  expect(result.velocity).toBe(1250);
+  expect(result.added.length).toBeGreaterThan(0);
+  expect(result.added.length).toBeLessThanOrEqual(2);
+  expect(result.added[0].size).toBe(90);
+  expect(result.added[0].velocity).toBe(1250);
+});
+
 test('a finger held still on the port holds nothing: its drag ends after the quiet interval, a request lands under it, and the drag going on ends it', async () => {
   const result = await evaluate(`(() => { const f=(${fixture})();
     f.touch('touchstart',1); f.scroll(200); f.fire(300); const held=f.report().scrolling;
