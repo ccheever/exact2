@@ -490,8 +490,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         for id in ids[(start + 1)..<end] {
             guard let child = presenter.views[id], child !== route,
                   child.superview === parent.container else { continue }
+            // Keep the child's authored frame relative to the route before
+            // UIKit moves it into the presentation mount. Regridding from the
+            // old root origin would bake a partial sheet's window offset into
+            // the new frame, placing the header and body below the sheet.
+            let authoredFrame = child.frame.offsetBy(dx: -route.frame.minX, dy: -route.frame.minY)
             mount.addSubview(child)
-            presenter.regrid(child)
+            child.frame = authoredFrame
         }
     }
 
