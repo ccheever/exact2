@@ -65,7 +65,7 @@ export const commands = (say, agentMode = () => false) => ({
   setPageZoom: () => say("setPageZoom refused: the browser's zoom is the person's; a page cannot set it"),
   // A recording of frames is the Apple hosts'; the browser's performance panel records the page.
   startTrace_EXPERIMENTAL: () => say("startTrace_EXPERIMENTAL refused: the web host does not record traces; use the browser's performance panel"),
-  stopTrace_EXPERIMENTAL: () => say("stopTrace_EXPERIMENTAL refused: the web host does not record traces"),
+  stopTrace_EXPERIMENTAL: () => say("stopTrace_EXPERIMENTAL refused: the web host does not record traces; use the browser's performance panel"),
   // The window's app modes (LLP 1121 D5, D7): modes.js's, which an app with
   // axes loads; any other refuses it, as the runner does.
   setMode: (...args) => globalThis.exact?.modes ? globalThis.exact.modes.command(args) : say(`setMode(${args.map(x => JSON.stringify(x)).join(", ")}) refused: an axis of the app's design and one of its values`),
