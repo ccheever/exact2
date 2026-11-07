@@ -107,6 +107,76 @@ final class NavigationCollapseIOSTests: XCTestCase {
         return session
     }
 
+    func testTopScrollerFollowsOnlyLaidOutNeutralWrappers() throws {
+        let p = Presenter()
+        let wrapper = NodeView(id: 1, kind: "view", presenter: p)
+        let scroller = NodeView(id: 2, kind: "view", presenter: p)
+        let sibling = NodeView(id: 3, kind: "view", presenter: p)
+        wrapper.frame = CGRect(x: 0, y: 0, width: 400, height: 600)
+        scroller.frame = CGRect(x: 0, y: 0, width: 400, height: 500)
+        scroller.style["overflow_y"] = .string("scroll")
+        scroller.syncScroll()
+        wrapper.container.addSubview(scroller)
+        XCTAssertTrue(NavigationHost.topScroller(wrapper, target: scroller) === scroller)
+        XCTAssertTrue(NavigationHost.topScroller(scroller, target: scroller) === scroller)
+        XCTAssertNil(NavigationHost.topScroller(wrapper, target: nil))
+
+        sibling.frame = CGRect(x: 0, y: 500, width: 400, height: 100)
+        wrapper.container.addSubview(sibling)
+        XCTAssertTrue(NavigationHost.topScroller(wrapper, target: scroller) === scroller, "a sibling below leaves the scroller at the top")
+        sibling.frame.origin.y = 0
+        XCTAssertNil(NavigationHost.topScroller(wrapper, target: scroller), "content beside the scroller owns the top too")
+        wrapper.container.insertSubview(sibling, at: 0)
+        XCTAssertNil(NavigationHost.topScroller(wrapper, target: scroller), "the named scroller must be first in flow")
+        sibling.isHidden = true
+        XCTAssertTrue(NavigationHost.topScroller(wrapper, target: scroller) === scroller)
+        sibling.removeFromSuperview()
+
+        wrapper.style["padding_top"] = 16
+        wrapper.applyContentBox(padding: [16, 0, 0, 0])
+        XCTAssertNil(NavigationHost.topScroller(wrapper, target: scroller))
+        wrapper.style["padding_top"] = nil
+        wrapper.applyContentBox(padding: [0, 0, 0, 0])
+        wrapper.style["overflow_y"] = .string("hidden")
+        XCTAssertNil(NavigationHost.topScroller(wrapper, target: scroller), "overflow clipping is not a neutral wrapper")
+        wrapper.style["overflow_y"] = nil
+        wrapper.transform = CGAffineTransform(translationX: 10, y: 0)
+        XCTAssertNil(NavigationHost.topScroller(wrapper, target: scroller))
+        wrapper.transform = .identity
+        wrapper.layer.transform = CATransform3DMakeRotation(0.2, 1, 0, 0)
+        XCTAssertNil(NavigationHost.topScroller(wrapper, target: scroller))
+        wrapper.layer.transform = CATransform3DIdentity
+        wrapper.frame.size = .zero
+        XCTAssertNil(NavigationHost.topScroller(wrapper, target: scroller), "unlaid wrappers cannot establish top alignment")
+        wrapper.frame.size = CGSize(width: 400, height: 600)
+        wrapper.style["overflow_y"] = .string("scroll")
+        wrapper.syncScroll()
+        XCTAssertNil(NavigationHost.topScroller(wrapper, target: scroller), "an intervening scroller owns its own scrolling")
+    }
+
+    func testWrappedScrollerLosesAndRegainsTheHeaderWhenContentMovesAboveIt() throws {
+        guard hostedWindowScene() != nil else { throw missing("scene", "the native bar follows its window's content scroller") }
+        let (session, nav, route) = try pushed("wrapped")
+        let p = session.presenter
+        let scroller = try node(session, "wrapped-scroll")
+        let scroll = try XCTUnwrap(scroller.scrollView)
+        XCTAssertTrue(route.collapseScroll === scroller)
+        XCTAssertTrue(route.contentScrollView(for: .top) === scroll)
+        let observation = try XCTUnwrap(p.navigation.observation())
+        XCTAssertEqual(observation["collapseScroller"] as? Int, Int(scroller.id))
+        XCTAssertNotNil(observation["barHeight"] as? Double)
+        let barBottom = nav.navigationBar.convert(nav.navigationBar.bounds, to: nil).maxY
+        let top = try node(session, "wrapped-top")
+        XCTAssertEqual(top.convert(top.bounds, to: nil).minY, barBottom, accuracy: 1)
+
+        p.press(try node(session, "toggle-prefix").id)
+        until("the prefix takes the top away from the scroller") { route.collapseScroll == nil }
+        XCTAssertTrue(route.contentScrollView(for: .top) == nil)
+        p.press(try node(session, "toggle-prefix").id)
+        until("the neutral wrapper restores the header's scroller") { route.collapseScroll === scroller }
+        XCTAssertTrue(route.contentScrollView(for: .top) === scroll)
+    }
+
     private final class InsetWrites: UIScrollView {
         var writes = 0
         override var contentInsetAdjustmentBehavior: UIScrollView.ContentInsetAdjustmentBehavior {

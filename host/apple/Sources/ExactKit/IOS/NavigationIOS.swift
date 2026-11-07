@@ -1025,8 +1025,12 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let transition: [String: Any] = ["interactive": navigation?.transitionCoordinator?.isInteractive ?? false,
                                          "phase": changing || pendingSync || presenter.modals.inTransition ? "in-progress" : lastTransition]
         let root = container ?? presenter.root.subviews.first as? NodeView
+        let top = navigation?.topViewController as? RouteController
         return ["route": root?.props["navigationKey"] ?? NSNull(), "stack": stack, "transition": transition,
-                "nativeBack": nativeBack ?? NSNull()]
+                "nativeBack": nativeBack ?? NSNull(), "barHeight": Agent.r2(navigation?.navigationBar.bounds.height ?? 0),
+                "contentScroller": top.flatMap { contentScroller(of: $0).map { Int($0.id) } } ?? NSNull(),
+                "collapseScroller": top?.collapseScroll.map { Int($0.id) } ?? NSNull(),
+                "arrangedScrollers": top.map { arrangementScrollers(in: $0, top: true).map { Int($0.id) } } ?? []]
     }
 
     /// Whether a route or a logical ancestor of it (`eventParent`) is

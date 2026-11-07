@@ -1086,7 +1086,7 @@ extension NavigationHost {
         // In flow by layout: a popover a context preview lays out is hidden
         // here while it pushes the scroller down (`MenusIOS`), and a title
         // must not collapse with a scroller that is no longer the route's top.
-        let flowing = { (v: NodeView) in (!v.isHidden || v.presenter?.menus.isLaidOut(v) == true) && Self.inFlow(v) }
+        let flowing = Self.flowingTopContent
         let whole = wantsWholeView && presenter.viewportFit != "cover"
         let node = shape.map { shape in kids.firstIndex { $0 === shape.header }.flatMap { kids[($0 + 1)...].first(where: flowing) } }
             ?? (shows || whole ? kids.first(where: flowing) : nil)
@@ -1103,7 +1103,7 @@ extension NavigationHost {
         c.rideBars()
         let covered: Bool
         if case .edges(let edges)? = covers[c.node.id] { covered = edges.top > 0.5 } else { covered = false }
-        let ordinary = shape?.authored.isEmpty != false && node?.scrollView != nil && node === scroller ? node : nil
+        let ordinary = shape?.authored.isEmpty != false ? node.flatMap { Self.topScroller($0, target: scroller) } : nil
         let arranged = scroller.flatMap { node in arrangementScrollers(in: c, top: true).contains(where: { $0 === node }) ? node : nil }
         let target = !riders.isEmpty ? (covered ? nil : scroller) : (ordinary ?? arranged)
         if let target, !riders.isEmpty {

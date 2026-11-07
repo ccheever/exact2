@@ -361,6 +361,27 @@ final class ArrangementHost {
 import UIKit
 
 extension NavigationHost {
+    /// Follow neutral wrappers only while the named scroller remains the first content at their top
+    static func topScroller(_ start: NodeView, target: NodeView?) -> NodeView? {
+        guard let target else { return nil }
+        var node = start
+        while node !== target {
+            guard node.scrollView == nil, !node.bounds.isEmpty, node.transform.isIdentity,
+                  CATransform3DIsIdentity(node.layer.transform),
+                  !node.overflowClips, node.clipPath == nil,
+                  node.contentBox().minY <= 0.5 else { return nil }
+            let children = node.container.subviews.compactMap { $0 as? NodeView }.filter(flowingTopContent)
+            guard let first = children.first, abs(first.frame.minY - node.contentBox().minY) < 1,
+                  children.allSatisfy({ $0 === first || $0.frame.minY >= first.frame.maxY - 0.5 }) else { return nil }
+            node = first
+        }
+        return target.scrollView == nil ? nil : target
+    }
+
+    static func flowingTopContent(_ node: NodeView) -> Bool {
+        (!node.isHidden || node.presenter?.menus.isLaidOut(node) == true) && inFlow(node)
+    }
+
     func arrangementScrollers(in route: RouteController, top: Bool) -> [NodeView] {
         #if os(iOS)
         if #available(iOS 27.1, *), !Self.transparentBar(route.node) { return presenter.arrangements.scrollers(in: route.node, top: top) }
