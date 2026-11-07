@@ -192,7 +192,11 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     const appTest = resolve(dir, 'app.test.contract');
     assert.match(readFileSync(appTest, 'utf8'), /the greeting loads/, 'update preserves existing tests');
     rmSync(appTest);
+    // An app that keeps its diary in git ignores the rest of .exact/; a `/.exact/` line after its exception would undo it.
+    const diaryKept = '/target/\n/.exact/*\n!/.exact/diary/\n/.env.local\n';
+    writeFileSync(resolve(dir, '.gitignore'), diaryKept);
     assert.doesNotMatch(createApp(dir, { update: true }), /AGENTS|gitignore/, 'current instructions are left as they are');
+    assert.equal(readFileSync(resolve(dir, '.gitignore'), 'utf8'), diaryKept);
     assert.match(readFileSync(appTest, 'utf8'), /test "the app opens"\n$/);
     assert.ok(!readFileSync(appTest, 'utf8').includes('greeting'), 'an older app need not have the scaffold IDs');
     assert.equal(readFileSync(resolve(dir, 'Cargo.toml'), 'utf8'), manifest, 'the patch table is rewritten in place');

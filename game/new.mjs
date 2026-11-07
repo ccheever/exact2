@@ -1007,11 +1007,12 @@ const OLD_DIARY = /\n*<!-- exact diary[^>]*-->[\s\S]*?<!-- \/exact diary -->\n?/
 
 /** Rewrite the generated block in AGENTS.md and a CLAUDE.md that is a copy,
  * keeping what an author wrote around it; an app with neither gets both.
- * The diary's \`.exact/\` stays out of git, and an app's local settings, \`.env.local\` (LLP 1153 D4). */
+ * The diary's \`.exact/\` stays out of git, and an app's local settings, \`.env.local\` (LLP 1153 D4); an app that keeps
+ * its diary in git ignores \`/.exact/*\` and re-includes \`!/.exact/diary/\`, which a \`/.exact/\` line after them would undo. */
 function updateNotes(dir, name, options = {}) {
   const block = agentNotes(dir, name, options), changed = [];
   const ignorePath = resolve(dir, '.gitignore'), ignore = existsSync(ignorePath) ? readFileSync(ignorePath, 'utf8') : '';
-  const missing = [['/.exact/', /^\/?\.exact\/?$/m], ...options.game ? [] : [['/.env.local', /^\/?\.env\.local$/m]]].filter(([, line]) => !line.test(ignore));
+  const missing = [['/.exact/', /^\/?\.exact(?:\/\*?)?$/m], ...options.game ? [] : [['/.env.local', /^\/?\.env\.local$/m]]].filter(([, line]) => !line.test(ignore));
   if (missing.length) { writeFileSync(ignorePath, `${ignore}${ignore && !ignore.endsWith('\n') ? '\n' : ''}${missing.map(([path]) => `${path}\n`).join('')}`); changed.push('.gitignore'); }
   const present = ['AGENTS.md', 'CLAUDE.md'].filter(file => existsSync(resolve(dir, file)) && !lstatSync(resolve(dir, file)).isSymbolicLink());
   if (!present.length) {
