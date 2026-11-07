@@ -163,6 +163,24 @@ test('actual snapshot shares a later disabled catalog with compact Home and side
   }
 });
 
+test('a retired launch preparation ignores its native watch lifetime error', async () => {
+  const priorClient = { ...mobileClient }, priorFleet = { ...fleet };
+  const native: Native = { available: true, watch() { throw new Error('native.watch outside an answer'); }, async later(input) {
+    const request = obj(input);
+    return { ok: true, generation: 1, value: request.op === 'status'
+      ? { state: 'disconnected', origin: '', environmentId: '', message: '' }
+      : request.op === 'environments' ? { saved: [] }
+        : request.op === 'connectionPreferences' ? { text: '{}' } : {} };
+  } };
+  const storage: Files = { fs: { async mkdir() {}, async readFile() { throw new Error('No portable storage'); }, async atomicWriteFile() {} } };
+  try {
+    Object.assign(mobileClient, new MobileDraftClient());
+    Object.assign(fleet, { saved: [], entries: new Map(), revision: 0 });
+    await answer('snapshotRead', [], {} as never, storage, native);
+    expect(mobileClient.error).toBe('');
+  } finally { Object.assign(mobileClient, priorClient); Object.assign(fleet, priorFleet); }
+});
+
 test('actual inactive and mismatched thread queries preserve scalar metadata without formatting retained transcript bodies', async () => {
   const prior = { ...mobileClient }, now = Date.parse('2026-10-10T00:00:00Z');
   const text = 'Complete retained 漢字 \u{1f6e0}\n'.repeat(800), body = `Before\n\n\`\`\`unregistered-language\n${text}\`\`\`\nAfter`;

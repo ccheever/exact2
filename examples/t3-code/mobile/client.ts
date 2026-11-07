@@ -21,13 +21,14 @@ import { mobileNewTaskEditorRefresh } from './new-task-editor';
 import { mobileSend } from './composer-behavior';
 import { mobileDraftChanged } from './draft';
 import { mobilePendingInputCommand, mobilePendingInputRetry } from './pending-input';
-import { decodePrefs, environmentSources, machineKind, savedStatus } from './shared/connections';
+import { decodePrefs, environmentSources, machineKind, normalizeEnvironmentLabel, savedStatus } from './shared/connections';
 import { connectionRouteAddress, connectionRouteKind, connectionRouteLabel, gitHubRoutingConnectionKey, hasRelayRoute } from './shared/connection-routes';
 import { arr, obj, str, type Obj } from './shared/domain';
 import { letGo, letGoAware } from './shared/let-go';
 import { bridgeReply, ClientError, nativeFiles, parsePairing, type Files, type Native } from './shared/protocol';
 import { pairingFields } from './shared/r10-connect-pairing';
 import { EnvironmentFleet, fleet, trimOrigin } from './shared/settings-b-fleet';
+import { mobileCacheFleetSync } from './mobile-client-cache-fleet';
 import type { T3Client } from './shared/client';
 
 export const mobileClient = new MobileDraftClient();
@@ -174,7 +175,7 @@ export function mobileRoutingRows(sources: ReturnType<typeof environmentSources>
   return sources.filter(source => saved.some(entry => entry.environmentId === source.environmentId)).map(source => {
     const key = gitHubRoutingConnectionKey(source);
     const label = str(saved.find(entry => entry.environmentId === source.environmentId)?.mobileLabel) || source.label;
-    return { id: source.key, label, url: source.routes.map(connectionRouteAddress).find(address => address !== null) || 'T3 Connect',
+    return { id: source.key, label: normalizeEnvironmentLabel(label), url: source.routes.map(connectionRouteAddress).find(address => address !== null) || 'T3 Connect',
       permission: key ? prefs.githubRouting[key] || 'off' : 'off', disabled: !ready || key === null };
   });
 }
@@ -200,16 +201,65 @@ export async function mobileSnapshotRead(nativeInput: Native | null | undefined,
   const reading = ++snapshotReadStarted;
   const { native, storage } = answerHandles(nativeInput, suppliedStorage);
   const fleetRevision = fleet.revision;
-  mobileGitFeedbackObserve(mobileClient, now);
-  await mobileNewTaskEditorRefresh(mobileClient, native, storage);
-  mobileGitFeedbackObserve(mobileClient, now);
-  // A disconnected foreground skips the shared client's event drain. Background
-  // connection/config changes must still invalidate root outbox scheduling.
-  if (fleet.revision !== fleetRevision) mobileClient.revision++;
-  // Mobile renders its own shell; initialize the existing shared clone/task streams here.
-  await watchLive(mobileClient, native);
-  await mobileQueuedEditRefresh(native, mobileClient);
-  mobileVoiceObserveDraft(mobileClient);
+  // Preparation intentionally outlives the first-pixel metadata read. Guard
+  // its handle so a resource that is let go cannot call native.watch after the
+  // answer lifetime and turn a normal retirement into a Home error banner.
+  const preparationSource = native?.available ? letGoAware(native) : native;
+  // Let the preparation pass perform its one launch catalog read so the
+  // focused status and catalog read below retain the existing ownership
+  // ordering. Later background passes observe the canonical in-memory catalog
+  // instead of racing a newer root read with an older native result.
+  let preparationCatalogRead = false;
+  let metadataPublished = false;
+  const preparationNative: Native | null | undefined = preparationSource ? {
+    available: preparationSource.available,
+    watch: topic => {
+      try { preparationSource.watch(topic); }
+      catch (error) {
+        // Exact can retire the root answer while this deliberately detached
+        // preparation pass is still loading. Treat only that lifetime error as
+        // supersession; other native failures remain visible to the owner.
+        if (error instanceof Error && error.message === 'native.watch outside an answer')
+          throw new ClientError(error.message, 'superseded');
+        throw error;
+      }
+    },
+    async later(request) {
+      if (obj(request).op !== 'environments') return preparationSource.later(request);
+      const first = !preparationCatalogRead; preparationCatalogRead = true;
+      if (!first) return { ok: true, generation: mobileClient.generation, value: { saved: fleet.saved } };
+      const response = await preparationSource.later(request);
+      const responseObject = obj(response);
+      if (responseObject.ok !== true || (!metadataPublished && reading === snapshotReadStarted)) return response;
+      return { ...responseObject, value: { ...obj(responseObject.value), saved: fleet.saved } };
+    },
+  } : native;
+  // The first pixel only needs the local catalog and focused status. Draft
+  // recovery and live stream hydration can take their normal path in the
+  // background; waiting for them here left a cold launch showing Home's
+  // loading state until every unrelated recovery read had settled.
+  const preparation = (async () => {
+    mobileGitFeedbackObserve(mobileClient, now);
+    await mobileNewTaskEditorRefresh(mobileClient, preparationNative, storage);
+    mobileGitFeedbackObserve(mobileClient, now);
+    // A disconnected foreground skips the shared client's event drain. Background
+    // connection/config changes must still invalidate root outbox scheduling.
+    if (fleet.revision !== fleetRevision) mobileClient.revision++;
+    // Mobile renders its own shell; initialize the existing shared clone/task streams here.
+    await watchLive(mobileClient, preparationNative);
+    await mobileQueuedEditRefresh(preparationNative, mobileClient);
+    mobileVoiceObserveDraft(mobileClient);
+  })();
+  // Attach the retirement handler before metadata awaits. A failed native
+  // preference read can let this background pass go while the catalog reply is
+  // still pending; waiting until below would leave its superseded rejection
+  // unhandled in the runtime.
+  const preparationHandled = preparation.then(() => {
+    if (fleet.revision !== fleetRevision && reading === snapshotReadStarted) mobileClient.revision++;
+  }).catch(error => {
+    if (letGo(error)) return;
+    if (reading === snapshotReadStarted) { mobileClient.error = error instanceof Error ? error.message : String(error); mobileClient.revision++; }
+  });
   let catalogSucceeded = false;
   let focusedStatus = {}, focusedGeneration = -1, focusedOrigin = '', focusedEnvironmentId = '', preferencesText = '{}', routingReady = false;
   if (native?.available) {
@@ -222,26 +272,64 @@ export async function mobileSnapshotRead(nativeInput: Native | null | undefined,
       const [status, catalog, preferences] = await Promise.all([
         metadata('status'), metadata('environments'), metadata('connectionPreferences'),
       ]);
-      if (reading !== snapshotReadStarted) return { serial: snapshotReadPublished };
-      if (status?.ok) {
+      if (reading === snapshotReadStarted && status?.ok) {
         const value = obj(status.value);
         focusedStatus = { homeOrigin: str(value.homeOrigin), failureKind: str(value.failureKind), traceId: str(value.traceId), activeRouteId: str(value.activeRouteId) };
         focusedGeneration = status.generation; focusedOrigin = str(value.origin); focusedEnvironmentId = str(value.environmentId);
       }
       // A newer fleet/command adoption owns the catalog even while this read waits.
-      if (catalog?.ok && Array.isArray(obj(catalog.value).saved)) {
+      if (reading === snapshotReadStarted && catalog?.ok && Array.isArray(obj(catalog.value).saved)) {
         catalogSucceeded = true;
         if (fleet.saved === catalogBefore) fleet.saved = arr(obj(catalog.value).saved);
       }
-      if (preferences?.ok) preferencesText = str(obj(preferences.value).text, '{}');
-      routingReady = catalogSucceeded && preferences?.ok === true;
+      if (reading === snapshotReadStarted) {
+        if (preferences?.ok) preferencesText = str(obj(preferences.value).text, '{}');
+        routingReady = catalogSucceeded && preferences?.ok === true;
+      }
+      // Launch preparation can update the native catalog after its first fleet
+      // pass (the local backend status is read after that pass). Reconcile one
+      // short metadata pass before publishing the root so Home never captures
+      // an empty catalog while a saved environment has already been written.
+      // This does not wait for transcript recovery or any server connection.
+      if (reading === snapshotReadStarted) {
+        const catalogBeforeRefresh = fleet.saved;
+        await metadata('localBackendStatus');
+        const refreshed = await metadata('environments');
+        if (reading === snapshotReadStarted && fleet.saved === catalogBeforeRefresh
+          && refreshed?.ok && Array.isArray(obj(refreshed.value).saved)) {
+          catalogSucceeded = true;
+          fleet.saved = arr(obj(refreshed.value).saved);
+        }
+      }
     } catch (error) { if (letGo(error)) throw error; }
   }
   if (reading === snapshotReadStarted) {
     snapshotMetadata = { catalogLoaded: snapshotMetadata.catalogLoaded || catalogSucceeded, nativeAvailable: native?.available === true, focusedStatus, focusedGeneration,
       focusedOrigin, focusedEnvironmentId, preferencesText, routingReady };
     snapshotReadPublished++;
+    metadataPublished = true;
   }
+  // A reconnecting launch has no focused shell for MobileDraftClient.refresh to
+  // adopt. Hydrate independently of that network attempt after the catalog read
+  // has published saved identities, then wake Home when cached rows arrive.
+  void (async () => {
+    if (!preparationNative?.available) return;
+    const before = mobileClient.revision;
+    await mobileCacheFleetSync(fleet, preparationNative, mobileClient);
+    if (mobileClient.revision === before) return;
+    try { await preparationNative.later({ op: 'r10Wake', topic: 't3.notify', generation: mobileClient.generation }); }
+    catch (error) { if (!letGo(error)) throw error; }
+  })().catch(error => {
+    if (letGo(error)) return;
+    if (reading === snapshotReadStarted) { mobileClient.error = error instanceof Error ? error.message : String(error); mobileClient.revision++; }
+  });
+  // Recovery owns its own epochs, so a later root read can supersede this one
+  // without allowing an old preparation failure to poison the initial shell.
+  void preparationHandled;
+  // Let a newer root read publish its metadata before this superseded read
+  // hands back its serial. This keeps concurrent reads monotonic for Exact's
+  // resource scheduler without adding a startup delay.
+  await new Promise(resolve => setTimeout(resolve, 0));
   return { serial: snapshotReadPublished };
 }
 /** Pure rendering projection; never issues native IO or retains a prior graph. */

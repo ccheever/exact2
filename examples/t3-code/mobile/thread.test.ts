@@ -366,8 +366,10 @@ describe('bounded transcript Markdown reuse', () => {
     client.revision = 1;
     const first = mobileTranscriptRows(client), second = mobileTranscriptRows(client);
     expect(second).toBe(first);
-    mobileThreadRows(client, now);
+    const rendered = mobileThreadRows(client, now), steady = mobileThreadRows(client, now + 400);
+    expect(steady).toBe(rendered);
     expect(mobileTranscriptRows(client)).toBe(first);
+    expect(mobileThreadRows(client, now + 1_100)).not.toBe(rendered);
     await chatLocal(client, { available: true, watch() {}, async later() { return {}; } }, 'fold', 'r1', '');
     expect(mobileTranscriptRows(client)).not.toBe(first);
   });

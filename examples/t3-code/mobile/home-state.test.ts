@@ -23,6 +23,20 @@ function fixture() {
   return { client, background, remote, view };
 }
 
+test('steady Home redraws reuse the complete projection until a clock or canonical revision changes', () => {
+  const f = fixture();
+  f.client.revision = 1;
+  const viewAt = (at: number) => mobileHomeView([0, at, '', 10, true, false, false, false, false, '', '', '', 'repository', 'visit', true, false], f.client, f.background);
+  const first = viewAt(now), steady = viewAt(now + 250);
+  expect(steady).toBe(first);
+  expect(viewAt(now + 1000)).not.toBe(first);
+  const afterClock = viewAt(now + 1000);
+  f.background.revision++;
+  expect(viewAt(now + 1000)).not.toBe(afterClock);
+  f.client.revision++;
+  expect(viewAt(now + 1000)).not.toBe(afterClock);
+});
+
 test('background transport failures stop an empty Home from displaying successful loading', () => {
   const f = fixture();
   Object.assign(f.client, { connection: 'disconnected', shellLoaded: false, shellLive: false });

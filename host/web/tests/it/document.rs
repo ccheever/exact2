@@ -29,6 +29,45 @@ fn document(src: &str) -> String {
 }
 
 #[test]
+fn ordinary_lists_wrap_their_rows_without_replacing_link_roles() {
+    let source = include_str!("../../../web-js/conformance/list-items.contract");
+    for source in [
+        source.to_owned(),
+        source
+            .replace("listitem note", "LISTITEM note")
+            .replace("list group", "LIST group"),
+    ] {
+        let root = document(&source);
+        assert_eq!(root.matches("data-exact-list-item").count(), 20, "{root}");
+        assert_eq!(root.matches("role=\"listitem\"").count(), 18, "{root}");
+        assert_eq!(root.matches("<a ").count(), 13, "{root}");
+        assert!(!root.contains("<a role=\"listitem\""), "{root}");
+        for (id, role) in [
+            ("dpub-owner", "presentation"),
+            ("graphics-owner", "presentation"),
+            ("comment-owner", "presentation"),
+            ("dpub-row", "listitem"),
+            ("graphics-row", "listitem"),
+            ("mark-row", "listitem"),
+            ("unknown-owner", "listitem"),
+        ] {
+            let marker = format!("data-testid=\"{id}\"");
+            let tail = root
+                .split_once(&marker)
+                .unwrap()
+                .1
+                .split_once('>')
+                .unwrap()
+                .1;
+            assert!(
+                tail.starts_with(&format!("<div role=\"{role}\" data-exact-list-item")),
+                "{id}: {tail}"
+            );
+        }
+    }
+}
+
+#[test]
 fn app_file_frames_prerender_without_a_false_blank_source() {
     let doc = document("component App\n  view\n    iframe src=\"app:/data/doc.pdf\"\n");
     assert!(doc.contains("data-app-src=\"app:/data/doc.pdf\""), "{doc}");

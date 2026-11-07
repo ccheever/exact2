@@ -78,6 +78,19 @@ interface TranscriptRowsCache {
 }
 const transcriptRowsCache = new WeakMap<T3Client, TranscriptRowsCache>();
 
+interface ThreadRowsCache {
+  source: unknown;
+  revision: number;
+  threadEpoch: number;
+  threadId: string;
+  dark: boolean;
+  routeKey: string;
+  nowSecond: number;
+  htmlKey: string;
+  rows: ThreadRow[];
+}
+const threadRowsCache = new WeakMap<T3Client, ThreadRowsCache>();
+
 /**
  * Scroll events re-render the feed without changing the selected projection.
  * Keep the source-index lookup across those renders; client revisions and
@@ -144,15 +157,25 @@ function userIntentBadge(intent: unknown): { label: string; description: string;
 
 /** Adapts shared derived row types, preserving their ids and disclosure ownership. */
 export function mobileThreadRows(client: T3Client, now: number, dark = false, routeKey = '', html?: ThreadHtmlPresentation): ThreadRow[] {
+  const source = mobileTranscriptRows(client);
+  const htmlKey = html ? JSON.stringify([html.context, html.width, html.theme, html.iconColor]) : '';
+  const previous = threadRowsCache.get(client);
+  // Scroll snapshots carry a fresh clock, but elapsed labels only change once
+  // per second. Reuse the complete row projection for the steady interval;
+  // revision, transcript identity and local route inputs still invalidate it.
+  if (client.revision > 0 && previous && previous.source === source && previous.revision === client.revision
+    && previous.threadEpoch === client.threadEpoch && previous.threadId === client.threadId
+    && previous.dark === dark && previous.routeKey === routeKey && previous.nowSecond === Math.floor(now / 1000)
+    && previous.htmlKey === htmlKey) return previous.rows;
   const markdown = mobileThreadMarkdownCache(client, dark, routeKey);
-  const rows = threadRows(client, now, dark, routeKey, html, markdown);
+  const rows = threadRows(client, now, dark, routeKey, html, markdown, source);
   markdown.commit(); return rows;
 }
 
 function threadRows(client: T3Client, now: number, dark = false, routeKey = '', html?: ThreadHtmlPresentation,
-  markdown?: ReturnType<typeof mobileThreadMarkdownCache>): ThreadRow[] {
+  markdown?: ReturnType<typeof mobileThreadMarkdownCache>, source = mobileTranscriptRows(client)): ThreadRow[] {
   mobileThreadForkObserveProjection(client);
-  const source = mobileTranscriptRows(client), projected = projectedThreadItems(client);
+  const projected = projectedThreadItems(client);
   const view = timelineView(client), rows: ThreadRow[] = [];
   for (const message of source) {
     // Pinned mobile buildThreadFeed omits checkpoints, including populated changes.
@@ -204,6 +227,8 @@ function threadRows(client: T3Client, now: number, dark = false, routeKey = '', 
         url:threadOutboxPreview(client,record,file,now)})),first:false,last:false});
   }
   rows.forEach((row, index) => { row.first = index === 0; row.last = index === rows.length - 1; });
+  if (client.revision > 0) threadRowsCache.set(client, { source, revision: client.revision, threadEpoch: client.threadEpoch,
+    threadId: client.threadId, dark, routeKey, nowSecond: Math.floor(now / 1000), htmlKey: html ? JSON.stringify([html.context, html.width, html.theme, html.iconColor]) : '', rows });
   return rows;
 }
 function elapsed(ms: number): string {

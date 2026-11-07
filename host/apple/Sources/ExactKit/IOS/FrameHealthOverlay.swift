@@ -20,10 +20,10 @@ final class FrameHealthOverlay: UIView {
     private weak var session: ExactSession?
     /// Whether the card shows Exact's frames for want of a second reader's place, until one is free
     private var waitingForPlace = false
-    /// The corner the card rests in, and its spring there after a drag
-    private var corner = FrameHealthCardFace.Corner()
+    /// The card's resting position
+    private var position = FrameHealthCardFace.Position()
     private var snap: UIViewPropertyAnimator?
-    /// While the card follows a finger or springs to its corner, the `UIUpdateLink` that states the display's highest
+    /// While the card follows a finger or springs to its edge, the `UIUpdateLink` that states the display's highest
     /// rates as its preferred range
     private var motion: AnyObject?
     /// Whether it asks for the display's highest rates now
@@ -405,7 +405,7 @@ final class FrameHealthOverlay: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        // Corners 8 points from the window's edges, past its safe area, and above any keyboard
+        // Keep the card 8 points inside the window and above the keyboard, ignoring safe-area insets
         var available = bounds.insetBy(dx: 8, dy: 8)
         if let keyboard, keyboard.intersects(available), keyboard.maxY >= available.maxY {
             available.size.height = max(0, keyboard.minY - 8 - available.minY)
@@ -427,9 +427,8 @@ final class FrameHealthOverlay: UIView {
         let size = CGSize(width: min(FrameHealthCardFace.width, available.width / card.scale) * card.scale,
             height: (full == nil ? FrameHealthCardFace.compactHeight : FrameHealthCardFace.height) * card.scale)
         if card.frame.size != size { card.frame.size = size; card.setNeedsDisplay() }
-        // A dragged card stays under the press; a spring toward a corner the new geometry moved turns
-        // toward where it is now
-        let target = corner.origin(of: size, in: available)
+        // Keep a dragged card under the press and retarget a spring when layout changes its destination
+        let target = position.origin(of: size, in: available)
         if !dragging, snap == nil { card.frame.origin = target }
         else if !dragging, card.frame.origin != target { stopSnap(); spring(velocity: .zero) }
         health?.hudBounds = window.map { card.convert(card.bounds, to: $0) }
@@ -458,14 +457,13 @@ final class FrameHealthOverlay: UIView {
         screen?.health.hudDragging = on
     }
 
-    /// Spring to the corner nearest where the released card would come to rest.
     private func settle(velocity: CGVector) {
-        corner = FrameHealthCardFace.Corner(nearest: card.frame.origin, velocity: velocity, size: card.frame.size, in: availableFrame)
+        position = FrameHealthCardFace.Position(nearest: card.frame.origin, velocity: velocity, size: card.frame.size, in: availableFrame)
         spring(velocity: velocity)
     }
 
     private func spring(velocity: CGVector) {
-        let target = corner.origin(of: card.frame.size, in: availableFrame)
+        let target = position.origin(of: card.frame.size, in: availableFrame)
         // UIKit takes a spring's initial velocity as a fraction of the distance a second
         let dx = target.x - card.frame.minX, dy = target.y - card.frame.minY
         let initial = CGVector(dx: dx == 0 ? 0 : velocity.dx / dx, dy: dy == 0 ? 0 : velocity.dy / dy)
@@ -500,16 +498,16 @@ final class FrameHealthOverlay: UIView {
         snap = nil
     }
 
-    /// After a press that did not drag, as a tap that stopped the spring, the card returns to its corner.
+    /// Return to the resting position after a tap interrupts the spring.
     private func rest() {
-        guard snap == nil, card.frame.origin != corner.origin(of: card.frame.size, in: availableFrame) else { return }
+        guard snap == nil, card.frame.origin != position.origin(of: card.frame.size, in: availableFrame) else { return }
         spring(velocity: .zero)
     }
 
     private func move(toward edge: CGVector) -> Bool {
         stopSnap()
-        if edge.dx != 0 { corner.maxX = edge.dx > 0 }
-        if edge.dy != 0 { corner.maxY = edge.dy > 0 }
+        if edge.dx != 0 { position.x = edge.dx > 0 ? 1 : 0 }
+        if edge.dy != 0 { position.y = edge.dy > 0 ? 1 : 0 }
         spring(velocity: .zero)
         return true
     }

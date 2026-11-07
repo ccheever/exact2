@@ -159,6 +159,8 @@ private final class T3SystemTabController: UITabBarController {
     override func loadView() {
         super.loadView()
         let nativeView = view!
+        nativeView.backgroundColor = .clear
+        nativeView.isOpaque = false
         let overlay = T3TabControllerOverlay()
         overlay.backgroundColor = .clear
         overlay.addSubview(nativeView)
@@ -243,6 +245,9 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private var systemTabDelegate: T3SystemTabDelegate?
     private var sidebarTabBar: UITabBar?
     private var sidebarTabDelegate: T3SidebarTabDelegate?
+    private weak var systemTabParent: UIViewController?
+    private weak var systemTabHost: UIView?
+    private var systemTabConstraints: [NSLayoutConstraint] = []
     private var glassLeading: NSLayoutConstraint?
     private var glassTrailing: NSLayoutConstraint?
     private var glassCenter: NSLayoutConstraint?
@@ -279,6 +284,8 @@ private final class T3HomeChromeView: ExactNativeInstance {
         root.layoutChanged = { [weak self] in
             self?.updateWidth()
             if let controller = self?.systemTabController {
+                self?.relocateSystemTabsIfNeeded()
+                controller.view.superview?.bringSubviewToFront(controller.view)
                 controller.view.setNeedsLayout()
                 controller.view.layoutIfNeeded()
                 controller.refreshBarLayout()
@@ -308,6 +315,9 @@ private final class T3HomeChromeView: ExactNativeInstance {
     }
     fileprivate func attach(_ route: ExactRoute) {
         if self.route !== route { detach(); self.route = route }
+        // Keep UIKit's selected tab. The Contract owns tab selection; resetting
+        // it on every Home reattachment made a return from another tab jump
+        // back to Chats before the route echo settled.
         refresh()
     }
     private var isAttached: Bool {
@@ -437,7 +447,9 @@ private final class T3HomeChromeView: ExactNativeInstance {
     @available(iOS 26.0, *)
     private func makeGlassToolbar(_ route: ExactRoute) {
         if config?.layout == "compact" {
-            makeCompactTabs(route)
+            // The root Contract tablist owns UIKit's tab bar. Home only supplies
+            // its search header, so switching tabs never tears this route down.
+            makeHeaderSearch(route)
             return
         }
         let bar = UIView(); bar.translatesAutoresizingMaskIntoConstraints = false
@@ -548,31 +560,82 @@ private final class T3HomeChromeView: ExactNativeInstance {
         let delegate = T3SystemTabDelegate(keys: keys) { [weak self] key in self?.emit("tab", key) }
         controller.delegate = delegate
         controller.view.translatesAutoresizingMaskIntoConstraints = false
-        route.controller.addChild(controller)
-        root.addSubview(controller.view)
-        NSLayoutConstraint.activate([
-            controller.view.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            controller.view.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            controller.view.topAnchor.constraint(equalTo: root.topAnchor),
-            controller.view.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-        ])
-        controller.didMove(toParent: route.controller)
+        // Keep UIKit's system tab bar outside Exact's route viewport. The
+        // route node is mounted inside that viewport, and its controller view
+        // is therefore still a descendant of Exact's full-screen scroll view.
+        // A window-level host gives UIKit's bar a fixed presentation surface:
+        // the Home document can scroll underneath it without moving the bar.
+        let routeView = route.controller.view!
+        let window = routeView.window
+        let parent = window?.rootViewController ?? route.controller
+        let host = parent === route.controller ? routeView : parent.view!
+        parent.addChild(controller)
+        host.addSubview(controller.view)
+        systemTabHost = host
+        systemTabParent = parent
+        systemTabConstraints = [
+            controller.view.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            controller.view.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            controller.view.topAnchor.constraint(equalTo: host.topAnchor),
+            controller.view.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+        ]
+        NSLayoutConstraint.activate(systemTabConstraints)
+        controller.view.layer.zPosition = 1000
+        controller.didMove(toParent: parent)
         systemTabController = controller
         systemTabDelegate = delegate
         DispatchQueue.main.async { [weak controller] in
             guard let controller else { return }
+            controller.view.superview?.bringSubviewToFront(controller.view)
             controller.view.setNeedsLayout()
             controller.view.layoutIfNeeded()
             controller.view.setNeedsLayout()
             controller.view.layoutIfNeeded()
             controller.refreshBarLayout()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak controller] in controller?.refreshBarLayout() }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak controller] in controller?.refreshBarLayout() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak controller] in
+                guard let controller else { return }
+                controller.view.superview?.bringSubviewToFront(controller.view)
+                controller.refreshBarLayout()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak controller] in
+                guard let controller else { return }
+                controller.view.superview?.bringSubviewToFront(controller.view)
+                controller.refreshBarLayout()
+            }
         }
     }
     private var acceptsSearch: Bool {
         isAttached && !settingQuery && !(config?.layout == "sidebar" && workspaceHidden)
     }
+
+    /// UIKit may create a route before it has joined the window. If that
+    /// happens, the initial fallback host is the route view; move the tab
+    /// controller to the window as soon as the route becomes visible.
+    private func relocateSystemTabsIfNeeded() {
+        guard let controller = systemTabController, let route,
+              let window = route.controller.view.window,
+              let parent = window.rootViewController,
+              let host = parent.viewIfLoaded,
+              systemTabHost !== host || systemTabParent !== parent else { return }
+        NSLayoutConstraint.deactivate(systemTabConstraints)
+        systemTabConstraints.removeAll()
+        controller.willMove(toParent: nil)
+        controller.removeFromParent()
+        controller.view.removeFromSuperview()
+        parent.addChild(controller)
+        host.addSubview(controller.view)
+        systemTabParent = parent
+        systemTabHost = host
+        systemTabConstraints = [
+            controller.view.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            controller.view.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            controller.view.topAnchor.constraint(equalTo: host.topAnchor),
+            controller.view.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+        ]
+        NSLayoutConstraint.activate(systemTabConstraints)
+        controller.didMove(toParent: parent)
+    }
+
     private func searchChanged(_ value: String) {
         guard acceptsSearch else { return }; query = value; emit("search", value)
     }
@@ -663,9 +726,13 @@ private final class T3HomeChromeView: ExactNativeInstance {
         bar?.removeFromSuperview(); bar = nil
         if let controller = systemTabController {
             controller.willMove(toParent: nil)
+            NSLayoutConstraint.deactivate(systemTabConstraints)
+            systemTabConstraints.removeAll()
             controller.view.removeFromSuperview()
             controller.removeFromParent()
         }
+        systemTabParent = nil
+        systemTabHost = nil
         systemTabController = nil; systemTabDelegate = nil
         sidebarTabBar?.removeFromSuperview()
         sidebarTabBar = nil; sidebarTabDelegate = nil

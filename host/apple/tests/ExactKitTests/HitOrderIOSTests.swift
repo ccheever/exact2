@@ -54,6 +54,15 @@ final class HitOrderIOSTests: XCTestCase {
         }
     }
 
+    func testAPresentationMountDoesNotCoverAThroughHit() {
+        let mount = PresentationMount(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        XCTAssertNil(mount.hitTest(CGPoint(x: 50, y: 50), with: nil))
+
+        let child = UIView(frame: mount.bounds)
+        mount.addSubview(child)
+        XCTAssertTrue(mount.hitTest(CGPoint(x: 50, y: 50), with: nil) === child)
+    }
+
     func testOverflowingFlatChildrenRemainHittableAsTheyPromoteDemoteAndLeave() throws {
         let p = presenter(raised: 0)
         p.apply(wireBatch([

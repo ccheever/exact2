@@ -1,5 +1,5 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/connections.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Adapted body from examples/t3-code/connections.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
 // Settings → Connections (ConnectionsSettings.tsx, EnvironmentRow.tsx,
 // EnvironmentIconPicker.tsx, LoadBalancingSettings.tsx, GitHubRoutingSettings.tsx).
 // This client bundles no server, so it has no primary environment: every server
@@ -39,6 +39,12 @@ const ROUTING = [['off', 'Off'], ['read', 'Read PRs'], ['read-write', 'Read and 
 const hostOf = (origin: string) => { try { return new URL(origin).host; } catch { return origin; } };
 const displayUrl = (origin: string) => `${trimOrigin(origin)}/`;
 const splitKey = (key: string) => { const index = key.indexOf('\n'); return index < 0 ? ['', ''] : [key.slice(0, index), key.slice(index + 1)]; };
+
+/** Server labels can carry a possessive suffix twice after a rename. Keep
+ * every rendered environment surface readable without rewriting saved data. */
+export function normalizeEnvironmentLabel(label: string): string {
+  return label.replace(/(['’])s(['’])s(?=\b)/g, '$1s');
+}
 
 // ── Status (savedBackendStatus, connectionStatusText) ─────────────────────
 export function savedStatus(enabled: boolean, phase: FleetPhase, error: string): { text: string; tone: string } {

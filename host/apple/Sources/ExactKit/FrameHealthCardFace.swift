@@ -113,32 +113,39 @@ enum FrameHealthCardFace {
         func velocity(releasedAt time: TimeInterval) -> CGVector { time - last.1 > 0.05 ? .zero : velocity }
     }
 
-    /// The spring that carries a released card to its corner: a 0.4 s response, damped to 0.8 of
-    /// critical, with a unit mass
+    /// A 0.4-second spring response with a damping ratio of 0.8 and unit mass
     static let spring = (stiffness: pow(2 * CGFloat.pi / 0.4, 2), damping: 2 * 0.8 * (2 * CGFloat.pi / 0.4))
 
-    /// The corner of an area the card rests in, in that area's coordinates.
-    struct Corner: Equatable {
-        var maxX = false, maxY = false
-        init(maxX: Bool = false, maxY: Bool = false) { (self.maxX, self.maxY) = (maxX, maxY) }
-        /// The corner nearest where a card released at `origin` and `velocity` would come to rest
-        /// under the platform's normal deceleration, as Picture in Picture chooses its corner
-        /// ([Designing Fluid Interfaces](https://developer.apple.com/videos/play/wwdc2018/803/)).
+    /// Store fractions of the card's available travel to preserve its position along an edge when the window
+    /// or card resizes.
+    struct Position {
+        var x: CGFloat, y: CGFloat
+        init(x: CGFloat = 0, y: CGFloat = 0) { (self.x, self.y) = (x, y) }
+
         init(nearest origin: CGPoint, velocity: CGVector, size: CGSize, in area: CGRect) {
-            // `UIScrollView.DecelerationRate.normal` keeps 0.998 of the velocity each millisecond
+            // Project the release using normal scroll deceleration: 0.998 of the velocity each millisecond
             let glide = 0.998 / (1 - 0.998) / 1000
-            maxX = origin.x + size.width / 2 + velocity.dx * glide > area.midX
-            maxY = origin.y + size.height / 2 + velocity.dy * glide > area.midY
+            let width = max(0, area.width - size.width), height = max(0, area.height - size.height)
+            let dx = min(width, max(0, origin.x + velocity.dx * glide - area.minX))
+            let dy = min(height, max(0, origin.y + velocity.dy * glide - area.minY))
+            x = width > 0 ? dx / width : 0
+            y = height > 0 ? dy / height : 0
+            let horizontal = min(dx, width - dx), vertical = min(dy, height - dy)
+            if horizontal <= vertical {
+                x = dx <= width / 2 ? 0 : 1
+            } else {
+                y = dy <= height / 2 ? 0 : 1
+            }
         }
+
         func origin(of size: CGSize, in area: CGRect) -> CGPoint {
-            CGPoint(x: maxX ? max(area.minX, area.maxX - size.width) : area.minX,
-                y: maxY ? max(area.minY, area.maxY - size.height) : area.minY)
+            CGPoint(x: area.minX + x * max(0, area.width - size.width),
+                y: area.minY + y * max(0, area.height - size.height))
         }
     }
 
-    /// Where a dragged card is drawn when the press would carry its origin to `origin`: there, within
-    /// `area`, and past an edge only part of the way, following the press less the further it goes, as
-    /// a scroll view resists past its content. On release the card springs back to a corner of `area`.
+    /// Follow the press within `area` and resist movement past its edges like a scroll view. On release, the card
+    /// springs back to an edge.
     static func resisted(_ origin: CGPoint, size: CGSize, in area: CGRect) -> CGPoint {
         func axis(_ value: CGFloat, _ low: CGFloat, _ high: CGFloat, _ span: CGFloat) -> CGFloat {
             let high = max(low, high)

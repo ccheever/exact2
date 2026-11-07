@@ -943,13 +943,47 @@ impl<S: Source> Walk<'_, '_, S> {
         self.hidden += u32::from(route_hidden);
         let outer = chosen.map(|value| std::mem::replace(&mut self.select, value));
         let only = children.len() == 1;
+        let list = node.node_type == exact_kernel::NodeType::List
+            && node.props.bool(PropId::Virtualized) != Some(true);
         for child in children.iter().copied() {
+            let item = if list {
+                src.facts(child)
+                    .filter(|c| !c.node_type.is_metadata())
+                    .map(|c| {
+                        let role = if node
+                            .props
+                            .str(PropId::AccessibilityRole)
+                            .is_some_and(|r| !role_is(r, "list") && !role_is(r, "directory"))
+                            || c.props
+                                .str(PropId::AccessibilityRole)
+                                .is_some_and(|r| role_is(r, "listitem"))
+                        {
+                            "presentation"
+                        } else {
+                            "listitem"
+                        };
+                        // Top layers do not count as modal-card body rows (navigation.js).
+                        let layer = tag_of(&c, self.buttons > 0) == "dialog"
+                            || c.props.str(PropId::Popover).is_some();
+                        (role, if layer { "layer" } else { "" })
+                    })
+            } else {
+                None
+            };
+            if let Some((role, marker)) = item {
+                self.out.push_str(&format!(
+                    "<div role=\"{role}\" data-exact-list-item=\"{marker}\" style=\"display:contents\">"
+                ));
+            }
             let handled = self.handlers.get(&child).is_some_and(|k| !k.is_empty());
             let fold = only
                 && src
                     .facts(child)
                     .is_some_and(|c| folds(&c, &node, above.as_ref(), true, handled));
             self.element(child, Some(id), font, fold)?;
+            if item.is_some() {
+                self.out.push_str("</div>");
+            }
         }
         if let Some(outer) = outer {
             self.select = outer;
@@ -1252,6 +1286,31 @@ fn escape(out: &mut String, text: &str, attribute: bool) -> Result<(), &'static 
     }
     out.push_str(&text[run..]);
     Ok(())
+}
+
+// Resolve the first concrete ARIA role before supplying item semantics; navigation.js has the same vocabulary.
+// https://www.w3.org/TR/wai-aria-1.3/#host_general_role
+// https://www.w3.org/TR/dpub-aria-1.1/ and https://www.w3.org/TR/graphics-aria-1.0/
+fn role_is(value: &str, wanted: &str) -> bool {
+    let mut words = value
+        .split(['\t', '\n', '\x0c', '\r', ' '])
+        .filter(|r| !r.is_empty());
+    let Some(first) = words.next() else {
+        return false;
+    };
+    if first.eq_ignore_ascii_case(wanted) {
+        return true;
+    }
+    let Some(next) = words.next() else {
+        return false;
+    };
+    const ROLES: &str = "alert alertdialog application article banner blockquote button caption cell checkbox code columnheader combobox comment complementary contentinfo definition deletion dialog directory doc-abstract doc-acknowledgments doc-afterword doc-appendix doc-backlink doc-biblioentry doc-bibliography doc-biblioref doc-chapter doc-colophon doc-conclusion doc-cover doc-credit doc-credits doc-dedication doc-endnote doc-endnotes doc-epigraph doc-epilogue doc-errata doc-example doc-footnote doc-foreword doc-glossary doc-glossref doc-index doc-introduction doc-noteref doc-notice doc-pagebreak doc-pagefooter doc-pageheader doc-pagelist doc-part doc-preface doc-prologue doc-pullquote doc-qna doc-subtitle doc-tip doc-toc document emphasis feed figure form generic graphics-document graphics-object graphics-symbol grid gridcell group heading image img insertion link list listbox listitem log main mark marquee math menu menubar menuitem menuitemcheckbox menuitemradio meter navigation none note option paragraph presentation progressbar radio radiogroup region row rowgroup rowheader scrollbar search searchbox sectionfooter sectionheader separator slider spinbutton status strong subscript suggestion superscript switch tab table tablist tabpanel term textbox time timer toolbar tooltip tree treegrid treeitem";
+    let known = |word: &str| ROLES.split(' ').any(|r| r.eq_ignore_ascii_case(word));
+    !known(first)
+        && std::iter::once(next)
+            .chain(words)
+            .find(|r| known(r))
+            .is_some_and(|r| r.eq_ignore_ascii_case(wanted))
 }
 
 #[cfg(test)]

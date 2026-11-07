@@ -60,9 +60,12 @@ export function mobileCacheFleetDisplays(fleet: EnvironmentFleet, focused: Focus
 /** Prepared awaited consumer, to run after fleet.sync commits. It owns no
  * transport, native handle, Promise tail or timer beyond this calling answer. */
 export async function mobileCacheFleetSync(fleet: EnvironmentFleet, native: Native | null | undefined,
-  focused: FocusedHost, saved: Saved = () => fleet.saved): Promise<void> {
+  focused: FocusedHost & { revision?: number }, saved: Saved = () => fleet.saved): Promise<void> {
   const serial = (serials.get(fleet) ?? 0) + 1; serials.set(fleet, serial);
+  const before = [...records(fleet).entries()];
   mobileCacheFleetDisplays(fleet, focused, saved);
+  let changed = before.length !== records(fleet).size
+    || before.some(([environmentId, retained]) => records(fleet).get(environmentId) !== retained);
   await mobileCacheCatalogPrepare(focused, native, saved);
   if (!native?.available) return;
   const catalog = saved(), revision = fleet.revision;
@@ -89,7 +92,7 @@ export async function mobileCacheFleetSync(fleet: EnvironmentFleet, native: Nati
     const key = (kind: 'shell' | 'server-config'): MobileCacheKey => ({ environmentId, kind, key: kind === 'shell' ? 'snapshot' : 'config' });
     try {
       if (connected(entry)) {
-        records(fleet).delete(environmentId);
+        if (records(fleet).delete(environmentId)) changed = true;
         if (!entry || row.enabled === false || entry.synchronized !== entry.generation
           || trimOrigin(entry.origin) !== origin || entry.busy) continue;
         const persist = async (kind: 'shell' | 'server-config', encode: () => string) => {
@@ -112,12 +115,17 @@ export async function mobileCacheFleetSync(fleet: EnvironmentFleet, native: Nati
       if (!current() || !shell) continue;
       const config = await mobileCacheReadDecoded(native, key('server-config'), payload => decodeMobileConfigCache(decodeMobileCatalogPayload(payload, savedIdentity) ?? '', environmentId), current);
       if (!current()) continue;
+      const existing = records(fleet).get(environmentId);
       records(fleet).set(environmentId, { clearRevision,
         value: { environmentId, origin, enabled: row.enabled !== false, connected: false, shell, config: config ?? {} } });
+      changed = changed || existing?.clearRevision !== clearRevision || existing?.value.shell !== shell || existing?.value.config !== (config ?? {});
     } catch (error) {
       if (letGo(error)) throw error;
       // Cache failure cannot fail another environment's successful live refresh.
       // Actual storage failures remain visible through Client Storage inspection.
     }
   }
+  // Hydration runs after the root snapshot's first pixel. Wake the canonical
+  // projection when the disposable display set changed so Home can consume it.
+  if (changed && typeof focused.revision === 'number') focused.revision++;
 }

@@ -15,7 +15,7 @@
 // host's `documentHead` writes them (document-glue.js). Where no head sets a
 // title it is the selected route's header's heading, else the app's name
 // (navigation.js `pageTitle`, both web targets': LLP 1115.000 D4.1).
-import { unselected, unselectedForHead, pageTitle, panelsOf } from "./navigation.js";
+import { unselected, unselectedForHead, pageTitle, panelsOf, viewChildren } from "./navigation.js";
 import { scope, owner, onEnd, adopting } from "./rt.js";
 
 /** The active head's fields by prop name (`headTitle` …): what a renderer
@@ -132,7 +132,7 @@ export function projectRoots(history, navigate, say, after, hostBack, hostGo, ro
 export function markRoutes(root) {
   for (const nav of [...root.getElementsByTagName("*")].filter(e => e.hasAttribute("navigationBack"))) {
     const key = nav.getAttribute("navigationKey"), panels = panelsOf(nav);
-    const stacks = (panels.length ? panels : [nav]).map(p => [...p.children].filter(r => r.hasAttribute("navigationKey")));
+    const stacks = (panels.length ? panels : [nav]).map(p => viewChildren(p).filter(r => r.hasAttribute("navigationKey")));
     const at = stacks.findIndex(routes => routes.some(r => r.getAttribute("navigationKey") === key));
     if (at < 0) continue;
     const mark = (e, hidden, inert) => { if (hidden) e.style.setProperty("visibility", "hidden"); if (inert) e.setAttribute("inert", ""); };
@@ -215,7 +215,7 @@ function toOpen() {
     const key = root.getAttribute("navigationKey");
     // A panel holds the key once this runtime built it: an adopted page's
     // waiting panel already shows its rendered routes, which only `build` wires.
-    if (panels.some(p => !Waiting.has(p) && [...p.children].some(r => r.getAttribute("navigationKey") === key))) continue;
+    if (panels.some(p => !Waiting.has(p) && viewChildren(p).some(r => r.getAttribute("navigationKey") === key))) continue;
     const named = [...root.getElementsByTagName("*")].filter(t => t.getAttribute("aria-selected") === "true").map(t => t.getAttribute("aria-controls"));
     const waiting = panels.filter(p => Waiting.has(p)), chosen = waiting.find(p => named.includes(p.getAttribute("id"))) ?? waiting[0];
     if (chosen) open.push(chosen);

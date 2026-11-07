@@ -1,0 +1,9 @@
+# EAS builds install their own dependencies and compile into a clean target.
+.git/
+node_modules/
+target/
+**/node_modules/
+**/.exact/
+**/.build/
+**/dist/
+*.log

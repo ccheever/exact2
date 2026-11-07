@@ -7,8 +7,8 @@ final class FrameHealthOverlayMac: NSView {
     weak var health: FrameHealth?
     let card = FrameHealthCardViewMac()
     private let reader = FrameHealthCardReader()
-    /// The corner the card rests in; the window's coordinates rise, so the top is `maxY`
-    private var corner = FrameHealthCardFace.Corner(maxY: true)
+    /// AppKit's coordinates increase upward, so `y: 1` starts at the top
+    private var position = FrameHealthCardFace.Position(y: 1)
     /// Paused, the card shows what it read at the pause, and goes on measuring
     private var paused = false
     /// While paused, the request and display the reader was read under; the reader takes no samples while the
@@ -199,8 +199,8 @@ final class FrameHealthOverlayMac: NSView {
         card.compact = compact
         let size = CGSize(width: min(FrameHealthCardFace.width, available.width), height: height)
         if card.frame.size != size { card.setFrameSize(size); card.needsDisplay = true }
-        // A spring toward a corner the new geometry moved turns toward where it is now
-        let target = corner.origin(of: size, in: available)
+        // Retarget the spring when layout changes its destination
+        let target = position.origin(of: size, in: available)
         if card.drag?.moved == true { place(at: card.frame.origin) }
         else if !snapping { place(at: target) } else if card.frame.origin != target { stopSnap(); spring(velocity: .zero) }
         let wasHidden = card.isHidden
@@ -226,16 +226,15 @@ final class FrameHealthOverlayMac: NSView {
 
     private var snapping: Bool { card.layer?.animation(forKey: "snap.position.x") != nil || card.layer?.animation(forKey: "snap.position.y") != nil }
 
-    /// Spring to the corner nearest where the released card would come to rest.
     private func settle(velocity: CGVector) {
-        corner = FrameHealthCardFace.Corner(nearest: card.frame.origin, velocity: velocity, size: card.frame.size, in: bounds.insetBy(dx: 8, dy: 8))
+        position = FrameHealthCardFace.Position(nearest: card.frame.origin, velocity: velocity, size: card.frame.size, in: bounds.insetBy(dx: 8, dy: 8))
         spring(velocity: velocity)
     }
 
     private func spring(velocity: CGVector) {
         guard let layer = card.layer else { return }
         let from = layer.position
-        place(at: corner.origin(of: card.frame.size, in: bounds.insetBy(dx: 8, dy: 8)))
+        place(at: position.origin(of: card.frame.size, in: bounds.insetBy(dx: 8, dy: 8)))
         let to = layer.position
         for (key, start, end, speed) in [("position.x", from.x, to.x, velocity.dx), ("position.y", from.y, to.y, velocity.dy)] where start != end {
             let spring = CASpringAnimation(keyPath: key)
@@ -248,9 +247,9 @@ final class FrameHealthOverlayMac: NSView {
         }
     }
 
-    /// After a press that did not drag, as a click that stopped the spring, the card returns to its corner.
+    /// Return to the resting position after a click interrupts the spring.
     private func rest() {
-        guard !snapping, card.frame.origin != corner.origin(of: card.frame.size, in: bounds.insetBy(dx: 8, dy: 8)) else { return }
+        guard !snapping, card.frame.origin != position.origin(of: card.frame.size, in: bounds.insetBy(dx: 8, dy: 8)) else { return }
         spring(velocity: .zero)
     }
 
@@ -265,8 +264,8 @@ final class FrameHealthOverlayMac: NSView {
 
     private func move(toward edge: CGVector) -> Bool {
         stopSnap()
-        if edge.dx != 0 { corner.maxX = edge.dx > 0 }
-        if edge.dy != 0 { corner.maxY = edge.dy > 0 }
+        if edge.dx != 0 { position.x = edge.dx > 0 ? 1 : 0 }
+        if edge.dy != 0 { position.y = edge.dy > 0 ? 1 : 0 }
         spring(velocity: .zero)
         return true
     }

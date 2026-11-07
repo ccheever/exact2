@@ -1,0 +1,72 @@
+keyframes leave
+  to opacity=0
+
+component ListItems
+  state items = ["Orchard", "Harbor", "Meadow"]
+  state shown = true
+  action reverse
+    items = ["Meadow", "Harbor", "Orchard"]
+  action drop
+    items = ["Meadow", "Harbor"]
+  action clear
+    items = []
+  action toggle
+    shown = not shown
+  view
+    column gap=12 width=320
+      row gap=8
+        button "Reverse" press=reverse testId="reverse"
+        button "Drop" press=drop testId="drop"
+        button "Clear" press=clear testId="clear"
+        button "Toggle" press=toggle testId="toggle"
+      list testId="rows" width=320
+        for name in items key=name
+          Item(name=name, prefix="row")
+      list testId="grid" appearance="none" display="grid" gap=8 width=320
+        for name in items key=name
+          Item(name=name, prefix="grid")
+      column testId="reference" display="grid" gap=8 width=320
+        for name in items key=name
+          Item(name=name, prefix="reference")
+      list testId="virtual" virtualized=true estimated-item-height=40 height=120 width=320
+        for name in items key=name
+          Item(name=name, prefix="virtual")
+      list testId="conditional" appearance="none"
+        text "First"
+        if shown
+          link href="#conditional" testId="conditional-link"
+            text "Conditional"
+        text "Last" role=(shown ? " widget listitem note " : "note") testId="role-row"
+      list testId="role-list" role=(shown ? " future list group " : "presentation")
+        text "Role row"
+      list testId="role-fallbacks" role="group list"
+        text "Group row"
+      list testId="earlier-role"
+        text "Note row" role="note listitem"
+      list testId="directory-role" role="directory list"
+        text "Directory row"
+      list testId="dpub-owner" role="doc-chapter list"
+        text "Chapter row"
+      list testId="dpub-row"
+        text "Tip row" role="doc-tip listitem"
+      list testId="graphics-owner" role="graphics-document list"
+        text "Graphic row"
+      list testId="graphics-row"
+        text "Object row" role="graphics-object listitem"
+      list testId="comment-owner" role="comment list"
+        text "Comment row"
+      list testId="mark-row"
+        text "Marked row" role="mark listitem"
+      list testId="unknown-owner" role="doc-invalid list"
+        text "Unknown role row"
+
+component Item
+  props
+    name: string
+    prefix: string
+  state count = 0
+  action bump
+    count = count + 1
+  view
+    link href=`#${name}` press=bump testId=`${prefix}-${name}` display="block" height=40 box-sizing="border-box" -exact-exit-animation="leave 2000ms linear both"
+      text `${name}:${count}` font-variant-numeric="tabular-nums"

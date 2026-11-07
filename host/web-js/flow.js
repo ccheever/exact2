@@ -1,3 +1,4 @@
+import { viewChildren, viewParent } from './navigation.js';
 // Text around shapes on the JS target (LLP 1043.000 §3): the web host's own
 // exclusions executor, `textflow-glue.js` over `textflow.wasm`, unchanged,
 // fetched after first paint by a plan with a `wrap-flow` row. This file is
@@ -40,27 +41,27 @@ export async function flow({ views, viewId, wraps, clock, wall, say }) {
   const own = (el, p) => { const v = value(el, p); return v?.unit === 'px' || v?.unit === 'number'; };
   const auto = (el, p) => { const v = value(el, p); return v == null || v.value === 'auto' || v.value === 'none'; };
   // A block <button> centres its content (kernel `orders`).
-  const orders = el => { const s = cs(el); return (s.display === 'block' || el.parentElement?.id === 'exact-root' && s.display === 'flow-root') && s.alignContent === 'normal' && el.tagName !== 'BUTTON'; };
+  const orders = el => { const s = cs(el); return (s.display === 'block' || viewParent(el)?.id === 'exact-root' && s.display === 'flow-root') && s.alignContent === 'normal' && el.tagName !== 'BUTTON'; };
   // A static box's insets do nothing; the context contains its exclusions (LLP 1074 T1).
   const inFlow = el => cs(el).position === 'static' || cs(el).position === 'relative' && ['top', 'bottom'].every(p => auto(el, p) || own(el, p));
-  const contains = el => el.parentElement?.id === 'exact-root' || cs(el).position !== 'static';
+  const contains = el => viewParent(el)?.id === 'exact-root' || cs(el).position !== 'static';
   const placed = el => own(el, 'top') && (own(el, 'height') || auto(el, 'height') && auto(el, 'bottom'))
     && ['min-height', 'max-height'].every(p => auto(el, p) || own(el, p));
   // A text's authored height (the kernel's `height != auto`): its inline
   // style (a dynamic row) or its class's rule.
   const rules = new Map(), classHeight = el => classHeightOf(el, rules);
   const definite = el => !!(el.style.height || classHeight(el)) && !/^auto$/.test(el.style.height || classHeight(el));
-  const runs = el => el.parentElement?.hasAttribute('data-exact-text');
+  const runs = el => viewParent(el)?.hasAttribute('data-exact-text');
   let last = '';
   // The contexts after a commit, as the wasm host publishes them.
   function contexts() {
     const exclusions = [...wraps].filter(e => e.isConnected && e.$wrap === 'both' && cs(e).position === 'absolute' && e.getClientRects().length);
     const by = new Map();
-    for (const e of exclusions) if (e.parentElement) (by.get(e.parentElement) ?? by.set(e.parentElement, []).get(e.parentElement)).push(e);
+    for (const e of exclusions) { const p = viewParent(e); if (p) (by.get(p) ?? by.set(p, []).get(p)).push(e); }
     const refusals = new Map([...by].map(([c, list]) => [c, !orders(c) || !contains(c) ? 'context' : list.every(placed) ? null : 'placement']));
     const refusal = leaf => {
       let chain = inFlow(leaf);
-      for (let at = leaf.parentElement; at; at = at.parentElement) {
+      for (let at = viewParent(leaf); at; at = viewParent(at)) {
         if (refusals.has(at)) { if (refusals.get(at)) return REFUSAL[refusals.get(at)]; if (!chain) return REFUSAL.chain; }
         chain &&= inFlow(at) && orders(at);
       }
@@ -68,12 +69,12 @@ export async function flow({ views, viewId, wraps, clock, wall, say }) {
     };
     const out = [];
     for (const [c, list] of by) {
-      const paragraphs = [], stack = [...c.children].reverse(), skip = new Set(list);
+      const paragraphs = [], stack = viewChildren(c).reverse(), skip = new Set(list);
       while (stack.length) {
         const el = stack.pop();
         if (skip.has(el) || el.hasAttribute('data-surface') || cs(el).display === 'none') continue;
         if (el.hasAttribute('data-exact-text') && !runs(el)) paragraphs.push({ id: viewId(el), definite: definite(el), refusal: definite(el) ? null : refusal(el) });
-        else stack.push(...[...el.children].reverse());
+        else stack.push(...viewChildren(el).reverse());
       }
       out.push({ id: viewId(c), exclusions: list.map(viewId), paragraphs });
     }

@@ -130,7 +130,7 @@ beforeAll(async () => {
   server = createServer((req, res) => {
     const html = { '/': page, '/unsaid': unsaid, '/unsaid?agent': unsaid, '/paint': paint, '/paint?agent': paint }[req.url];
     if (html) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(html); return; }
-    res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, 'input-glue.js')));
+    res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, req.url === '/navigation.js' ? 'navigation.js' : 'input-glue.js')));
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   if (unavailable) return;

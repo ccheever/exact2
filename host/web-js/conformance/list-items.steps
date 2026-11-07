@@ -1,0 +1,6 @@
+tap reverse
+tap drop
+clock settle
+tap toggle
+tap clear
+clock settle

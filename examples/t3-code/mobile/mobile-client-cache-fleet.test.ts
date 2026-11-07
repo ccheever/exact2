@@ -78,6 +78,17 @@ test('background offline display never mutates fleet transport or reducer author
   const calls = f.calls.length; await f.sync(); expect(f.calls).toHaveLength(calls);
 });
 
+test('pending focused reconnect hydrates the saved shell into the disposable fleet display', async () => {
+  const f = fixture();
+  f.focused.environmentId = '';
+  f.focused.origin = f.origin;
+  f.focused.connection = 'reconnecting';
+  (f.focused as FocusedHost & { revision: number }).revision = 0;
+  await f.sync();
+  expect(f.display()).toEqual([{ environmentId: f.environmentId, origin: f.origin, enabled: true, connected: false, shell: f.shell, config: f.config }]);
+  expect((f.focused as FocusedHost & { revision: number }).revision).toBe(1);
+});
+
 test('disabled environment keeps display data without starting a transport; forget removes visibility', async () => {
   const f = fixture(); f.fleet.saved[0]!.enabled = false; f.fleet.entries.clear(); await f.sync();
   expect(f.display()[0]!.enabled).toBe(false); expect(f.fleet.entries.size).toBe(0);

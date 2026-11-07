@@ -68,6 +68,11 @@ async function fixtureControls(s) {
   // Coverage: one element per unignored node Chrome reported, the dropped kinds aside.
   const { nodes } = await s.carrier.call('Accessibility.getFullAXTree');
   expect(r.ax.elements.length).toBe(nodes.filter(n => !n.ignored && !['InlineTextBox', 'RootWebArea'].includes(n.role?.value)).length);
+  const byId = new Map(nodes.map(n => [n.nodeId, n]));
+  const destinations = nodes.find(n => !n.ignored && n.role?.value === 'list' && n.name?.value === 'Destinations');
+  const rows = destinations.childIds.map(id => byId.get(id)).filter(n => !n.ignored);
+  expect(rows.map(n => n.role.value)).toEqual(['listitem', 'listitem', 'listitem']);
+  expect(rows.map(n => n.childIds.map(id => byId.get(id)).find(c => !c.ignored && c.role?.value === 'link')?.name.value)).toEqual(['Orchard', 'Harbor', 'Meadow']);
   // The decoration is aria-hidden, the inert box is inert: neither is exposed.
   for (const t of ['decoration', 'inert-box', 'inert-button']) expect(find(r, t)).toBeUndefined();
   // A focusable button inside an image role: present exactly when Chrome exposes it.

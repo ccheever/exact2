@@ -1,6 +1,8 @@
 use HomeArrangementData, AutomationCreditConfirmation, automationReplyPlan, automationCreditHandoff, HtmlRenderContext, HtmlRenderResult, htmlRenderReply, ThreadSubmissionInput, ThreadSubmissionResult, ThreadSubmission, ThreadLocalColors, terminalReply, composerReply, selectedThreadReply, preparedDraftReply, editedOutboxReply, threadSelectionNotice, projectRenameSaved, noticeChoice, noticeReceived, threadSubmissionNoticeMessage, changeNoticeMessage, fileNoticeMessage, voiceNoticeMessage, filesNoticeMessage, informationNoticeMessage, settingNoticeMessage, automationNoticeMessage, TerminalAttachChange, SnapshotRead, HomeReplyPlan, homeReplyPlan, pairingReplyPlan, modelReplyPlan, taskReplyPlan, PairingUi, PairingPrepared, pairingUiInitial, pairingUiVisit, pairingUiPreparing, pairingUiPreparedReply, followedLocation, SettingsVisit, settingsVisitOwner, settingsVisitSelection, settingsEventPlan, pairingCameraPlan, mediaUiInitial, mediaUiOpen, mediaUiRetry, documentReplyPlan, mediaReplyPlan, TerminalCaptureSelection, terminalCaptureStart, terminalCaptureSelect, terminalCaptureAttached, ArchiveVisit, archiveDefaultFilters, archiveVisitFilters, archiveLiveRecords, archiveEventRecords, ArchiveDeleteTarget, GitForm, gitFormField, gitFormBranches, IncomingShareInbox, IncomingSharePresentation, MobileKeyboardSnapshot, MobileKeyboardResult, MobileGitFeedbackSnapshot, MobileGitFeedbackResult, ArchiveChromeSnapshot, ArchiveChromeEvent, ProjectFaviconImages, ProjectFaviconAdmission, ProjectFaviconPrepared, MobileOutboxDrive, MobileOutboxEdit, ComposerRootInput, ComposerRootView, ComposerRootResult, homeChromeChange, homeAutomationPath, NewTaskCloneSnapshot, NewTaskCloneColors, AddProjectSnapshot, AddProjectColors, addProjectLocation, addProjectNextAlert, mobileInformationPath, mobileSettingPath, ThreadHeaderOptions, ThreadHeaderSnapshot, ThreadHeaderRead, ThreadHeaderResult, WorkingControlData, MobileInspectorPanel, MobileWorkspaceOverlays, MobileQueueSnapshot, GitColors, MobileGitSnapshot, MobileGitResult, MobileGitBranchesSnapshot, MobileGitBranchResult, InspectorState, InspectorContext, InspectorChange, InspectorPresentation, WorkspaceEvent, MobileRouteContent, MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation, ThreadPreferencesData, SettingsProjectOverview, SettingsProjectData, AccountEntry, SettingsWrite, StreamingAssistant, StreamingHapticState, AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, SettingsSelection, MobileLayout, HomeChromeView, ChromeEvent, HomeActionResult, ThreadSelection, HomeView, HomePreferences, Time, Viewport, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewPreparation, previewMayRetry, previewDiscoveryActive, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change, NotificationsData, MobileBrowserSnapshot, MobilePreviewColors, MobileDevicesSnapshot, InformationData, AttachmentAudioStatus, ScheduledClockTime, AutomationPrepared, AutomationData, VoiceSnapshot, VoiceStatus, VoiceResult, VoiceColors, AttachmentDocumentSnapshot, AttachmentDocumentMenu, AttachmentDocumentAction, MobileTerminalSnapshot, MobileTerminalResult, MobileTerminalEvent, MobileTerminalCapture, ReviewSnapshot, ReviewResult, ReviewColors, FileTreeSnapshot, FileTreeResult, FileSnapshot, FileActionResult, FileUi, ServerSettingsData, SettingsProviderAccounts, ProviderSettingsData, MediaPreviewSnapshot, ComposerAttachmentsSnapshot, SettingsChoicesData, MobilePreferencesResource, SettingsAppearance, SettingsAppearanceData, ArchiveData, ArchiveColors, ArchiveScope, ArchiveRead, AgentActivityData, AgentActivityColors, EnvironmentDetailData, NewTaskFlowSnapshot, NewTaskFlowResult, ComposerSettingsSnapshot, ComposerActionResult, ComposerColors, NewTaskSnapshot, NewTaskPreparation, ThreadSnapshot, ThreadColors, ComposerFocusReturn, composerReturnPhase, HomeColors from "./root-imports.contract"
 use mobileRouteFormSheet, mobileRoutePresentation, mobileRouteDetent from "./mobile-root-state.contract"
+use PullRequestsData, PullRequestDetailData from "./pull-requests.contract"
 use MobileSidebarPanel, MobileWorkspaceMarkers from "./workspace-panels.contract"
+use MobileAppTabBar from "./mobile-app-tabs.contract"
 font "DM Sans" // @ref examples/t3-code/mobile/docs/1130.002-design-system-parity.spec.md#typography-and-font-assets
   400 = "assets/fonts/DMSans_400Regular.ttf"
   500 = "assets/fonts/DMSans_500Medium.ttf"
@@ -8,7 +10,7 @@ font "DM Sans" // @ref examples/t3-code/mobile/docs/1130.002-design-system-parit
   400 italic = "assets/fonts/DMSans_400Regular_Italic.ttf"
   700 italic = "assets/fonts/DMSans_700Bold_Italic.ttf"
 routes nav
-  home "/"
+  tab home "/"
     homeArrange "/arrange"
     thread "/threads/:threadEnvironment/:threadId"
     threadQueue "/threads/:threadEnvironment/:threadId/queue"
@@ -30,31 +32,7 @@ routes nav
     threadModelOption "/threads/:threadEnvironment/:threadId/model/options/:modelOption"
     threadRuntime "/threads/:threadEnvironment/:threadId/model/runtime"
     threadAgents "/threads/:threadEnvironment/:threadId/agents"
-    settings "/settings"
-    settingsAuth "/settings/auth"
-    settingsWaitlist "/settings/waitlist"
-    settingsNotifications "/settings/notifications"
-    settingsThreads "/settings/thread-preferences"
-    settingsProjectOverview "/settings/project"
     connectOnboarding "/connect-onboarding"
-    archive "/settings/archive"
-    settingsServer "/settings/server/:serverPage"
-    settingsProviders "/settings/provider-accounts"
-    settingsAppearance "/settings/appearance"
-    settingsChoice "/settings/preferences/:settingsChoice"
-    settingsScheduledTasks "/settings/scheduled"
-    settingsScheduledNew "/settings/scheduled/new"
-    settingsScheduledEdit "/settings/scheduled/edit"
-    settingsScheduledModel "/settings/scheduled/model"
-    settingsScheduledBranch "/settings/scheduled/branch"
-    settingsAbout "/settings/about"
-    settingsClientStorage "/settings/client-storage"
-    settingsDiagnostics "/settings/diagnostics"
-    settingsOpenSourceLicenses "/settings/open-source-licenses"
-    settingsOpenSourceLicense "/settings/open-source-licenses/:entryKey"
-    settingsLegal "/settings/legal"
-    settingsUsage "/settings/usage"
-    settingsUsageAccount "/settings/usage/account/:usageAccount/:usageWindow/:usageKind"
     newTask "/new"
       addProject "/new/add-project"
       addProjectRepository "/new/add-project/repository"
@@ -74,6 +52,32 @@ routes nav
     environments "/settings/environments"
     environmentDetail "/settings/environments/:environmentKey"
     notfound
+  tab pullRequests "/pull-requests"
+    pullRequestsDetail "/pull-requests/detail"
+  tab settingsUsage "/settings/usage"
+    settingsUsageAccount "/settings/usage/account/:usageAccount/:usageWindow/:usageKind"
+  tab settings "/settings"
+    settingsAuth "/settings/auth"
+    settingsWaitlist "/settings/waitlist"
+    settingsNotifications "/settings/notifications"
+    settingsThreads "/settings/thread-preferences"
+    settingsProjectOverview "/settings/project"
+    archive "/settings/archive"
+    settingsServer "/settings/server/:serverPage"
+    settingsProviders "/settings/provider-accounts"
+    settingsAppearance "/settings/appearance"
+    settingsChoice "/settings/preferences/:settingsChoice"
+    settingsScheduledTasks "/settings/scheduled"
+    settingsScheduledNew "/settings/scheduled/new"
+    settingsScheduledEdit "/settings/scheduled/edit"
+    settingsScheduledModel "/settings/scheduled/model"
+    settingsScheduledBranch "/settings/scheduled/branch"
+    settingsAbout "/settings/about"
+    settingsClientStorage "/settings/client-storage"
+    settingsDiagnostics "/settings/diagnostics"
+    settingsOpenSourceLicenses "/settings/open-source-licenses"
+    settingsOpenSourceLicense "/settings/open-source-licenses/:entryKey"
+    settingsLegal "/settings/legal"
 component App
   members "./content-geometry-root.contract"
   action showMobileNotice(title: string, message: string)
@@ -268,7 +272,7 @@ component App
   resource appearance = appearance(preferences.serialized, viewport.prefersColorScheme) as shape Appearance
   resource look = theme(appearance.scheme, appearance.themeId) as shape Theme
   resource snapshotRead = snapshotRead() as shape SnapshotRead
-  resource data = snapshot(appearance.scheme, appearance.themeId, snapshotRead.serial, wallTime.epochAtZero + elapsed) as shape Snapshot
+  resource data = snapshot(appearance.scheme, appearance.themeId, snapshotRead.serial) with wallTime.epochAtZero + elapsed as shape Snapshot
   resource keyboard = keyboardSnapshot(`${top(nav).id}`, top(nav).url, data.revision) as shape MobileKeyboardSnapshot
   mutation keyboardCopied as shape MobileKeyboardResult refreshes keyboard
   mutation keyboardDismissed as shape MobileKeyboardResult refreshes keyboard
@@ -429,7 +433,14 @@ component App
     let event = settingsEventPlan(settingsVisits, settingsEvent, workspaceEntries, `${top(nav).id}`)
     settingsVisits = event.records
     if event.close
-      nav = back(nav)
+      match settingsEvent
+        case some(change)
+          if change.kind == "close" and top(nav).name == "settings"
+            nav = select(nav, "home")
+          else
+            nav = back(nav)
+        case none
+          nav = back(nav)
   action openSetting(target: string)
     let location = mobileSettingPath(target)
     if location != ""
@@ -444,7 +455,9 @@ component App
   state homeQuery = ""
   state homeEnvironment = ""
   state homeProject = ""
-  derive homeRouteKey = match first(stack(nav).filter(route => route.name == "home")) { case some(route) => `${route.id}`, case none => "home" }
+  derive appTab = nav.tab
+  derive appTabRoot = match first(nav.tabs.filter(tab => tab.name == nav.tab)) { case some(tab) => tab.stack.length == 1, case none => true }
+  derive homeRouteKey = match nav.tabs.filter(tab => tab.name == "home").at(0) { case some(tab) => match tab.stack.at(0) { case some(route) => `${route.id}`, case none => "home" }, case none => "home" }
   resource chrome = homeChrome(homeRouteKey, homeQuery, homeEnvironment, homeProject, appearance.scheme, layout.safeBottom, layout.liquidGlass, data.revision, data.environments, appearance.groupingMode, "compact") as shape HomeChromeView
   state sidebarQuery = ""
   state sidebarEnvironment = ""
@@ -464,7 +477,7 @@ component App
         sidebarProject = change.project
         sidebarSettledCount = change.count
         if change.location != ""
-          nav = push(nav, change.location)
+          nav = event.kind == "tab" or event.kind == "settings" ? select(nav, change.location) : push(nav, change.location)
       case none
         sidebarQuery = sidebarQuery
   action showMoreSidebar
@@ -486,7 +499,7 @@ component App
         homeProject = change.project
         settledCount = change.count
         if change.location != ""
-          nav = push(nav, change.location)
+          nav = event.kind == "tab" or event.kind == "settings" ? select(nav, change.location) : push(nav, change.location)
       case none
         homeQuery = homeQuery
   state composerFocusIdentity = ""
@@ -1275,6 +1288,11 @@ component App
   resource archiveScope = archiveScope(data.revision, data.environmentId, data.generation, data.ready, data.status, data.environments) as shape ArchiveScope
   resource archiveRead = archiveRead(top(nav).name == "archive" ? `${top(nav).id}` : "", archiveScope.key, archiveRefresh) as shape ArchiveRead
   resource archiveData = archiveView(wallTime.epochAtZero + elapsed, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).query, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).environment, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).sort, top(nav).name == "archive", archiveRead, archiveScope, stack(nav).filter(entry => entry.name == "archive").length > 0) as shape ArchiveData
+  state prQuery = ""
+  state pullRequestsSelected = ""
+  state pullRequestsRefresh = 0
+  resource pullRequestsData = pullRequestsPage(top(nav).name == "pullRequests", pullRequestsRefresh, wallTime.epochAtZero + elapsed, pullRequestsSelected, prQuery, prQuery != "", `${top(nav).id}`) as shape PullRequestsData
+  resource pullRequestDetailData = pullRequestDetail(top(nav).name == "pullRequestsDetail", pullRequestsRefresh, wallTime.epochAtZero + elapsed, pullRequestsSelected) as shape PullRequestDetailData
   task expireArchive when stack(nav).filter(entry => entry.name == "archive").length == 0
     after(300000, tick)
   resource agentLook = agentColors(appearance.scheme, appearance.themeId) as shape AgentActivityColors
@@ -1300,6 +1318,17 @@ component App
     archiveVisits = archiveEventRecords(archiveVisits, archiveChromeChanged, workspaceEntries)
   action refreshArchive
     archiveRefresh = archiveRefresh + 1
+  action refreshPullRequests
+    pullRequestsRefresh = pullRequestsRefresh + 1
+  mutation pullRequestsChanged as shape Change refreshes pullRequestsData
+  action pullRequestsQuery(value: string)
+    prQuery = value
+  action pullRequestsAction(kind: string, value: string)
+    if kind == "select"
+      pullRequestsSelected = value
+      nav = push(nav, path("pullRequestsDetail"))
+    else
+      send pullRequestsChanged = command(`pageslocal:pr-${kind}`, "", value, `${top(nav).id}`, taskGuardOwner, taskGuardRoute)
   action archiveAction(kind: string, environmentId: string, projectId: string, threadId: string)
     if kind == "delete"
       archiveDelete = ArchiveDeleteTarget(environment=environmentId, project=projectId, thread=threadId)
@@ -1438,7 +1467,9 @@ component App
     if top(nav).name == "notfound"
       nav = replace(nav, path("home"))
   action back
-    if top(nav).name == "newTaskDraft"
+    if top(nav).name == "settings"
+      nav = select(nav, "home")
+    else if top(nav).name == "newTaskDraft"
       closeNewTask()
     else if top(nav).name == "settingsScheduledNew" or top(nav).name == "settingsScheduledEdit"
       automationAction("close", "", "", "")
@@ -1484,16 +1515,22 @@ component App
       pendingRemove = id
       let label = match first(data.environments.filter(item => item.id == id)) { case some(item) => item.label, case none => "this environment" }
       send removal = alert("remove", "Remove from this device?", `Forget ${label} and its cached threads on this device. Switch it off instead to keep it saved.`)
+  action selectTab(name: string)
+    nav = select(nav, name)
   action save(id: string, label: string, url: string)
     lastOperation = "save"
     send changed = command("save-environment", id, label, url, taskGuardOwner, taskGuardRoute)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%" background-color=look.screen color=look.foreground display="flex" flex-direction="row" font-family="DM Sans" font-size=16 interactive-widget="resizes-content" testId="mobile-root"
+      if workspace.usesSplitView
+        MobileWorkspaceMarkers()
       MobileSidebarPanel(workspace=workspace, sidebarHome=sidebarHome, sidebarChrome=sidebarChrome, homeLook=homeLook, homeEpochAtZero=wallTime.epochAtZero, refreshHomeClock=tick, reducedMotion=viewport.prefersReducedMotion, chooseThread=chooseThread, homeMenuAction=homeMenuAction, toggleHomeShelf=toggleHomeShelf, showMoreSidebar=showMoreSidebar, addEnvironment=addEnvironment, sidebarChromeEvent=sidebarChromeEvent)
-      column id="workspace-panel" role="tabpanel" pointer-events="none" position="relative" width=workspace.contentSettledWidth height="100%" flex-shrink=0 min-width=0
-        for entry in stack(nav) key = entry.id
-          column id=`mobile-route-${entry.id}` navigationKey=`${entry.id}` pointer-events="auto" position="absolute" inset=0 width=(mobileRoutePresentation(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView) == "fullscreen" ? viewport.width : workspace.contentSettledWidth) min-width=0 max-width=(mobileRoutePresentation(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView) == "fullscreen" ? viewport.width : "100%") overflow-x="hidden" background-color=look.sheet display="flex" flex-direction="column" navigationSystemBars=((entry.name == "threadBrowser" or entry.name == "threadDevices") ? "hidden" : "auto") data-mobile-scheduled-editor=(entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit") data-mobile-form-sheet=mobileRouteFormSheet(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView) data-mobile-scan-action=(entry.name == "connect" ? "scan-qr" : "") data-mobile-scanner-open=pairingUi.scannerOpen navigationScroll=(entry.name == "newTask" ? "new-task-projects-scroll" : entry.name == "threadQueue" ? "mobile-queue-scroll" : entry.name == "home" ? (home.fullPageEmpty ? "" : "home-list") : (entry.name == "thread" or (entry.name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")) ? (threadData.rows.length > 0 ? "thread-feed" : "") : entry.name == "gitOverview" ? "git-overview-scroll" : entry.name == "gitCommit" ? "git-commit-scroll" : entry.name == "gitConfirm" ? "git-confirm-scroll" : entry.name == "gitBranches" ? "git-branches-scroll" : entry.name == "threadReview" ? "review-diff" : entry.name == "threadFiles" ? "workspace-files" : entry.name == "threadFile" ? "file-source" : entry.name == "settingsScheduledTasks" ? "scheduled-tasks-scroll" : entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit" ? "scheduled-editor-scroll" : entry.name == "settingsThreads" ? "settings-thread-preferences-scroll" : entry.name == "settingsProjectOverview" ? "settings-project-scroll" : entry.name == "settingsNotifications" ? "settings-notifications-scroll" : entry.name == "settingsUsage" ? "settings-usage-scroll" : entry.name.startsWith("settingsScheduled") or entry.name == "settingsUsageAccount" ? "" : entry.name == "settings" ? "settings-scroll" : entry.name == "settingsServer" ? "settings-server-scroll" : entry.name == "settingsProviders" ? "settings-provider-scroll" : entry.name == "settingsAppearance" ? "settings-appearance-scroll" : entry.name == "settingsChoice" ? "settings-choice-scroll" : entry.name == "archive" ? (archiveData.items.length > 0 ? "archive-list" : "") : `scroll-${entry.id}`) navigationPresentation=mobileRoutePresentation(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView) closedby=(entry.name == "threadBrowser" or entry.name == "threadDevices" ? "none" : "closerequest") navigationDetent=mobileRouteDetent(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView)
-            MobileRouteContent(contentGeometry=contentGeometry, contentGeometryEvent=contentGeometryEvent, threadHeaderConfiguration=(threadHeader.visible ? threadHeader.configuration : ""), workingControl=workingControl, threadHeaderAction=threadHeaderAction, threadHistoryScroll=threadHistoryScroll, threadEndFollowEnabled=(threadEndFollowOwner == `${threadData.environmentId}:${threadData.threadId}` ? threadEndFollowEnabled : true), threadScrollToEnd=threadScrollToEnd, terminalMountReady=(threadHeader.pendingLaunch == "" and not pending(threadHeaderChanged)), queueData=queueData, gitData=gitData, gitBranchesData=gitBranchesData, gitCommitMessage=gitForm.message, gitNewBranch=gitForm.branch, gitWorktreeBase=gitForm.worktreeBase, gitWorktreeBranch=gitForm.worktreeBranch, gitLook=gitLook, gitAction=gitAction, gitBranchAction=gitBranchAction, gitField=gitField, refreshGit=refreshGit, openGit=openGit, toggleInspector=toggleInspector, homeEpochAtZero=wallTime.epochAtZero, refreshHomeClock=tick, routeName=entry.name, routeId=`${entry.id}`, modelOption=entry.params.modelOption, modelOptionTitle=searchParam(entry, "title"), focused=(entry.id == top(nav).id), notificationSettings=notificationSettings, viewport=viewport, workspace=workspace, voiceFocus=voiceFocus, voiceData=voiceData, voiceLook=voiceLook, appearance=appearance, look=look, data=data, detail=detail, informationRoute=informationRoute, informationListCovered=(entry.name == "settingsOpenSourceLicenses" and top(nav).name == "settingsOpenSourceLicense" and (match stack(nav).at(-2) { case some(previous) => previous.id == entry.id, case none => false })), informationData=informationData, informationLegal=informationLegal, settingsData=settingsData, settingsAppearance=settingsAppearance, settingsChoice=settingsChoice, threadPreferences=threadPreferences, projectOverview=projectOverview, serverSettings=serverSettings, providerAccounts=providerAccounts, automationData=automationData, scheduledHeader=scheduledHeader, layout=layout, chrome=chrome, threadLook=threadLook, threadData=threadData, previewLook=previewLook, browserData=browserData, devicesData=devicesData, browserMenus=browserMenus, devicesMenus=devicesMenus, terminalData=terminalData, terminalCapture=terminalCapture, reviewLook=reviewLook, reviewData=reviewData, filesData=filesData, fileData=fileData, fileRequestFailed=(failed(fileData) or failed(filePrepared)), fileRequestPending=(pending(fileData) or pending(filePrepared)), filePreview=(fileUi.preview == fileData.path), fileMenu=fileMenu.configuration, audioData=audioData, mediaViewerData=mediaViewerData, documentData=documentData, documentMenu=documentMenu, htmlRenderContext=htmlRenderContext, mediaData=mediaData, composerAttachments=composerAttachments, composerLook=composerLook, addProjectData=addProjectData, addProjectLook=addProjectLook, editAddProject=editAddProject, browseAddProject=browseAddProject, actAddProject=actAddProject, openAddProject=openAddProject, newTaskClone=newTaskClone, newTaskCloneLook=newTaskCloneLook, modelData=modelData, newTaskFlow=newTaskFlow, newTaskData=newTaskData, taskDraftReply=taskDraftChanged, taskDraftPending=pending(taskDraftChanged), archiveLook=archiveLook, archiveData=archiveData, agentLook=agentLook, agents=agents, homeLook=homeLook, home=home, arrangement=arrangement, informationQuery=informationQuery, projectSavedRevision=projectSavedRevision, composerFocused=composerFocused, reviewComment=reviewComment, filesQuery=fileUi.query, mediaNativeOpen=mediaUi.nativeOpen, mediaNativeError=mediaUi.nativeError, modelQuery=modelQuery, modelLegacy=modelLegacy, modelFilterOwner=modelFilterOwner, newTaskQuery=newTaskQuery, branchQuery=branchQuery, archiveChrome=archiveChrome, host=pairingUi.host, code=pairingUi.code, formError=pairingUi.formError, expanded=pairingUi.expanded, scannerOpen=pairingUi.scannerOpen, cameraStatus=pairingUi.cameraStatus, composerExpanded=(composerExpanded and (composerEditor == `thread-composer-${entry.id}` or composerReturn.editorId == `thread-composer-${entry.id}`)), archiveDataPending=(pending(archiveRead)), archivedPending=(pending(archived)), automationChangedPending=(pending(automationChanged)), changedPending=(pending(changed) or pending(threadSubmissionChanged)), detailChangedPending=(pending(detailChanged)), modelChangedPending=(pending(modelChanged)), projectRenamedPending=(pending(projectRenamed)), taskChangedPending=(pending(taskChanged)), threadPreferencesChangedPending=(pending(threadPreferencesChanged)), toggleSidebar=toggleSidebar, openNewTask=openNewTask, voiceAction=voiceAction, informationCommand=informationCommand, informationSearch=informationSearch, openInformation=openInformation, threadPreferenceChange=threadPreferenceChange, renameProject=renameProject, automationAction=automationAction, serverSettingChange=serverSettingChange, providerAction=providerAction, providerField=providerField, providerSignOut=providerSignOut, settingsEnvironment=settingsEnvironment, changePreference=changePreference, settingsHeaderEvent=settingsHeaderEvent, openSetting=openSetting, homeEvent=homeEvent, richComposer=richComposer, richComposerAction=richComposerAction, richComposerEvent=richComposerEvent, richComposerMessage=richComposerMessage, threadSubmission=threadSubmission, threadLocalLook=threadLocalLook, threadLocalCommand=threadLocalCommand, editDraft=editDraft, composerFocus=composerFocus, threadAction=threadAction, browserAction=actPreview("browser"), devicesAction=actPreview("devices"), browserMenu=menuPreview("browser"), devicesMenu=menuPreview("devices"), openBrowser=openBrowser, openDevices=openDevices, terminalAction=terminalAction, terminalMenuConfiguration=terminalData.sourceJSON, terminalMenuEvent=terminalEvent, terminalEvent=terminalEvent, selectTerminalLine=selectTerminalLine, attachTerminalOutput=attachTerminalOutput, openReview=openReview, reviewAction=reviewAction, refreshReview=refreshReview, loadReviewFiles=loadReviewFiles, editReviewComment=editReviewComment, submitReviewComment=submitReviewComment, openFiles=openFiles, editFilesQuery=editFilesQuery, toggleDirectory=toggleDirectory, refreshFiles=refreshFiles, openFile=openFile, refreshFile=refreshFile, fileMenuAction=fileMenuAction, audioStatusChanged=audioStatusChanged, audioControl=audioControl, documentAction=documentAction, documentNativeEvent=documentNativeEvent, retryDocument=retryDocument, mediaComplete=mediaComplete, openDraftMedia=openDraftMedia, openMedia=openMedia, removeAttachment=removeAttachment, pickAttachments=pickAttachments, openModelSettings=openModelSettings, modelAction=modelAction, editModelQuery=editModelQuery, toggleLegacy=toggleLegacy, chooseModelFilter=chooseModelFilter, openModelOption=openModelOption, chooseModelOption=modelAction("option", top(nav).params.modelOption), openRuntime=openRuntime, chooseRuntime=modelAction("runtime", ""), taskAction=taskAction, editNewDraft=editNewDraft, editNewQuery=editNewQuery, editBranchQuery=editBranchQuery, chooseNewProject=chooseNewProject, chooseNewEnvironment=chooseNewEnvironment, chooseNewBranch=chooseNewBranch, openAgents=openAgents, openAgent=openAgent, openSendingThread=openSendingThread, archiveChromeEvent=archiveChromeEvent, refreshArchive=refreshArchive, archiveAction=archiveAction, toggleHomeShelf=toggleHomeShelf, showMore=showMore, chooseThread=chooseThread, homeMenuAction=homeMenuAction, homeArrangeDrop=homeArrangeDrop, editHost=editHost, editCode=editCode, connect=connect, scan=scan, permissionChanged=permissionChanged, receiveScan=receiveScan, addEnvironment=addEnvironment, back=back, returnHome=returnHome, closeNewTask=closeNewTask, toggle=toggle, detailAction=detailAction, setEnabled=setEnabled, changeRouting=changeRouting, reconnect=reconnect, remove=remove, save=save)
+      column id="workspace-shell" position="relative" width=(workspace.usesSplitView ? workspace.contentSettledWidth : "100%") height="100%" flex=(workspace.usesSplitView ? 0 : 1) flex-shrink=(workspace.usesSplitView ? 0 : 1) min-width=0 min-height=0 pointer-events="none"
+        for tab in nav.tabs key = tab.name
+          column role="tabpanel" id=(workspace.usesSplitView and tab.name == appTab ? "workspace-panel" : `panel-${tab.name}`) position="absolute" top=0 left=0 right=0 bottom=(workspace.usesSplitView or not appTabRoot ? 0 : 56) visibility=(tab.name == appTab ? "visible" : "hidden") aria-hidden=(tab.name != appTab) pointer-events="none"
+            for entry in tab.stack key = entry.id
+              column id=`mobile-route-${entry.id}` navigationKey=`${entry.id}` pointer-events="none" visibility=(tab.name == appTab and entry.id == top(nav).id ? "visible" : "hidden") aria-hidden=(tab.name != appTab or entry.id != top(nav).id) position="absolute" inset=0 width=(mobileRoutePresentation(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView) == "fullscreen" ? viewport.width : workspace.contentSettledWidth) min-width=0 max-width=(mobileRoutePresentation(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView) == "fullscreen" ? viewport.width : "100%") overflow-x="hidden" overflow-y="hidden" background-color=look.sheet display="flex" flex-direction="column" navigationSystemBars=((entry.name == "threadBrowser" or entry.name == "threadDevices") ? "hidden" : "auto") data-mobile-scheduled-editor=(entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit") data-mobile-form-sheet=mobileRouteFormSheet(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView) data-mobile-scan-action=(entry.name == "connect" ? "scan-qr" : "") data-mobile-scanner-open=pairingUi.scannerOpen navigationScroll=(entry.name == "newTask" ? "new-task-projects-scroll" : entry.name == "threadQueue" ? "mobile-queue-scroll" : entry.name == "home" ? (home.fullPageEmpty ? "" : "home-list") : (entry.name == "thread" or (entry.name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")) ? "thread-feed" : entry.name == "gitOverview" ? "git-overview-scroll" : entry.name == "gitCommit" ? "git-commit-scroll" : entry.name == "gitConfirm" ? "git-confirm-scroll" : entry.name == "gitBranches" ? "git-branches-scroll" : entry.name == "threadReview" ? "review-diff" : entry.name == "threadFiles" ? "workspace-files" : entry.name == "threadFile" ? "file-source" : entry.name == "settingsScheduledTasks" ? "scheduled-tasks-scroll" : entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit" ? "scheduled-editor-scroll" : entry.name == "settingsThreads" ? "settings-thread-preferences-scroll" : entry.name == "settingsProjectOverview" ? "settings-project-scroll" : entry.name == "settingsNotifications" ? "settings-notifications-scroll" : entry.name == "settingsUsage" ? "settings-usage-scroll" : entry.name.startsWith("settingsScheduled") or entry.name == "settingsUsageAccount" ? "no-route-scroll" : entry.name == "settings" ? "settings-scroll" : entry.name == "settingsServer" ? "settings-server-scroll" : entry.name == "settingsProviders" ? "settings-provider-scroll" : entry.name == "settingsAppearance" ? "settings-appearance-scroll" : entry.name == "settingsChoice" ? "settings-choice-scroll" : entry.name == "archive" ? "archive-list" : entry.name == "pullRequests" ? "pull-requests-list" : `scroll-${entry.id}`) navigationPresentation=mobileRoutePresentation(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView) closedby=(entry.name == "threadBrowser" or entry.name == "threadDevices" ? "none" : "closerequest") navigationDetent=mobileRouteDetent(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView)
+              MobileRouteContent(contentGeometry=contentGeometry, contentGeometryEvent=contentGeometryEvent, threadHeaderConfiguration=(threadHeader.visible ? threadHeader.configuration : ""), workingControl=workingControl, threadHeaderAction=threadHeaderAction, threadHistoryScroll=threadHistoryScroll, threadEndFollowEnabled=(threadEndFollowOwner == `${threadData.environmentId}:${threadData.threadId}` ? threadEndFollowEnabled : true), threadScrollToEnd=threadScrollToEnd, terminalMountReady=(threadHeader.pendingLaunch == "" and not pending(threadHeaderChanged)), queueData=queueData, gitData=gitData, gitBranchesData=gitBranchesData, gitCommitMessage=gitForm.message, gitNewBranch=gitForm.branch, gitWorktreeBase=gitForm.worktreeBase, gitWorktreeBranch=gitForm.worktreeBranch, gitLook=gitLook, gitAction=gitAction, gitBranchAction=gitBranchAction, gitField=gitField, refreshGit=refreshGit, openGit=openGit, toggleInspector=toggleInspector, homeEpochAtZero=wallTime.epochAtZero, refreshHomeClock=tick, routeName=entry.name, routeId=`${entry.id}`, modelOption=entry.params.modelOption, modelOptionTitle=searchParam(entry, "title"), focused=(entry.id == top(nav).id), notificationSettings=notificationSettings, viewport=viewport, workspace=workspace, voiceFocus=voiceFocus, voiceData=voiceData, voiceLook=voiceLook, appearance=appearance, look=look, data=data, detail=detail, informationRoute=informationRoute, informationListCovered=(entry.name == "settingsOpenSourceLicenses" and top(nav).name == "settingsOpenSourceLicense" and (match stack(nav).at(-2) { case some(previous) => previous.id == entry.id, case none => false })), informationData=informationData, informationLegal=informationLegal, settingsData=settingsData, settingsAppearance=settingsAppearance, settingsChoice=settingsChoice, threadPreferences=threadPreferences, projectOverview=projectOverview, serverSettings=serverSettings, providerAccounts=providerAccounts, automationData=automationData, scheduledHeader=scheduledHeader, layout=layout, chrome=chrome, threadLook=threadLook, threadData=threadData, previewLook=previewLook, browserData=browserData, devicesData=devicesData, browserMenus=browserMenus, devicesMenus=devicesMenus, terminalData=terminalData, terminalCapture=terminalCapture, reviewLook=reviewLook, reviewData=reviewData, filesData=filesData, fileData=fileData, fileRequestFailed=(failed(fileData) or failed(filePrepared)), fileRequestPending=(pending(fileData) or pending(filePrepared)), filePreview=(fileUi.preview == fileData.path), fileMenu=fileMenu.configuration, audioData=audioData, mediaViewerData=mediaViewerData, documentData=documentData, documentMenu=documentMenu, htmlRenderContext=htmlRenderContext, mediaData=mediaData, composerAttachments=composerAttachments, composerLook=composerLook, addProjectData=addProjectData, addProjectLook=addProjectLook, editAddProject=editAddProject, browseAddProject=browseAddProject, actAddProject=actAddProject, openAddProject=openAddProject, newTaskClone=newTaskClone, newTaskCloneLook=newTaskCloneLook, modelData=modelData, newTaskFlow=newTaskFlow, newTaskData=newTaskData, taskDraftReply=taskDraftChanged, taskDraftPending=pending(taskDraftChanged), archiveLook=archiveLook, archiveData=archiveData, pullRequestsData=pullRequestsData, pullRequestDetailData=pullRequestDetailData, agentLook=agentLook, agents=agents, homeLook=homeLook, home=home, arrangement=arrangement, informationQuery=informationQuery, projectSavedRevision=projectSavedRevision, composerFocused=composerFocused, reviewComment=reviewComment, filesQuery=fileUi.query, mediaNativeOpen=mediaUi.nativeOpen, mediaNativeError=mediaUi.nativeError, modelQuery=modelQuery, modelLegacy=modelLegacy, modelFilterOwner=modelFilterOwner, newTaskQuery=newTaskQuery, branchQuery=branchQuery, archiveChrome=archiveChrome, host=pairingUi.host, code=pairingUi.code, formError=pairingUi.formError, expanded=pairingUi.expanded, scannerOpen=pairingUi.scannerOpen, cameraStatus=pairingUi.cameraStatus, composerExpanded=(composerExpanded and (composerEditor == `thread-composer-${entry.id}` or composerReturn.editorId == `thread-composer-${entry.id}`)), archiveDataPending=(pending(archiveRead)), pullRequestsPending=pullRequestsData.loading, archivedPending=(pending(archived)), automationChangedPending=(pending(automationChanged)), changedPending=(pending(changed) or pending(threadSubmissionChanged)), detailChangedPending=(pending(detailChanged)), modelChangedPending=(pending(modelChanged)), projectRenamedPending=(pending(projectRenamed)), taskChangedPending=(pending(taskChanged)), threadPreferencesChangedPending=(pending(threadPreferencesChanged)), toggleSidebar=toggleSidebar, openNewTask=openNewTask, voiceAction=voiceAction, informationCommand=informationCommand, informationSearch=informationSearch, openInformation=openInformation, threadPreferenceChange=threadPreferenceChange, renameProject=renameProject, automationAction=automationAction, serverSettingChange=serverSettingChange, providerAction=providerAction, providerField=providerField, providerSignOut=providerSignOut, settingsEnvironment=settingsEnvironment, changePreference=changePreference, settingsHeaderEvent=settingsHeaderEvent, openSetting=openSetting, homeEvent=homeEvent, richComposer=richComposer, richComposerAction=richComposerAction, richComposerEvent=richComposerEvent, richComposerMessage=richComposerMessage, threadSubmission=threadSubmission, threadLocalLook=threadLocalLook, threadLocalCommand=threadLocalCommand, editDraft=editDraft, composerFocus=composerFocus, threadAction=threadAction, browserAction=actPreview("browser"), devicesAction=actPreview("devices"), browserMenu=menuPreview("browser"), devicesMenu=menuPreview("devices"), openBrowser=openBrowser, openDevices=openDevices, terminalAction=terminalAction, terminalMenuConfiguration=terminalData.sourceJSON, terminalMenuEvent=terminalEvent, terminalEvent=terminalEvent, selectTerminalLine=selectTerminalLine, attachTerminalOutput=attachTerminalOutput, openReview=openReview, reviewAction=reviewAction, refreshReview=refreshReview, loadReviewFiles=loadReviewFiles, editReviewComment=editReviewComment, submitReviewComment=submitReviewComment, openFiles=openFiles, editFilesQuery=editFilesQuery, toggleDirectory=toggleDirectory, refreshFiles=refreshFiles, openFile=openFile, refreshFile=refreshFile, fileMenuAction=fileMenuAction, audioStatusChanged=audioStatusChanged, audioControl=audioControl, documentAction=documentAction, documentNativeEvent=documentNativeEvent, retryDocument=retryDocument, mediaComplete=mediaComplete, openDraftMedia=openDraftMedia, openMedia=openMedia, removeAttachment=removeAttachment, pickAttachments=pickAttachments, openModelSettings=openModelSettings, modelAction=modelAction, editModelQuery=editModelQuery, toggleLegacy=toggleLegacy, chooseModelFilter=chooseModelFilter, openModelOption=openModelOption, chooseModelOption=modelAction("option", top(nav).params.modelOption), openRuntime=openRuntime, chooseRuntime=modelAction("runtime", ""), taskAction=taskAction, editNewDraft=editNewDraft, editNewQuery=editNewQuery, editBranchQuery=editBranchQuery, chooseNewProject=chooseNewProject, chooseNewEnvironment=chooseNewEnvironment, chooseNewBranch=chooseNewBranch, openAgents=openAgents, openAgent=openAgent, openSendingThread=openSendingThread, archiveChromeEvent=archiveChromeEvent, refreshArchive=refreshArchive, archiveAction=archiveAction, refreshPullRequests=refreshPullRequests, pullRequestsAction=pullRequestsAction, pullRequestsQuery=pullRequestsQuery, toggleHomeShelf=toggleHomeShelf, showMore=showMore, chooseThread=chooseThread, homeMenuAction=homeMenuAction, homeArrangeDrop=homeArrangeDrop, editHost=editHost, editCode=editCode, connect=connect, scan=scan, permissionChanged=permissionChanged, receiveScan=receiveScan, addEnvironment=addEnvironment, back=back, returnHome=returnHome, closeNewTask=closeNewTask, toggle=toggle, detailAction=detailAction, setEnabled=setEnabled, changeRouting=changeRouting, reconnect=reconnect, remove=remove, save=save)
+      MobileAppTabBar(appTab=appTab, visible=(not workspace.usesSplitView and appTabRoot), selectTab=selectTab)
       MobileInspectorPanel(workspace=workspace, reviewLook=reviewLook, gitLook=gitLook, inspectorPresentation=inspectorPresentation, inspectorState=inspectorState, layout=layout, toggleDirectory=toggleDirectory, openFile=openFile, refreshFiles=refreshFiles, reviewFile=reviewFile, gitAction=gitAction, refreshGit=refreshGit, inspectorEvent=inspectorEvent, inspectorControl=inspectorControl)
-      MobileWorkspaceMarkers()
       MobileWorkspaceOverlays(workspace=workspace, layout=layout, keyboard=keyboard, threadLook=threadLook, homeLook=homeLook, look=look, gitFeedback=gitFeedback, gitLook=gitLook, viewport=viewport, voiceData=voiceData, voiceLook=voiceLook, voicePillExpanded=voicePillExpanded, keyboardEvent=keyboardEvent, keyboardDismiss=keyboardDismiss, pressGitFeedback=pressGitFeedback, layoutChanged=layoutChanged, voiceAction=voiceAction, expandVoicePill=expandVoicePill)

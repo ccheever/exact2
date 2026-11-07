@@ -227,6 +227,7 @@ final class RouteController: UIViewController, UIScrollViewDelegate {
             scroll.removeFromSuperview()
         }
         if node.superview !== contentMount { contentMount.addSubview(node) }
+        host?.mountAuthoredRouteContent(node, in: contentMount)
         host?.presenter.regrid(node) // from the controller's view, a grid origin of its own
     }
     /// The route's room for the keys, and under `resizes-visual` its
@@ -472,6 +473,26 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     func logicalParent(of route: NodeView) -> NodeView? {
         guard let owner = logicalChildren.first(where: { $0.value.contains(route.id) })?.key else { return nil }
         return owner == container?.id ? container : presenter.views[owner]
+    }
+
+    /// Component roots are transparent in the authored tree, so a route's
+    /// header and content can be siblings of its `navigationKey` marker. Once
+    /// UIKit owns the stack, those siblings must travel with the route's
+    /// controller; otherwise `UINavigationController`'s wrapper view covers
+    /// them and receives the touch before the authored Pressable below it.
+    func mountAuthoredRouteContent(_ route: NodeView, in mount: UIView) {
+        guard let parent = logicalParent(of: route),
+              let ids = logicalChildren[parent.id],
+              let start = ids.firstIndex(of: route.id) else { return }
+        let end = ids[(start + 1)...].firstIndex { id in
+            presenter.views[id]?.props["navigationKey"] != nil
+        } ?? ids.endIndex
+        for id in ids[(start + 1)..<end] {
+            guard let child = presenter.views[id], child !== route,
+                  child.superview === parent.container else { continue }
+            mount.addSubview(child)
+            presenter.regrid(child)
+        }
     }
 
     /// Logical child-list edits leave declared, retained routes inside their

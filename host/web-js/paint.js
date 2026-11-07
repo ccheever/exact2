@@ -1,3 +1,4 @@
+import { viewParent as parent, viewChildren, listRow } from './navigation.js';
 // Mirrors kernel/src/paint_order.rs (LLP 1083.000): own facts, potentials,
 // left-to-right decisions, then contributions. Templates supply facts only;
 // every region arm and each copy is decided on its actual instance tree.
@@ -11,12 +12,15 @@ const record = e => e.$paint ??= { z: false, level0: false, isolated: false, cz:
 // A row clearing its flag never clears another row's stacking contribution.
 const said = e => e.getAttributeNames().reduce((bits, k) => k === "data-exact-f" || k.startsWith("data-exact-f-") ? bits | Number(e.getAttribute(k)) : bits, 0);
 const facts = e => e.$paintWaiting ? record(e).bits : e.$paintFacts ??= said(e);
+const item = e => e?.hasAttribute('data-exact-list-item') ? listRow(e) : e;
+const children = e => viewChildren(e).filter(c => !c.hasAttribute('data-exiting'));
 
 /** Keep authored inputs and descendant potentials while bindings wait for
  * adoption. Parent display and sibling exclusions remain live inputs. A
  * summary that is the element's template facts with no z-index is not
  * written (paintFlush, document.rs). */
 export function paintWait(e) {
+  e = item(e);
   const summary = get(e, "paint"), [bits, zi] = summary ? JSON.parse(summary) : [said(e), null];
   Object.assign(record(e), { z: Z && !!(bits & 16), level0: !!(bits & 32), bits, zi });
   e.$paintWaiting = true;
@@ -25,13 +29,14 @@ export function paintWait(e) {
 const layout = e => LAYOUT && !!(facts(e) & 256);
 const excludes = e => FLOW && (facts(e) & 1536) === 1536;
 // A waiting row's children are opaque; its summary keeps this policy bit.
-const holdsLayout = e => LAYOUT && !e.$paintWaiting && Array.from(e.children).some(c => !c.hasAttribute("data-exiting") && layout(c));
+const holdsLayout = e => LAYOUT && !e.$paintWaiting && children(e).some(layout);
 
 /** A structural edit can change both a list and its holder's policy. */
 export function paintList(p) {
+  if (p?.hasAttribute?.('data-exact-list-item')) p = p.parentElement;
   if (p?.nodeType !== 1) return;
   dirty.add(p);
-  if (p.parentElement && p.id !== "exact-root") dirty.add(p.parentElement);
+  if (parent(p) && p.id !== "exact-root") dirty.add(parent(p));
 }
 /** Position, stacking rows, z-index and display all affect the two lists. */
 export function paintFacts(e) { e.$paintFacts = null; paintList(e); }
@@ -54,7 +59,7 @@ export function paintFlush() {
   // Depths are shared across this flush: the dirtied elements of a commit are siblings and cousins, so each ancestor is
   // walked once (LLP 1071.001 A6).
   const buckets = [], queued = new Set(), depths = new Map();
-  const depth = a => { if (!a || a.id === "exact-root") return 0; let d = depths.get(a); if (d === undefined) { d = depth(a.parentElement) + 1; depths.set(a, d); } return d; };
+  const depth = a => { if (!a || a.id === "exact-root") return 0; let d = depths.get(a); if (d === undefined) { d = depth(parent(a)) + 1; depths.set(a, d); } return d; };
   const queue = p => {
     if (!p?.isConnected || p.nodeType !== 1 || queued.has(p)) return;
     (buckets[depth(p)] ??= []).push(p); queued.add(p);
@@ -64,10 +69,10 @@ export function paintFlush() {
   while (buckets.length) {
     const list = buckets.at(-1);
     if (!list?.length) { buckets.pop(); continue; }
-    const p = list.pop(), children = Array.from(p.children).filter(c => !c.hasAttribute("data-exiting"));
-    const exclusion = children.some(excludes);
+    const p = list.pop(), kids = children(p);
+    const exclusion = kids.some(excludes);
     let layered = false, leaked = false, z = false, level0 = false, changed = false;
-    for (const c of children) {
+    for (const c of kids) {
       const r = record(c), o = own(c, p, exclusion), free = !o.stacks, stat = !o.positioned;
       const isolated = !o.root && !o.outside && free && ((Z && r.z) || (stat && r.level0 && (layered || leaked)) || (stat && leaked));
       const leaks = stat && free && !isolated && r.level0;
@@ -96,6 +101,6 @@ export function paintFlush() {
     const r = record(p);
     changed ||= r.z !== z || r.level0 !== level0;
     r.z = z; r.level0 = level0;
-    if (changed && p.id !== "exact-root") queue(p.parentElement);
+    if (changed && p.id !== "exact-root") queue(parent(p));
   }
 }

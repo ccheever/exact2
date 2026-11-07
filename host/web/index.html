@@ -88,7 +88,7 @@
     [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-opacity-to:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"],
     [data-exact-on~="pointerdown"], [data-exact-on~="pointerup"],
     [data-exact-surface],
-    [data-listrows] *, [data-liststyle] > section > * > *) { opacity: .65; }
+    [data-listrows] *, :is([data-liststyle], [data-liststyle] > :where([data-exact-list-item])) > section > * > *) { opacity: .65; }
   /* A disabled custom button dims as the drawn switch does, and takes no press; not one whose
      author styles its own disabled state (Contract's `disabledStyled`, LLP 1115.000 D6). */
   #exact-root button:disabled:not([data-button-style], [data-native], [data-disabledstyled]) { opacity: .5; }
@@ -246,9 +246,9 @@
   #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"])[data-destructive="true"] { color: light-dark(color-mix(in srgb, var(--exact-accent, AccentColor) 88%, #000), var(--exact-accent, AccentColor)); }
   #exact-root button[data-button-style][data-destructive="true"] { --exact-accent: var(--exact-system-red); }
   /* Segment faces have no fill until the neutral sheet marks the selected one. */
-  #exact-root :is([role="tablist"] > button[role="tab"], [role="radiogroup"] > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]) { background: none; }
+  #exact-root :is(:is([role="tablist"], [role="tablist"] > :where([data-exact-list-item])) > button[role="tab"], :is([role="radiogroup"], [role="radiogroup"] > :where([data-exact-list-item])) > button[role="radio"]):is([data-button-style="bordered"], [data-button-style="gray"]) { background: none; }
   :where(#exact-root [role="tablist"]) { appearance: auto; }
-  #exact-root [role="tablist"] > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]) { border-radius: 0; }
+  #exact-root :is([role="tablist"], [role="tablist"] > :where([data-exact-list-item])) > button[role="tab"][aria-controls]:is([data-button-style="bordered"], [data-button-style="gray"]) { border-radius: 0; }
   /* LLP 1116.004 D1: a wide window (900 px and up, the navigation glue's `WIDE`) adapts what the app left unsaid, as the
      projection marks it. A root tab bar whose placement is unsaid is a sidebar: the root's column turns, the tabs
      are rows beside their labels; neutral.css supplies their selected state. An authored colour
@@ -256,11 +256,11 @@
      as a column beside the detail, as a split view does: `navigationSplit` wide (320 by default), its rows without
      the disclosure (they select, not push), the row whose press pushed the detail shown marked. */
   #exact-root [data-exact-sidebar] { flex-direction: row !important; }
-  #exact-root [data-exact-sidebar] > [role="tablist"] { order: -1; flex: none !important; box-sizing: border-box !important; width: 240px !important; height: auto !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; gap: 2px !important; padding: 12px 10px !important; overflow-y: auto; }
-  #exact-root [data-exact-sidebar] > [role="tablist"] > [role="tab"] { flex: none !important; width: auto !important; height: auto !important; min-height: 36px; justify-content: start !important; padding: 6px 10px !important; border-radius: calc(8px * var(--exact-curve-reach)) !important; corner-shape: var(--exact-curve); }
+  #exact-root :is([data-exact-sidebar] > [role="tablist"], [data-exact-sidebar] > :where([data-exact-list-item]) > [role="tablist"]) { order: -1; flex: none !important; box-sizing: border-box !important; width: 240px !important; height: auto !important; flex-direction: column !important; flex-wrap: nowrap !important; align-items: stretch !important; justify-content: flex-start !important; gap: 2px !important; padding: 12px 10px !important; overflow-y: auto; }
+  #exact-root :is([data-exact-sidebar] > [role="tablist"], [data-exact-sidebar] > :where([data-exact-list-item]) > [role="tablist"], [data-exact-sidebar] > [role="tablist"] > :where([data-exact-list-item]), [data-exact-sidebar] > :where([data-exact-list-item]) > [role="tablist"] > :where([data-exact-list-item])) > [role="tab"] { flex: none !important; width: auto !important; height: auto !important; min-height: 36px; justify-content: start !important; padding: 6px 10px !important; border-radius: calc(8px * var(--exact-curve-reach)) !important; corner-shape: var(--exact-curve); }
   /* A tab's symbol is in its ink as the page lays it out now (the runtimes copy the title's at a commit, and a resize is none). */
-  #exact-root [role="tablist"] > button[role="tab"][aria-controls] > img { color: inherit !important; }
-  #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls] > img { color: var(--exact-accent, AccentColor) !important; }
+  #exact-root :is([role="tablist"], [role="tablist"] > :where([data-exact-list-item])) > button[role="tab"][aria-controls] > img { color: inherit !important; }
+  #exact-root :is([data-exact-sidebar] > [role="tablist"], [data-exact-sidebar] > :where([data-exact-list-item]) > [role="tablist"], [data-exact-sidebar] > [role="tablist"] > :where([data-exact-list-item]), [data-exact-sidebar] > :where([data-exact-list-item]) > [role="tablist"] > :where([data-exact-list-item])) > button[role="tab"][aria-controls] > img { color: var(--exact-accent, AccentColor) !important; }
   #exact-root [data-exact-split="list"] { inset-inline-end: auto !important; box-sizing: border-box !important; width: var(--exact-split, 320px) !important; }
   #exact-root [data-exact-split="detail"] { inset-inline-start: var(--exact-split, 320px) !important; }
   /* LLP 1116.006 D2: a split showing no detail fills the detail pane with one quiet line, centred, in the secondary
@@ -278,7 +278,7 @@
   /* A route's app bar keeps its document-scroll position and content inset. Its neutral paint is in neutral.css. A
      header drawn as written is no app bar, here or there (LLP 1153 D8): a site's, which navigation.js marks
      `data-exact-site` when it holds a `nav` or more than one link, and one whose author wrote `appearance: none`. */
-  :where(#exact-root [navigationkey] > header:where(:not([data-exact-site], [data-exact-said~="appearance"]))) { position: sticky; top: 0; min-height: 32px; padding: 6px 16px; }
+  :where(#exact-root :is([navigationkey], [navigationkey] > :where([data-exact-list-item])) > header:where(:not([data-exact-site], [data-exact-said~="appearance"]))) { position: sticky; top: 0; min-height: 32px; padding: 6px 16px; }
   /* LLP 1116.000 D4: the Back control a pushed route's header holds is pressed through the Back its bar draws
      (navigation.js), which stands for it, so it is not shown. A tap the agent aims at it lands on that Back
      (agent-input.js `viewBox`), where the hit is the header holding it: the driver's check that no ancestor takes the
@@ -345,7 +345,7 @@
      selected segment or tab is the system's selection, and the spinner, which no browser draws, is a ring of borders. */
   @media (forced-colors: active) {
     #exact-root button[data-button-style], :where(#exact-root dialog) { border: revert; }
-    #exact-root :is([role="tablist"] > button[role="tab"][aria-selected="true"], [role="radiogroup"] > button[role="radio"][aria-checked="true"])[data-button-style] { forced-color-adjust: none; background: SelectedItem; color: SelectedItemText; }
+    #exact-root :is(:is([role="tablist"], [role="tablist"] > :where([data-exact-list-item])) > button[role="tab"][aria-selected="true"], :is([role="radiogroup"], [role="radiogroup"] > :where([data-exact-list-item])) > button[role="radio"][aria-checked="true"])[data-button-style] { forced-color-adjust: none; background: SelectedItem; color: SelectedItemText; }
     #exact-root select:not([multiple]) { appearance: auto; padding: revert; background: revert; }
     #exact-root input[data-exact-switch] { appearance: auto; }
     #exact-root input[data-exact-switch]::before { content: none; }

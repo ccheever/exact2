@@ -24,15 +24,15 @@ component MobileRootHeader
     toggleSidebar: action
   derive modelChoice = routeName == "threadModelOption" or routeName == "newTaskModelOption" or routeName == "threadRuntime" or routeName == "newTaskRuntime"
   view
-    header height=44 flex-shrink=0 display="flex" align-items="center" justify-content="space-between"
+    header pointer-events="auto" height=44 flex-shrink=0 display="flex" align-items="center" justify-content="space-between"
       if sidebarAvailable and routeName != "threadBrowser" and routeName != "home" and routeName != "threadQueue" and routeName != "thread" and routeName != "newTaskDraft" and routeName != "newTask" and not routeName.startsWith("settings")
         button id="workspace-sidebar-toggle" press=toggleSidebar aria-label=(sidebarVisible ? "Hide sidebar" : "Show sidebar") aria-pressed=sidebarVisible
           t3-symbol symbol-name="sidebar.left" symbol-tint=iconColor width=20 height=20
       if routeName == "newTaskDraft"
         button id="new-task-cancel" press=closeNewTask aria-label="Cancel" testId="new-task-cancel"
           text "Cancel"
-      if routeName != "home" and routeName != "threadQueue" and routeName != "newTaskDraft"
-        button id="back" press=back aria-label=(routeName == "settings" ? "Go back" : "Back") testId=`back-${routeName}`
+      if routeName != "home" and routeName != "threadQueue" and routeName != "newTaskDraft" and not routeName.startsWith("settings")
+        button id="back" press=back aria-label="Back" testId=`back-${routeName}`
           image "symbol:back" width=20 height=20
       if subtitle != ""
         view display="flex" flex-direction="column" align-items="center" min-width=0

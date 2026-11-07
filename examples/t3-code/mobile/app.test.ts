@@ -1,10 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'bun:test';
 import { answer } from './app';
+import { connectionView } from './presentation';
 import { overlayMobilePreferenceChoices } from './settings-preferences';
 import { contractComponent, value, type Env } from '../tests/support/contract-action-fixture';
 
 const pairingContract = readFileSync(new URL('./mobile-root-state.contract', import.meta.url), 'utf8');
+const appContract = readFileSync(new URL('./app.contract', import.meta.url), 'utf8');
+const appTabsContract = readFileSync(new URL('./mobile-app-tabs.contract', import.meta.url), 'utf8');
 const pairingNames = ['pairingUiInitial', 'pairingUiVisit', 'pairingUiPreparing', 'pairingUiPreparedApplies',
   'pairingUiPrepared', 'pairingUiPreparedReply', 'pairingUiResolved', 'pairingReplyPlan'];
 
@@ -173,7 +176,63 @@ describe('mobile pairing source', () => {
   });
 });
 
+describe('root tab navigation', () => {
+  test('renders every tab stack and a persistent tablist below the route viewport', () => {
+    expect(appContract).toContain('for tab in nav.tabs key = tab.name');
+    expect(appContract).toContain('column id=\"workspace-shell\" position=\"relative\" width=(workspace.usesSplitView ? workspace.contentSettledWidth : \"100%\") height=\"100%\" flex=(workspace.usesSplitView ? 0 : 1)');
+    expect(appContract).toContain('column role=\"tabpanel\" id=(workspace.usesSplitView and tab.name == appTab ? \"workspace-panel\" : `panel-${tab.name}`) position=\"absolute\" top=0 left=0 right=0 bottom=(workspace.usesSplitView or not appTabRoot ? 0 : 56) visibility=(tab.name == appTab ? \"visible\" : \"hidden\") aria-hidden=(tab.name != appTab) pointer-events=\"none\"');
+    expect(appContract).toContain('column id=`mobile-route-${entry.id}` navigationKey=`${entry.id}` pointer-events=\"none\" visibility=(tab.name == appTab and entry.id == top(nav).id ? \"visible\" : \"hidden\") aria-hidden=(tab.name != appTab or entry.id != top(nav).id)');
+    expect(appTabsContract).toContain('row role=\"tablist\" aria-label=\"T3 Code sections\"');
+    expect(appTabsContract).toContain('aria-selected=(appTab == \"settings\") press=selectTab(\"settings\")');
+    expect(appContract).toContain('if change.kind == \"close\" and top(nav).name == \"settings\"\n            nav = select(nav, \"home\")');
+    expect(appContract).toContain('id=\"workspace-shell\" position=\"relative\"');
+    expect(appContract).toContain('MobileAppTabBar(appTab=appTab, visible=(not workspace.usesSplitView and appTabRoot)');
+  });
+
+  test('selecting a tab preserves its existing stack and settings close selects Home', () => {
+    const root = contractComponent('mobile/app.contract', 'App');
+    const home = { id: 'home', name: 'home' }, settings = { id: 'settings', name: 'settings' };
+    const state: Env = { nav: [home, settings], settingsVisits: [], settingsEvent: { kind: 'close' }, workspaceEntries: [] };
+    const scope: Env = {
+      select: (nav: Env[], name: string) => name === 'home' ? [home] : [settings],
+      path: (name: string) => name,
+      top: (nav: Env[]) => nav.at(-1),
+      settingsEventPlan: () => ({ records: [], close: true }),
+    };
+    root.call('selectTab', state, scope, ['settings']);
+    expect(state.nav).toEqual([settings]);
+    root.call('didSettingsEvent', state, scope, []);
+    expect(state.nav).toEqual([home]);
+
+    const settingsChild = { id: 'settings-appearance', name: 'settingsAppearance' };
+    const childState: Env = { nav: [home, settings, settingsChild], settingsVisits: [], settingsEvent: { kind: 'back' }, workspaceEntries: [] };
+    const childScope: Env = { ...scope, back: (nav: Env[]) => nav.slice(0, -1), settingsEventPlan: () => ({ records: [], close: true }) };
+    root.call('didSettingsEvent', childState, childScope, []);
+    expect(childState.nav).toEqual([home, settings]);
+  });
+});
+
 describe('generated source dispatcher', () => {
+  test('pull request detail keeps a neutral first frame until a selection exists', async () => {
+    const detail = await answer('pullRequestDetail', [false, 0, 0, '']);
+    expect(detail).toMatchObject({ open: false, loading: false, error: '', number: 0, title: '', comments: [], timeline: [] });
+    expect(detail).not.toHaveProperty('githubUrl');
+  });
+
+  test('selecting a pull request opens the detail route while retaining the list selection', () => {
+    const root = contractComponent('mobile/app.contract', 'App');
+    const state: Env = { pullRequestsSelected: '', nav: [{ id: 'list', name: 'pullRequests' }] };
+    let sequence = 0;
+    const scope: Env = {
+      top: (nav: Env[]) => nav.at(-1),
+      path: (name: string) => name,
+      push: (nav: Env[], name: string) => [...nav, { id: `detail-${++sequence}`, name }],
+    };
+    root.call('pullRequestsAction', state, scope, ['select', '{"number":7}']);
+    expect(state.pullRequestsSelected).toBe('{"number":7}');
+    expect((state.nav as Env[]).at(-1)).toMatchObject({ name: 'pullRequestsDetail' });
+  });
+
   test('unopened settings choices have a neutral first-frame result', () => {
     expect(answer('settingsChoices', ['', '', false])).toEqual({ key: '', title: '', footer: '', ready: false, options: [] });
   });
@@ -210,6 +269,18 @@ describe('generated source dispatcher', () => {
 });
 
 describe('stable snapshot reader and pure root projection', () => {
+  test('connection settings clean a duplicated possessive at the display boundary', () => {
+    const view = connectionView({
+      catalogLoaded: true, nativeAvailable: true, revision: 0, faviconRevision: 0, ready: false, busy: false, error: '',
+      environmentId: 'duplicate-label', threadId: '', projectId: '', generation: 0, environmentLabel: "Nate's’s Mac Mini",
+      statusMessage: '', routing: [], environments: [{ key: 'duplicate-label', environmentId: 'duplicate-label', state: 'reconnecting', machine: 'mac-mini',
+        label: "Nate's’s Mac Mini", origin: 'http://example.test', enabled: true, active: true, status: '', error: '', traceId: '', routeCount: 0, routes: [], relayManaged: false }],
+      projects: [], threads: [], shellLoaded: false, writable: false, connection: 'reconnecting', projection: null, draft: null, scopes: [], configLive: false,
+      shellLive: false, threadLive: false, config: {}, shell: { projects: [], threads: [], sequence: 0 }, thread: null,
+    } as never, 'light');
+    expect(view.environments[0]?.label).toBe("Nate's Mac Mini");
+  });
+
   test('theme, clock and local data projections stay synchronous while the native reader is paused', async () => {
     const { mobileClient, mobileSnapshotProjection } = await import('./client');
     const { mobileGitFeedbackError, mobileGitFeedbackSnapshot } = await import('./git-feedback');

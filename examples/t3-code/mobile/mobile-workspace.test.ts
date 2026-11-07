@@ -117,7 +117,10 @@ function routeParts(nodes: ContractTerm[], scope: Record<string, unknown>): Cont
 test('the app root exposes the three workspace tab panels to the native container seam', () => {
   const elements = expandedElements(expandedAppView());
   const ids = elements.map(node => literalString(elementAttribute(node, 'id'))).filter((value): value is string => typeof value === 'string');
-  expect(ids.filter(id => ['sidebar-panel', 'workspace-panel', 'inspector-panel'].includes(id))).toEqual(['sidebar-panel', 'workspace-panel', 'inspector-panel']);
+  expect(ids.filter(id => ['sidebar-panel', 'inspector-panel'].includes(id))).toEqual(['sidebar-panel', 'inspector-panel']);
+  // The compact tab shell reuses the selected app panel as the split
+  // workspace owner; its id is conditional on the split layout.
+  expect(elements.some(node => { const value = elementAttribute(node, 'id'); return value !== undefined && JSON.stringify(value).includes('workspace-panel'); })).toBe(true);
   const marker = elements.find(node => literalString(elementAttribute(node, 'role')) === 'tablist');
   expect(marker).toBeDefined();
   const markerChildren = expandedElements(marker!).filter(node => literalString(elementAttribute(node, 'role')) === 'tab');

@@ -81,6 +81,8 @@ import { mobileHtmlRenderTheme, mobileThreadLocalColors, mobileTheme, mobileHome
 import { mobilePreferencesResource, mobileSavePreference, mobileApplyAppearance, normalizeMobilePreferences, resolveMobileAppearance, overlayMobilePreferenceChoices } from './settings-preferences';
 import { settingsAppearanceView, settingsChoices } from './settings-appearance';
 import { mobileArchiveCommand, mobileArchiveRead, mobileArchiveScope, mobileArchiveView } from './archive';
+import { pullRequestsPage } from './shared/pages-prs';
+import { pullRequestDetail } from './shared/pages-pr-detail';
 import { mobileAgentActivity } from './agent-activity';
 import { mobileComposerSettings, mobileComposerSettingsAction } from './composer-settings';
 import { mobileNewTask, mobileNewTaskChooser, mobileNewTaskPrepare, mobileNewTaskCachedPrepare } from './new-task';
@@ -649,6 +651,41 @@ const sources: Sources = {
   archiveScope: () => mobileArchiveScope(),
   archiveRead: (args, _store, _storage, nativeInput) => mobileArchiveRead(String(args[0] ?? ''), String(args[1] ?? ''), sourceNative('archiveRead', args, nativeInput)),
   archiveView: args => mobileArchiveView(Number(args[0]), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? 'newest'), args[4] === true, args[5], args[7] === true),
+  pullRequestsPage: async (args, _store, _storage, nativeInput) => {
+    const native = sourceNative('pullRequestsPage', args, nativeInput);
+    const view = await pullRequestsPage(mobileClient, native?.available ? mobileNative(native) : native, {
+      open: args[0] === true, refresh: Number(args[1] ?? 0), now: Number(args[2] ?? 0), selected: String(args[3] ?? ''),
+      query: String(args[4] ?? ''), typed: args[5] === true,
+    });
+    return { available: view.available, loading: view.loading, error: view.error, empty: view.empty, emptyDetail: view.emptyDetail,
+      emptyAction: view.emptyAction, query: view.query, total: view.total, truncated: view.truncated,
+      groups: view.groups.map(group => ({ key: group.key, label: group.label, count: group.count,
+        rows: group.rows.map(row => ({ key: row.key, ref: row.ref, number: row.number, title: row.title, stateLabel: row.stateLabel,
+          conflict: row.conflict, checksLabel: row.checksLabel, reviewLabel: row.reviewLabel, additions: row.additions, deletions: row.deletions,
+          author: row.author, repository: row.repository, age: row.age, selected: row.selected,
+          labels: row.labels.map(label => ({ key: label.key, name: label.name })) })) })) };
+  },
+  pullRequestDetail: async (args, _store, _storage, nativeInput) => {
+    const native = sourceNative('pullRequestDetail', args, nativeInput);
+    const view = await pullRequestDetail(mobileClient, native?.available ? mobileNative(native) : native, {
+      selected: String(args[3] ?? ''), refresh: Number(args[1] ?? 0), now: Number(args[2] ?? 0),
+    });
+    return {
+      open: view.open, loading: view.loading, error: view.error, errorTitle: view.errorTitle, ref: view.ref,
+      number: view.number, numberLabel: view.numberLabel, title: view.title, repository: view.repository,
+      stateLabel: view.stateLabel, conflict: view.conflict, author: view.author, authorInitial: view.authorInitial,
+      updated: view.updated, baseBranch: view.baseBranch, headBranch: view.headBranch, files: view.files,
+      additions: view.additions, deletions: view.deletions, checksSummary: view.checksSummary, checksTone: view.checksTone,
+      reviewers: view.reviewers.map(reviewer => reviewer.login),
+      labels: view.labels.map(label => ({ key: label.key, name: label.name })),
+      bodies: view.bodies.map(body => ({ id: body.id, body: body.body })), hasBody: view.hasBody,
+      checks: view.checks.map(check => ({ key: check.key, name: check.name, statusLabel: check.statusLabel, description: check.description })),
+      comments: view.comments.map(comment => ({ key: comment.key, author: comment.author, initial: comment.initial, age: comment.age,
+        body: view.bodies.find(body => body.id === comment.bodyId)?.body ?? '' })),
+      commentCount: view.commentCount, commentsLabel: view.commentsLabel,
+      timeline: view.timeline.map(event => ({ key: event.key, kind: event.kind, title: event.title, detail: event.detail, age: event.age })),
+    };
+  },
   archiveAction: (args, _store, storage, nativeInput) => {
     const native = sourceNative('archiveAction', args, nativeInput);
     return mobileArchiveCommand(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), native, storage);

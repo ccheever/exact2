@@ -16,7 +16,7 @@ test('scroll-facing snapshots use sampled clocks instead of a frame clock', () =
     const end = app.indexOf('\n', start);
     expect(app.slice(start, end)).not.toContain('performanceNow()');
   }
-  expect(app).toContain('resource data = snapshot(appearance.scheme, appearance.themeId, snapshotRead.serial, wallTime.epochAtZero + elapsed)');
+  expect(app).toContain('resource data = snapshot(appearance.scheme, appearance.themeId, snapshotRead.serial) with wallTime.epochAtZero + elapsed');
   expect(app).toContain('resource home = homeView(data.revision, wallTime.epochAtZero + elapsed');
   expect(app).toContain('resource threadData = threadView(data.revision, wallTime.epochAtZero + max(elapsed, agentsElapsed)');
   expect(app).toContain('wallTime.epochAtZero + performanceNow()');
@@ -31,6 +31,8 @@ test('feed scrollports measure authored padding and avoid animating stream corre
   expect(home).toContain('keyboardDismissMode="on-drag" scrollbar-width="none" touch-action="pan-y"');
   expect(thread).toContain('column flex=1 min-height=0 min-width=0 justify-content="flex-end"');
   expect(thread).toContain('min-width=0 box-sizing="border-box" overflow-x="hidden" overscroll-behavior="contain" keyboardDismissMode="none" touch-action="pan-y" virtualized=true');
+  expect(thread).toContain('ThreadErrorBanner(data=data, trailingReservation=trailingReservation');
+  expect(thread).toContain('margin-right=(12 + trailingReservation)');
   expect(thread).toContain('scroll-start="end" scrollFollowEnd=endFollowEnabled scroll=historyScroll');
   expect(thread).not.toContain('scroll-start="end" scrollFollowEnd=true scroll=historyScroll');
   expect(route).toContain('derive threadScrollToEndVisible = not threadEndFollowEnabled and threadData.loaded and not threadData.loading and threadData.error == "" and threadData.rows.length > 0');
@@ -59,6 +61,7 @@ test('feed scrollports measure authored padding and avoid animating stream corre
   expect(thread).toContain('button appearance="none" press=action("fork-response", row.id, row.forkKey)');
   expect(app).toContain('width=(mobileRoutePresentation(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView) == "fullscreen" ? viewport.width : workspace.contentSettledWidth)');
   expect(app).toContain('max-width=(mobileRoutePresentation(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView) == "fullscreen" ? viewport.width : "100%")');
+  expect(app).toContain('overflow-x="hidden" overflow-y="hidden" background-color=look.sheet');
 });
 
 test('Home keeps menus outside the virtualized feed at one bounded resident pair', () => {
@@ -91,4 +94,11 @@ test('Home keeps its native scroll owner through filtered empty results', () => 
   expect(nextBranch).toBeGreaterThan(fullPageStart);
   expect(home.slice(filteredStart, fullPageStart)).toContain('scroll id=listId');
   expect(home.slice(fullPageStart, nextBranch)).not.toContain('scroll id=listId');
+});
+
+test('New Task virtualizes project rows while empty chooser content has no stale scroll owner', () => {
+  const app = appText('mobile/app.contract'), task = appText('mobile/new-task.contract');
+  expect(task).toContain('list id="new-task-projects-scroll" virtualized=true estimated-item-height=49');
+  expect(task).toContain('for project in data.projects key=project.id');
+  expect(app).toContain('entry.name == "newTask" ? "new-task-projects-scroll"');
 });
