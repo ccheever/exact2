@@ -186,3 +186,8 @@ test('tap <image> pictureinpicture <control> names one control of Exact\'s pictu
   expect(() => tapWords(['page', 'pictureinpicture'])).toThrow('pictureinpicture <control>');
   expect(() => tapWords(['page', 'pictureinpicture', 'back', 'close'])).toThrow('pictureinpicture <control>');
 });
+
+test('a press at a point followed by drag names the drag\'s own start point, `from`', () => {
+  expect(() => tapWords(['root', 'at', '2', '450', 'drag', '320', '0'])).toThrow('`tap root drag <dx> <dy> from 2 450`');
+  expect(tapWords(['root', 'at', '2', '450'])).toEqual(['root', { at: [2, 450] }]);
+});

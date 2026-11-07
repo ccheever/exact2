@@ -443,7 +443,10 @@ export function tapWords(args, held = false) {
     // A click with modifiers held (gallery F20): `tap <target> modifiers Shift+Meta`.
     case 'modifiers': return [first, options(args.slice(1), ['modifiers'])];
     // A press at a point in the target, from its top left: whatever a finger there reaches (LLP 1012 §1), never aimed.
-    case 'at': return [first, options(args.slice(1), ['at', 'modifiers'])];
+    case 'at':
+      // A drag is its own form, from a point of its own (an edge swipe starts in the screen's first points).
+      if (rest[2] === 'drag') refuse(`a drag from a point is \`tap ${first} drag <dx> <dy> from ${rest[0]} ${rest[1]}\`, from the target's top left`);
+      return [first, options(args.slice(1), ['at', 'modifiers'])];
     case 'down': return [first, { down: true, ...options(rest, ['at', 'modifiers']) }];
     case 'hover': return [first, { hover: true, ...options(rest, []) }];
     // A held state (LLP 1122 D8): `tap <target> hold-state active|hover|focus-visible|none`, as the host's own.
