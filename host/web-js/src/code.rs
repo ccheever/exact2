@@ -35,6 +35,8 @@ pub struct Scope {
     /// The JavaScript object holding the row slots in force (LLP 1017 P4c:
     /// a slot owned by a `for` lives on its row), by slot index.
     pub rows: Option<String>,
+    /// Row slots available in this scope, excluding slots owned by descendants.
+    pub row_slots: BTreeSet<usize>,
 }
 
 /// One region frame's getters.

@@ -35,6 +35,116 @@ afterAll(async () => {
   server?.stop(true);
 }, 60_000);
 
+test('paging keeps unchanged keyed row measurements and defers new overscan', async () => {
+  const result = await evaluate(`(async () => {
+    const el = document.createElement('div');
+    el.style.cssText = 'height:320px;width:400px;overflow:auto';
+    document.getElementById('exact-root').append(el);
+    const rows = rt.sig(Array.from({length:100}, (_, i) => [i, 'message ' + i, 32]));
+    let constructed = 0;
+    const own = rt.scope(() => list.vl(el, rows, item => item()[0], (wrapper, item, index) => {
+      constructed++;
+      const row = document.createElement('div'); wrapper.append(row);
+      rt.P(row, 'text', () => item()[1]);
+      rt.S(row, 'height', 'px', () => item()[2] + (item()[0] === 55 ? index() : 0));
+    }, {est:32, pw:[], ph:[320]}));
+    rt.settled();
+    await exact.lists.pending(); await exact.lists.settle();
+    await new Promise(resolve => { el.addEventListener('scroll', resolve, {once:true}); el.scrollTop = 1600; });
+    await exact.lists.settle();
+    const c = el.$list;
+    const before = new Map(c.mounted.map(m => [m.key, { epoch:m.epoch, element:m.wrapper }]));
+    // A page shifts every item's array position, as the TypeScript converter's answers do
+    rt.commit(() => rt.W(rows, [...Array.from({length:20}, (_, i) => [i - 20, 'older', 32]), ...rows().map(row => row.slice())]));
+    const prepended = c.mounted.filter(m => before.has(m.key)).map(m => ({
+      key:m.key,
+      sameEpoch:m.epoch === before.get(m.key).epoch,
+      sameElement:m.wrapper === before.get(m.key).element,
+      measured:c.index.measured(m.key),
+    }));
+    await exact.lists.settle();
+    const editedKey = c.mounted.find(m => m.position === c.index.rowAt(c.geometry.offset)).key;
+    const epochs = new Map(c.mounted.map(m => [m.key, m.epoch]));
+    rt.commit(() => rt.W(rows, rows().map(row => row[0] === Number(editedKey.slice(2)) ? [row[0], 'edited', 64] : row)));
+    const edited = c.mounted.filter(m => m.epoch !== epochs.get(m.key)).map(m => m.key);
+    await exact.lists.settle();
+    await new Promise(resolve => { el.addEventListener('scroll', resolve, {once:true}); el.scrollTop = 0; });
+    await exact.lists.settle();
+    const unmounted = !c.mounted.some(m => m.key === 'n:55');
+    const measuredBeforeMove = c.index.measured('n:55');
+    rt.commit(() => rt.W(rows, [[-21, 'older still', 32], ...rows()]));
+    const offscreenIndex = {unmounted, measuredBeforeMove, measuredAfterMove:c.index.measured('n:55')};
+    await exact.lists.settle();
+    const beforeReplace = constructed;
+    rt.commit(() => rt.W(rows, rows().map(row => [row[0] + 1000, row[1], row[2]])));
+    const immediate = {built:constructed - beforeReplace, pending:c.pending, visible:c.index.window(c.geometry.offset, c.geometry.port_main).visible};
+    await exact.lists.settle();
+    const settled = {built:constructed - beforeReplace, pending:c.pending};
+    rt.end(own); el.remove(); rt.settled();
+    return {prepended, edited, editedKey, offscreenIndex, immediate, settled};
+  })()`);
+  expect(result.prepended.length).toBeGreaterThan(0);
+  expect(result.prepended.filter(row => row.key !== 'n:55').every(row => row.sameEpoch && row.sameElement && row.measured)).toBe(true);
+  expect(result.prepended.find(row => row.key === 'n:55')).toMatchObject({sameEpoch:false, sameElement:true, measured:false});
+  expect(result.edited).toEqual([result.editedKey]);
+  expect(result.offscreenIndex).toEqual({unmounted:true, measuredBeforeMove:true, measuredAfterMove:false});
+  expect(result.immediate.built).toBe(result.immediate.visible[1] - result.immediate.visible[0]);
+  expect(result.immediate.pending).toBe(true);
+  expect(result.settled.built).toBeGreaterThan(result.immediate.built);
+  expect(result.settled.pending).toBe(false);
+}, 60_000);
+
+test('parent body inputs revive measured zero rows, including without a data change', async () => {
+  const result = await evaluate(`(async () => {
+    const el = document.createElement('div');
+    el.style.cssText = 'height:320px;width:400px;overflow:auto';
+    document.getElementById('exact-root').append(el);
+    const rows = rt.sig(Array.from({length:100}, (_, i) => [i])), show = rt.sig(true);
+    const own = rt.scope(() => list.vl(el, rows, item => item()[0], (wrapper, item) => {
+      const row = document.createElement('div'); wrapper.append(row);
+      rt.S(row, 'height', 'px', () => item()[0] === 0 && (!show() || rows().length === 100) ? 0 : 32);
+    }, {est:32, pw:[], ph:[320], inputs:() => [rows(), show()]}));
+    rt.settled(); await exact.lists.pending(); await exact.lists.settle();
+    const c = el.$list;
+    const state = () => ({height:c.index.h[0], measured:c.index.measured('n:0'), mounted:c.mounted.some(m => m.key === 'n:0')});
+    const initial = state();
+    rt.commit(() => rt.W(rows, [...rows(), [100]])); await exact.lists.settle();
+    const appended = state();
+    rt.commit(() => rt.W(show, false)); await exact.lists.settle();
+    const hidden = state();
+    rt.commit(() => rt.W(show, true)); await exact.lists.settle();
+    const shown = state();
+    rt.end(own); el.remove(); rt.settled();
+    return {initial, appended, hidden, shown};
+  })()`);
+  expect(result.initial).toEqual({height:0, measured:true, mounted:false});
+  expect(result.appended).toEqual({height:32, measured:true, mounted:true});
+  expect(result.hidden).toEqual(result.initial);
+  expect(result.shown).toEqual(result.appended);
+}, 60_000);
+
+test('opaque body inputs remeasure on app commits without invalidating each measurement reply', async () => {
+  const result = await evaluate(`(async () => {
+    const el = document.createElement('div');
+    el.style.cssText = 'height:320px;width:400px;overflow:auto';
+    document.getElementById('exact-root').append(el);
+    let height = 0;
+    const own = rt.scope(() => list.vl(el, () => [0, 1], item => item(), (wrapper, item) => {
+      const row = document.createElement('div'); wrapper.append(row);
+      rt.S(row, 'height', 'px', () => item() === 0 ? height : 32);
+    }, {est:32, pw:[], ph:[320], inputs:() => [], opaque:true}));
+    rt.settled(); await exact.lists.pending(); await exact.lists.settle();
+    height = 32;
+    rt.commit(() => {}); await exact.lists.settle();
+    const c = el.$list, epoch = c.index.token('n:0');
+    await exact.lists.settle();
+    const result = {height:c.index.h[0], measured:c.index.measured('n:0'), stableEpoch:epoch === c.index.token('n:0')};
+    rt.end(own); el.remove(); rt.settled();
+    return result;
+  })()`);
+  expect(result).toEqual({height:32, measured:true, stableEpoch:true});
+}, 60_000);
+
 test('a scroll event saves a row and an explicit restore survives remount and new measurements', async () => {
   const result = await evaluate(`(async () => {
     const root = document.getElementById('exact-root');
@@ -589,11 +699,12 @@ test('a page that lands within a fling\'s band re-arms reachstart', async () => 
     out.push(report(900, -4000), report(900, -4000), report(100, -4000));
     rt.commit(() => rt.W(rows, [...Array.from({length:20}, (_, i) => i - 20), ...rows()]));
     rt.settled();
-    out.push(c.correction?.offset, report(740, -4000));
+    // The page's new overscan is mounted by the first report and measured by the next
+    out.push(c.correction?.offset, report(740, -4000), report(740, -4000));
     rt.end(own); el.remove(); rt.settled();
     return out;
   })()`);
-  expect(result).toEqual([0, null, null, null, null, 740, 0]);
+  expect(result).toEqual([0, null, null, null, null, 740, null, 0]);
 }, 60_000);
 
 // into_view.rs: a request the port already satisfies is done and moves nothing; where the host's animation leaves the

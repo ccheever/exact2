@@ -46,6 +46,20 @@ fn keep_mounted_is_a_list_option_read_again() {
 }
 
 #[test]
+fn list_measurements_read_parent_body_inputs_and_outer_frames() {
+    let source = "component App\n  state ids = [1, 2]\n  state h = 32\n  view\n    list virtualized=true height=200\n      for x in ids key=x\n        text `${x}` height=(h + ids.length)\n";
+    let js = crate::emit::emit(&contract::compile(source).unwrap(), false, false)
+        .unwrap()
+        .js;
+    assert!(js.contains("inputs:()=>[s_0(),s_1()],opaque:false"), "{js}");
+    let source = "component App\n  view\n    column\n      for group, i in [[1, 2]] key=i\n        list virtualized=true height=200\n          for x in group key=x\n            text `${group.length + x}`\n";
+    let js = crate::emit::emit(&contract::compile(source).unwrap(), false, false)
+        .unwrap()
+        .js;
+    assert!(js.contains("inputs:()=>[i0(),x0()],opaque:false"), "{js}");
+}
+
+#[test]
 fn a_page_given_app_files_is_no_source_until_the_glue_gives_them() {
     let plan = contract::compile(
         "component App\n  view\n    iframe src=\"assets/viewer.html?file=app:/cache/a.pdf\"\n",

@@ -9,7 +9,7 @@
 // preview (reorder.rs) by reorder.js, which the motion piece loads for a
 // reorder drag; not carried (refused at build): a dynamic `virtualized`.
 import { inactive } from "./document.js";
-import { sig, effect, scope, end, untracked, write, writeItem, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, adopting, adoptRow, settled, Refusal, Hosts, exitView, clock } from "./rt.js";
+import { sig, effect, scope, end, untracked, write, writeItem, owner, onEnd, viewId, Views, inflight, Before, After, rev, ticket, journal, Resources, Mutations, unadopted, adopting, adoptRow, settled, Refusal, Hosts, exitView, clock, eq } from "./rt.js";
 
 const BOOTSTRAP_ROWS = 16, ESTIMATED = 32, LEAD_SECONDS = 0.25, FAR_VIEWPORTS = 2, KEPT = 4096;
 // A port less than END_SLACK from a followed end already sent is at it: hosts round or floor offsets (start.rs `at_target`).
@@ -28,7 +28,6 @@ const reachMargin = text => {
 };
 // The edge band (reach.rs `Margin::band`): the margin, plus the window's travel lead toward the side it travels.
 const reachBand = (margin, port, v) => { const band = margin.map(([n, percent]) => percent ? port * n / 100 : n); if (v) band[v > 0 ? 1 : 0] += travelLead(port, v); return band; };
-const same = Object.is;
 // A row remeasured within this of the height it already has keeps that
 // height (mod.rs `MEASURE_NOISE`): a translated row reads float32 ulps off
 // (58 as 57.99997), and a revision bumped by that would refuse the drop a
@@ -257,7 +256,7 @@ class Collection {
     const sizes = (o.x ? o.pw : o.ph).filter(n => typeof n === "number" && isFinite(n) && n > 0);
     this.port = sizes.length ? Math.min(...sizes) : null;
     this.bootstrap = o.init ?? Math.max(1, Math.min(BOOTSTRAP_ROWS, Math.min(Math.ceil(BOOTSTRAP_ROWS * ESTIMATED / this.est), o.inRow && this.port ? Math.ceil(this.port / this.est) + 1 : Infinity)));
-    Object.assign(this, { items: [], idents: [], dups: new Map(), mounted: [], spacers: [], children: [], revision: 0, nextEpoch: 0,
+    Object.assign(this, { items: [], idents: [], dups: new Map(), positionDependentKeys: new Set(), bodyDirty: false, mounted: [], spacers: [], children: [], revision: 0, nextEpoch: 0,
       zeros: new Set(), geometry: null, correction: null, endSent: NaN, followEnd: false, edgeArmed: [true, true], edgeFired: [null, null], pending: false, parent: null,
       kept: new Map(), manual: !!o.manual, restored: false, restoredAt: null, startOffset: 0, inner: [], target: null, scrolling: false, animating: false, portUnknown: false, request: 0, status: null, preview: null, atEnd: !!o.atEnd, endTravel: 0, keepKeys: [] });
     this.edges = [o.start, o.end]; this.reach = reachMargin(o.reach);
@@ -284,19 +283,19 @@ class Collection {
     return [i.order[p].replace(/^d\d+:/, "").slice(2), drawn > -half && drawn <= half ? 0 : within];
   }
   // ------------------------------------------------ data (mod.rs update_data)
-  update(items, [idents, dups], fresh) {
+  update(items, [idents, dups], resetMeasurements) {
+    resetMeasurements ||= this.bodyDirty;
+    this.bodyDirty = false;
     // The kept keys as they are now, whichever of the two effects ran first.
     if (this.o.keep) this.keepKeys = keepIdents(this.o.keep());
     Remount.delete(this);
     let anchor = this.anchor();
     const dropAnchor = this.dropAnchor?.(), last = this.index.order.at(-1), count = this.index.len;
-    const compare = !fresh && items.length === this.items.length;
-    const rekeyed = !compare || idents.some((k, i) => k !== this.idents[i]);
-    let inPlace = null;
-    if (compare && !rekeyed) { inPlace = []; items.forEach((it, p) => { if (!same(it, this.items[p])) inPlace.push(p); }); }
+    const rekeyed = resetMeasurements || idents.length !== this.idents.length || idents.some((k, i) => k !== this.idents[i]);
+    const positions = resetMeasurements ? [] : this.changedPositions(items, idents);
     if (rekeyed) { this.index.replace(idents); this.idents = idents; this.dups = dups; }
     anchor = this.committedAnchor?.(anchor, dropAnchor) ?? anchor;
-    const moved = rekeyed || !inPlace || inPlace.length;
+    const moved = rekeyed || positions.length > 0;
     // A grouped session's offsets move with its rows, at once (LLP 1094 D8).
     const instant = !!(moved && (this.incoming || this.preview?.grouped));
     // A held drop's row already left the index above, so its rows' offsets
@@ -307,8 +306,11 @@ class Collection {
     if (moved) this.preparedMove?.();
     this.items = items;
     if (this.kept.size) for (const k of [...this.kept.keys()]) if (!this.index.pos.has(k.split("\0")[0])) this.kept.delete(k);
-    const previous = inPlace && JSON.stringify(this.snapshot());
-    if (inPlace) this.invalidateRows(inPlace); else this.invalidateEstimates();
+    for (const key of this.positionDependentKeys) {
+      if (!this.index.pos.has(key)) { this.positionDependentKeys.delete(key); }
+    }
+    const previous = !rekeyed && JSON.stringify(this.snapshot());
+    if (resetMeasurements) { this.invalidateEstimates(); } else { this.invalidateRows(positions); }
     if (!this.index.len) this.edgeArmed = [true, true];
     // Rows that arrived are a new end: the old last row is still here with
     // rows after it, or the list grew and kept it (a page inserted before a
@@ -321,9 +323,21 @@ class Collection {
     if (this.target && !this.index.pos.has(this.target.key)) this.end("cancelled");
     if (this.portUnknown) this.correction = null; else this.restore(anchor);
     this.startAtEnd();
-    try { this.realize(true, {}); } finally { this.instant = false; }
+    // Build visible rows now and let the controller fill new overscan within its frame budget
+    try { this.realize(false, { limit: 0 }); } finally { this.instant = false; }
     const now = this.snapshot();
     if (!previous || previous !== JSON.stringify(now)) this.revision++;
+  }
+  changedPositions(items, idents) {
+    const positions = [];
+    items.forEach((item, position) => {
+      const key = idents[position], previous = this.index.pos.get(key);
+      if (previous === undefined) { return; }
+      if (!eq(item, this.items[previous]) || (previous !== position && this.positionDependentKeys.has(key))) {
+        positions.push(position);
+      }
+    });
+    return positions;
   }
   invalidateEstimates() {
     for (const key of this.zeros) { const t = this.index.token(key); if (t) this.index.setMeasured(key, t, this.est); }
@@ -487,7 +501,10 @@ class Collection {
     w.style.cssText = WRAP[this.axis];
     w.setAttribute("role", "listitem");
     w.setAttribute("data-listitemkey", key);
-    const m = { key, position: p, wrapper: w, item: sig(this.items[p]), index: sig(p), published: [-1, -1], inner: [], list: this };
+    const position = sig(p);
+    // Retain position dependencies after unmount because the size index keeps those measurements
+    const index = Object.assign(() => { this.positionDependentKeys.add(key); return position(); }, { n: position.n });
+    const m = { key, position: p, wrapper: w, item: sig(this.items[p]), index, published: [-1, -1], inner: [], list: this };
     // The row's scope names its row, for a list inside it (at any time).
     const build = () => scope(() => {
       owner().$row = m;
@@ -911,7 +928,7 @@ export function vl(el, subject, key, row, o) {
   el.$n = null;
   el.$jump = (name, at) => { if (el[name] !== at) (jumps ??= []).push([c.view, at, name]); };
   onEnd(() => Lists.delete(c.view));
-  let first = true;
+  let first = true, previousInputs;
   if (o.follow) effect(() => { c.followEnd = !!o.follow(); });
   // A changed set mounts its rows and lets the others go after the commit,
   // in the update's pass when the data changed too (mod.rs `update_data`).
@@ -923,7 +940,7 @@ export function vl(el, subject, key, row, o) {
   });
   // The keys are read here, so a key's other inputs rerun the update too.
   effect(() => {
-    const items = subject(), idents = [], dups = new Map(), unique = new Set();
+    const items = subject(), inputs = o.inputs?.() ?? [], idents = [], dups = new Map(), unique = new Set();
     items.forEach((item, i) => {
       const text = keyText(key(() => item, () => i));
       let d = 0, id = text;
@@ -932,7 +949,9 @@ export function vl(el, subject, key, row, o) {
       if (d) dups.set(i, d);
       idents.push(id);
     });
-    untracked(() => { c.update(items, [idents, dups], first); first = false; c.served = null; });
+    const bodyChanged = first || !eq(inputs, previousInputs);
+    previousInputs = inputs;
+    untracked(() => { c.update(items, [idents, dups], bodyChanged); first = false; c.served = null; });
   });
   load();
 }
@@ -1013,7 +1032,18 @@ function remount() {
   }
   Remount.clear();
 }
-After.push(() => { remount(); release(); wake(); publish(); });
+// Limit opaque invalidation to app commits so measurement feedback can settle
+Before.push(() => {
+  for (const c of Lists.values()) {
+    if (c.o.opaque) { c.bodyDirty = true; }
+  }
+});
+After.push(() => {
+  for (const c of Lists.values()) {
+    if (c.bodyDirty) { c.update(c.items, [c.idents, c.dups], true); }
+  }
+  remount(); release(); wake(); publish();
+});
 function load() {
   if (Loading || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
   inflight.n++;

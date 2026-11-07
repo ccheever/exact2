@@ -10,7 +10,8 @@
 
 use exact_kernel::style::theme::Kind;
 use exact_kernel::{NodeType, PropId, StyleId};
-use exact_plan::{BindingKind, Plan};
+use exact_plan::{BindingKind, Plan, RegionsId};
+use exact_runner::instance::{RowDependencies, SiteIndex};
 use std::collections::{HashMap, HashSet};
 
 type Tokens = (Vec<(String, String)>, Vec<(String, StyleId, String)>);
@@ -23,6 +24,7 @@ struct StatusSites {
 
 pub(super) struct Answers<'a> {
     plan: &'a Plan,
+    dependencies: Option<SiteIndex>,
     /// Whether a type or family token varies by an app axis (`rows.rs`).
     pub varying: bool,
     /// Whether the plan has modes on the web ([`crate::modes::active`]).
@@ -54,6 +56,7 @@ impl<'a> Answers<'a> {
         }
         Answers {
             plan,
+            dependencies: None,
             varying: plan.theme.iter().any(|r| {
                 r.slices.len > 0
                     && matches!(crate::measures::kind(r), Some(Kind::Type | Kind::Family))
@@ -71,6 +74,13 @@ impl<'a> Answers<'a> {
     /// Arm `arm`'s own slots.
     pub fn slots(&self, arm: u32) -> &[usize] {
         self.slots.get(arm as usize).map_or(&[], Vec::as_slice)
+    }
+
+    /// A list row's parent inputs, from the native engine's dependency table.
+    pub fn row_dependencies(&mut self, region: u32) -> RowDependencies {
+        self.dependencies
+            .get_or_insert_with(|| SiteIndex::new(self.plan))
+            .row_dependencies(RegionsId(region))
     }
 
     pub fn status_binding(&self, node: u32, prop: u16) -> Option<&[u32]> {

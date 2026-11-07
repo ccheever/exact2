@@ -30,9 +30,9 @@ use trapped::Evaluated;
 
 use crate::bridge;
 use crate::vm::{self, Env, Frame, RowSlots, Trap};
-pub use deps::RowWrites;
 use deps::{Bits, Reads, Seen};
-pub(crate) use deps::{Deps, Input, Reads as DepReads};
+pub(crate) use deps::{Deps, Reads as DepReads};
+pub use deps::{Input, RowDependencies, RowWrites};
 pub use document::{DocNode, DocTree, DocTreeError};
 use exact_kernel::{Kernel, NodeType, Op, StyleProps, ViewId};
 use exact_plan::{ArmsId, BindingKind, Items, NodesId, Plan, RegionKind, RegionsId, Value};
@@ -686,6 +686,11 @@ impl SiteIndex {
     /// What every binding, site, derive and resource argument reads.
     pub(crate) fn deps(&self) -> &Deps {
         &self.deps
+    }
+
+    /// What a region's row body reads outside its own item and position.
+    pub fn row_dependencies(&self, region: RegionsId) -> RowDependencies {
+        self.deps.row_dependencies(region.0 as usize)
     }
 
     fn children(&self, parent: Option<NodesId>, arm: Option<ArmsId>) -> &[(u32, Site)] {
