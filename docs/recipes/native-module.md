@@ -16,7 +16,7 @@ final class Engine: ExactModule {
         }
     }
     override func later(_ request: [String: Any], reply: ExactReply) {
-        DispatchQueue.global().async { reply.send(["ok": true]) } // or reply.fail("why")
+        DispatchQueue.global().async { reply.send(["ok": true]) }
     }
 }
 let exactModule: ExactModule.Type = Engine.self
@@ -57,18 +57,17 @@ export const answer: Answer = (source, args, store, storage, native) =>
 ```
 
 - **`call`** runs on main within the answer's 100 ms; throw to refuse. **`later`** replies once,
-  `send` or `fail`, from any thread. Values are JSON's. The web has no `call`; it answers
+  `send` or `fail(_:)`, from any thread. Values are JSON's. The web has no `call`; it answers
   `later` only from `modules/web/index.js`.
-- **`context.changed("flags")`** asks again every answer that called `native.watch("flags")`.
-  `context.now()` and `context.after(ms)` are the session's clock; `context.agent` is true
-  under the agent.
+- **`context`:** `changed("flags")` asks again every answer that called `native.watch("flags")`;
+  `now()` and `after(ms)` are the session's clock; `agent` is true under the agent. Files,
+  secrets: [files-and-grants](files-and-grants.md).
 - **Launch arguments:** Exact passes none. `xcrun simctl launch <udid> <bundle id> -AutoPlay
-  1` puts each `-Name value` in `UserDefaults`, as read above.
-- **Printing:** `print` shows in `agent ios logs` and `xcrun simctl launch --console`;
-  `NSLog` not.
+  1` puts each `-Name value` in `UserDefaults`.
+- **Printing:** `print`, not `NSLog`, shows in `agent ios logs` and `xcrun simctl launch --console`.
 - **`app.onLine`** (app hatch) is watched from its first read: read it once, even when
   `isNew`, to hear changes.
-- **Exiting:** iOS has no quit. `exit(0)` skips the app's pending writes: keep it to a
-  measurement hook, after `fflush(stdout)`.
-- **A Swift edit rebuilds** (`bun exact.mjs ios`); views from the same module are
+- **Exiting:** iOS has no quit. `exit(0)` skips pending writes: keep it to a measurement
+  hook, after `fflush(stdout)`.
+- **A Swift edit rebuilds** (`bun exact.mjs ios`, Swift 5 mode); views from the same module are
   [native-views](native-views.md).
