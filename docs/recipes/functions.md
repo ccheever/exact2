@@ -21,7 +21,7 @@ what to write for a name Contract lacks. The web's methods are called on their v
   `formatDay(then, now, offset, "day" | "list")` ·
   `calendarDiff(from, to, "years" | "months")` · `t("key", name=value)`.
 - **Time:** `performanceNow()`, ms since launch; the date is
-  `time.epochAtZero + performanceNow()` ([dates-and-days](dates-and-days.md)).
+  `time.epochAtZero + performanceNow()` ([dates and days](dates-and-days.md)).
 - **Routes:** `push(nav, location)` · `replace(nav, location)` · `back(nav)` ·
   `go(nav, location)` · `open(nav, location)` · `select(nav, tab)` · `stack(nav) -> Entry[]` ·
   `top(nav) -> Entry` · `depth(nav)` · `params(nav, name) -> string[]` ·

@@ -1,0 +1,52 @@
+/* Light values from Nico's Figma; dark values are the same steps of Radix Slate's dark scale (@radix-ui/colors 3.0.0), which Nico's light values match step for step.
+   Design tokens from Nico's "Docs redesign" (Figma ucRpfi9Ax4Axgj5BoFSuzi, node 5175:7309).
+   Named after Tailwind v4's theme variables; `bun exact.mjs tamber import css tokens.css` writes them into app.tamber. */
+:root {
+  --color-text-default: light-dark(#1c2024, #edeef0);
+  --color-text-secondary: light-dark(#60646c, #b0b4ba);
+  --color-text-tertiary: light-dark(#80838d, #777b84);
+  --color-text-quaternary: light-dark(#8b8d98, #696e77);
+  --color-text-success: #00824d;
+  --color-text-mark: light-dark(#113264, #c2e6ff);
+  --color-icon-default: light-dark(#60646c, #b0b4ba);
+  --color-icon-tertiary: light-dark(#8b8d98, #696e77);
+  --color-icon-warning: #ad6200;
+  --color-background-default: light-dark(#ffffff, #18191b);
+  --color-background-subtle: light-dark(#f9f9fb, #212225);
+  --color-background-element: light-dark(#f0f0f3, #272a2d);
+  --color-background-selected: light-dark(#e0e1e6, #2e3135);
+  --color-background-screen: light-dark(#fbfcfd, #111113);
+  --color-background-success: light-dark(#e6f6eb, #132d21);
+  --color-background-danger: light-dark(#feebec, #3b1219);
+  --color-background-mark: light-dark(#d5efff, #104d87);
+  --color-border-default: light-dark(#d9d9e0, #363a3f);
+  --color-border-secondary: light-dark(#e0e1e6, #2e3135);
+  --color-accent: #1e8fff;
+
+  --spacing-1: 4px;
+  --spacing-1-5: 6px;
+  --spacing-2: 8px;
+  --spacing-2-5: 10px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --spacing-12: 48px;
+  --spacing-16: 64px;
+
+  --radius-lg: 8px;
+  --radius-xl: 16px;
+  --radius-3xl: 24px;
+  --radius-full: 9999px;
+
+  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-xl: 20px;
+  --text-3xl: 32px;
+  --text-4xl: 48px;
+}

@@ -70,5 +70,5 @@ test "Save waits for a name, saying why; Enter saves"
   stepper, which adds `step`; the field stays editable and its `value` is text (`parseNumber` it).
 - A `text` and a control in a row are a title and its accessory; any other is a flex row.
   Save is disabled until valid, the reason in the section's `footer`; red under a field is a
-  refusal the data sent back ([after-a-write](after-a-write.md)), kept until a Save succeeds.
+  refusal the data sent back ([after a write](after-a-write.md)), kept until a Save succeeds.
   `submit=save` makes Enter save (no `form`).

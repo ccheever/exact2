@@ -1,0 +1,211 @@
+test "the home page has the hero, the agent prompt, the setup commands and a card for each section"
+  size 1440x900
+  expect tree has "home-page"
+  expect tree has "agent-pill"
+  expect tree has "terminal"
+  expect tree has "card-startHere"
+  expect tree has "card-contractForHumans"
+  expect tree has "card-recipeAfterAWrite"
+  expect tree missing "card-learnContractForHumansRunAnApp"
+  expect tree missing "card-recipeMoney"
+  tap "card-startHere"
+  expect tree has "toc"
+
+test "the home page's agent section opens the agent resources page"
+  size 1440x900
+  expect tree has "for-agents"
+  expect tree has "agent-row-/agents#markdown-pages"
+  tap "all-agent-resources"
+  expect tree has "toc"
+  expect tree missing "home-page"
+
+test "a section of a split guide is its own page"
+  at "/learn/contract-for-humans/resources-and-mutations"
+  expect tree has "page"
+  expect tree has "nav-learnContractForHumansResourcesAndMutations"
+
+test "a deep link opens a section page at its heading"
+  at "/learn/contract-for-humans/input-events-and-commands#choosing-a-native-button"
+  expect tree has "h-choosing-a-native-button"
+
+test "the recipe page renders"
+  at "/recipes/website"
+  expect tree has "h-a-deep-link"
+
+test "a link in the sidebar opens its page in place"
+  size 1440x900
+  tap "nav-recipeWebsite"
+  expect tree has "h-a-deep-link"
+  tap "nav-toggle-contractForHumans"
+  clock settle
+  tap "nav-learnContractForHumansInputEventsAndCommands"
+  expect tree has "h-choosing-a-native-button"
+
+test "on a phone the menu opens the sidebar and a link opens its page"
+  size 390x844
+  tap "menu"
+  expect tree has "site-menu"
+  tap "menu-nav-recipeWebsite"
+  expect tree missing "site-menu"
+  expect tree has "h-a-deep-link"
+
+test "a wide window shows the sidebar and the page's contents"
+  size 1440x900
+  at "/start"
+  expect tree has "sidebar"
+  expect tree has "toc"
+
+test "a page reached with a trailing slash lands on the page"
+  at "/recipes/website/"
+  expect tree has "h-a-deep-link"
+
+test "a moved page lands on its new path"
+  at "/learn/contract-for-humans/contents"
+  expect tree has "nav-learnContractForHumansRunAnApp"
+  expect tree missing "moved-to"
+
+test "a page has its section, a rule under the header, previous and next, and the date"
+  size 1440x900
+  at "/learn/contract-for-humans/run-an-app"
+  expect tree has "header-rule"
+  expect tree has "page-previous"
+  expect tree has "page-next"
+  expect tree has "updated"
+
+test "the rail has Edit page, the AI actions, and Copy markdown copies the page"
+  size 1440x900
+  at "/recipes/website"
+  expect tree has "ai-actions"
+  tap "copy-markdown"
+  expect text "copy-markdown" == "Copied"
+
+test "Open in Claude and Open in ChatGPT each offer the web chat and the coding app"
+  size 1440x900
+  at "/recipes/website"
+  expect tree missing "ai-claude-choices"
+  tap "ai-claude"
+  expect tree has "ai-claude-choices"
+  tap "ai-openai"
+  expect tree has "ai-openai-choices"
+  tap "ai-claude"
+  expect tree missing "ai-claude-choices"
+
+test "a collapsible opens, and steps, prerequisites and a file tree render"
+  size 1440x900
+  at "/_components"
+  expect tree has "filetree"
+  expect tree has "step-3"
+  expect tree missing "open-details-0"
+  tap "collapsible-details-0"
+  expect tree has "open-details-0"
+
+test "an unknown path suggests pages"
+  at "/learn/website-recipe"
+  expect tree has "not-found"
+  expect tree has "suggestions"
+
+test "a redirect says where the reader came from"
+  at "/start-here"
+  expect tree has "redirected"
+
+test "the theme choice survives a reload"
+  size 1440x900
+  tap "theme-dark"
+  reload
+  expect state theme == "dark"
+
+test "a guide's sections open and close only by its chevron"
+  size 1440x900
+  at "/learn/contract-for-humans/run-an-app"
+  expect tree missing "nav-open-learnContractForHumansValuesAndTypes"
+  tap "nav-toggle-contractForHumans"
+  expect tree has "nav-open-learnContractForHumansValuesAndTypes"
+  tap "nav-recipeWebsite"
+  expect tree has "h-a-deep-link"
+  expect tree has "nav-open-learnContractForHumansValuesAndTypes"
+  tap "nav-toggle-contractForHumans"
+  expect tree missing "nav-open-learnContractForHumansValuesAndTypes"
+
+test "content tabs show the first tab, then the one picked"
+  size 1440x900
+  at "/_components"
+  expect tree has "open-tabs-0|0"
+  expect tree missing "open-tabs-0|1"
+  tap "tab-tabs-0-1"
+  expect tree has "open-tabs-0|1"
+  expect tree missing "open-tabs-0|0"
+
+test "GitHub alerts render as callouts"
+  size 1440x900
+  at "/_components"
+  expect tree has "callout-note"
+  expect tree has "callout-tip"
+  expect tree has "callout-warning"
+
+test "a phone has the page actions under the header"
+  size 390x844
+  at "/recipes/website"
+  expect tree has "page-actions"
+
+test "On this page marks the section in view"
+  size 1440x900
+  at "/recipes/website"
+  expect tree has "toc-active"
+
+test "the sidebar hides and shows, and remembers"
+  size 1440x900
+  at "/recipes/website"
+  expect tree has "sidebar-shown"
+  tap "sidebar-hide"
+  clock settle
+  expect tree has "sidebar-hidden"
+  reload
+  expect tree has "sidebar-hidden"
+  tap "sidebar-show"
+  clock settle
+  expect tree has "sidebar-shown"
+
+test "a code block shows its title, and a diff marks its lines"
+  size 1440x900
+  at "/_components"
+  expect text "code-title" == "app.json"
+  expect tree has "diff-add"
+  expect tree has "diff-del"
+
+test "an image shows its caption and opens larger, and closes"
+  size 1440x900
+  at "/_components"
+  expect tree has "image-caption"
+  tap "image-zoom"
+  tap "image-close"
+
+test "link cards open their page"
+  size 1440x900
+  at "/_components"
+  expect tree has "card-Contract for humans"
+  tap "card-Start here"
+  expect tree has "h-the-idea"
+
+test "Start here's prompt copies, and shows its text on request"
+  size 1440x900
+  at "/start"
+  expect tree has "agent-prompt"
+  expect tree missing "agent-prompt-text"
+  tap "agent-prompt-toggle"
+  expect tree has "agent-prompt-text"
+  tap "agent-prompt-copy"
+  expect text "agent-prompt-copy" == "Copied"
+
+test "Search opens from the sidebar and hints until two letters"
+  size 1440x900
+  tap "search-open"
+  clock settle
+  expect tree has "search-input"
+  expect tree has "search-hint"
+  expect tree has "search-attribution"
+
+test "on a phone Search opens from the top bar"
+  size 390x844
+  tap "search-bar"
+  clock settle
+  expect tree has "search-input"

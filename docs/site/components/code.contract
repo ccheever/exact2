@@ -1,0 +1,92 @@
+use Line from "./shapes.contract"
+
+style Frame
+  border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" overflow="hidden"
+
+style Bar
+  align-items="center" justify-content="space-between" padding="6px 8px 6px 16px" border-bottom="1px solid var(--color-border-secondary)" background-color="var(--color-background-subtle)"
+
+style Label
+  font-family="var(--font-mono)" font-size="var(--text-xs)" color="var(--color-text-secondary)"
+
+style Body
+  padding="14px 16px" overflow-x="auto" background-color="var(--color-background-default)"
+
+component Lines
+  props
+    lines: Line[]
+  view
+    view display="grid" grid-template-columns="minmax(100%, max-content)"
+      for l in lines key=l.id
+        text font-family="var(--font-mono)" font-size="var(--text-sm)" line-height=1.7 white-space="pre" min-height="1.7em" margin="0 -16px" padding="0 16px" background-color=(l.mark == "add" ? "var(--color-background-success)" : l.mark == "del" ? "var(--color-background-danger)" : "transparent") testId=(l.mark == "" ? "" : `diff-${l.mark}`)
+          for t in l.tokens key=t.id
+            text t.text color=(t.color == "" ? "var(--color-text-default)" : t.color)
+
+component CopyButton
+  props
+    source: string
+  state copied = false
+  action copy
+    copyText(source)
+    copied = true
+  view
+    button press=copy appearance="none" aria-label=(copied ? "Copied" : "Copy") title=(copied ? "Copied" : "Copy") padding=6 border-radius="var(--radius-lg)" testId="copy"
+      image (copied ? "symbol:checkmark" : "symbol:copy") aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
+
+component CodeBlock
+  props
+    lang: string
+    title: string
+    source: string
+    lines: Line[]
+  view
+    column class=Frame
+      row class=Bar
+        text (title != "" ? title : lang == "" ? "text" : lang) class=Label testId="code-title"
+        CopyButton(source=source)
+      view class=Body
+        Lines(lines=lines)
+
+component Terminal
+  props
+    title: string
+    source: string
+    lines: Line[]
+  view
+    column class=Frame testId="terminal"
+      row class=Bar
+        text (title != "" ? title : "Terminal") class=Label
+        CopyButton(source=source)
+      view class=Body
+        Lines(lines=lines)
+
+// A prompt a reader pastes into their agent, as docs.expo.dev's AgentPrompt: the task, its copy button,
+// and the text itself behind Show prompt. Neutral colours: the card is the page's subtle background.
+component AgentPrompt
+  props
+    title: string
+    source: string
+  state copied = false
+  state shown = false
+  action copy
+    copyText(source)
+    copied = true
+  action toggle
+    shown = not shown
+  view
+    column border="1px solid var(--color-border-secondary)" border-radius="var(--radius-xl)" background-color="var(--color-background-subtle)" padding=16 gap=12 testId="agent-prompt"
+      row flex-wrap="wrap" align-items="center" gap=12
+        row flex="1 1 16rem" min-width=0 align-items="flex-start" gap=12
+          view display="flex" align-items="center" justify-content="center" width=32 height=32 flex-shrink=0 border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" background-color="var(--color-background-default)"
+            image "symbol:sparkles" aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
+          column gap=2 min-width=0
+            text title font-size="var(--text-base)" font-weight=600 color="var(--color-text-default)"
+            text "Paste this into Claude, Cursor, Codex, or another agent." font-size="var(--text-sm)" color="var(--color-text-secondary)"
+        button press=copy appearance="none" display="flex" align-items="center" gap=6 padding="6px 12px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" background-color="var(--color-background-default)" testId="agent-prompt-copy"
+          image (copied ? "symbol:checkmark" : "symbol:copy") aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
+          text (copied ? "Copied" : "Copy prompt") font-size="var(--text-sm)" font-weight=500 color="var(--color-text-default)"
+      button press=toggle appearance="none" display="flex" align-items="center" gap=6 align-self="flex-start" aria-expanded=shown padding="4px 8px" margin="-4px -8px" border-radius="var(--radius-lg)" testId="agent-prompt-toggle"
+        image "symbol:back" aria-hidden=true font-size="var(--text-xs)" color="var(--color-icon-tertiary)" transition="rotate 200ms ease" rotate=(shown ? "90deg" : "270deg")
+        text (shown ? "Hide prompt" : "Show prompt") font-size="var(--text-sm)" color="var(--color-text-secondary)"
+      if shown
+        text source font-family="var(--font-mono)" font-size="var(--text-sm)" line-height=1.7 white-space="pre-wrap" color="var(--color-text-default)" padding="12px 16px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" background-color="var(--color-background-default)" testId="agent-prompt-text"

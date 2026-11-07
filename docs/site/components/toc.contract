@@ -1,0 +1,105 @@
+use Page, Hit from "./shapes.contract"
+
+style Label
+  text-transform="uppercase" font-family="var(--font-mono)" font-size="var(--text-xs)" color="var(--color-text-secondary)" margin-bottom=4
+
+style Action
+  font-size="var(--text-sm)" color="var(--color-text-secondary)"
+
+component RailLink
+  props
+    href: string
+    icon: string
+    label: string
+  view
+    link href=href target="_blank" align-self="flex-start" class=Hit
+      row align-items="center" gap=8
+        image icon aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
+        text label class=Action
+
+// A link to an app's own URL scheme (Claude Code's `claude-cli:`, Codex's `codex:`), which `link` does not
+// navigate to: `openURL` hands it to the browser, which asks before it opens the app (app.json `open_url`).
+component AppLink
+  props
+    href: string
+    icon: string
+    label: string
+  action open
+    openURL(href)
+  view
+    button press=open appearance="none" display="flex" align-items="center" gap=8 align-self="flex-start" class=Hit
+      image icon aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
+      text label class=Action
+
+// One provider's two places to read the page: its web chat (a link) and its coding app (a URL scheme).
+// The button opens the two choices below it; nothing opens until the reader picks one.
+component ProviderMenu
+  props
+    label: string
+    icon: string
+    web: string
+    webLabel: string
+    app: string
+    appLabel: string
+    appIcon: string
+    id: string
+  state open = false
+  action toggle
+    open = not open
+  view
+    column gap=10 align-self="flex-start"
+      button press=toggle appearance="none" display="flex" align-items="center" gap=8 align-self="flex-start" aria-expanded=open class=Hit testId=`ai-${id}`
+        image icon aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
+        text label class=Action
+        image "symbol:back" aria-hidden=true font-size="var(--text-xs)" color="var(--color-icon-tertiary)" transition="rotate 200ms ease" rotate=(open ? "90deg" : "270deg")
+      if open
+        column gap=10 padding-left=24 testId=`ai-${id}-choices`
+          RailLink(href=web, icon=icon, label=webLabel)
+          AppLink(href=app, icon=appIcon, label=appLabel)
+
+component Rail
+  props
+    page: Page
+    roomy: bool
+    active: string
+    copyMarkdown: action
+    copied: bool
+  view
+    nav aria-label="Page" inert=(not roomy) width="calc(13rem - clamp(0px, (1280px - 100vw) * 1000, 13rem))" overflow="hidden" flex-shrink=0 margin-left="calc(56px - clamp(0px, (1280px - 100vw) * 1000, 56px))" padding="calc(4px - clamp(0px, (1280px - 100vw) * 1000, 4px)) 0 0 calc(8px - clamp(0px, (1280px - 100vw) * 1000, 8px))" position="sticky" top=24 align-self="flex-start" testId="toc"
+      column gap=28
+        column gap=10
+          RailLink(href=page.editUrl, icon="symbol:pencil", label="Edit page")
+          RailLink(href=page.markdownPath, icon="symbol:document", label="View as Markdown")
+        if page.toc.length > 0
+          column gap=8 border-left="1px solid var(--color-border-secondary)" padding-left=12
+            text "On this page" class=Label
+            for i in page.toc key=i.id
+              link href=i.href margin-left=-13 padding-left=12 border-left=(i.href == `#${active}` ? "1px solid var(--color-text-default)" : "1px solid transparent") testId=(i.href == `#${active}` ? "toc-active" : `toc-${i.id}`)
+                row
+                  text i.title font-size="var(--text-sm)" color=(i.href == `#${active}` ? "var(--color-text-default)" : "var(--color-text-secondary)")
+        column gap=10 testId="ai-actions"
+          text "AI" class=Label
+          button press=copyMarkdown appearance="none" display="flex" align-items="center" gap=8 align-self="flex-start" class=Hit testId="copy-markdown"
+            image (copied ? "symbol:checkmark" : "symbol:copy") aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
+            text (copied ? "Copied" : "Copy markdown") class=Action
+          ProviderMenu(label="Open in Claude", icon="symbol:icon.claude", web=page.claudeUrl, webLabel="Claude", app=page.claudeCodeUrl, appLabel="Claude Code", appIcon="symbol:icon.claude", id="claude")
+          RailLink(href=page.cursorUrl, icon="symbol:icon.cursor", label="Open in Cursor")
+          ProviderMenu(label="Open in ChatGPT", icon="symbol:icon.openai", web=page.chatgptUrl, webLabel="ChatGPT", app=page.codexUrl, appLabel="Codex", appIcon="symbol:icon.codex", id="openai")
+
+// The rail's actions as one wrapping row under the page header, for windows too narrow for the rail
+// (below 1280px, where the rail's width clamps to 0).
+component PageActions
+  props
+    page: Page
+    roomy: bool
+    copyMarkdown: action
+    copied: bool
+  view
+    row flex-wrap="wrap" column-gap=16 row-gap=8 overflow="hidden" inert=roomy max-height="clamp(0px, (1280px - 100vw) * 1000, 400px)" margin="clamp(0px, (1280px - 100vw) * 1000, 12px) -8px 0" padding="clamp(0px, (1280px - 100vw) * 1000, 4px) 8px" testId="page-actions"
+      RailLink(href=page.editUrl, icon="symbol:pencil", label="Edit page")
+      button press=copyMarkdown appearance="none" display="flex" align-items="center" gap=8 align-self="flex-start" class=Hit
+        image (copied ? "symbol:checkmark" : "symbol:copy") aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
+        text (copied ? "Copied" : "Copy markdown") class=Action
+      ProviderMenu(label="Claude", icon="symbol:icon.claude", web=page.claudeUrl, webLabel="Claude", app=page.claudeCodeUrl, appLabel="Claude Code", appIcon="symbol:icon.claude", id="claude-compact")
+      RailLink(href=page.cursorUrl, icon="symbol:icon.cursor", label="Cursor")
+      ProviderMenu(label="ChatGPT", icon="symbol:icon.openai", web=page.chatgptUrl, webLabel="ChatGPT", app=page.codexUrl, appLabel="Codex", appIcon="symbol:icon.codex", id="openai-compact")

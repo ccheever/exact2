@@ -1,0 +1,144 @@
+use Page, Link, Nav from "./shapes.contract"
+use Blocks, tabShown from "./blocks.contract"
+use Rail, PageActions from "./toc.contract"
+use Footer from "./footer.contract"
+use Home from "./home.contract"
+
+style Eyebrow
+  text-transform="uppercase" font-family="var(--font-mono)" font-size="var(--text-xs)" color="var(--color-text-secondary)" margin-bottom=8
+
+style Title
+  font-size="var(--text-3xl)" font-weight=600 letter-spacing="-1px" line-height=1.25 color="var(--color-text-default)"
+
+component PageLink
+  props
+    link: Link
+    label: string
+    end: bool
+  view
+    link href=link.href flex="1 1 14rem" display="flex" flex-direction="column" align-items=(end ? "flex-end" : "flex-start") gap=4 padding="12px 16px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" testId=`page-${label.toLowerCase()}`
+      row gap=4 align-items="center"
+        if not end
+          image "symbol:back" aria-hidden=true font-size="var(--text-xs)" color="var(--color-icon-tertiary)"
+        text label text-transform="uppercase" font-family="var(--font-mono)" font-size="var(--text-xs)" color="var(--color-text-secondary)"
+        if end
+          image "symbol:back" aria-hidden=true font-size="var(--text-xs)" color="var(--color-icon-tertiary)" transform="rotate(180deg)"
+      text link.title font-size="var(--text-sm)" color="var(--color-text-default)" text-align=(end ? "end" : "start")
+
+style Vote
+  padding="4px 12px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" font-size="var(--text-sm)"
+
+// Votes are not counted yet: no server receives them. The reader is offered the page's GitHub issue instead.
+component Helpful
+  props
+    href: string
+    voted: string
+    vote: action
+  view
+    row margin-top=48 flex-wrap="wrap" align-items="center" gap=12 testId="helpful"
+      if voted == ""
+        text "Was this page helpful?" font-size="var(--text-sm)" color="var(--color-text-secondary)"
+        button press=vote("yes") class=Vote testId="helpful-yes"
+          text "Yes"
+        button press=vote("no") class=Vote testId="helpful-no"
+          text "No"
+      else
+        text (voted == "yes" ? "Thanks for the feedback." : "Sorry about that.") font-size="var(--text-sm)" color="var(--color-text-secondary)" testId="helpful-thanks"
+        link href=href testId="helpful-issue"
+          text "Tell us what to improve" font-size="var(--text-sm)" color="var(--color-text-default)" text-decoration="underline"
+
+component NotFound
+  props
+    url: string
+    moved: string
+    suggestions: Link[]
+  view
+    column testId="not-found"
+      text "404" class=Eyebrow
+      h1 class=Title
+        text (moved != "" ? "This page has moved" : "Page not found")
+      text (moved != "" ? `It is now at ${moved}.` : `Nothing lives at ${url}. The link may be out of date, or the address may have a typo.`) font-size="var(--text-base)" color="var(--color-text-secondary)" margin-top=12
+      view height=1 background-color="var(--color-border-secondary)" margin="32px 0 24px"
+      if moved != ""
+        link href=moved testId="moved-to"
+          text `Go to ${moved}` text-decoration="underline" font-size="var(--text-base)"
+      else
+        if suggestions.length > 0
+          text "Did you mean" class=Eyebrow
+          column gap=8 margin-bottom=24 testId="suggestions"
+            for s in suggestions key=s.href
+              link href=s.href display="flex" align-items="center" gap=8
+                image "symbol:document" aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-tertiary)"
+                text s.title font-size="var(--text-base)" color="var(--color-text-default)" text-decoration="underline"
+        text "Or start from" class=Eyebrow
+        row flex-wrap="wrap" gap=12
+          link href="/start" flex="1 1 12rem" padding="12px 16px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" testId="missing-home"
+            row
+              text "Start here" font-size="var(--text-sm)" font-weight=600 color="var(--color-text-default)"
+          link href="/learn/contract-for-humans" flex="1 1 12rem" padding="12px 16px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)"
+            row
+              text "Learn Contract" font-size="var(--text-sm)" font-weight=600 color="var(--color-text-default)"
+          link href="/recipes/website" flex="1 1 12rem" padding="12px 16px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)"
+            row
+              text "Website recipe" font-size="var(--text-sm)" font-weight=600 color="var(--color-text-default)"
+
+component Article
+  props
+    page: Page
+    nav: Nav
+    missing: bool
+    url: string
+    moved: string
+    suggestions: Link[]
+    from: string
+    opened: string[]
+    toggle: action
+    pick: action
+    seen: action
+    active: string
+    copyMarkdown: action
+    copied: bool
+    voted: string
+    vote: action
+    roomy: bool
+    year: string
+    theme: string
+    chooseTheme: action
+  view
+    row justify-content="center" padding="clamp(24px, 5vw, 64px) clamp(20px, 3vw, 32px) 48px"
+      main flex=1 min-width=0 max-width="48rem" testId="page"
+        // Not shown, but in the page's text: an agent that reads the HTML learns where the Markdown is.
+        text "This documentation is available as Markdown for AI agents and LLMs. See the full Markdown index at /llms.txt, or add .md to any page's URL." position="absolute" width="0.0625rem" height="0.0625rem" overflow="hidden" white-space="nowrap" testId="agent-note"
+        if missing
+          NotFound(url=url, moved=moved, suggestions=suggestions)
+        else
+          if page.slug == "home"
+            Home(page=page, nav=nav)
+          else
+            if from != ""
+              row gap=8 align-items="center" margin-bottom=20 padding="8px 12px" border-radius="var(--radius-lg)" background-color="var(--color-background-element)" testId="redirected"
+                image "symbol:info" aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
+                text `You were redirected from ${from}.` font-size="var(--text-sm)" color="var(--color-text-secondary)"
+            if page.section != ""
+              text page.section class=Eyebrow
+            h1 class=Title
+              text page.title
+            if page.subtitle != ""
+              text page.subtitle font-size="var(--text-base)" color="var(--color-text-secondary)" margin-top=10
+            PageActions(page=page, roomy=roomy, copyMarkdown=copyMarkdown, copied=copied)
+            view height=1 background-color="var(--color-border-secondary)" margin="28px 0 20px" testId="header-rule"
+            for b in page.blocks key=b.id
+              view display=((b.group == "" or tabShown(b.group, opened)) ? "block" : "none") padding-left=((b.group != "" and not b.group.startsWith("tabs-")) ? 16 : 0) testId=((b.group != "" and tabShown(b.group, opened)) ? `open-${b.group}` : `block-${b.id}`)
+                Blocks(block=b, opened=opened, toggle=toggle, pick=pick, seen=seen)
+            view height=1 background-color="var(--color-border-secondary)" margin="48px 0 24px"
+            row flex-wrap="wrap" gap=12
+              if page.prev.href != ""
+                PageLink(link=page.prev, label="Previous", end=false)
+              if page.next.href != ""
+                PageLink(link=page.next, label="Next", end=true)
+            if page.updated != ""
+              text `Last updated ${page.updated}` font-size="var(--text-xs)" color="var(--color-text-secondary)" margin-top=24 testId="updated"
+        view height=48
+        Footer(year=year, theme=theme, choose=chooseTheme)
+      if not missing and page.slug != "home"
+        Rail(page=page, roomy=roomy, active=active, copyMarkdown=copyMarkdown, copied=copied)

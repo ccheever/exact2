@@ -1,0 +1,146 @@
+shape Run
+  id: string
+  text: string
+  code: bool
+  strong: bool
+  em: bool
+  href: string
+
+shape Cell
+  id: string
+  runs: Run[]
+
+shape Row
+  id: string
+  header: bool
+  cells: Cell[]
+
+shape Tok
+  id: string
+  text: string
+  color: string
+
+shape Line
+  id: string
+  mark: string
+  tokens: Tok[]
+
+shape TreeRow
+  id: string
+  name: string
+  depth: number
+  folder: bool
+
+shape Link
+  title: string
+  href: string
+
+shape CardLink
+  id: string
+  title: string
+  href: string
+  description: string
+
+shape Block
+  id: string
+  kind: string
+  depth: number
+  lang: string
+  text: string
+  href: string
+  title: string
+  width: number
+  height: number
+  group: string
+  runs: Run[]
+  rows: Row[]
+  lines: Line[]
+  tree: TreeRow[]
+  links: CardLink[]
+
+shape TocItem
+  id: string
+  title: string
+  href: string
+
+shape Page
+  slug: string
+  section: string
+  title: string
+  description: string
+  subtitle: string
+  updated: string
+  prev: Link
+  next: Link
+  editUrl: string
+  feedbackUrl: string
+  markdownPath: string
+  claudeUrl: string
+  claudeCodeUrl: string
+  chatgptUrl: string
+  codexUrl: string
+  cursorUrl: string
+  blocks: Block[]
+  toc: TocItem[]
+
+shape NavItem
+  id: string
+  title: string
+  href: string
+  route: string
+  depth: number
+  description: string
+  parent: string
+  children: number
+
+shape NavGroup
+  id: string
+  title: string
+  card: NavItem
+  items: NavItem[]
+
+shape AgentLink
+  id: string
+  title: string
+  detail: string
+  href: string
+
+shape Nav
+  groups: NavGroup[]
+  year: string
+  agentIntro: string
+  startPrompt: string
+  startLabel: string
+  agents: AgentLink[]
+
+shape Moved
+  to: string
+  go: string
+  suggestions: Link[]
+
+shape Markdown
+  text: string
+
+shape Viewport
+  width: number
+
+shape SearchPart
+  id: string
+  text: string
+  mark: bool
+
+shape SearchHit
+  id: string
+  href: string
+  title: SearchPart[]
+  path: string
+  snippet: SearchPart[]
+  nested: bool
+
+// A small link or button the platform washes on hover: the wash gets room around its contents and the
+// sidebar's radius, and the negative margin keeps the contents where they were.
+style Key
+  font-size="0.8125rem" line-height="19px" font-weight=500 color="var(--color-text-secondary)" padding="0 4px" min-width=22 box-sizing="border-box" text-align="center" border="1px solid var(--color-border-default)" border-radius=4 box-shadow="0 1.6px 0 1px var(--color-border-default)" background-color="var(--color-background-subtle)"
+
+style Hit
+  padding="4px 8px" margin="-4px -8px" border-radius="var(--radius-lg)"

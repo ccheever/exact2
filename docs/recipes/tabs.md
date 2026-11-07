@@ -54,7 +54,7 @@ test "each tab keeps its own stack"
 
 - The root `tablist` (each tab a symbol over a label, naming its panel with `aria-controls`)
   is the iOS tab bar. A segmented value picker is a `radiogroup`
-  ([persisted-setting](persisted-setting.md)).
+  ([a remembered setting](persisted-setting.md)).
 - A tab is built when first selected, then stays: its stack, drafts and scroll survive
   switches; a test taps a tab before reading inside it. Reselecting the shown tab pops it.
 - Links, Back, Forward and deep links reach `navigate`. `go` and `push` can put a route
@@ -65,4 +65,4 @@ test "each tab keeps its own stack"
 
 `appearance="none"` on a `header` or root `tablist` keeps the authored bar on every host;
 on a header button, only that button (the Mac keeps the whole header). Styling alone does
-not opt out ([reference](../reference.md)).
+not opt out ([Exact developer reference](../reference.md)).

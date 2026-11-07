@@ -1,0 +1,50 @@
+use Nav, NavItem from "./shapes.contract"
+
+style Item
+  padding-top=6 padding-bottom=6 padding-right=12 border-radius="var(--radius-lg)"
+
+// A guide split into sections is a parent, open only while the reader has opened it with its chevron.
+fn isOpen(route: string, opened: string[]): bool = opened.includes(route)
+
+component NavLink
+  props
+    item: NavItem
+    current: string
+    prefix: string
+  view
+    if item.route == current
+      link href=item.href aria-current="page" id=`${prefix}nav-${item.route}` testId=`${prefix}nav-${item.route}` class=Item flex=1 min-width=0 padding-left=(12 + item.depth * 14) background-color="var(--color-background-selected)"
+        row
+          text item.title font-size="var(--text-sm)" color=(item.depth == 0 ? "var(--color-text-default)" : "var(--color-text-secondary)")
+    else
+      link href=item.href id=`${prefix}nav-${item.route}` testId=`${prefix}nav-${item.route}` class=Item flex=1 min-width=0 padding-left=(12 + item.depth * 14)
+        row
+          text item.title font-size="var(--text-sm)" color=(item.depth == 0 ? "var(--color-text-default)" : "var(--color-text-secondary)")
+
+component Sidebar
+  props
+    nav: Nav
+    current: string
+    toggled: string[]
+    toggle: action
+    prefix: string
+  view
+    column padding="16px 12px" gap=20 testId=`${prefix}sidebar`
+      nav aria-label="Docs"
+        column gap=20
+          for g in nav.groups key=g.id
+            column gap=2 -exact-layout-transition="250ms ease"
+              text g.title text-transform="uppercase" font-family="var(--font-mono)" font-size="var(--text-xs)" color="var(--color-text-secondary)" padding="4px 12px"
+              for i in g.items.filter(x => x.depth == 0) key=i.id
+                if i.children > 0
+                  column -exact-layout-transition="250ms ease"
+                    row align-items="center" gap=4
+                      NavLink(item=i, current=current, prefix=prefix)
+                      button press=toggle(i.route) appearance="none" aria-expanded=isOpen(i.route, toggled) aria-label=(isOpen(i.route, toggled) ? "Collapse" : "Expand") padding=6 border-radius="var(--radius-lg)" flex-shrink=0 testId=`${prefix}nav-toggle-${i.route}`
+                        image "symbol:back" aria-hidden=true font-size="var(--text-xs)" color="var(--color-icon-tertiary)" transition="rotate 200ms ease" rotate=(isOpen(i.route, toggled) ? "90deg" : "270deg")
+                    column overflow="hidden" inert=(not isOpen(i.route, toggled)) max-height=(isOpen(i.route, toggled) ? `${i.children * 64}px` : "0px") opacity=(isOpen(i.route, toggled) ? 1 : 0) -exact-layout-transition="250ms ease" transition="opacity 200ms ease"
+                      for c in g.items.filter(x => x.parent == i.route) key=c.id
+                        view display="flex" testId=(isOpen(i.route, toggled) ? `${prefix}nav-open-${c.route}` : `${prefix}nav-item-${c.route}`)
+                          NavLink(item=c, current=current, prefix=prefix)
+                else
+                  NavLink(item=i, current=current, prefix=prefix)

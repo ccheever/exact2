@@ -1,7 +1,7 @@
 # Start here: a website with Exact
 
 The only required reading for a website: pages at URLs, served and read in a browser. A phone
-or desktop app reads [start-here.md](start-here.md) instead. The rest is lookup.
+or desktop app reads [Start here: building an app with Exact](start-here.md) instead. The rest is lookup.
 
 ## The idea
 
@@ -33,7 +33,7 @@ bun exact.mjs pattern site   # a tested website: start from it
 The pattern writes `app.contract` (the pages), `app.ts` (the data module), `app.test.contract`
 (its tests), `server.ts` (a stand-in for its API) and `.env` (the API's origin). Its comments
 say why each line is so: keep its shape, replace its content. Read
-[recipes/website.md](recipes/website.md) next: when a page is made, serving it, the markup.
+[a website](recipes/website.md) next: when a page is made, serving it, the markup.
 
 |`bun exact.mjs …`|What it does|
 |---|---|

@@ -14,7 +14,7 @@ matching `net.fetch` line and a `net.websocket` line at the same host (`ws:` for
 must have its own entry, except that a development build may take a loopback entry
 for the same server at a LAN address; see [keyed grants](../reference.md#bake-and-deliver-a-typescript-module).
 Password sign-in, stored sessions and refresh with Contract time are
-in [the adapter guide](../snapback4/README.md#personas-and-password-accounts).
+in [the adapter guide](../../snapback4/README.md#personas-and-password-accounts).
 For a server-only schema, add `--online`; `snapback` and `update` preserve it.
 On a plain scaffold, `snapback --port <n>` adds the origin and fetch/storage
 grants. A computed origin or grants declaration needs an explicit edit.
@@ -32,5 +32,5 @@ The device's embedded `snapback4.engine` section records its identity;
 web drives compare it with the running server before opening the page.
 
 The backend selection `.exact/backend-origin` is a build input; a test-only `seed.json` does not
-make the build stale. Tests against the backend: [snapback-tests](snapback-tests.md); guests,
-personas and password sessions: [snapback-auth](snapback-auth.md).
+make the build stale. Tests against the backend: [testing against a Snapback backend](snapback-tests.md); guests,
+personas and password sessions: [guests, personas and password sessions](snapback-auth.md).

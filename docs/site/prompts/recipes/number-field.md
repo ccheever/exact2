@@ -1,0 +1,12 @@
+```prompt Add a number field
+Add a number field to the Exact app in this folder. Use https://github.com/ccheever/exact2/blob/main/docs/recipes/number-field.md as the source for each step. The exact2 checkout has the same page at docs/recipes/number-field.md.
+
+1. If this folder is not an Exact app (it has no exact.mjs and app.contract), stop and tell me.
+2. If I did not say what the field holds, ask me before you write code: a count, an amount of money, or a value in a unit, and whether it can be negative.
+3. In app.contract, keep the field's raw text in a `string` state and parse it in a derive with `parseNumber`. Pick the keyboard from the recipe: `inputmode="decimal"` for an amount, `inputmode="numeric"` for digits only, or `type="number"` with a `step` for a count or a value in a unit. Never `inputmode="text"` for a number. A value that can be negative says its range with `min`.
+4. `input` writes the raw text at each keystroke; normalize the text only in `change` (Enter or blur), never as the person types. When the text does not parse, say so in words (a footer), set `aria-invalid`, and leave the text as typed; do not paint it red. In a form that saves, put `submit=save` on the field and keep Save disabled until the text is valid. For money, also follow docs/recipes/money.md.
+5. Add a test in app.test.contract that types text that does not parse and expects the message, then types a valid value and expects the result. For a value committed on Enter, type it, then `type "<id>" key "Enter"`, and expect the committed value.
+6. Follow the platform checks in docs/start-here.md (`bun exact.mjs docs platform checks`) for the targets in the app's AGENTS.md and app.json until they pass. Read the reports, including counted findings; a zero exit code alone does not mean clean. Fix the app, not the test. If a finding stays after three rounds of fixes, or the app had it before you changed anything, record it (step 7) and report it; do not keep trying.
+7. When a doc was wrong or missing, or a step needed a workaround, read `bun exact.mjs feedback status`. Under `never`, keep no note. Otherwise record it locally: `EXACT_FEEDBACK=0 bun exact.mjs feedback note "<what happened>"` (use your shell's environment syntax). Do not change the saved policy or send notes, even under `always`; tell me how many you kept.
+8. Tell me the field, its keyboard, the rule for valid text, what the tests and checks reported, and the launch command for each target platform.
+```

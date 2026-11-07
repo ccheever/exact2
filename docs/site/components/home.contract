@@ -1,0 +1,94 @@
+use Page, Nav, NavItem, Hit from "./shapes.contract"
+use CopyButton, Terminal from "./code.contract"
+
+style SectionTitle
+  font-size="var(--text-xl)" font-weight=600 letter-spacing="-0.25px" color="var(--color-text-default)"
+
+style Grid
+  display="grid" grid-template-columns="repeat(auto-fill, minmax(min(100%, 14rem), 1fr))" gap=12 margin-top=16
+
+component Avatar
+  props
+    icon: string
+    fill: string
+    ink: string
+    first: bool
+  view
+    view display="flex" align-items="center" justify-content="center" width=20 height=20 flex-shrink=0 border-radius="50%" border="1px solid var(--color-background-default)" background-color=fill margin-left=(first ? 0 : -4)
+      image icon aria-hidden=true width=12 height=12 color=ink
+
+component Card
+  props
+    item: NavItem
+    icon: string
+  view
+    link href=item.href padding=16 border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" background-color="var(--color-background-default)" testId=`card-${item.route}`
+      column gap=6
+        image icon aria-hidden=true width=20 height=20 color="var(--color-icon-default)"
+        text item.title margin-top=10 font-size="var(--text-sm)" font-weight=600 color="var(--color-text-default)"
+        text item.description font-size="var(--text-sm)" line-height=1.5 color="var(--color-text-secondary)"
+
+component AgentRow
+  props
+    href: string
+    title: string
+    detail: string
+  view
+    view display="flex" padding="4px 0" border-bottom="1px solid var(--color-border-secondary)"
+      link href=href flex=1 display="flex" align-items="center" gap=12 margin="0 -12px" padding="10px 12px" border-radius="var(--radius-lg)" testId=`agent-row-${href}`
+        row flex=1 min-width=0 flex-wrap="wrap" align-items="baseline" column-gap=10 row-gap=2
+          text title font-size="var(--text-base)" font-weight=600 color="var(--color-text-default)"
+          text detail font-size="var(--text-sm)" color="var(--color-text-secondary)"
+        image "symbol:back" aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-tertiary)" transform="rotate(180deg)"
+
+// Nico's Home frame, for Exact: a hero, the one prompt an agent needs, the first commands, and a card for
+// each sidebar section that opens its first page. The commands are pages/home.md's; the cards are
+// constants/navigation.ts's, as are the agent rows, which open sections of pages/agents.md.
+component Home
+  props
+    page: Page
+    nav: Nav
+  view
+    column testId="home-page"
+      column align-items="center" text-align="center" padding="clamp(16px, 6vw, 56px) 0 8px"
+        h1 font-size="var(--text-4xl)" font-weight=600 letter-spacing="-2px" line-height=1.2 color="var(--color-text-default)"
+          text page.title
+        text page.description margin-top=12 font-size="var(--text-base)" color="var(--color-text-secondary)"
+        row margin-top=24 flex-wrap="wrap" justify-content="center" align-items="center" column-gap=8 row-gap=2 padding="4px 4px 4px 12px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-xl)" background-color="var(--color-background-subtle)" max-width="100%" testId="agent-pill"
+          row flex-shrink=0 aria-hidden=true
+            Avatar(icon="symbol:icon.claude", fill="light-dark(#D77655, #D77655)", ink="light-dark(#FFFFFF, #FFFFFF)", first=true)
+            Avatar(icon="symbol:icon.codex", fill="light-dark(#FFFFFF, #FFFFFF)", ink="light-dark(#000000, #000000)", first=false)
+            Avatar(icon="symbol:icon.openai", fill="light-dark(#FFFFFF, #FFFFFF)", ink="light-dark(#000000, #000000)", first=false)
+            Avatar(icon="symbol:icon.cursor", fill="light-dark(#000000, #000000)", ink="light-dark(#FFFFFF, #FFFFFF)", first=false)
+          text "Teach your agent how to use Exact:" font-family="var(--font-mono)" font-size="var(--text-xs)" color="var(--color-text-secondary)"
+          text nav.startLabel font-family="var(--font-mono)" font-size="var(--text-xs)" color="var(--color-text-default)" white-space="nowrap"
+          CopyButton(source=nav.startPrompt)
+      column margin-top=56
+        h2 class=SectionTitle
+          text "Set up Exact"
+        text "Requires Bun 1.4.2, Git, rustup and Chromium." margin-top=6 font-size="var(--text-sm)" color="var(--color-text-secondary)"
+        row gap=16 flex-wrap="wrap" margin-top=8
+          link href="/install" class=Hit
+            text "Install the tools" font-size="var(--text-sm)" color="var(--color-text-default)" text-decoration="underline"
+        text "Start where you want to keep Exact, then clone it and open a first web app." margin-top=8 font-size="var(--text-sm)" color="var(--color-text-secondary)"
+        for b in page.blocks.filter(x => x.kind == "terminal") key=b.id
+          view margin-top=16
+            Terminal(title=b.title, source=b.text, lines=b.lines)
+      column margin-top=48
+        h2 class=SectionTitle
+          text "Explore the docs"
+        view class=Grid
+          for g in nav.groups.filter(x => x.card.href != "") key=g.id
+            Card(item=g.card, icon=(g.title == "Learn" ? "symbol:book" : g.title == "Recipes" ? "symbol:layers" : "symbol:home"))
+        column margin-top=48 testId="for-agents"
+          row flex-wrap="wrap" justify-content="space-between" align-items="baseline" gap=8
+            h2 class=SectionTitle
+              text "For AI agents"
+            link href="/agents" class=Hit testId="all-agent-resources"
+              row align-items="center" gap=6
+                text "See all agent resources" font-size="var(--text-sm)" font-weight=500 color="var(--color-text-default)"
+                image "symbol:back" aria-hidden=true font-size="var(--text-xs)" color="var(--color-icon-default)" transform="rotate(180deg)"
+          text nav.agentIntro margin-top=6 font-size="var(--text-sm)" color="var(--color-text-secondary)"
+          view display="grid" grid-template-columns="repeat(auto-fill, minmax(min(100%, 18rem), 1fr))" column-gap=32 margin-top=8
+            for r in nav.agents key=r.id
+              AgentRow(href=r.href, title=r.title, detail=r.detail)

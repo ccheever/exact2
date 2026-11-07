@@ -5,7 +5,7 @@ as symptom → cause → what to do, with where it was found. Delete the entry i
 change that fixes the footgun, or that makes the compiler, runtime or driver
 diagnose it. **Candidate diagnostic** marks one that could become a check cheaply.
 
-> **Lookup reference; start at [start-here.md](start-here.md).** It names the pitfalls
+> **Lookup reference: start at [Start here](start-here.md).** It names the pitfalls
 > that cost agents the most, and its [recipes](recipes/) avoid the rest. Search this list by symptom (`grep -n`) when
 > something compiles and misbehaves; don't read it front to back.
 
@@ -1987,7 +1987,7 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 ## Games
 
 A game's pitfalls (the world and its saves, game input, its tests, proof and setup)
-are in [game-pitfalls.md](game-pitfalls.md).
+are in [Pitfalls when writing exact2 games](game-pitfalls.md).
 
 
 ## Access hatches

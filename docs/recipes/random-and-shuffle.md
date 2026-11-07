@@ -1,6 +1,6 @@
 # Recipe: randomness and a shuffle
 
-Rolls in the view: [random-rolls](random-rolls.md). The data module refuses
+Rolls in the view: [random rolls in an expression](random-rolls.md). The data module refuses
 `Math.random()`. Deal from `exactTime()`'s `seed` (below 2^32, new each launch, `seed 2` in a
 test), a stream for each thing dealt: the questions' order from the game, each question's
 answers from the game and the round. One stream for both deals every question the

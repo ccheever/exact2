@@ -1,0 +1,15 @@
+{
+  "name": "site",
+  "private": true,
+  "scripts": {
+    "test:browser": "bun run build && BUN=bun bun test --timeout 20000 ./tests/browser.test.mjs",
+    "gen": "bun tools/gen.ts",
+    "build": "bun tools/gen.ts && bun exact.mjs web-build --out dist && bun tools/postbuild.ts dist && bun tools/seo-check.ts dist && bun tools/markdown-check.ts dist",
+    "start": "bun exact.mjs serve dist"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "marked": "^18.1.2",
+    "shiki": "^4.6.0"
+  }
+}

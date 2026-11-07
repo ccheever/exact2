@@ -1,0 +1,172 @@
+use Run, Block from "./shapes.contract"
+use CodeBlock, Terminal, AgentPrompt from "./code.contract"
+
+// A tab's blocks carry the group "<set>|<index>". A set's first tab shows until the reader picks another.
+fn tabShown(group: string, opened: string[]): bool = opened.includes(group) or (group.endsWith("|0") and not opened.map(x => x.startsWith(group.slice(0, group.length - 1))).includes(true))
+
+style Prose
+  font-size="var(--text-base)" line-height=1.65 color="var(--color-text-secondary)"
+
+style Cell
+  padding="8px 12px" text-align="start" border-bottom="1px solid var(--color-border-secondary)" font-size="var(--text-sm)"
+
+style Box
+  border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" background-color="var(--color-background-subtle)"
+
+component Runs
+  props
+    runs: Run[]
+    weight: number
+  view
+    for r in runs key=r.id
+      if r.code
+        if r.href != ""
+          text r.text font-family="var(--font-mono)" font-size="0.875em" color="var(--color-text-default)" background-color="var(--color-background-element)" border-radius=4 padding="1px 5px" text-decoration="underline" href=r.href
+        else
+          text r.text font-family="var(--font-mono)" font-size="0.875em" color="var(--color-text-default)" background-color="var(--color-background-element)" border-radius=4 padding="1px 5px"
+      else
+        if r.href != ""
+          text r.text font-weight=(r.strong ? 600 : weight) font-style=(r.em ? "italic" : "normal") text-decoration="underline" color="var(--color-text-default)" href=r.href
+        else
+          text r.text font-weight=(r.strong ? 600 : weight) font-style=(r.em ? "italic" : "normal")
+
+component Permalink
+  props
+    slug: string
+  view
+    link href=`#${slug}` aria-label="Link to this section"
+      row
+        image "symbol:link" font-size="0.7em" color="var(--color-icon-tertiary)" aria-hidden=true
+
+component Blocks
+  props
+    block: Block
+    opened: string[]
+    toggle: action
+    pick: action
+    seen: action
+  view
+    if block.kind == "heading"
+      if block.depth == 2
+        row align-items="baseline" gap=8 margin="40px 0 8px" intersect=seen(block.href)
+          h2 id=block.href testId=`h-${block.href}` font-size="var(--text-xl)" font-weight=600 letter-spacing="-0.25px" color="var(--color-text-default)"
+            Runs(runs=block.runs, weight=600)
+          Permalink(slug=block.href)
+      else
+        if block.depth == 3
+          row align-items="baseline" gap=8 margin="28px 0 4px" intersect=seen(block.href)
+            h3 id=block.href testId=`h-${block.href}` font-size="var(--text-base)" font-weight=600 color="var(--color-text-default)"
+              Runs(runs=block.runs, weight=600)
+            Permalink(slug=block.href)
+        else
+          row align-items="baseline" gap=8 margin="20px 0 4px"
+            h4 id=block.href testId=`h-${block.href}` font-size="var(--text-sm)" font-weight=600 color="var(--color-text-default)"
+              Runs(runs=block.runs, weight=600)
+            Permalink(slug=block.href)
+    else
+      if block.kind == "paragraph"
+        text class=Prose margin-top=12 margin-left=(block.depth * 24)
+          Runs(runs=block.runs, weight=400)
+      else
+        if block.kind == "item"
+          row margin-top=6 margin-left=(block.depth * 24) gap=8
+            text block.text class=Prose color="var(--color-text-secondary)" flex-shrink=0
+            text class=Prose flex=1 min-width=0
+              Runs(runs=block.runs, weight=400)
+        else
+          if block.kind == "code"
+            if block.lang == "prompt"
+              view margin-top=24 margin-bottom=8
+                AgentPrompt(title=block.title, source=block.text)
+            else
+              view margin-top=16 margin-left=(block.depth * 24)
+                CodeBlock(lang=block.lang, title=block.title, source=block.text, lines=block.lines)
+          else
+            if block.kind == "terminal"
+              view margin-top=16 margin-left=(block.depth * 24)
+                Terminal(title=block.title, source=block.text, lines=block.lines)
+            else
+              if block.kind == "collapsible"
+                button press=toggle(block.href) appearance="none" aria-expanded=opened.includes(block.href) class=Box margin-top=16 padding="12px 16px" display="flex" align-items="center" gap=10 text-align="start" width="100%" box-sizing="border-box" testId=`collapsible-${block.href}`
+                  image "symbol:back" aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)" transition="rotate 200ms ease" rotate=(opened.includes(block.href) ? "270deg" : "180deg")
+                  if block.lang == "prerequisites"
+                    text "Prerequisites" font-size="var(--text-sm)" font-weight=600 color="var(--color-text-default)"
+                    text block.text font-size="var(--text-sm)" color="var(--color-text-secondary)"
+                  else
+                    text block.text font-size="var(--text-sm)" font-weight=600 color="var(--color-text-default)"
+              else
+                if block.kind == "step"
+                  row margin-top=20 margin-left=(block.depth * 24) gap=12 align-items="flex-start" testId=`step-${block.text}`
+                    text block.text flex-shrink=0 width=24 height=24 line-height="24px" text-align="center" border-radius="var(--radius-full)" background-color="var(--color-background-element)" font-family="var(--font-mono)" font-size="var(--text-xs)" color="var(--color-text-default)"
+                    text flex=1 min-width=0 font-size="var(--text-base)" line-height=1.5 color="var(--color-text-default)"
+                      Runs(runs=block.runs, weight=600)
+                else
+                  if block.kind == "prerequisite"
+                    row margin-top=8 padding-left=16 gap=10 align-items="flex-start"
+                      text `${block.text}.` flex-shrink=0 font-family="var(--font-mono)" font-size="var(--text-sm)" color="var(--color-text-secondary)" line-height=1.65
+                      text class=Prose flex=1 min-width=0
+                        Runs(runs=block.runs, weight=400)
+                  else
+                    if block.kind == "filetree"
+                      column class=Box margin-top=16 padding="12px 16px" gap=4 testId="filetree"
+                        for r in block.tree key=r.id
+                          row gap=8 align-items="center" padding-left=(r.depth * 18)
+                            image (r.folder ? "symbol:layers" : "symbol:document") aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-tertiary)"
+                            text (r.folder ? `${r.name}/` : r.name) font-family="var(--font-mono)" font-size="var(--text-sm)" color=(r.folder ? "var(--color-text-default)" : "var(--color-text-secondary)")
+                    else
+                      if block.kind == "callout"
+                        row margin-top=16 margin-left=(block.depth * 24) gap=10 align-items="flex-start" padding="12px 16px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-xl)" background-color="var(--color-background-subtle)" testId=`callout-${block.lang}`
+                          image (block.lang == "warning" or block.lang == "caution" ? "symbol:alert" : block.lang == "tip" ? "symbol:sparkles" : "symbol:info") aria-hidden=true font-size="var(--text-base)" margin-top=3 flex-shrink=0 color=(block.lang == "warning" or block.lang == "caution" ? "var(--color-icon-warning)" : "var(--color-icon-default)")
+                          text class=Prose flex=1 min-width=0
+                            Runs(runs=block.runs, weight=400)
+                      else
+                        if block.kind == "quote"
+                          text class=Prose margin-top=16 padding="12px 16px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" background-color="var(--color-background-subtle)"
+                            Runs(runs=block.runs, weight=400)
+                        else
+                          if block.kind == "table"
+                            view margin-top=16 overflow-x="auto"
+                              table border-spacing=0 width="100%"
+                                for r in block.rows key=r.id
+                                  tr
+                                    for c in r.cells key=c.id
+                                      if r.header
+                                        th scope="col" class=Cell font-weight=600 color="var(--color-text-secondary)"
+                                          text
+                                            Runs(runs=c.runs, weight=600)
+                                      else
+                                        td class=Cell color="var(--color-text-default)"
+                                          text
+                                            Runs(runs=c.runs, weight=400)
+                          else
+                            if block.kind == "tabs"
+                              row role="tablist" margin-top=16 gap=4 flex-wrap="wrap" border-bottom="1px solid var(--color-border-secondary)" testId=`tabs-${block.href}`
+                                for label, i in block.text.split("\n") key=label
+                                  button role="tab" press=pick(block.href, `${block.href}|${i}`) aria-selected=tabShown(`${block.href}|${i}`, opened) appearance="none" padding="8px 12px" margin-bottom=-1 border-bottom=(tabShown(`${block.href}|${i}`, opened) ? "2px solid var(--color-text-default)" : "2px solid transparent") testId=`tab-${block.href}-${i}`
+                                    text label font-size="var(--text-sm)" font-weight=500 color=(tabShown(`${block.href}|${i}`, opened) ? "var(--color-text-default)" : "var(--color-text-secondary)")
+                            else
+                              if block.kind == "image"
+                                column margin-top=16 margin-left=(block.depth * 24) gap=8 align-items="center" testId="image"
+                                  button commandfor=`zoom-${block.id}` command="show-modal" appearance="none" aria-label=`Zoom in: ${block.text}` padding=0 max-width="100%" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" overflow="hidden" cursor="zoom-in" testId="image-zoom"
+                                    image block.href alt=block.text display="block" width=(block.width > 0 ? `${block.width}px` : "100%") max-width="100%" aspect-ratio=(block.width > 0 ? `${block.width} / ${block.height}` : "auto")
+                                  if block.title != ""
+                                    text block.title font-size="var(--text-sm)" line-height=1.5 color="var(--color-text-secondary)" text-align="center" testId="image-caption"
+                                  dialog id=`zoom-${block.id}` aria-label=block.text tabindex=-1 padding=0 max-width="calc(100vw - 32px)" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" background-color="var(--color-background-default)" testId="image-dialog"
+                                    column
+                                      image block.href alt=block.text display="block" max-width="100%" max-height="calc(100vh - 120px)" object-fit="contain"
+                                      row justify-content="space-between" align-items="center" gap=12 padding="8px 8px 8px 16px" border-top="1px solid var(--color-border-secondary)"
+                                        text (block.title != "" ? block.title : block.text) font-size="var(--text-sm)" color="var(--color-text-secondary)"
+                                        button commandfor=`zoom-${block.id}` command="close" appearance="none" padding="6px 12px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" testId="image-close"
+                                          text "Close" font-size="var(--text-sm)"
+                              else
+                                if block.kind == "cards"
+                                  view display="grid" grid-template-columns="repeat(auto-fill, minmax(min(100%, 14rem), 1fr))" gap=12 margin-top=16 margin-left=(block.depth * 24) testId="cards"
+                                    for c in block.links key=c.id
+                                      link href=c.href padding=16 border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" background-color="var(--color-background-default)" testId=`card-${c.title}`
+                                        column gap=6
+                                          image "symbol:document" aria-hidden=true width=20 height=20 color="var(--color-icon-default)"
+                                          text c.title margin-top=10 font-size="var(--text-sm)" font-weight=600 color="var(--color-text-default)"
+                                          if c.description != ""
+                                            text c.description font-size="var(--text-sm)" line-height=1.5 color="var(--color-text-secondary)"
+                                else
+                                  view margin-top=32 border-bottom="1px solid var(--color-border-secondary)"
