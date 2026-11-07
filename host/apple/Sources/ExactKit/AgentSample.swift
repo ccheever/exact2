@@ -3,7 +3,7 @@
 // what an 8-bit sRGB screenshot would clip reads outside 0–1.
 // This is CALayer.render(in:), not the display compositor: on iOS 27 it
 // clips native extended-range gradients and omits layer shadows. Compare
-// those with native layers and the displayed screen (Color Gallery).
+// those with native layers and the displayed screen (UI Gallery).
 import CoreGraphics
 import QuartzCore
 #if os(iOS) || os(tvOS)

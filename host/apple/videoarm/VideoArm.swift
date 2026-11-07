@@ -21,6 +21,11 @@ private final class VideoContainer: PlatformView {
     override func layout() { super.layout(); arm?.layout() }
     #else
     override func layoutSubviews() { super.layoutSubviews(); arm?.layout() }
+    override func willMove(toWindow newWindow: UIWindow?) {
+        // Release the old controller before UIKit checks a reparented route's subtree
+        arm?.detach()
+        super.willMove(toWindow: newWindow)
+    }
     override func didMoveToWindow() { super.didMoveToWindow(); arm?.attach() }
     #endif
 }
@@ -761,12 +766,24 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         }
     }
     func attach() {
-        guard let controller, container.window != nil, controller.parent == nil else { return }
+        guard let controller, container.window != nil else { return }
         var responder: UIResponder? = container.next
         while let current = responder {
-            if let parent = current as? UIViewController { parent.addChild(controller); controller.didMove(toParent: parent); break }
+            if let parent = current as? UIViewController {
+                if controller.parent !== parent {
+                    detach()
+                    parent.addChild(controller)
+                    controller.didMove(toParent: parent)
+                }
+                break
+            }
             responder = current.next
         }
+    }
+    func detach() {
+        guard let controller, controller.parent != nil else { return }
+        controller.willMove(toParent: nil)
+        controller.removeFromParent()
     }
     #endif
     /// CSS `object-fit` as AVFoundation's gravity.
@@ -814,7 +831,8 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         player.replaceCurrentItem(with: nil)
         #if os(iOS) || os(tvOS)
         fullscreen?.left = nil; fullscreen?.dismiss(animated: false); fullscreen = nil
-        controller?.willMove(toParent: nil); controller?.view.removeFromSuperview(); controller?.removeFromParent()
+        detach()
+        controller?.view.removeFromSuperview()
         inline?.playerLayer.player = nil
         inline?.removeFromSuperview()
         controller = nil; inline = nil

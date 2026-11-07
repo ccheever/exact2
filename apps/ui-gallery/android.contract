@@ -1,0 +1,77 @@
+use GalleryDemo, Display, SpaceRow, PicturePair, HdrPicture, NativeFeatures from "./gallery.contract"
+
+routes nav
+  sections "/"
+    demo "/demo/:section"
+
+shape Viewport
+  width: number
+
+shape GallerySection
+  name: string
+  title: string
+  symbol: string
+  group: string
+
+component AndroidGallery
+  resource display = exactViewport() as shape Display
+  resource css = colorSpaces("css") as shape SpaceRow[]
+  resource platform = colorSpaces("platform") as shape SpaceRow[]
+  resource pictures = picturePairs() as shape PicturePair[]
+  resource hdr = hdrPictures() as shape HdrPicture[]
+  resource hiddenPictures = hidden("pictures") as shape string
+  resource hiddenHdr = hidden("hdr") as shape string
+  resource caveat = caveat("constrained") as shape string
+  resource host = hostKind() as shape string
+  resource tallText = textSample() as shape string
+  resource nativeFeatures = nativeFeatures() as shape NativeFeatures
+  // rec2100 colors come from data: the web build refuses a literal one.
+  resource one = hdrWhite(1) as shape string
+  resource four = hdrWhite(4) as shape string
+  state limit = "no-limit"
+  state moved = false
+  state textMoved = false
+  state videoSource = "assets/sdr.mp4"
+  state videoPlaying = false
+  state liftPicked = ""
+  action chooseVideo(value: string)
+    videoSource = value
+    videoPlaying = true
+  action toggleVideo()
+    videoPlaying = not videoPlaying
+  action choose(value: string)
+    limit = value
+  action toggleMoved()
+    moved = not moved
+  action toggleText()
+    textMoved = not textMoved
+  action pickLift(choice: string)
+    liftPicked = choice
+  resource viewport = exactViewport() as shape Viewport
+  state sections = [GallerySection(name="typography", title="Typography", symbol="symbol:document", group="Text"), GallerySection(name="textcolors", title="Text colors", symbol="symbol:compose", group="Text"), GallerySection(name="css", title="CSS color spaces", symbol="symbol:circle", group="Color & images"), GallerySection(name="profiles", title="Platform profiles", symbol="symbol:adjust", group="Color & images"), GallerySection(name="images", title="Image profiles", symbol="symbol:photo", group="Color & images"), GallerySection(name="hdr", title="HDR", symbol="symbol:layers", group="Color & images"), GallerySection(name="effects", title="Effects & controls", symbol="symbol:sparkles", group="UI & media"), GallerySection(name="media", title="Canvas & video", symbol="symbol:play", group="UI & media"), GallerySection(name="menus", title="Context menus", symbol="symbol:messages", group="UI & media")]
+  action back()
+    nav = back(nav)
+  action follow(url: string)
+    nav = top(nav).name == "demo" ? replace(nav, url) : go(nav, url)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%" background-color="light-dark(#ffffff, #121212)" color="light-dark(#1d1b20, #e6e1e5)"
+      for e in stack(nav) key=e.id
+        if e.name == "sections"
+          column navigationKey=`${e.id}` navigationBar="none" navigationSplit="280" navigationScroll="gallery-sidebar" position="absolute" inset=0 display="flex" flex-direction="column" background-color="light-dark(#f7f2fa, #211f26)"
+            header padding="20px 24px"
+              text "UI Gallery" role="heading" aria-level=1 font-size=24 font-weight=600
+            list id="gallery-sidebar" testId="gallery-sidebar" appearance="none" flex=1 min-height=0 padding="0px 12px 16px"
+              for group in ["Text", "Color & images", "UI & media"] key=group
+                section appearance="none"
+                  text group font-size=12 font-weight=600 padding="20px 16px 8px" color="light-dark(#49454f, #cac4d0)"
+                  for item in sections.filter(s => s.group == group) key=item.name
+                    link href=path("demo", item.name) testId=`section-${item.name}` aria-current=(top(nav).params.section == item.name ? "page" : "false") appearance="none" display="flex" align-items="center" column-gap=12 padding="14px 16px" border-radius=28 color="light-dark(#1d1b20, #e6e1e5)" background-color=(top(nav).params.section == item.name ? "light-dark(#e8def8, #4a4458)" : "transparent")
+                      image item.symbol aria-hidden=true font-size=24 testId=`section-icon-${item.name}`
+                      text item.title font-size=14 font-weight=600 flex=1
+                      image "symbol:forward-chevron" aria-hidden=true font-size=16
+            column navigationSplit="placeholder"
+              image "symbol:layers" font-size=40 aria-hidden=true
+              text "Choose a demo" font-size=22 font-weight=600 padding-top=16
+              text "Explore text, color, images and controls." font-size=14 padding-top=8 color="light-dark(#49454f, #cac4d0)"
+        if e.name == "demo"
+          GalleryDemo(section=e.params.section, navigationId=`${e.id}`, authoredHeader=true, compact=viewport.width < 840, back=back, display=display, css=css, platform=platform, pictures=pictures, hdr=hdr, hiddenPictures=hiddenPictures, hiddenHdr=hiddenHdr, caveat=caveat, host=host, tallText=tallText, nativeFeatures=nativeFeatures, one=one, four=four, limit=limit, moved=moved, textMoved=textMoved, videoSource=videoSource, videoPlaying=videoPlaying, liftPicked=liftPicked, active=true, chooseVideo=chooseVideo, toggleVideo=toggleVideo, choose=choose, toggleMoved=toggleMoved, toggleText=toggleText, pickLift=pickLift)

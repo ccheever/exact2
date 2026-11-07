@@ -1,0 +1,102 @@
+style TextHeading
+  font-size=16
+  font-weight=700
+  padding-top=16
+style TextCaption
+  font-size=12
+  color="-exact-secondary-label"
+  padding-top=8
+style TextPanel
+  padding=12
+  border-radius=12
+  row-gap=6
+  background-color="-exact-secondary-background"
+
+component TextStyles
+  props
+    one: string
+    four: string
+    moved: bool
+    toggle: action
+    tall: string
+  view
+    column row-gap=6 testId="text-styles"
+      text "Text styles" class=TextHeading
+      text "Compare the letter edges, spacing, opacity and shadows. Try light and dark appearance, scroll quickly, and press Animate text." class=TextCaption
+      text "Sizes and weights" class=TextHeading
+      text "Small caption · 9 pt" font-size=9 testId="text-small"
+      text "Footnote · 13 pt" font-size=13
+      text "Body · 17 pt" font-size=17
+      text "Heading · 28 pt" font-size=28
+      text "Display · 48 pt" font-size=48 testId="text-large"
+      text "Thin 100 · Sphinx of black quartz" font-weight=100
+      text "Extra light 200 · Sphinx of black quartz" font-weight=200
+      text "Light 300 · Sphinx of black quartz" font-weight=300
+      text "Regular 400 · Sphinx of black quartz" font-weight=400
+      text "Medium 500 · Sphinx of black quartz" font-weight=500
+      text "Semibold 600 · Sphinx of black quartz" font-weight=600
+      text "Bold 700 · Sphinx of black quartz" font-weight=700
+      text "Heavy 800 · Sphinx of black quartz" font-weight=800
+      text "Black 900 · Sphinx of black quartz" font-weight=900 testId="text-black-weight"
+      text "Faces, spacing and figures" class=TextHeading
+      text "System italic · office affinity" font-style="italic" font-size=20 testId="text-italic"
+      text "Bold italic · office affinity" font-style="italic" font-weight=700 font-size=20
+      text "Serif · office affinity" font-family="serif" font-size=20
+      text "Monospace · 0123456789" font-family="monospace" font-size=18
+      text "Tight letter spacing" letter-spacing=-0.6 font-size=22
+      text "Wide letter spacing" letter-spacing=2 font-size=18
+      text "Ligatures: office affinity ffi fi fl" font-variant-ligatures="common-ligatures" font-size=20
+      text "No ligatures: office affinity ffi fi fl" font-variant-ligatures="none" font-size=20
+      text "Decorations and mixed runs" class=TextHeading
+      text "Underlined red text" text-decoration-line="underline" color="#d02030" font-size=22 testId="text-underlined"
+      text "Struck through green text" text-decoration-line="line-through" color="#168448" font-size=22 testId="text-struck"
+      text "Both decorations · Display P3" text-decoration-line="underline line-through" color="color(display-p3 1 0 0)" font-size=20
+      text font-size=22 testId="text-mixed"
+        text "Red " color="#d02030"
+        text "green " color="#168448" font-weight=700
+        text "blue " color="#1864d8" font-style="italic"
+        text "underlined" color="color(display-p3 1 0 0)" text-decoration-line="underline"
+      text "Opacity, backgrounds and shadows" class=TextHeading
+      column class=TextPanel background-color="#ffffff" color="#111827"
+        text "Opaque on white" font-size=22
+        text "Half-alpha color on white" color="rgb(208 32 48 / 0.5)" font-size=22 testId="text-half-alpha"
+        text "Half-opacity layer on white" color="#d02030" opacity=0.5 font-size=22
+        text "Clear text keeps its space" color="transparent" font-size=22 testId="text-transparent"
+      column class=TextPanel background-color="#111827" color="#ffffff"
+        text "White on dark" font-size=22
+        text "Half-alpha white on dark" color="rgb(255 255 255 / 0.5)" font-size=22
+        text "P3 red on dark" color="color(display-p3 1 0 0)" font-size=22
+        text "Sharp white shadow" color="#d02030" text-shadow="2px 2px 0px #ffffff" font-size=22 testId="text-sharp-shadow"
+        text "Blurred blue shadow" color="#ffffff" text-shadow="2px 3px 4px #0a84ff" font-size=22 testId="text-blur-shadow"
+        text "HDR white · 1×" color=one font-size=22
+        text "HDR white · 4×" color=four font-size=22 testId="text-hdr"
+        text "HDR text shadow" color=one text-shadow=`0 0 5px ${four}` font-size=22
+      column class=TextPanel backgroundMaterial="ultra-thin" overflow="hidden"
+        text "Vibrant system label" color="-exact-label" font-size=22 testId="text-vibrant"
+        text "Vibrant secondary label" color="-exact-secondary-label" font-size=17
+        text "Explicit blue on material" color="#0a64ff" font-size=22
+      text "Wrapping, clipping and alignment" class=TextHeading
+      text "Three lines of text should keep their letter edges and baselines when this paragraph wraps across the available width." max-width=280 line-height=1.4 font-size=18 testId="text-wrapped"
+      text "This paragraph is clamped to two lines. Its last visible line should end with an ellipsis, while the hidden words stay hidden and the visible words remain sharp." line-clamp=2 max-width=260 font-size=18 testId="text-clamped"
+      text "A single line that ends with an ellipsis when it reaches the edge" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" max-width=240 font-size=18 testId="text-ellipsis"
+      text "Centered paragraph" text-align="center" font-size=20
+      text "Right-aligned paragraph" text-align="right" font-size=20
+      text "A justified paragraph spreads its words across the line, keeping the last line at its natural width." text-align="justify" font-size=18 max-width=300 testId="text-justified"
+      text "Scripts, combining marks and color glyphs" class=TextHeading
+      text "Café · naïve · Ångström · é · ä · ô" font-size=22 testId="text-combining"
+      text "العربية · مرحبًا بالعالم" font-size=24 testId="text-arabic"
+      text "עברית · שלום עולם" font-size=24 testId="text-hebrew"
+      text "हिन्दी · नमस्ते दुनिया" font-size=24 testId="text-devanagari"
+      text "中文 · 日本語 · 한국어" font-size=24 testId="text-cjk"
+      text "Emoji: 😀 👩🏽‍💻 👨‍👩‍👧‍👦 🏳️‍🌈 🇺🇸" font-size=24 testId="text-emoji"
+      text "Text with 😀 emoji and accent é together" font-size=22
+      text "Live changes" class=TextHeading
+      button "Animate text" press=toggle testId="text-animate" buttonStyle="bordered" align-self="flex-start"
+      text (moved ? "Changed words" : "Original words") color=(moved ? "#168448" : "#d02030") font-size=28 transition="color 1s ease-in-out" testId="text-changing"
+      text "Variable weight and width" font-size=28 font-weight=(moved ? 900 : 100) font-stretch=(moved ? "125%" : "75%") transition="font-weight 1s ease-in-out, font-stretch 1s ease-in-out" testId="text-variable"
+      text (moved ? "128.90" : "109.01") font-size=36 font-variant-numeric="tabular-nums" -exact-content-transition="numeric" testId="text-numeric"
+      text (moved ? "A short paragraph." : "A longer paragraph whose lines move when the text changes. Check that each word appears once in its new position.") font-size=20 max-width=280 testId="text-changing-lines"
+      text "Tall paragraph" class=TextHeading
+      text "Scroll through this paragraph, reverse direction, then return to the top. Every band should meet without missing or repeated lines." class=TextCaption
+      scroll height=240 overflow-y="scroll" border-width=1 border-style="solid" border-color="-exact-separator" testId="text-tall-scroll"
+        text tall font-size=17 line-height=1.4 testId="text-tall"

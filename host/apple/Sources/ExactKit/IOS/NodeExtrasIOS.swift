@@ -410,7 +410,7 @@ extension NodeView {
     /// plus that inset fixed while the title collapses), or past native content room.
     func scrollTopInset(_ sv: UIScrollView) -> CGFloat {
         scrollOrigin > 0 || sv.contentInsetAdjustmentBehavior != .never
-            ? sv.adjustedContentInset.top : (extras?.nativeScrollContentInsets.top ?? 0) + pageBand.top
+            ? sv.adjustedContentInset.top : (extras?.nativeScrollContentInsets.top ?? 0) + bandInset.top
     }
     /// Its page band (`NodeExtras.pageBand`), zero for most.
     var pageBand: UIEdgeInsets { extras?.pageBand ?? .zero }

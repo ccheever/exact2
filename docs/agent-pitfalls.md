@@ -394,6 +394,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   round 30's grader named it. Fix: rows under a screen's own content are a
   `listStyle="plain"` list on the page's white, as the Clock's laps are; keep
   inset-grouped for a list that is the whole screen.
+- **A native sidebar separator needs another touch to redraw.** UI Gallery reloaded
+  its static table during row selection and selected the same row again. Keep the
+  cells and update selection only when it changes; reload when the row data changes.
+  The Gallery's native tests check row reuse during selection and compare the sidebar
+  before and after an extra background touch (`apps/ui-gallery/tests/GalleryUITests.swift`).
 - **A sideways swipe on a row opens it.** Cause: the row has no swipe actions. A
   `UITableView` or SwiftUI `List` row with none is selected by a horizontal drag of any
   length or speed, and one with trailing actions only is selected by a rightward drag;
@@ -1235,9 +1240,9 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   Apple's agent samples through `CALayer.render(in:)`, which does not reproduce
   every compositor effect. On iOS 27, a native `CAGradientLayer` from 1× to 4×
   white also captures as 1, and layer shadows disappear from that capture.
-  Compare the layer's colors and range with Color Gallery's UIKit reference,
+  Compare the layer's colors and range with UI Gallery's UIKit reference,
   then inspect the displayed screen through iPhone Mirroring. A float capture
-  alone cannot judge those effects. (Color Gallery, iPhone 16 Pro, 2026-10-27.)
+  alone cannot judge those effects. (UI Gallery, iPhone 16 Pro, 2026-10-27.)
 
 - **A build's refusals do not say "error".** A compile refusal prints as
   `app.contract:5:13 [lower-attr-value] symbol \`warning\` is not a role; …` and the
@@ -1996,7 +2001,7 @@ are in [game-pitfalls.md](game-pitfalls.md).
   one another.** `element.diagnostics` is scoped to the hatch word. The session
   keeps 16 published names, with at most 4,096 bytes per value. Group repeated
   instances under a stable name, for example `publish("gradient", {standard: ..., constrained:
-  ..., noLimit: ...})`, and keep each payload within that bound. (Color Gallery's
+  ..., noLimit: ...})`, and keep each payload within that bound. (UI Gallery's
   27 paint probes, 2026-10-27; `HatchDiagnostics.swift`.)
 
 - **A native view's frame ticket left on costs CPU on a still screen.** A

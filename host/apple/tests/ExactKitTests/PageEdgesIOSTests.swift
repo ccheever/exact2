@@ -56,6 +56,32 @@ final class PageEdgesIOSTests: XCTestCase {
         try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == testId }, "no \(testId)")
     }
 
+    func testAControlBarInsetKeepsTheScrollStartBeforeUIKitAdoptsIt() throws {
+        let p = Presenter()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "style": ["overflow_y": "scroll"]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 300, "h": 200],
+            ["op": "content", "id": 1, "w": 300, "h": 1000],
+        ]))
+        let node = try XCTUnwrap(p.views[1]), scroll = try XCTUnwrap(node.scroll)
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.contentOffset = .zero
+        let band = UIEdgeInsets(top: 69, left: 0, bottom: 0, right: 0)
+        let inset = UIEdgeInsets(top: 138, left: 0, bottom: 0, right: 0)
+        node.setPageBand(band, inset: inset)
+        XCTAssertEqual(scroll.contentOffset.y, -inset.top, accuracy: 0.5, "the first row clears the entire control bar inset")
+        XCTAssertEqual(scroll.contentOffset.y + scroll.adjustedContentInset.top, 0, accuracy: 0.5)
+        scroll.contentInsetAdjustmentBehavior = .automatic
+        XCTAssertEqual(scroll.contentOffset.y + node.scrollTopInset(scroll), 0, accuracy: 0.5, "UIKit adoption preserves the same logical start")
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.contentOffset.y += 100
+        node.setPageBand(.zero)
+        XCTAssertEqual(scroll.contentOffset.y, 100, accuracy: 0.5, "removing the bar preserves the reader's position")
+        node.setPageBand(band, inset: inset)
+        XCTAssertEqual(scroll.contentOffset.y, 100 - inset.top, accuracy: 0.5)
+    }
+
     func testThePageKeepsItsAreaAndIsDrawnPastIt() throws {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the status bar and the safe area are a scene window's") }
         let (session, view) = try fixture()

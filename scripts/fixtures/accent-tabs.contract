@@ -5,17 +5,27 @@ routes nav
   tab second "/second"
 
 component AccentTabs
+  state choice = "One"
   action pick(name: string)
     nav = select(nav, name)
+  action choose(value: string)
+    choice = value
   view
     main navigationKey=`${top(nav).id}` testId="app" width="100%" height="100%" display="flex" flex-direction="column"
       column flex=1 min-height=0 position="relative"
         for t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` accent-color=(t.name == "first" ? "-exact-system-teal" : "AccentColor") position="absolute" inset=0
             for e in t.stack key=e.id
-              column navigationKey=`${e.id}` testId=`route-${e.name}` position="absolute" inset=0
+              column navigationKey=`${e.id}` navigationScroll=`choice-scroll-${t.name}` testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
                 header display="flex" align-items="center" padding="8px 16px"
                   text (e.name == "first" ? "Teal" : "Second") role="heading" aria-level=1 color="AccentColor"
+                scroll id=`choice-scroll-${t.name}` flex=1 min-height=0 overflow-y="auto"
+                  row role="tablist" testId=`choice-${t.name}`
+                    button role="tab" aria-selected=(choice == "One") press=choose("One") testId=`one-${t.name}`
+                      text "One"
+                    button role="tab" aria-selected=(choice == "Two") press=choose("Two") testId=`two-${t.name}`
+                      text "Two"
+                  text choice testId=`chosen-${t.name}`
       row role="tablist" testId="tabs"
         button role="tab" aria-controls="panel-first" aria-selected=(nav.tab == "first") press=pick("first") testId="tab-first" flex=1
           image "symbol:home"

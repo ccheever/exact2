@@ -465,7 +465,7 @@ fallback API; before tvOS 26 these layers stay standard range.
 - *Declared deviation:* Mobile Safari 27.0 rejects `constrained`
   (`CSS.supports('dynamic-range-limit', 'constrained')` is false), so it
   drops the declaration. The node then inherits its parent's limit. The web
-  host still emits `constrained` as written. The color gallery says so on
+  host still emits `constrained` as written. The UI gallery says so on
   Safari.
 - `standard` and `no-limit` work on Safari.
 
@@ -522,7 +522,7 @@ fallback API; before tvOS 26 these layers stay standard range.
 - **Not HDR on Apple: SVG gradients, patterns, masks and filters.** Each is
   drawn into an 8-bit sRGB picture (`SvgPaint.gradient`, `SvgIsland`,
   `SvgFilterGPU`, `SvgFilterLive`), so a color past SDR white there clips to
-  white under every limit. The color gallery says so under its HDR colors.
+  white under every limit. The UI gallery says so under its HDR colors.
 
 ### D9 — Display facts: `colorGamut`, `dynamicRange`
 
@@ -584,7 +584,7 @@ color-management engine to make up for it.
   is drawn as one. A PQ or HLG picture is drawn as its raw pixels.
 - **Canvas:** sRGB and 8-bit only. The build refuses a literal
   `display-p3` or `float16` canvas for Linux.
-- **The color gallery** is not built for Linux.
+- **The UI gallery** is not built for Linux.
 - If a Linux display stack with color management becomes a target (a
   Wayland compositor with the color-management protocol, or DRM's
   `Colorspace` and `HDR_OUTPUT_METADATA` with 10-bit buffers), Linux takes
@@ -855,16 +855,16 @@ runs in the async lane or by a person.
 - The panel actually brightening can't be proven on a simulator; that is
   V6.
 
-The four clips are in Color Gallery and `ColorFixtures`; `make.swift <directory>
+The four clips are in UI Gallery and `ColorFixtures`; `make.swift <directory>
 --videos` regenerates them. `HDRVideoIOSTests` verifies transfer functions,
 primaries, HDR classification, all 90 decoded frames and live range changes.
 `state.media[].state.appliedDynamicRange` reads the actual presentation objects.
-The [iPhone run](../apps/color-gallery/diary/2026-10-27-hdr-paint-video.md)
+The [iPhone run](../apps/ui-gallery/diary/2026-10-27-hdr-paint-video.md)
 covers both renderers under all three limits, plus native paint comparisons.
 
 ### V5 — The web oracle (async lane, headless Chrome)
 
-The color gallery on the JS target. For each fixture `<img>`, the glue in
+The UI gallery on the JS target. For each fixture `<img>`, the glue in
 agent mode draws it into a `display-p3` canvas (and a `float16` one where
 supported) and reads `getImageData`. The values must match the generator's
 within V3.2's tolerances.
@@ -983,8 +983,7 @@ and the JSON from the same patch definitions. No check runs it.
 - `color-mix.contract`: interpolation spaces, gradients, motion
 - `dynamic-range.contract`: the three limits over F11 and V2
 
-**The color gallery** (`apps/color-gallery`) is one page under a sticky
-`dynamic-range-limit` control:
+**The UI gallery** (`apps/ui-gallery`) separates text, colors, images, effects and media into navigable sections. Applicable sections have a fixed `dynamic-range-limit` control above their scroller:
 - the CSS color spaces, the platform profiles and the image profiles side
   by side
 - HDR pictures and HDR colors under the three limits

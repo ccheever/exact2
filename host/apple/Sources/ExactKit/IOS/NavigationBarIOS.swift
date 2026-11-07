@@ -896,7 +896,7 @@ extension NavigationHost {
                 self.restAtTop(sv, in: c)
             }
         }
-        item.hidesBackButton = !canGoBack
+        item.hidesBackButton = shape?.authoredBack == true || (c.pushed && !canGoBack) // Keep UIKit's Back on split roots
         item.leftItemsSupplementBackButton = true
         #endif
         c.barPresses = []

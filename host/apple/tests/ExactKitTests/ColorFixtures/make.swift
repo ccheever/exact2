@@ -4,7 +4,7 @@
 //   swift host/apple/tests/ExactKitTests/ColorFixtures/make.swift
 //
 // Video fixtures only:
-//   swift host/apple/tests/ExactKitTests/ColorFixtures/make.swift apps/color-gallery/assets --videos
+//   swift host/apple/tests/ExactKitTests/ColorFixtures/make.swift apps/ui-gallery/assets --videos
 // Copy the four clips to this directory when updating the gallery's fixtures.
 //
 // Run by hand on macOS 15 or later. The expected values come from the

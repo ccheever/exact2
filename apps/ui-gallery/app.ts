@@ -1,7 +1,7 @@
-// The color gallery's data and its canvas surface (LLP 1100 §10).
+// The UI gallery's data and its canvas surface (LLP 1100 §10).
 import type { Answer, Ctx2D, Frame, NativeModule } from './app.contract.d.ts';
 
-export const appId = 'com.exact.colorgallery';
+export const appId = 'com.exact.uigallery';
 export const grants = '';
 
 type Swatch = { label: string; color: string };
@@ -131,8 +131,11 @@ export const answer: Answer = ((source: string, args: unknown[], _secrets: unkno
     try { return { reference: (native.call({ op: 'colorReference' }) as { available: boolean }).available, video: true }; }
     catch { return unavailable; }
   }
-  if (source === 'hostKind') return web ? 'web' : 'native';
-  if (source === 'hdrWhite') return web ? '#ffffff' : `color(rec2100-linear ${args[0]} ${args[0]} ${args[0]})`;
+  if (source === 'textSample') {
+    return Array.from({ length: 180 }, (_, index): string => `Line group ${index + 1}: The quick brown fox jumps over the lazy dog. Café, naïve and Ångström keep their accents as the paragraph scrolls.`).join(' ');
+  }
+  if (source === 'hostKind') return nativeHost(native) ? 'native' : 'web';
+  if (source === 'hdrWhite') return nativeHost(native) ? `color(rec2100-linear ${args[0]} ${args[0]} ${args[0]})` : '#ffffff';
   if (source === 'hdrPictures') return HDR.filter((p) => shows(p.src));
   // As of Mobile Safari 27.0 (LLP 1100 D8).
   if (source === 'caveat') return safari ? SAFARI_CONSTRAINED : '';
@@ -142,6 +145,20 @@ export const answer: Answer = ((source: string, args: unknown[], _secrets: unkno
   }
   throw new Error(`no source ${source}`);
 }) as unknown as Answer;
+
+function nativeHost(native?: NativeModule): boolean {
+  if (!native?.available) {
+    return false;
+  }
+  try {
+    // Probe a synchronous call because the web also reports its async module as available
+    native.call({ op: 'colorReference' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const surfaces: Record<string, number> = { reds: 0 };
 export function draw(surface: string, _args: any[], ctx: Ctx2D, frame: Frame): boolean {
   if (surface !== 'reds') throw new Error(`no surface ${surface}`);

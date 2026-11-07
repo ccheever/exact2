@@ -61,7 +61,7 @@ task: verify HDR paint, native references and video on a physical iPhone
   The web launches with native-only fixtures hidden. The tvOS bundle builds
   and signs with `--no-install`; this does not test tvOS playback.
 
-Reproduce with `bun host/apple/build.mjs --ios --device color-gallery-apple --run`.
+Reproduce with `bun host/apple/build.mjs --ios --device ui-gallery-apple --run`.
 The `video-sdr`, `video-pq`, `video-hlg`, `video-p3` and `limit-*` controls select
 the cases. Inspect `state.media[].state.appliedDynamicRange` and
 `state.hatches.words["hdr-probe"].published`; each paint kind contains its
