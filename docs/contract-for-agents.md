@@ -3830,7 +3830,12 @@ A playing `video` or `audio` is on real time too: the clock never seeks or holds
 between operations it moves only as far as the drive took. `clock +N real` lets
 N ms of real time pass with the clock moving beside it, a step at a time: a
 video plays that far (its `timeupdate`s arrive), and a reply that lands in the
-span lands (LLP 1042 §3).
+span lands (LLP 1042 §3). On Apple's hosts `state media` reads each video's
+player: its `renderer`, `paused`, `currentTime`, `muted` and `volume`. Under the
+agent a video never takes the audio session, so the app's `audio_session` is not
+applied and a drive cannot show that it is heard (AVKit's speaker shows a slash).
+On iOS, AVKit's own controls (`controls=true`) show only for a real touch: tap the
+video under `--touch platform`.
 `clock +N real until <path>` is a test harness's affordance, not something an app
 drive needs: the same real time with the clock beside it, ended early once the
 file at `<path>` (a local path, not a URL or a glob; its directory must exist)
