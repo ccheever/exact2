@@ -2888,6 +2888,15 @@ window reaches the first or last supplied row. An empty collection fires neither
 event. A plain list lays out all its children and has no collection window;
 the Contract compiler refuses either handler there, on every target.
 
+A row that is not an item, such as a line saying that older messages are loading
+or that the thread starts here, is one more item of the `each`'s list, put first
+by a `derive`. The `each`'s one root draws it by its key, and it is the edge row
+that `reachstart` watches:
+
+```contract
+derive rows = [Message(id="older", body=(atStart ? "Start of the chat" : "Loading…"))].concat(thread)
+```
+
 `reach-margin` on such a list sets how far ahead of an edge they fire: the edge
 row may be up to that far past the port. It is a literal, one or two nonnegative
 px or % lengths (before and after; a percentage is of the list's port along its
