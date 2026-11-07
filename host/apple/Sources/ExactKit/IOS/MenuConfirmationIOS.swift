@@ -30,9 +30,8 @@ extension MenuHost {
         enum Style: String { case alert, sheet, popover }
         weak var host: MenuHost?
         weak var source: NodeView?
-        /// A source element, whether an invoker or an explicit `source=`.
-        let sourced: Bool
         let invoked: Bool
+        let anchored: Bool
         /// Opened by `show-modal`, not as a popover: HTML's popover commands
         /// leave it open, and its dialog `close` closes only this mode
         let modal: Bool
@@ -63,8 +62,10 @@ extension MenuHost {
         var fields: [PromptField] = []
         init(host: MenuHost, source: NodeView?, popover: NodeView, modal: Bool, actions: [Presented], cancel: Presented?, style: Style, title: String?, message: String?) {
             self.host = host; self.source = source; self.popover = popover; self.modal = modal; self.actions = actions; self.cancel = cancel; self.style = style
-            sourced = source != nil; invoked = source.map { host.opens($0, popover) } ?? false
-            route = host.presenter?.navigation.routeKey(containing: source ?? popover)
+            invoked = source.map { host.opens($0, popover) } ?? false
+            anchored = source != nil && style == .popover
+            // Own unanchored presentations by their dialog's route
+            route = host.presenter?.navigation.routeKey(containing: (anchored ? source : nil) ?? popover)
             alert = UIAlertController(title: title, message: message, preferredStyle: style == .alert ? .alert : .actionSheet)
         }
         func observeDisappearance() {
