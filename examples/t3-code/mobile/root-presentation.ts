@@ -52,7 +52,9 @@ export function settingsRoot(args: unknown[]) {
   return { visitToken: str(visitToken), root: settingsRootView({ ...mobileAccountSettings(), savedEnvironmentCount: arr(rows).length,
     enabledRoutes: ['SettingsThreads', 'SettingsProjectOverview', 'SettingsEnvironments', 'SettingsAppearance', 'SettingsKeyboard', 'SettingsFollowUp', 'SettingsOrganization', 'SettingsArchive', 'SettingsProviderAccounts', 'SettingsScheduledTasks', 'SettingsUsage', 'SettingsAbout', ...Object.keys(MOBILE_SERVER_ROUTES)],
     scope, preferences, scheme: appearance.scheme, themeId: appearance.themeId, safeBottom: Number(safeBottom) || 0 }),
-    header: JSON.stringify({ ...obj(JSON.parse(settingsHeaderConfiguration(str(routeKey), compactRoot === true, scope, str(visitToken)))), close: compactRoot === true, compactRoot: compactRoot === true }),
+    // Settings is a workspace tab on both compact and split layouts. The root
+    // has no Close or Back control; switching tabs is its dismissal affordance.
+    header: JSON.stringify({ ...obj(JSON.parse(settingsHeaderConfiguration(str(routeKey), false, scope, str(visitToken)))), close: false, back: false, compactRoot: false }),
     projectHeader: JSON.stringify({ ...obj(JSON.parse(settingsHeaderConfiguration(str(projectRouteKey), false, scope, str(visitToken)))), back: false }),
     environmentIds: JSON.stringify(scope.selected.map(environment => environment.environmentId)),
     serverScope: JSON.stringify({ environmentIds: scope.scoped.map(environment => environment.environmentId),

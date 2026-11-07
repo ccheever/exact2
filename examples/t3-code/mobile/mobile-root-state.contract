@@ -9,11 +9,12 @@ use WorkspaceEntry from "./mobile-workspace.contract"
 use homeAutomationPath from "./home-routes.contract"
 
 fn newTaskModal(name: string, route: string, session: string, split: bool): bool = name == "newTask" and route == session and not split
-// Compact Settings is a page sheet over the tab root, so the tab bar remains
-// available below it. Its child pages use the normal stack back action. Split
-// layouts keep Settings as a full-width detail pane beside the Duo rail.
-fn mobileRouteFormSheet(name: string, route: string, session: string, split: bool): string = name == "threadModel" or name == "newTaskModel" ? "composer" : newTaskModal(name, route, session, split) ? "new-task" : name == "settings" and not split ? "settings" : name == "connections" or name == "connect" ? "true" : ""
-fn mobileRoutePresentation(name: string, route: string, session: string, split: bool): string = name == "homeArrange" or name == "threadBrowser" or name == "threadDevices" or name == "settingsLegal" or (name == "settings" and split) ? "fullscreen" : name == "settings" and not split ? "modal" : name == "threadModel" or name == "newTaskModel" or newTaskModal(name, route, session, split) or name == "threadQueue" or name == "threadAgents" or name == "threadReviewComment" or name == "settingsScheduledModel" or name.startsWith("git") or name == "connections" or name == "connect" or name == "threadTerminalCapture" ? "modal" : ""
+// Settings is a persistent workspace tab. Its list owns the primary column and
+// child pages use the normal stack, so the tab bar and Duo rail remain available
+// while Settings is selected. Only routes that are actual sheets or immersive
+// pages opt into a presentation here.
+fn mobileRouteFormSheet(name: string, route: string, session: string, split: bool): string = name == "threadModel" or name == "newTaskModel" ? "composer" : newTaskModal(name, route, session, split) ? "new-task" : name == "connections" or name == "connect" ? "true" : ""
+fn mobileRoutePresentation(name: string, route: string, session: string, split: bool): string = name == "homeArrange" or name == "threadBrowser" or name == "threadDevices" or name == "settingsLegal" ? "fullscreen" : name == "threadModel" or name == "newTaskModel" or newTaskModal(name, route, session, split) or name == "threadQueue" or name == "threadAgents" or name == "threadReviewComment" or name == "settingsScheduledModel" or name.startsWith("git") or name == "connections" or name == "connect" or name == "threadTerminalCapture" ? "modal" : ""
 // ThreadQueueControl uses 0.65 and 0.95 snap fractions. Exact's navigation
 // host accepts percentage detents and maps them to UIKit custom detents.
 // Expo's ConnectionsNewRouteScreen is a resizable form sheet. Keep the
