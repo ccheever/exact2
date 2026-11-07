@@ -491,7 +491,19 @@ extension NavigationHost {
         }
         guard !searching(c) else { return }
         let shows = c.map { routeShowsBar($0, in: nav) } ?? barShows(nav)
-        if nav.isNavigationBarHidden == shows { nav.setNavigationBarHidden(!shows, animated: animated) }
+        guard nav.isNavigationBarHidden == shows else { return }
+        nav.setNavigationBarHidden(!shows, animated: animated)
+        // A bar that comes back for a large title (a route with no bar turned
+        // into a sign-in form) opens it over a scroller at its start, as a
+        // first screen's opens; left to UIKit, it came back inline.
+        #if !os(tvOS)
+        guard shows, let c, c.navigationItem.largeTitleDisplayMode == .always else { return }
+        let open = { [weak self, weak c] in
+            guard let self, let c, let sv = self.contentScrollView(of: c), sv.contentOffset.y <= 0.5 - sv.adjustedContentInset.top else { return }
+            self.restAtTop(sv, in: c)
+        }
+        if let transition = nav.transitionCoordinator { transition.animate(alongsideTransition: nil) { _ in open() } } else { DispatchQueue.main.async(execute: open) }
+        #endif
     }
 
     /// The heading's group as the item's title (§9.10). A subtitle alone is
