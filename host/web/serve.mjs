@@ -21,7 +21,7 @@ import { settingChanges } from '../../js/bake/src/__exact_env.mjs';
 import { acceptsHTML, appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
 import { canonical, matchPattern } from '../web-js/route-pattern.js';
 import { guardFlags } from '../../scripts/help.mjs';
-
+import { serveMarkdown } from './markdown.mjs';
 import { INSTALL_FILES, INSTALL_PUBLIC, INSTALL_ROOT, installRoute, installNetworkPage } from '../../scripts/install-page.mjs';
 import { generationOf, keepGeneration, reapGenerations, servedFile, withGenerationBase } from './generations.mjs';
 
@@ -1081,9 +1081,9 @@ export function webContentType(route) {
   if (route === AUTH_CALLBACK) return 'text/html';
   return {
     '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json',
+    '.txt': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8', '.xml': 'application/xml',
     '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan',
-    '.mp4': 'video/mp4', '.webm': 'video/webm', '.vtt': 'text/vtt',
-    '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.oga': 'audio/ogg',
+    '.mp4': 'video/mp4', '.webm': 'video/webm', '.vtt': 'text/vtt', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.oga': 'audio/ogg',
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.pdf': 'application/pdf',
     '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.wgsl': 'text/wgsl',
     // A game's baked assets (game/README "Assets"): binary, and compressible.
@@ -1306,7 +1306,7 @@ async function main() {
       const failed = await rebuild();
       if (failed) { res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(`The app's build failed, so this is the last build's page no more:\n\n${failed.slice(-6000)}`); return; }
     }
-    return js ? serveBuildTree(dist, req, res, { pages, compression }) : serveStatic(dist, req, res, {host,port}, compression);
+    return js ? serveMarkdown(dist, req, res, () => serveBuildTree(dist, req, res, { pages, compression })) : serveStatic(dist, req, res, {host,port}, compression);
   });
   server.on('error', (error) => { console.error(error.code === 'EADDRINUSE' ? `serve: port ${port} is in use; --port <n> names another` : `serve: ${error.message}`); process.exit(1); });
   server.listen(port, host, () => {
