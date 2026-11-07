@@ -429,7 +429,7 @@ final class MenuHost {
     }
     private func valid(_ owner: Confirmation) -> Bool {
         guard let pop = owner.popover else { return false }
-        guard owner.sourced else { return showable(pop) && presenter?.navigation.routeKey(containing: pop) == owner.route
+        guard owner.anchored else { return showable(pop) && presenter?.navigation.routeKey(containing: pop) == owner.route
             && owner.actions.allSatisfy { presented(owner, $0) } && cancelStands(owner) }
         guard let source = owner.source else { return false }
         let modal = isDialog(pop)
