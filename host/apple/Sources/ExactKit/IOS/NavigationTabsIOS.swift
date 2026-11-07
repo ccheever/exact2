@@ -71,6 +71,15 @@ extension NavigationHost {
         tabContainerAsked = presenter.session?.natives.hatchesConnected == true
         let holder: UIViewController = owned ?? {
             let container = UITabBarController()
+            // Match the Expo tab host: this app owns a bottom tab bar, and it
+            // stays present while route content scrolls. UIKit's automatic
+            // mode can promote the controller to a sidebar on regular-width
+            // windows, while its iOS 26 default can minimize the bar on a
+            // feed scroll.
+            if #available(iOS 18.0, tvOS 18.0, *) { container.mode = .tabBar }
+            #if os(iOS)
+            if #available(iOS 26.0, *) { container.tabBarMinimizeBehavior = .never }
+            #endif
             tabProxy.host = self
             container.delegate = tabProxy
             container.setViewControllers(navs, animated: false)
