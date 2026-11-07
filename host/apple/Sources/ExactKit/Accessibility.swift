@@ -53,7 +53,12 @@ extension NodeView {
     }
     #endif
 
-    var accessibleText: String {
+    /// Its words: the text it shows, its descendants' joined.
+    var accessibleText: String { contentText(naming: false) }
+    /// `naming`: accname's name from content (step 2F), in which a
+    /// descendant's own label stands for its content, so a labelled image
+    /// inside a link counts in the link's name, as on the web.
+    private func contentText(naming: Bool) -> String {
         // A Markdown text reads as its words, each inline atom its accessible name (LLP 1045.000 D8).
         if let text = props["text"], props["markup"] == "markdown", !(props["atoms"] ?? "").isEmpty, let plain = MarkdownLink.installed?.plain(text, range: nil, atoms: props["atoms"] ?? "", faces: props["atomFaces"] ?? "", spoken: true) { return plain }
         if let text = props["text"] { return text }
@@ -63,7 +68,7 @@ extension NodeView {
         if isParagraph { return visibleParagraphText }
         // accname: an `aria-hidden` child names nothing (habits F16: a tab's icon glyph).
         let children = container.subviews.compactMap { $0 as? NodeView }.filter { $0.props["accessibilityElementsHidden"] != "true" }
-        return children.map(\.accessibleText).filter { !$0.isEmpty }.joined(separator: " ")
+        return children.map { naming ? $0.authoredLabel ?? $0.contentText(naming: true) : $0.accessibleText }.filter { !$0.isEmpty }.joined(separator: " ")
     }
     /// Its `aria-labelledby` text, else its `aria-label`, unless empty
     /// (accname: an empty label names nothing).
@@ -78,7 +83,7 @@ extension NodeView {
             .filter { !$0.isEmpty }.joined(separator: " ")
         return text.isEmpty ? nil : text
     }
-    var accessibleName: String { authoredLabel ?? accessibleText }
+    var accessibleName: String { authoredLabel ?? contentText(naming: true) }
     #if !os(macOS)
     /// Referenced labels can arrive or disappear without an image props update.
     func updateImageAccessibility() {
