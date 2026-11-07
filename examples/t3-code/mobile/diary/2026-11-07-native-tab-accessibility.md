@@ -20,4 +20,4 @@ native test fixture exercises the transition rather than relying on a screenshot
 
 ## Checkpoints
 
-- iOS XCTest: in progress
+- iOS XCTest: smooth (NavigationTabsIOSTests passed on iPhone 18 Pro Max simulator)
