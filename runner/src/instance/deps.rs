@@ -272,17 +272,44 @@ pub struct Deps {
 
 /// One input a settlement body reads, decoded from [`Reads::bits`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Input {
+pub enum Input {
+    /// A root or row-owned state slot.
     Slot(usize),
+    /// A settled derive value.
     Derive(usize),
+    /// A resource's settled value.
     Resource(usize),
+    /// A resource's pending flag.
     PendingResource(usize),
+    /// A mutation's pending flag and failure state.
     PendingMutation(usize),
+    /// A resource's failure state.
     FailedResource(usize),
+    /// The evaluation clock.
     Clock,
 }
 
+/// A region body's dependencies shared by the native and JavaScript list engines.
+#[derive(Debug)]
+pub struct RowDependencies {
+    /// Plan inputs read anywhere in the row's subtree.
+    pub inputs: Vec<Input>,
+    /// Enclosing frames, excluding the row itself (bit 63 includes every greater depth).
+    pub outer_frames: u64,
+    /// Reads whose inputs cannot be represented by the dependency table.
+    pub opaque: bool,
+}
+
 impl Deps {
+    pub(super) fn row_dependencies(&self, region: usize) -> RowDependencies {
+        let reads = &self.bodies[region];
+        RowDependencies {
+            inputs: self.inputs(reads).collect(),
+            outer_frames: reads.frames_outside(1),
+            opaque: reads.opaque,
+        }
+    }
+
     /// Scan every body once and fold sites bottom-up over `children`.
     pub(crate) fn new(plan: &Plan, children: &super::SiteIndex) -> Self {
         let layout = Layout {

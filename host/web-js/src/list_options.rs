@@ -4,8 +4,49 @@ use super::{style, value_js, Em};
 use crate::code::{self, Scope};
 use exact_kernel::{PropId, StyleId};
 use exact_plan::{BindingKind, NodesId};
+use exact_runner::instance::Input;
 
 impl Em<'_> {
+    /// Read the same body inputs that invalidate native row measurements, outside the row.
+    pub(super) fn row_inputs(&mut self, region: u32, scope: &Scope) -> Result<String, String> {
+        let reads = self.answers.row_dependencies(region);
+        let mut values = Vec::new();
+        for input in reads.inputs {
+            let value = match input {
+                Input::Slot(i) if self.plan.slots[i].owner.is_none() => format!("s_{i}()"),
+                Input::Slot(i) if scope.row_slots.contains(&i) => {
+                    format!(
+                        "{}[{i}]()",
+                        scope.rows.as_ref().ok_or("missing outer row slots")?
+                    )
+                }
+                Input::Slot(_) => continue,
+                Input::Derive(i) => format!("d_{i}()"),
+                Input::Resource(i) => format!("r_{i}()"),
+                Input::PendingResource(i) => format!("r_{i}.p()"),
+                Input::PendingMutation(i) => format!("[m_{i}.p(),m_{i}.e()]"),
+                Input::FailedResource(i) => format!("r_{i}.e()"),
+                Input::Clock => format!("{}()", self.uses.rt("x_performanceNow")),
+            };
+            values.push(value);
+        }
+        for (depth, frame) in scope.frames.iter().rev().enumerate() {
+            if reads.outer_frames & (1 << depth.min(63)) != 0 {
+                for getter in [&frame.item, &frame.index, &frame.bound]
+                    .into_iter()
+                    .flatten()
+                {
+                    values.push(format!("{getter}()"));
+                }
+            }
+        }
+        Ok(format!(
+            "inputs:()=>[{}],opaque:{}",
+            values.join(","),
+            reads.opaque
+        ))
+    }
+
     /// What the runner reads when a virtualized list is created
     /// (`Collection::create`), evaluated there: its axis, its literal sizes,
     /// its row estimate, `scrollFollowEnd` (read again at each update),

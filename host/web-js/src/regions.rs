@@ -97,6 +97,7 @@ impl Em<'_> {
         let plan = self.plan;
         let mut own = Vec::new();
         for &k in self.answers.slots(arm) {
+            scope.row_slots.insert(k);
             let slot = &plan.slots[k];
             let init = code::expression(plan, plan.code(slot.init), scope, &mut self.uses)
                 .map_err(|x| format!("child state {}: {x}", plan.str(slot.name)))?;
@@ -160,9 +161,10 @@ impl Em<'_> {
         let built = std::mem::replace(&mut self.out, saved);
         match list {
             Some(opts) => {
+                let inputs = self.row_inputs(r, scope)?;
                 let _ = write!(
                     self.out,
-                    "$vl({parent},{subject},({item},{index})=>{key},(p,{item},{index})=>{{{built}}},{opts});"
+                    "$vl({parent},{subject},({item},{index})=>{key},(p,{item},{index})=>{{{built}}},{{...{opts},{inputs}}});"
                 );
             }
             None => {
