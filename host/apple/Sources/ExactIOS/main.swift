@@ -335,6 +335,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
     /// Seen again: the canvases follow (`Canvases.visible`).
     func sceneDidBecomeActive(_ scene: UIScene) {
+        // A prewarmed Duo scene can activate before ExactView is attached, so
+        // its notification observer cannot match the scene. The scene
+        // delegate is the first lifecycle edge guaranteed to run after the
+        // window is active; refit both the Exact viewport and native owner.
+        exactView?.refitForSceneActivation(scene)
         ExactIOS.session.becameActive()
     }
 }
