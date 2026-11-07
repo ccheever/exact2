@@ -1253,7 +1253,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     /// The view of the symbol the model named: the row's first shown child,
     /// when it is an image of that symbol (`kernel/src/grouped.rs`).
-    private func symbolView(of id: UInt32) -> NodeView? {
+    func symbolView(of id: UInt32) -> NodeView? {
         guard let symbol = rows[id]?.symbol, !(rows[id]?.custom ?? true), let row = host.presenter.views[id] else { return nil }
         let first = row.container.subviews.lazy.compactMap { $0 as? NodeView }.first { $0.style["display"]?.string != "none" }
         guard let image = first, image.kind == "image", let source = image.props["imageSource"], source.hasPrefix("symbol:") else { return nil }

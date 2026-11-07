@@ -219,7 +219,11 @@ final class RowCells {
         }
         // The selected row stays so under the screen it pushed, out of the
         // window, for its fade as that screen pops (`appearing`).
-        if let held = shown, presenter.views[held.row.id] !== held.row { drop() } else if let held = shown { held.row.moveOrPlace { held.ground.frame = held.row.frame } }
+        if let held = shown {
+            let nativePress = held.row.rowPress.map { usesGround($0, in: held.row) } == true
+            if presenter.views[held.row.id] !== held.row || (!held.selected && !nativePress) { drop() }
+            else { held.row.moveOrPlace { held.ground.frame = held.row.frame } }
+        }
         // The margins first, so a list's separators end at the one it now has.
         let moved = tell()
         for (id, list) in presenter.listViews where list.hasRowCells && (changed?.contains(id) != false || lines[id] == nil || moved.contains(id)) { draw(list) }
@@ -335,11 +339,22 @@ final class RowCells {
 
     // MARK: The press
 
+    #if os(iOS)
+    private func usesGround(_ node: NodeView, in row: NodeView) -> Bool {
+        node.platformPressDims && row.rowPress === node && !row.hasOwnGround(pressing: node)
+    }
+    #endif
+
     /// `node`'s `pressed` changed. True when it is a row's press, and its
     /// cell's ground stands in for the dim.
     func press(_ node: NodeView, _ down: Bool) -> Bool {
         #if os(iOS)
-        guard let (row, list) = node.rowCell.map({ ($0.row, $0.list) }), row.rowPress === node, !row.hasOwnGround(pressing: node) else { return false }
+        guard let (row, list) = node.rowCell.map({ ($0.row, $0.list) }) else { return false }
+        guard usesGround(node, in: row) else {
+            if let held = shown, held.row === row, !held.selected { drop() }
+            return false
+        }
+        node.dimPress(false, instantly: true)
         if down {
             show(row, in: list, selected: false)
         } else if let held = shown, held.row === row, !held.selected {
@@ -356,7 +371,7 @@ final class RowCells {
     /// ground stays while the press runs. Returns the row, for `ran`.
     func select(_ node: NodeView) -> NodeView? {
         #if os(iOS)
-        guard node.platformPressDims, let (row, list) = node.rowCell.map({ ($0.row, $0.list) }), row.rowPress === node, !row.hasOwnGround(pressing: node) else { return nil }
+        guard let (row, list) = node.rowCell.map({ ($0.row, $0.list) }), usesGround(node, in: row) else { return nil }
         show(row, in: list, selected: true)
         return row
         #else

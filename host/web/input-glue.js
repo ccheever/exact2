@@ -453,7 +453,9 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // `stale`: a sheet, the scheme or a token changed, which no attribute of the node's says.
   const repaint = (el, stale = false) => {
     const state = paints.get(el);
-    if (!state || !state.animation && !hasPaint(el)) return;
+    if (!state) return;
+    showScale(el, state.to === 1);
+    if (!state.animation && !hasPaint(el)) return;
     if (stale) state.stale = true;
     const t = state.animation?.effect.getComputedTiming();
     paint(el, state, t ? Math.max(0, (t.endTime ?? 0) - (t.localTime ?? 0)) : EASE.duration);
@@ -487,6 +489,24 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     paint(el, state, EASE.duration);
     if (!down && (now || !el.isConnected)) endPaint(el, state);
   };
+  const showScale = (el, down, now = false) => {
+    // A design token's scale is its property's `var()`: the computed value
+    // is the token's (LLP 1121 D7).
+    const press = el.style.getPropertyValue("--exact-press");
+    const to = down ? Number((press.includes("var(") ? getComputedStyle(el).getPropertyValue("--exact-press") : press) || 1) : 1;
+    const old = feedback.get(el);
+    if (old?.to === to || !old && to === 1) return;
+    const progress = old?.animation.effect.getComputedTiming().progress ?? 0;
+    const from = old ? old.from + (old.to - old.from) * progress : 1;
+    old?.animation.cancel();
+    const animation = el.animate([{ "--exact-press-factor": from }, { "--exact-press-factor": to }], { ...EASE, duration: agentMode ? 0 : EASE.duration });
+    const state = { animation, from, to };
+    feedback.set(el, state);
+    animation.onfinish = () => {
+      if (to === 1 && feedback.get(el) === state) { animation.cancel(); feedback.delete(el); }
+    };
+    if (agentMode || now) animation.finish();
+  };
   // Keep the release style only until its transitions end. Immediate cancellation and the agent's clock skip it.
   const releases = new WeakMap(), RELEASED = new Set(["opacity", "background-color", "--exact-wash"]);
   const showPress = (el, down, now = false) => {
@@ -507,24 +527,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       ends.then(() => { if (releases.get(el) === ends) el.removeAttribute("data-exact-released"); });
     }
     showPaint(el, down, now);
-    // A design token's scale is its property's `var()`: the computed value
-    // is the token's (LLP 1121 D7).
-    const press = el.style.getPropertyValue("--exact-press");
-    const to = down ? Number((press.includes("var(") ? getComputedStyle(el).getPropertyValue("--exact-press") : press) || 1) : 1;
-    const old = feedback.get(el);
-    if (old?.to === to || !old && to === 1) return;
-    const progress = old?.animation.effect.getComputedTiming().progress ?? 0;
-    const from = old ? old.from + (old.to - old.from) * progress : 1;
-    old?.animation.cancel();
-    const animation = el.animate([{ "--exact-press-factor": from }, { "--exact-press-factor": to }], {
-      duration: agentMode ? 0 : 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both",
-    });
-    const state = { animation, from, to };
-    feedback.set(el, state);
-    animation.onfinish = () => {
-      if (to === 1 && feedback.get(el) === state) { animation.cancel(); feedback.delete(el); }
-    };
-    if (agentMode || now) animation.finish();
+    showScale(el, down, now);
   };
   // A re-press may catch the release easing out. Neutralize only our effect
   // for this synchronous measurement, then restore it before a frame. The

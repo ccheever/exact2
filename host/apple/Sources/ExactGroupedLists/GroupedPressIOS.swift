@@ -113,6 +113,7 @@ extension GroupedListView {
     /// The row's colour may be replaced; colours written below it keep their owner.
     private func pressInkBoundaries(_ id: UInt32) -> (title: Bool, secondary: Bool, image: Bool) {
         guard let row = host.presenter.views[id] else { return (false, false, false) }
+        let symbol = symbolView(of: id)
         var texts: [Bool] = [], image = false
         func walk(_ node: NodeView, protected: Bool) {
             guard node.style["display"]?.string != "none" else { return }
@@ -121,7 +122,7 @@ extension GroupedListView {
                 texts.append(owns)
                 return
             }
-            if node.kind == "image" { image = owns || node.style["tint_color"] != nil }
+            if node === symbol { image = owns || node.style["tint_color"] != nil }
             for child in node.container.subviews.compactMap({ $0 as? NodeView }) { walk(child, protected: owns) }
         }
         for child in row.container.subviews.compactMap({ $0 as? NodeView }) { walk(child, protected: false) }

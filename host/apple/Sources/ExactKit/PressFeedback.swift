@@ -128,7 +128,7 @@ extension NodeView {
         if !down || !authorsPress { paintPress(false, instantly: down); aimPress(false, release: true) }
         #if os(iOS)
         // A list's row is its cell: the cell's ground, not the dim (LLP 1115.000 D16).
-        if platformPressDims, presenter?.rowCells.press(self, down) == true { return }
+        if presenter?.rowCells.press(self, down) == true { return }
         if platformPressDims { dimPress(down); return }
         dimPress(false, instantly: down)
         #elseif os(macOS)
@@ -149,7 +149,7 @@ extension NodeView {
         if holds("active") { return }
         if !inside { paintPress(false); aimPress(false) }
         #if os(iOS)
-        if platformPressDims, presenter?.rowCells.press(self, inside) == true { return }
+        if presenter?.rowCells.press(self, inside) == true { return }
         if platformPressDims { dimPress(inside); return }
         #elseif os(macOS)
         if platformPressTints { tintPress(inside); return }

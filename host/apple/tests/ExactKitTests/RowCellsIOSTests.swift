@@ -235,6 +235,41 @@ final class RowCellsIOSTests: XCTestCase {
         }
     }
 
+    func testAuthoredFeedbackReplacesAnExistingPhysicalOrHeldRowHighlight() throws {
+        let p = try fixture()
+        let row = try XCTUnwrap(p.views[11])
+        for held in [false, true] {
+            if held { XCTAssertEqual(row.hold("active", dropped: nil).held, "active") }
+            else { row.pressed = true }
+            XCTAssertNotNil(ground(p))
+            for style: [String: Any] in [
+                ["press_opacity_to": 0.4], [:], ["press_scale": 0.96], [:],
+                ["background_color": [240, 240, 240, 255], "written": ["background_color"]], [:],
+                ["press_background_color": [255, 0, 0, 255]],
+            ] {
+                p.apply(wireBatch([["op": "style", "id": 11, "style": style]]))
+                XCTAssertEqual(ground(p) == nil, !style.isEmpty, "held=\(held), style=\(style)")
+                XCTAssertEqual(separators(p).count, style.isEmpty ? 3 : 5, "the native highlight owns no separators after authored feedback takes over")
+                if style.isEmpty { XCTAssertNil(row.layer.animation(forKey: "pressDim"), "native row feedback replaces the card's dim") }
+                if style["background_color"] != nil { XCTAssertNotNil(row.layer.animation(forKey: "pressDim")) }
+            }
+            if held { _ = row.hold(nil, dropped: nil) }
+            else { row.pressed = false }
+            XCTAssertNil(ground(p))
+            XCTAssertEqual(separators(p).count, 5)
+            p.apply(wireBatch([["op": "style", "id": 11, "style": [:]]]))
+        }
+        XCTAssertTrue(p.rowCells.select(row) === row)
+        let selected = try XCTUnwrap(ground(p))
+        p.apply(wireBatch([["op": "style", "id": 11, "style": ["press_opacity_to": 0.4]]]))
+        row.pressed = true
+        XCTAssertTrue(ground(p) === selected, "authored feedback leaves native selection in place")
+        row.pressed = false
+        XCTAssertEqual(p.rowCells.observation(row)?["ground"] as? String, "selected")
+        p.rowCells.ran(row, on: nil)
+        waitFor("the native selection ending", late: 1, cap: 2) { self.ground(p) == nil }
+    }
+
     /// A screen a push covers is out of the window; a batch then keeps its
     /// rows' lines, which come back with it, and its selected row.
     /// The selected row's ground follows the row by the record of what

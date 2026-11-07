@@ -5,6 +5,36 @@ import XCTest
 @testable import ExactGroupedLists
 
 final class GroupedPressIOSTests: GroupedListFixture {
+    func testActiveInkUsesTheLeadingSymbolsColorOwnership() throws {
+        for ownsLeading in [false, true] {
+            let p = presenter { self.model() }
+            let red: [String: Any] = ["text_color": [255, 0, 0, 255], "written": ["text_color"]]
+            p.apply(wireBatch([
+                ["op": "create", "id": 30, "kind": "image", "props": ["imageSource": "symbol:sf/xmark"], "style": red.merging(["display": "none"]) { _, new in new }],
+                ["op": "create", "id": 31, "kind": "image", "props": ["imageSource": "symbol:sf/person.circle", "symbolColorWritten": ownsLeading ? "1" : "0"], "style": ownsLeading ? red : [:]],
+                ["op": "create", "id": 33, "kind": "text", "props": ["text": "Profile"], "style": [:]],
+                ["op": "create", "id": 32, "kind": "image", "props": ["imageSource": "symbol:forward-chevron"], "style": ownsLeading ? [:] : red],
+                ["op": "children", "id": 10, "ids": [30, 31, 33, 32]],
+                ["op": "style", "id": 10, "style": ["press_color": [0, 0, 255, 255]]],
+            ]))
+            let native = try cell(p, 10)
+            native.isHighlighted = true
+            native.setNeedsUpdateConfiguration()
+            waitForMainQueue()
+            let content = try XCTUnwrap(native.contentConfiguration as? UIListContentConfiguration)
+            XCTAssertEqual(content.image?.renderingMode, ownsLeading ? .alwaysOriginal : .alwaysTemplate)
+            XCTAssertEqual(content.textProperties.color.resolvedColor(with: native.traitCollection), .blue)
+            if ownsLeading {
+                XCTAssertEqual((native as? GroupedCell)?.imageInk?.resolvedColor(with: native.traitCollection), .red)
+            } else {
+                XCTAssertEqual(content.imageProperties.tintColor?.resolvedColor(with: native.traitCollection), .blue)
+            }
+            XCTAssertFalse(native.accessories.isEmpty, "the native disclosure accessory stays")
+            native.isHighlighted = false
+            window.isHidden = true
+        }
+    }
+
     func testAStandardCellShowsAuthoredActivePaintWithoutReplacingItsContent() throws {
         let p = presenter { self.model() }
         let native = try cell(p, 10)
