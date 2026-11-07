@@ -1199,27 +1199,49 @@ export async function backLayer(req, { evaluate, escape, frame }) {
 /** Escape pressed through CDP, down and up, as a keyboard's (`backLayer`). */
 export const cdpEscape = (call) => async () => { for (const type of ['rawKeyDown', 'keyUp']) await call('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 }); };
 
-/** One simulator's display, across every drive and checkout: a capture that reads it (`withDisplay`) holds it, and so
- *  does a launch, which brings its app to the front over another drive's. Runs `fn` holding it. */
-export async function simulatorDisplay(udid, fn, { directory = resolve(tmpdir(), 'exact-ios-drives'), timeout = 60000 } = {}) {
-  const path = createHash('sha256').update(JSON.stringify(['display', udid])).digest('hex') + '/.lock';
-  const started = Date.now();
-  for (;;) {
+/** The lock file of a simulator's display (`['display', udid]`) or of one app on it (`[udid, bundle]`). */
+const simulatorLock = (key) => createHash('sha256').update(JSON.stringify(key)).digest('hex') + '/.lock';
+
+/** Runs `fn` holding the simulator lock `key`, trying again every 100 ms while another process holds it: `waiting`
+ *  is called at the first refusal, and after `timeout` the error says `busy(seconds)`. */
+async function holdSimulator(key, fn, { directory, timeout, busy, waiting = () => {} }) {
+  const path = simulatorLock(key), started = Date.now();
+  for (let refused = false; ; refused = true) {
     let entered = false;
     try { return await filesystemLock(directory, path, () => { entered = true; return fn(); }); }
     catch (error) {
       if (entered || !error.message.includes('stream is locked by another publisher')) throw error;
-      if (Date.now() - started >= timeout) throw new Error(`simulator ${udid}'s display busy: another drive still held it after ${timeout / 1000}s`);
+      if (Date.now() - started >= timeout) throw new Error(busy(timeout / 1000));
+      if (!refused) waiting();
       await new Promise(resolve => setTimeout(resolve, 100));
     }
   }
+}
+
+/** One simulator's display, across every drive and checkout: a capture that reads it (`withDisplay`) holds it, and so
+ *  does a launch, which brings its app to the front over another drive's. Runs `fn` holding it. */
+export async function simulatorDisplay(udid, fn, { directory = resolve(tmpdir(), 'exact-ios-drives'), timeout = 60000 } = {}) {
+  return holdSimulator(['display', udid], fn, { directory, timeout, busy: (s) => `simulator ${udid}'s display busy: another drive still held it after ${s}s` });
+}
+
+/** Runs `fn`, an install or a launch outside a drive (`exact.mjs ios`), holding the lock of each of `bundles` on the
+ *  simulator. A drive holds its app's from launch to close (`exclusiveIOS`), and an install over that app, or another
+ *  launch of it, ends it under the drive: another checkout of the app (a git worktree) has the same bundle id. */
+export async function simulatorApps(udid, bundles, fn, { name = udid, directory = resolve(tmpdir(), 'exact-ios-drives'), timeout = 60000 } = {}) {
+  const [bundle, ...rest] = bundles;
+  if (!bundle) return fn();
+  return holdSimulator([udid, bundle], () => simulatorApps(udid, rest, fn, { name, directory, timeout }), {
+    directory, timeout,
+    waiting: () => console.error(`waiting for the drive of ${bundle} on ${name} to end before installing over it`),
+    busy: (s) => `${name} still runs a drive of ${bundle} after ${s}s: install when it ends, or on another simulator (--sim <udid|name>, or EXACT_SIM)`,
+  });
 }
 
 /** The simulator has one running process per bundle id, across every checkout.
  * Hold an OS lock through launch and close; a crashed driver releases it through
  * the helper's stdin. Permanent lock files avoid unlink/reacquire races. */
 export async function exclusiveIOS(udid, bundle, launch, { directory = resolve(tmpdir(), 'exact-ios-drives'), timeout = 60000 } = {}) {
-  const path = createHash('sha256').update(JSON.stringify([udid, bundle])).digest('hex') + '/.lock';
+  const path = simulatorLock([udid, bundle]);
   const started = Date.now();
   let release, holding;
   for (;;) {

@@ -1306,5 +1306,29 @@ await exclusiveIOS('sim','app',async()=>({close:async()=>{}}),${JSON.stringify(o
     } finally { child.kill('SIGKILL'); await exited; }
   } finally { await first?.close(); await second?.close(); await other?.close(); rmSync(directory,{recursive:true,force:true}); }
 }, 60000);
+test('an install outside a drive waits for the drive of each app it installs, and a drive waits for the install', async () => {
+  const { exclusiveIOS, simulatorApps } = await import('../../scripts/agent-launch.mjs');
+  const directory = mkdtempSync(join(tmpdir(), 'exact-drive-lock-')), events = [], said = [], error = console.error;
+  const options = { directory, timeout: 1000 }, drive = label => async () => ({ close: async () => events.push('close ' + label) });
+  let held;
+  console.error = (line) => said.push(line);
+  try {
+    held = await exclusiveIOS('sim', 'app', drive('app'), options);
+    const installing = simulatorApps('sim', ['app', 'app.host'], async () => {
+      events.push('install');
+      await expect(exclusiveIOS('sim', 'app.host', drive('host'), { ...options, timeout: 0 })).rejects.toThrow('iOS drive busy');
+    }, { ...options, name: 'iPhone' });
+    await new Promise(resolve => setTimeout(resolve, 300));
+    expect(events).toEqual([]);
+    await held.close(); held = null; await installing;
+    expect(events).toEqual(['close app', 'install']);
+    expect(said).toEqual(['waiting for the drive of app on iPhone to end before installing over it']);
+    held = await exclusiveIOS('sim', 'app.host', drive('host'), options);
+    await expect(simulatorApps('sim', ['app', 'app.host'], () => events.push('never'), { ...options, timeout: 0, name: 'iPhone' }))
+      .rejects.toThrow('iPhone still runs a drive of app.host after 0s: install when it ends, or on another simulator (--sim <udid|name>, or EXACT_SIM)');
+    await held.close(); held = await exclusiveIOS('sim', 'app', drive('app'), { ...options, timeout: 0 });
+    expect(events).toEqual(['close app', 'install', 'close host']);
+  } finally { console.error = error; await held?.close(); rmSync(directory, { recursive: true, force: true }); }
+}, 60000);
 test('tap parses every mouse form, refuses a word it does not use, and a carrier that cannot deliver one says unsupported (#107)', async () => {
   const { tapWords: t, pointerGap: gap } = await import('../../scripts/agent.mjs'); expect(t(['p', 'auxclick', 'at', '30', '40', 'modifiers', 'Meta'])).toEqual(['p', { auxclick: true, at: [30, 40], modifiers: 'Meta' }]); expect(t(['p', 'clicks', '3'])).toEqual(['p', { clicks: 3 }]); expect(t(['p', 'wheel', '0', '20', 'at', '10', '10'])).toEqual(['p', { wheel: [0, 20], at: [10, 10] }]); expect(t(['p', 'down', 'at', '10', '20', 'modifiers', 'Shift'])).toEqual(['p', { down: true, at: [10, 20], modifiers: 'Shift' }]); expect(t(['up', 'modifiers', 'Shift'], true)).toEqual([null, { phase: 'up', modifiers: 'Shift' }]); for (const words of [['p', 'mouse', 'foo'], ['p', 'auxclick', 'at', '1'], ['p', 'hover', 'x'], ['p', 'clicks'], ['p', 'frob']]) expect(() => t(words)).toThrow(/unknown word|takes a number/); expect(gap('macos', undefined, { auxclick: true })).toBeNull(); expect(gap('web', 'chrome', { clicks: 3, modifiers: 'Shift', down: true })).toBeNull(); for (const host of ['linux', 'windows', 'ios']) expect(gap(host, undefined, { wheel: [0, 1], at: [1, 1] })).toContain('a wheel at a point'); expect(gap('web', 'firefox', { drag: { modifiers: 'Shift' } })).toContain('modifiers'); });
