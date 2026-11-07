@@ -193,13 +193,13 @@ export function pathFrom(from, to) {
 
 /** An outside workspace's patches and toolchain, against this checkout's.
  * Refuses with the exact text to paste rather than letting Cargo fail later
- * on a duplicate crate or a missing wasm target. */
+ * on a duplicate crate or a missing wasm target. A patch path is compared as `pathFrom` writes it, through symlinks. */
 export function outsideWorkspaceProblems(workspace) {
   const problems = [];
   const manifest = Bun.TOML.parse(readFileSync(resolve(workspace, 'Cargo.toml'), 'utf8'));
   const theirs = manifest.patch?.['crates-io'] ?? {};
   const root = Bun.TOML.parse(readFileSync(resolve(ROOT, 'Cargo.toml'), 'utf8')).patch?.['crates-io'] ?? {};
-  const wrong = Object.entries(root).filter(([name, spec]) => !theirs[name]?.path || resolve(workspace, theirs[name].path) !== resolve(ROOT, spec.path));
+  const wrong = Object.entries(root).filter(([name, spec]) => !theirs[name]?.path || pathFrom(workspace, resolve(workspace, theirs[name].path)) !== pathFrom(workspace, resolve(ROOT, spec.path)));
   if (wrong.length) problems.push(`${workspace}/Cargo.toml: [patch.crates-io] must name exact2's vendored ${wrong.map(([name]) => name).join(', ')}. Use (or run \`bun exact.mjs update\` in an app \`exact new\` made):\n[patch.crates-io]\n${patchLines(workspace).join('\n')}`);
   // A nested workspace inherits the checkout's pinned toolchain from rustup.
   // An external workspace still needs its own pin.
