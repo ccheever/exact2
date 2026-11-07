@@ -213,7 +213,8 @@ function refresh() {
   }
   // Sources can set intrinsic size synchronously; percentage padding must resolve against the resulting layout.
   const fits = configs.map(({ el, point, objectFit }) => {
-    const cs = getComputedStyle(el), fits = point <= el.clientWidth - (parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)) && point <= el.clientHeight - (parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom));
+    const cs = objectFit === "scale-down" ? getComputedStyle(el) : null;
+    const fits = cs && point <= el.clientWidth - (parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)) && point <= el.clientHeight - (parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom));
     // `fill`, CSS's initial `object-fit`, keeps a symbol's aspect, as on the Apple hosts (LLP 1011 §4).
     return [el, objectFit === "none" || (objectFit === "scale-down" && fits) ? `${point}px ${point}px` : objectFit === "scale-down" || objectFit === "fill" ? "contain" : objectFit];
   });

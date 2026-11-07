@@ -60,6 +60,30 @@ const RUNTIMES = {
   'host/web-js/symbols.js': ['const All = true, journal = [], clock = { now: 0 }, appSource = () => {}, Images = new Set(document.querySelectorAll("#exact-root img")), image = e => Images.add(e);', ['inked', 'refresh'], 'refresh();'],
 };
 
+for (const [file, [stand, names, run]] of Object.entries(RUNTIMES)) test(`symbol fitting reads geometry only for scale-down (${file})`, async () => {
+  const source = readFileSync(resolve(ROOT, file), 'utf8');
+  const cases = [['fill', 24], ['contain', 24], ['cover', 24], ['none', 24], ['scale-down', 24], ['scale-down', 10]];
+  const content = cases.map(([fit, size], i) => `<img id="fit-${i}" data-symbol-source="symbol:add" data-symbol-path="${roles.add}" style="font-size:20px;--exact-symbol-scale:1;object-fit:${fit};width:${size}px;height:${size}px">`).join('');
+  const suite = await suiteBrowser('chromium', { timeout: 10000 });
+  try {
+    const page = await suite.newPage();
+    await page.setContent(`<div id="exact-root">${content}</div><script>${stand} ${glueDeclarations(source, names)} globalThis.paint = () => { ${run} };</script>`);
+    const result = await page.evaluate(() => {
+      const images = [...document.images], reads = images.map(() => 0);
+      for (const [i, image] of images.entries()) for (const property of ['clientWidth', 'clientHeight']) {
+        const get = Object.getOwnPropertyDescriptor(Element.prototype, property).get;
+        Object.defineProperty(image, property, { get() { reads[i]++; return get.call(this); } });
+      }
+      globalThis.paint();
+      return { reads, fits:images.map(image => image.style.getPropertyValue('--exact-symbol-fit')) };
+    });
+    expect(result.reads.slice(0, 4)).toEqual([0, 0, 0, 0]);
+    expect(result.reads[4]).toBeGreaterThan(0);
+    expect(result.reads[5]).toBeGreaterThan(0);
+    expect(result.fits).toEqual(['contain', 'contain', 'cover', '20px 20px', '20px 20px', 'contain']);
+  } finally { await suite.close(); }
+}, 30000);
+
 for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand, names, run]] of Object.entries(RUNTIMES)) test(`${engine}: a bar item's symbol is the bar's size (${file})`, async () => {
   const source = readFileSync(resolve(ROOT, file), 'utf8');
   const style = source.match(/'(@property --exact-tint[^']*)'/)[1];
