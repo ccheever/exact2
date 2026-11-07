@@ -845,6 +845,16 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertEqual(tabs.selectedIndex, 0)
     }
 
+    /// Expo's native tab host pins a bottom tab bar, including on iPad-sized
+    /// windows and while a feed scrolls. Exact must set the same UIKit
+    /// policies instead of inheriting the OS defaults.
+    func testNativeTabsUseThePinnedTabBarPolicy() throws {
+        let session = try fixture("tabs-minimize")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        if #available(iOS 18.0, *) { XCTAssertEqual(tabs.mode, .tabBar) }
+        if #available(iOS 26.0, *) { XCTAssertEqual(tabs.tabBarMinimizeBehavior, .never) }
+    }
+
     /// Stage 2's check of `tabBarMinimizeBehavior` (iOS 26), as far as a
     /// unit test reaches: a route whose title stays still (Detail's, inline)
     /// names no content scroll view to UIKit, so a minimize behavior a hatch
