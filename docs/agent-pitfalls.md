@@ -1536,14 +1536,14 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   "screenshot s.png"`; find targets with `tree`, or `tree --ax` for the
   accessibility tree. (Exact-new iOS app feedback, 2026-10-04.)
 
-- **`build.mjs --ios … --phone <udid>` installed onto someone else's simulator.**
-  Cause: a simulator build reads `--sim` (or `EXACT_SIM`); `--phone` is the
-  device's, so it fell back to a booted iPhone, another drive's
-  (2026-10-09). `agent ios` and `smoke.mjs ios` choose the same way. Now a
-  choice among several booted iPhones is refused, naming the caller's way to
-  choose; fix: always pass
-  `--sim <udid>` to `build.mjs` and set `EXACT_SIM=<udid>` for the agent and
-  the smokes.
+- **An iOS build replaced the app another session was driving.** Simulator
+  builds use `--sim` or `EXACT_SIM`; `--phone` names a physical device.
+  Without an explicit simulator, selection can reuse one with the app
+  installed. Git worktrees share an app's bundle ID, so this can select
+  another worktree's simulator. Create a simulator for each concurrent
+  worktree with `xcrun simctl create "<name>" <device-type> <runtime>` and
+  set `EXACT_SIM=<udid>` for its builds, tests, verification and agent runs.
+  Pass `--sim <udid>` when invoking `build.mjs` directly.
 
 - **`tap <row>` pressed a link card, Like or Repost inside the row.** Cause: a
   plain tap aimed at the row's middle, and a finger there presses the deepest
