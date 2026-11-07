@@ -111,14 +111,7 @@ public final class ExactView: UIView {
         sceneActivationObserver = NotificationCenter.default.addObserver(forName: UIScene.didActivateNotification, object: nil, queue: .main) { [weak self] note in
             MainActor.assumeIsolated {
                 guard let self, let scene = note.object as? UIScene, scene === self.window?.windowScene else { return }
-                self.refitForScene(scene)
-                // UIKit may finish the Duo display handoff one turn after the
-                // activation notification. Re-read the final window bounds
-                // before the first visible frame on that display.
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, scene === self.window?.windowScene else { return }
-                    self.refitForScene(scene)
-                }
+                self.refitForSceneActivation(scene)
             }
         }
         session.presenter.observeKeyboard()
@@ -155,6 +148,22 @@ public final class ExactView: UIView {
     required init?(coder: NSCoder) { nil }
     deinit {
         (editingObservers + [sceneObserver, sceneActivationObserver].compactMap { $0 }).forEach(NotificationCenter.default.removeObserver)
+    }
+
+    /// Refit immediately and once after UIKit finishes a Duo display handoff.
+    /// The scene delegate also calls this after a prewarmed scene becomes
+    /// active; that path can happen before this view is attached and therefore
+    /// before the notification observer's scene match succeeds.
+    public func refitForSceneActivation(_ scene: UIScene? = nil) {
+        guard let scene = scene ?? window?.windowScene,
+              scene === window?.windowScene,
+              scene.activationState != .unattached else { return }
+        refitForScene(scene)
+        // UIKit may finish the Duo display handoff one turn after activation.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, scene === self.window?.windowScene else { return }
+            self.refitForScene(scene)
+        }
     }
 
     /// Reconcile the session viewport and any UIKit-owned navigation
@@ -273,6 +282,10 @@ public final class ExactView: UIView {
                 guard let self, window != nil, session.state != .destroyed else { return }
                 fit()
                 session.presenter.navigation.mounted()
+                // A prewarmed scene may already be active before this view
+                // joins its window, so its didActivate notification was not
+                // observable above. Reconcile the final display bounds here.
+                refitForSceneActivation(window?.windowScene)
                 session.presenter.syncAccessibility()
                 #if os(iOS)
                 // Nothing focused (autofocus has run): this view holds the

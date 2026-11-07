@@ -78,5 +78,22 @@ final class NavigationRefitIOSTests: XCTestCase {
         XCTAssertEqual(owner.view.frame, fittedOwner, "activation restores the native owner")
         XCTAssertEqual(session.presenter.viewport.frame, expectedViewport, "activation restores the Exact viewport")
     }
+
+    /// The scene delegate's activation callback remains useful when the view
+    /// was attached after UIKit posted `didActivate`.
+    func testExplicitActivationRefitRestoresTheViewportAndNativeOwner() throws {
+        guard let scene = hostedWindowScene() else { throw missing("scene", "the explicit activation refit uses the view's scene") }
+        let (session, owner) = try fixture(scene)
+        let view = try XCTUnwrap(session.view)
+        let fittedViewport = view.bounds
+        let fittedOwner = session.presenter.navigation.ownerFrame(owner, in: try XCTUnwrap(owner.view.superview))
+        owner.view.frame = fittedOwner.insetBy(dx: 0, dy: 64)
+        view.session.presenter.viewport.frame = fittedViewport.offsetBy(dx: 0, dy: 32)
+
+        view.refitForSceneActivation(scene)
+
+        XCTAssertEqual(owner.view.frame, fittedOwner, "explicit activation restores the native owner")
+        XCTAssertEqual(view.session.presenter.viewport.frame, fittedViewport, "explicit activation restores the Exact viewport")
+    }
 }
 #endif

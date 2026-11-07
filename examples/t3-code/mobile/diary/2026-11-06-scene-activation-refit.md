@@ -12,7 +12,9 @@ notification.
 `ExactView` now listens for `UIScene.didActivateNotification` as well as the
 foreground transition. It lays out the parent window and Exact viewport, then
 refits the native navigation owner. A deferred pass handles the final bounds
-after a Duo display handoff.
+after a Duo display handoff. The scene delegate and the view's mount callback
+also request the same refit, covering a prewarmed scene that activated before
+the view joined its window.
 
 ## Needed
 
@@ -23,6 +25,7 @@ build to confirm the reported display handoff.
 ## Checkpoints
 
 - Added a regression for activation-only viewport and owner refitting.
+- Added an explicit activation-refit regression for the prewarmed mount path.
 - Focused activation test passed on the `t3-native-tabs duo` simulator.
 - The broader mobile TypeScript lane still has its existing Home-header test
   mismatch; it is unrelated to this lifecycle change.
