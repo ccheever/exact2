@@ -1,0 +1,9 @@
+tamber t3-code
+
+icons
+  icon.bubble-left = icon(sf "bubble.left", svg "icons/bubble-left.svg")
+  icon.bubble-left-fill = icon(sf "bubble.left.fill", svg "icons/bubble-left-fill.svg")
+  icon.arrow-triangle-pull = icon(sf "arrow.triangle.pull", svg "icons/arrow-triangle-pull.svg")
+  icon.chart-bar = icon(sf "chart.bar", svg "icons/chart-bar.svg")
+  icon.gearshape = icon(sf "gearshape", svg "icons/gearshape.svg")
+  icon.gearshape-fill = icon(sf "gearshape.fill", svg "icons/gearshape-fill.svg")
