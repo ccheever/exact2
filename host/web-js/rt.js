@@ -1,3 +1,4 @@
+import { markdownText } from './markdown.js';
 import { resourceInspection } from "./resource-inspection.js";
 import { oneActivation, suppressedInvocation, releaseAsset as rel } from "./elements.js"; import { reloadOnGone } from "./generation-reload.js"; import { rt as Link } from "./rt-link.js";
 export { liveTime } from "./live-time.js";
@@ -703,34 +704,8 @@ export function P(e, name, f) {
     if ((name === 'src' || name === 'sandbox') && e.localName === 'iframe') commitGuestOrigin(e);
   });
 }
-/** A `markup="markdown"` text (LLP 1045 D3): its source as pieces, built
- * into spans by the web host's own `renderMarkup`; the pieces come from the
- * web host's Markdown, a wasm fetched at the first such node (a loaded
- * capability). A rendered page's spans stand until the source changes. */
-let Markdown = null, Atoms = null;
-export function md(e, f) {
-  let first = Adopt && e.childElementCount > 0 && !e.querySelector("[data-exact-atom]"); // a page rendered at build is drawn again where it has atoms, which it renders as their labels
-  // Its inline atoms (LLP 1045.000 D6): the kinds and faces are attributes, read at each render and followed as they change; a press on one is the node's `atompress`.
-  const render = v => { inflight.n++; Promise.all([Markdown ??= markdown(), e.hasAttribute("data-atoms") && (Atoms ??= import("./atoms.js"))]).then(([pieces]) => { if (e.$source === v) renderMarkup(e, pieces(v, e.getAttribute("data-atoms") ?? "", e.getAttribute("data-atom-faces") ?? "")); }).finally(() => inflight.n--); };
-  if (typeof MutationObserver === "function") new MutationObserver(() => render(e.$source)).observe(e, { attributes: true, attributeFilter: ["data-atoms", "data-atom-faces", "data-atom-styles"] }); effect(() => {
-    const v = f() ?? "";
-    e.$source = v;
-    if (first) { first = false; return; }
-    if (!Markdown) e.textContent = v;
-    render(v);
-  });
-}
-async function markdown() {
-  const bytes = globalThis.__files ? globalThis.__files("markdown.wasm") : await fetch("./markdown.wasm").then(r => r.arrayBuffer());
-  const made = await WebAssembly.instantiate(bytes, {}), x = (made.instance ?? made).exports;
-  return (source, atoms, faces) => {
-    const enc = new TextEncoder(), s = enc.encode(source), a = enc.encode(atoms), f = enc.encode(faces), b = new Uint8Array(s.length + a.length + f.length), p = x.alloc(b.length);
-    b.set(s); b.set(a, s.length); b.set(f, s.length + a.length);
-    new Uint8Array(x.memory.buffer, p, b.length).set(b);
-    const n = x.pieces(p, b.length, a.length, f.length);
-    return new TextDecoder().decode(new Uint8Array(x.memory.buffer, x.output(), n));
-  };
-}
+/** A reader uses built pieces; new text loads the parser on demand. */
+export function md(e, f, prepared) { markdownText(e, f, prepared, { effect, inflight, adopting, renderMarkup }); }
 /** Views by id, one id space for the agent and the GPU module (the web
  * host's `exact.views`): an element gets an id when either first asks. */
 export const Views = new Map();

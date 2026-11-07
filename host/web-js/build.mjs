@@ -498,7 +498,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   // After the first render, which a font wait may defer (`containers()` reads the runtime's `globalThis.exact`).
   ...(containerHatches ? ["go(() => requestAnimationFrame(() => requestAnimationFrame(() => import('./hatches.js').then(m => m.containers()))));"] : []),
 ].join('\n'));
-for (const f of ['agent.js', 'check.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'modules.js', 'sheets.js', 'samples.js', 'wakes.js', 'reach.js', 'devices.js', 'members.js', 'arrival.js', 'calls.js', 'update.js', 'spans.js', 'views.js', 'pictures.js', 'symbols.js', 'motion.js', 'drag-target.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hatches.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['agent.js', 'check.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'modules.js', 'sheets.js', 'samples.js', 'wakes.js', 'reach.js', 'devices.js', 'members.js', 'arrival.js', 'calls.js', 'update.js', 'spans.js', 'views.js', 'pictures.js', 'markdown.js', 'symbols.js', 'motion.js', 'drag-target.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hatches.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
 writeFileSync(resolve(gen, 'modules.js'), localImports(readFileSync(resolve(here, 'modules.js'), 'utf8')));
 // The web host's own pieces the runtime loads (glue.mjs).
 stageHostGlue(root, gen);
@@ -546,7 +546,8 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   `import app${rust ? ', { sources }' : ''} from './app.js';`,
   ...(soundTable ? [`import { install as sounds } from './sounds.js'; sounds(${soundTable});`] : []),
   "import { data, clock, inflight, Resources, Mutations, routeAt, Head, canSetStatus, unfinishedAnswers } from './rt.js';",
-  "import { types, sourceTypes, pages, viewportMedia, activation } from './names.js';",
+  "import { types, sourceTypes, pages, viewportMedia, activation, markdownPaths } from './names.js';",
+  ...(existsSync(resolve(gen, 'markdown.flag')) ? ["import { compileReaders } from './markdown.js';", 'globalThis.__markdown = () => compileReaders(markdownPaths, Resources);'] : []),
   "import { viewportFacts } from './facts.js';",
   "import { answers } from './checkpoint.js';",
   "import { markBars } from './navigation.js';",
@@ -657,7 +658,8 @@ const bundle = async (options) => {
   if (!r.success) process.exit(1);
 };
 // The renderer uses vm.Script, which cannot parse import.meta.
-if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')], format: 'iife', outdir: gen, naming: 'server.js',
+const markdownReaders = existsSync(resolve(gen, 'markdown.flag'));
+if (how !== 'none' || markdownReaders) await bundle({ entrypoints: [resolve(gen, 'main-server.js')], format: 'iife', outdir: gen, naming: 'server.js',
   define: { ...bundleOptions.transform.define, 'globalThis.__exactRender': 'true', 'import.meta.url': JSON.stringify(pathToFileURL(resolve(out, 'app.js')).href) } });
 // The page's module and its chunks: Rolldown, the repo's app bundler, whose
 // minifier leaves the entry 6–10% smaller than Bun's after brotli (RealWorld
@@ -879,6 +881,20 @@ cpSync(resolve(out, 'index.html'), resolve(out, 'shell.html'));
   const { planRouteTable } = await import('../web/serve.mjs');
   const routes = planRouteTable(readFileSync(resolve(out, 'app.plan'))).map(({ name, pattern, render, notfound }) => ({ name, pattern, render, notfound }));
   writeFileSync(resolve(out, 'routes.json'), JSON.stringify({ routes }, null, 2) + '\n');
+}
+// Compile known reader text even when the development build emits only a shell.
+if (markdownReaders) {
+  const { renderer } = await import('./render.mjs');
+  const prepared = await renderer(out, { closed: true }).markdown();
+  if (prepared.length) {
+    const data = JSON.stringify(prepared).replace(/</g, '\\u003c');
+    const tag = `<script type="application/vnd.exact.markdown">${data}</script>`;
+    for (const file of ['index.html', 'shell.html']) {
+      const path = resolve(out, file);
+      writeFileSync(path, readFileSync(path, 'utf8').replace('<script type="module"', tag + '<script type="module"'));
+    }
+    console.log(`${app}: ${prepared.length} Markdown sources compiled`);
+  }
 }
 if (pages.length && !opt('--render') && !renderAt) console.log(`${app}: no ${renderBin} entry, so its pages render under Bun (--render js)`);
 if (pages.length && how === 'rust') {

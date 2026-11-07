@@ -1379,6 +1379,12 @@ Markdown ([LLP 1045](../llp/1045-markdown-editor.rfc.md)); `none` is the
 default. It is not CSS: CSS has nothing for this. The value stays the Markdown
 source, so storage, search and export are the string.
 
+The web build prepares literal reader strings and text available from initial
+data answers. Prepared pieces keep their source identity; new or changed content
+loads the Markdown parser on demand, as do inline-atom bindings. Fonts and line
+wrapping follow the reader's platform and viewport at runtime. Preparing readers
+makes no network requests.
+
 - `text note.body markup="markdown"` is the reader: headings, lists, quotes,
   code and links painted as one node, on every host.
 - `textarea id="editor" value=draft input=edit markup="markdown"` is the editor:

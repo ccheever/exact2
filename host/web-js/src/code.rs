@@ -48,6 +48,8 @@ pub struct Frame {
 /// Runtime names the generated code uses (for the import lists).
 #[derive(Default)]
 pub struct Uses {
+    /// Resource fields read as Markdown, also prepared before an unopened view mounts.
+    pub markdown_paths: BTreeSet<Vec<usize>>,
     pub names: BTreeSet<String>,
     /// budget.js's (LLP 1090 D3).
     pub budget: BTreeSet<String>,

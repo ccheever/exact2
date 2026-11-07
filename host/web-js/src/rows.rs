@@ -837,12 +837,6 @@ pub(super) fn presence_decls(css: &mut String) -> String {
 }
 
 impl Em<'_> {
-    /// A `markup="markdown"` text's source, built into spans (rt.js `md`).
-    pub(crate) fn markdown(&mut self, e: &str, f: &str) {
-        let md = self.uses.rt("md");
-        let _ = write!(self.out, "{md}({e},{f});");
-    }
-
     /// What an element needs once made: a canvas's surface, a native
     /// module's mount (LLP 1024 D3), a hatched node's page-module hatch (LLP
     /// 1075.003.000, `data-hatch` among its static attributes), and the
