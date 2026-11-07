@@ -907,7 +907,9 @@ public final class ExactElement {
 
     #if os(iOS)
     /// Lay out this element's two authored children with UIKit, preserving their content.
-    /// Pass nil to restore their authored layout. Navigation stays outside the arrangement.
+    /// The first child is primary and the second secondary. Exact manages their child controllers
+    /// and containment; the app configures the arrangement. Navigation stays in the enclosing
+    /// controller, with its native policies unchanged. Pass nil to restore authored layout.
     @available(iOS 27.1, *)
     @discardableResult
     public func arrange(using controller: UIArrangementViewController?) -> Bool {

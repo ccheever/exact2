@@ -11,7 +11,6 @@ final class ArrangementHost {
     private var syncingInsets = false
     private var layoutPending = false
     private var children: [UInt32: [UInt32]] = [:]
-    private var restoreBarPolicy: [ObjectIdentifier: () -> Void] = [:]
     private(set) var entries: [UInt32: Entry] = [:]
 
     final class Entry {
@@ -82,7 +81,7 @@ final class ArrangementHost {
     }
 
     func sync() {
-        guard !requests.isEmpty || !entries.isEmpty || !insetScrollers.isEmpty || !restoreBarPolicy.isEmpty else { return }
+        guard !requests.isEmpty || !entries.isEmpty || !insetScrollers.isEmpty else { return }
         for (id, entry) in entries where requests[id] !== entry.controller || presenter.views[id] !== entry.node || entry.panes.contains(where: { presenter.views[$0.id] !== $0 }) || (children[id] != nil && children[id] != entry.panes.map(\.id)) {
             retire(entry); entries[id] = nil
             if presenter.views[id] === entry.node { presenter.placeChildren(entry.node, children[id] ?? entry.panes.map(\.id)) }
@@ -202,7 +201,6 @@ final class ArrangementHost {
         syncingInsets = true
         defer { syncingInsets = false }
         adoptOwners()
-        syncBarPolicy()
         syncSafeAreas()
         var now: [UInt32: UIScrollView] = [:]
         for route in presenter.navigation.controllers.values where !NavigationHost.transparentBar(route.node) {
@@ -245,22 +243,6 @@ final class ArrangementHost {
             }
         }
         finishScrollHandoffs()
-    }
-
-    private func syncBarPolicy() {
-        let routes = entries.values.compactMap { route(of: $0.node) }
-        let current = Set(routes.map(ObjectIdentifier.init))
-        for id in Array(restoreBarPolicy.keys) where !current.contains(id) {
-            restoreBarPolicy.removeValue(forKey: id)?()
-        }
-        for route in routes where restoreBarPolicy[ObjectIdentifier(route)] == nil {
-            let policy = route.navigationItem.navigationBarMinimization.safeAreaAdjustment
-            restoreBarPolicy[ObjectIdentifier(route)] = { [weak route] in
-                guard let route, route.navigationItem.navigationBarMinimization.safeAreaAdjustment == .disabled else { return }
-                route.navigationItem.navigationBarMinimization.safeAreaAdjustment = policy
-            }
-            route.navigationItem.navigationBarMinimization.safeAreaAdjustment = .disabled
-        }
     }
 
     /// Move each arrangement under the controller that holds its node now. A route adopts its

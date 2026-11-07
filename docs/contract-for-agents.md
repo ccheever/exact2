@@ -2394,11 +2394,17 @@ or the controller already belongs to another container. Once accepted, the reque
 falls back to CSS if the element no longer has two valid children and resumes when
 two valid children return. Child order and replacements follow the authored tree.
 
+The first child is UIKit's primary pane and the second is its secondary pane.
+Exact supplies their child controllers and manages the arrangement's content
+slots and containment. The app configures the native arrangement; navigation
+stays in the enclosing controller.
+
 Use a bounded scroller in each child for independent scrolling. The first visible
 vertical scroller is the default title and scroll-to-top target; `navigationScroll`
-can name another. Exact keeps the route's safe area while its navigation bar
-minimizes, so scrolling one pane leaves the other's content in place. Removing the
-arrangement restores the prior policy. Each scroller keeps UIKit's edge effect.
+can name another. UIKit owns bar minimization, safe-area changes, each pane's
+scroll-edge effect and navigation transitions. Arrangement adoption leaves the
+route's native navigation policy unchanged. Configure the navigation item through
+the route hatch when the app needs different UIKit settings.
 
 Declare the hatch for its platforms in `app.json`. Keep navigation outside the
 arrangement and avoid nesting it in authored scrollers or other native layout
