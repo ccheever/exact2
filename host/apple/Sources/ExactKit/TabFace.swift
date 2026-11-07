@@ -16,7 +16,7 @@ struct TabFace: Equatable {
     /// icon's path token (`FaceSymbol`, stage 9 A2) has no variant.
     /// `accessibilityDisabled`: `aria-disabled`, which reads as disabled
     /// and still presses.
-    let base: String?, title: String, disabled: Bool, accessibilityDisabled: Bool
+    let base: String?, title: String, accessibilityLabel: String, disabled: Bool, accessibilityDisabled: Bool
     /// A child image's bundled raster (`app:/…` or a bundle-relative name)
     /// where the tab has no symbol: drawn as the item's template glyph.
     let raster: String?
@@ -28,17 +28,23 @@ struct TabFace: Equatable {
     let icon: String?
     init(_ tab: NodeView) {
         var icon: String?, raster: String?
-        var symbol: String?, label = tab.props["accessibilityLabel"] ?? "", badges: [String] = []
+        var symbol: String?, title = "", label = tab.props["accessibilityLabel"] ?? "", badges: [String] = []
         if tab.isNativeButton, let face = tab.face {
             // A native button's children are its face (LLP 1069.011.000 D1).
             symbol = face.symbol
             icon = face.symbolIcon
-            if let title = face.title, !title.isEmpty { label = title }
+            if let faceTitle = face.title, !faceTitle.isEmpty {
+                title = faceTitle
+                if label.isEmpty { label = faceTitle }
+            }
         }
         for case let child as NodeView in tab.container.subviews {
             if child.kind == "image", let name = child.faceSymbol { symbol = name }
             else if child.kind == "image", let source = child.props["imageSource"], Self.isLocalRaster(source) { raster = source }
-            else if child.isParagraph, !child.accessibleText.isEmpty { label = child.accessibleText }
+            else if child.isParagraph, !child.isHidden, !child.accessibleText.isEmpty {
+                title = child.accessibleText
+                if label.isEmpty { label = child.accessibleText }
+            }
             else if let text = Self.badgeText(child) { badges.append(text) }
         }
         // One badge box, or none: two are not a badge.
@@ -46,7 +52,8 @@ struct TabFace: Equatable {
         self.icon = icon
         self.raster = symbol == nil ? raster : nil
         base = symbol.map(Self.base)
-        title = label
+        self.title = title
+        accessibilityLabel = label.isEmpty ? title : label
         disabled = tab.disabled
         accessibilityDisabled = tab.ariaUnavailable
     }

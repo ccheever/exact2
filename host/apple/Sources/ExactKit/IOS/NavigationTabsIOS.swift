@@ -289,23 +289,24 @@ extension NavigationHost {
         let faces = tabs.tabs.map(TabFace.init)
         // A tab's test id is its item's identifier, which XCUITest and
         // Maestro address it by (LLP 1116 D2); without one, its symbol or title.
-        let ids = zip(tabs.tabs, faces).map { tab, face in tab.props["testId"] ?? face.base.flatMap { FaceSymbol.isPath($0) ? nil : $0 } ?? face.title }
+        let ids = zip(tabs.tabs, faces).map { tab, face in tab.props["testId"] ?? face.base.flatMap { FaceSymbol.isPath($0) ? nil : $0 } ?? face.accessibilityLabel }
         // The idiom and the size class size a path's glyph (`FaceSymbol.tabBarPoints`).
         // The bar's traits once it is in its window; before, the page's.
         let traits = tabController.flatMap { $0.tabBar.window == nil ? nil : $0.tabBar.traitCollection }
             ?? presenter.session?.view?.traitCollection ?? UITraitCollection.current
         let points = FaceSymbol.tabBarPoints(traits)
-        let signature = zip(faces, ids).map { face, id in "\(points)|\(id)|\(face.base ?? "")|\(face.raster ?? "")|\(face.title)|\(face.disabled)|\(face.accessibilityDisabled)|\(face.badge ?? "")" }
+        let signature = zip(faces, ids).map { face, id in "\(points)|\(id)|\(face.base ?? "")|\(face.raster ?? "")|\(face.title)|\(face.accessibilityLabel)|\(face.disabled)|\(face.accessibilityDisabled)|\(face.badge ?? "")" }
         for (index, (nav, face)) in zip(navs, faces).enumerated() where !tabItems.indices.contains(index) || tabItems[index] != signature[index] {
             let item: UITabBarItem = nav.tabBarItem
             // An svg-only icon's path (stage 9 A2) at a tab bar's glyph size, one image for both states;
             // a bundled raster the same way, as a hand-built bar takes a custom image.
             let image = face.base.flatMap { FaceSymbol.image($0, points: FaceSymbol.tabBarPoints(traits)) }
                 ?? face.raster.flatMap { rasterURL($0) }.flatMap { TabFace.rasterImage(at: $0, points: FaceSymbol.tabBarPoints(traits)) }
-            item.title = face.title
+            item.title = face.title.isEmpty ? nil : face.title
             item.image = image
             item.selectedImage = face.base.flatMap(TabFace.filled) ?? image
             item.accessibilityIdentifier = ids[index]
+            item.accessibilityLabel = face.accessibilityLabel
             item.isEnabled = !face.disabled
             if face.disabled || face.accessibilityDisabled { item.accessibilityTraits.insert(.notEnabled) }
             else { item.accessibilityTraits.remove(.notEnabled) }
