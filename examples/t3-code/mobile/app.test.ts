@@ -8,6 +8,8 @@ import { contractComponent, value, type Env } from '../tests/support/contract-ac
 const pairingContract = readFileSync(new URL('./mobile-root-state.contract', import.meta.url), 'utf8');
 const appContract = readFileSync(new URL('./app.contract', import.meta.url), 'utf8');
 const appTabsContract = readFileSync(new URL('./mobile-app-tabs.contract', import.meta.url), 'utf8');
+const rootHeaderContract = readFileSync(new URL('./root-header.contract', import.meta.url), 'utf8');
+const pullRequestsContract = readFileSync(new URL('./pull-requests.contract', import.meta.url), 'utf8');
 const pairingNames = ['pairingUiInitial', 'pairingUiVisit', 'pairingUiPreparing', 'pairingUiPreparedApplies',
   'pairingUiPrepared', 'pairingUiPreparedReply', 'pairingUiResolved', 'pairingReplyPlan'];
 
@@ -177,19 +179,20 @@ describe('mobile pairing source', () => {
 });
 
 describe('root tab navigation', () => {
-  test('renders every tab stack and a persistent tablist below the route viewport', () => {
+  test('renders every tab stack with a native tablist over the full route viewport', () => {
     expect(appContract).toContain('for tab in nav.tabs key = tab.name');
     expect(appContract).toContain('column id=\"workspace-shell\" position=\"relative\" width=(workspace.usesSplitView ? workspace.contentSettledWidth : \"100%\") height=\"100%\" flex=(workspace.usesSplitView ? 0 : 1)');
-    expect(appContract).toContain('column role=\"tabpanel\" id=(workspace.usesSplitView and tab.name == appTab ? \"workspace-panel\" : `panel-${tab.name}`) position=\"absolute\" top=0 left=0 right=0 bottom=(workspace.usesSplitView or not appTabRoot ? 0 : 56) visibility=(tab.name == appTab ? \"visible\" : \"hidden\") aria-hidden=(tab.name != appTab) pointer-events=\"none\"');
+    expect(appContract).toContain('column role=\"tabpanel\" id=(workspace.usesSplitView and tab.name == appTab ? \"workspace-panel\" : `panel-${tab.name}`) position=\"absolute\" top=0 left=0 right=0 bottom=0 visibility=(tab.name == appTab ? \"visible\" : \"hidden\") aria-hidden=(tab.name != appTab) pointer-events=\"none\"');
     expect(appContract).toContain('column id=`mobile-route-${entry.id}` navigationKey=`${entry.id}` pointer-events=\"none\" visibility=(tab.name == appTab and entry.id == top(nav).id ? \"visible\" : \"hidden\") aria-hidden=(tab.name != appTab or entry.id != top(nav).id)');
     expect(appTabsContract).toContain('row role=\"tablist\" aria-label=\"T3 Code sections\"');
     expect(appTabsContract).toContain('aria-selected=(appTab == \"settings\") press=selectTab(\"settings\")');
-    expect(appContract).toContain('if change.kind == \"close\" and top(nav).name == \"settings\"\n            nav = select(nav, \"home\")');
+    expect(appContract).toContain('if (change.kind == \"close\" or change.kind == \"back\") and top(nav).name == \"settings\"\n            nav = select(nav, \"home\")');
     expect(appContract).toContain('id=\"workspace-shell\" position=\"relative\"');
     expect(appContract).toContain('MobileAppTabBar(appTab=appTab, visible=(not workspace.usesSplitView and appTabRoot)');
+    expect(appContract).toContain('data-mobile-form-sheet=mobileRouteFormSheet(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView)');
   });
 
-  test('selecting a tab preserves its existing stack and settings close selects Home', () => {
+  test('selecting a tab preserves its existing stack and Settings exits from either header action', () => {
     const root = contractComponent('mobile/app.contract', 'App');
     const home = { id: 'home', name: 'home' }, settings = { id: 'settings', name: 'settings' };
     const state: Env = { nav: [home, settings], settingsVisits: [], settingsEvent: { kind: 'close' }, workspaceEntries: [] };
@@ -204,11 +207,20 @@ describe('root tab navigation', () => {
     root.call('didSettingsEvent', state, scope, []);
     expect(state.nav).toEqual([home]);
 
+    const splitBackState: Env = { nav: [home, settings], settingsVisits: [], settingsEvent: { kind: 'back' }, workspaceEntries: [] };
+    root.call('didSettingsEvent', splitBackState, scope, []);
+    expect(splitBackState.nav).toEqual([home]);
+
     const settingsChild = { id: 'settings-appearance', name: 'settingsAppearance' };
     const childState: Env = { nav: [home, settings, settingsChild], settingsVisits: [], settingsEvent: { kind: 'back' }, workspaceEntries: [] };
     const childScope: Env = { ...scope, back: (nav: Env[]) => nav.slice(0, -1), settingsEventPlan: () => ({ records: [], close: true }) };
     root.call('didSettingsEvent', childState, childScope, []);
     expect(childState.nav).toEqual([home, settings]);
+  });
+
+  test('root tabs do not expose no-op Back controls or duplicate Pull Requests titles', () => {
+    expect(rootHeaderContract).toContain('routeName != \"pullRequests\"');
+    expect(pullRequestsContract).not.toContain('text \"Pull Requests\" role=\"heading\"');
   });
 });
 

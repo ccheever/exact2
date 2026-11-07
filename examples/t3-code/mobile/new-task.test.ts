@@ -161,7 +161,7 @@ test('only the original New Task entry presents a sheet; Change Project stays in
   expect(presentation('newTaskDraft', 'draft')).toEqual(['', '', '']);
   expect(presentation('newTask', 'original', 'original', true)).toEqual(['', '', '']);
   expect(presentation('newTask', 'change-project', 'original', true)).toEqual(['', '', '']);
-  expect(presentation('settings', 'settings')).toEqual(['', '', '']);
+  expect(presentation('settings', 'settings')).toEqual(['settings', 'modal', '']);
   expect(presentation('settings', 'settings', 'original', true)).toEqual(['', 'fullscreen', '']);
   for (const name of ['threadModel', 'newTaskModel']) expect(presentation(name, name)).toEqual(['composer', 'modal', 'large']);
   expect(presentation('threadQueue', 'queue')).toEqual(['', 'modal', '65% 95%']);
