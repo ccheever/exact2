@@ -600,6 +600,20 @@ unsafe extern "C" fn render(
     0
 }
 
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos", test))]
+const CLIENT_RATE: f64 = 48_000.0;
+/// The rate the mixer renders at: the device's, else `CLIENT_RATE`. An
+/// iPhone's RemoteIO reports 0 Hz before it is initialized, and its
+/// converter takes any client rate to the hardware's.
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos", test))]
+fn client_rate(reported: f64) -> f64 {
+    if reported.is_finite() && reported > 0.0 {
+        reported
+    } else {
+        CLIENT_RATE
+    }
+}
+
 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 mod device {
     use super::*;
@@ -714,12 +728,10 @@ mod device {
                     (&mut format as *mut Format).cast(),
                     &mut size,
                 ))?;
-                if !format.rate.is_finite() || format.rate <= 0.0 {
-                    return Err("invalid device sample rate".into());
-                }
-                output.mixer.rate = format.rate;
+                let rate = client_rate(format.rate);
+                output.mixer.rate = rate;
                 format = Format {
-                    rate: format.rate,
+                    rate,
                     format: u32::from_be_bytes(*b"lpcm"),
                     flags: 1 | 8,
                     bytes_packet: 8,

@@ -5,7 +5,6 @@ import Foundation
 import AppKit
 #else
 import UIKit
-import AVFAudio
 #endif
 import ExactKit
 
@@ -564,7 +563,9 @@ final class CanvasLifecycle: NSObject {
                      UIApplication.willEnterForegroundNotification, UIApplication.didBecomeActiveNotification] {
             center.addObserver(self, selector: #selector(visibilityChanged), name: name, object: nil)
         }
-        center.addObserver(self, selector: #selector(interruption(_:)), name: AVAudioSession.interruptionNotification, object: nil)
+        #if os(iOS) || os(tvOS)
+        AudioSession.listen(ObjectIdentifier(CanvasLifecycle.self)) { Self.heard($0) }
+        #endif
         #endif
     }
     deinit { NotificationCenter.default.removeObserver(self) }
@@ -670,13 +671,21 @@ final class CanvasLifecycle: NSObject {
         }
     }
     #if os(iOS) || os(tvOS)
-    @objc private func interruption(_ note: Notification) {
-        // Decode immutable notification values on the poster; touch no UI/ABI here.
-        guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
-        let options = AVAudioSession.InterruptionOptions(rawValue:
-            note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0)
-        interruption(began: type == .began, shouldResume: options.contains(.shouldResume))
+    /// What the session's owner hears, for every live canvas (LLP 1096 D8).
+    /// The owner follows iOS 27's session life cycle; a canvas observing the
+    /// interruption notification itself heard a began and never an end on
+    /// an iPhone, and stayed silent. An interruption whose end never came is
+    /// over when the app is active again and no other app's audio plays.
+    private static func heard(_ event: AudioSession.Heard) {
+        switch event {
+        case let .interruption(began, resume):
+            for lifecycle in live.allObjects { lifecycle.interruption(began: began, shouldResume: resume) }
+        case let .appActive(othersPlaying):
+            guard CanvasAudio.interrupted, !othersPlaying else { return }
+            for lifecycle in live.allObjects { lifecycle.interruption(began: false, shouldResume: true) }
+        case .reset:
+            break
+        }
     }
     #endif
 }
