@@ -13,12 +13,12 @@ fn newTaskModal(name: string, route: string, session: string, split: bool): bool
 // available below it. Its child pages use the normal stack back action. Split
 // layouts keep Settings as a full-width detail pane beside the Duo rail.
 fn mobileRouteFormSheet(name: string, route: string, session: string, split: bool): string = name == "threadModel" or name == "newTaskModel" ? "composer" : newTaskModal(name, route, session, split) ? "new-task" : name == "settings" and not split ? "settings" : name == "connections" or name == "connect" ? "true" : ""
-fn mobileRoutePresentation(name: string, route: string, session: string, split: bool): string = name == "homeArrange" or name == "threadBrowser" or name == "threadDevices" or name == "settingsLegal" or (name == "settings" and split) ? "fullscreen" : name == "settings" and not split ? "modal" : name == "threadModel" or name == "newTaskModel" or newTaskModal(name, route, session, split) or name == "threadQueue" or name.startsWith("git") or name == "connections" or name == "connect" or name == "threadTerminalCapture" ? "modal" : ""
+fn mobileRoutePresentation(name: string, route: string, session: string, split: bool): string = name == "homeArrange" or name == "threadBrowser" or name == "threadDevices" or name == "settingsLegal" or (name == "settings" and split) ? "fullscreen" : name == "settings" and not split ? "modal" : name == "threadModel" or name == "newTaskModel" or newTaskModal(name, route, session, split) or name == "threadQueue" or name == "threadAgents" or name == "threadReviewComment" or name == "settingsScheduledModel" or name.startsWith("git") or name == "connections" or name == "connect" or name == "threadTerminalCapture" ? "modal" : ""
 // ThreadQueueControl uses 0.65 and 0.95 snap fractions. Exact's navigation
 // host accepts percentage detents and maps them to UIKit custom detents.
 // Expo's ConnectionsNewRouteScreen is a resizable form sheet. Keep the
 // workspace underneath it and expose the same two resting heights on iOS.
-fn mobileRouteDetent(name: string, route: string, session: string, split: bool): string = name == "threadQueue" ? "65% 95%" : name == "connect" or name == "connections" ? "55% 70%" : name == "threadModel" or name == "newTaskModel" or newTaskModal(name, route, session, split) ? "large" : ""
+fn mobileRouteDetent(name: string, route: string, session: string, split: bool): string = name == "threadQueue" ? "65% 95%" : name == "threadAgents" ? "50%" : name == "threadReviewComment" ? "55%" : name == "gitOverview" ? "55%" : name == "gitCommit" ? "80%" : name == "gitBranches" ? "55%" : name == "gitConfirm" ? "55% 70%" : name == "connect" or name == "connections" ? "55% 70%" : name == "settingsScheduledModel" or name == "threadModel" or name == "newTaskModel" or newTaskModal(name, route, session, split) ? "large" : ""
 
 shape HomeReplyPlan
   archiveRefresh: number
