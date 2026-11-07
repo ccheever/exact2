@@ -174,3 +174,34 @@ test('openDevTools is refused on the web', async () => {
     server.stop(true);
   }
 }, 30000);
+
+// The trace commands are the Apple hosts': the JS target refuses both in the journal, as the wasm host does.
+test('the trace commands are refused in the journal', async () => {
+  const server = Bun.serve({ port: 0, fetch(request) {
+    const path = new URL(request.url).pathname;
+    for (const [name, file] of [['commands.js', './commands.js'], ['frame-messages.js', '../web/frame-messages.js'], ['navigation.js', '../web/navigation.js'], ['prompt-glue.js', '../web/prompt-glue.js'], ['alert-message.js', '../web/alert-message.js'], ['menu-rows.js', '../web/menu-rows.js']]) {
+      if (path === `/${name}`) return new Response(Bun.file(new URL(file, import.meta.url)));
+    }
+    return new Response(`<script type="module">
+        import { commands } from '/commands.js';
+        const said = [], page = commands(line => said.push(line));
+        page.startTrace_EXPERIMENTAL();
+        page.stopTrace_EXPERIMENTAL(7500);
+        globalThis.result = said;
+      </script>`, { headers: { 'content-type': 'text/html' } });
+  } });
+  let browser;
+  try {
+    browser = await suiteBrowser();
+    const page = await browser.newPage();
+    await page.goto(server.url.href);
+    await page.waitForFunction(() => globalThis.result);
+    expect(await page.evaluate(() => globalThis.result)).toEqual([
+      "startTrace_EXPERIMENTAL refused: the web host does not record traces; use the browser's performance panel",
+      "stopTrace_EXPERIMENTAL refused: the web host does not record traces; use the browser's performance panel",
+    ]);
+  } finally {
+    await browser?.close();
+    server.stop(true);
+  }
+}, 30000);
