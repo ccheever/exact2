@@ -822,10 +822,15 @@
     var turn = null;
     var ready = new Map();           // live answer's call -> [steps for its own turn]
     var discarded = [];              // steps of answers let go before their turn, run with no store
+    var tearingDown = false;
     var adopted = 0;                 // adopted fetches in flight
     function waiting() { var n = 0; ready.forEach(function (steps) { n += steps.length; }); return n; }
     // What may still settle an answer waiting on module work, for the executor.
     function note() { host(22, "state", JSON.stringify({ outstanding: adopted + waiting() })); }
+    function runDiscarded() {
+      turn = null;
+      for (var n = 0; discarded.length && n < 1024; n++) discarded.shift()();
+    }
     return Object.freeze({
       MODULE: MODULE,
       // The turn now (the executor's `__exact_turn`): an answer's call, MODULE or null.
@@ -834,23 +839,28 @@
         var steps = t && t !== MODULE ? ready.get(t) : null;
         if (steps) { ready.delete(t); steps.forEach(function (s) { s(); }); note(); }
       },
+      // Finish readied storage chains when no further answer turn can run
+      teardown: function () {
+        tearingDown = true;
+        ready.forEach(function (steps) { steps.forEach(function (s) { discarded.push(s); }); });
+        ready.clear();
+        runDiscarded();
+        note();
+      },
       // The async helper asks before each step whether it runs here. In a
-      // module turn a live answer's step waits for that answer's own turn;
+      // module or background turn a live answer's step waits for its own turn;
       // anything else runs where it is, the let-go answer's continuation
       // included. `step(key, arg)` is the helper's next step, bound only when
       // deferred: this runs before every step of every async function.
       route: function (at, step, key, arg) {
-        if (!at || turn !== MODULE.id || !hooks.live(at)) return false;
+        if (tearingDown || !at || (turn !== null && turn !== MODULE.id) || !hooks.live(at)) return false;
         if (!ready.has(at)) ready.set(at, []);
         ready.get(at).push(function () { step(key, arg); });
         note();
         return true;
       },
       // After a module turn, with no store: what let-go answers had waiting.
-      runDiscarded: function () {
-        turn = null;
-        for (var n = 0; discarded.length && n < 1024; n++) discarded.shift()();
-      },
+      runDiscarded: runDiscarded,
       // An answer let go: its steps waiting for its turn move to the steps
       // the let-go chain runs with no store, and stop counting as
       // outstanding. How many moved.

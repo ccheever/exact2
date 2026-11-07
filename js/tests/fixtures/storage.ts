@@ -20,10 +20,12 @@ const bytes = (value: string) => new Uint8Array(Array.from(value).map(c => c.cha
 // given before they land, and they must land all the same.
 function answer(source:string, args:unknown[], store:Store, storage:Storage, native:any) {
   const op = String(args[0]), value = String(args[1]);
-  if (op === "shared-live") {
+  if (op === "shared-live" || op === 'letgo-shared') {
     shared = fetch("https://example.test/shared").then(async () => {
       await storage.fs.atomicWriteFile(storage.fs.directories.data + "/shared", new Uint8Array([1]));
-      store.set("session", value);
+      if (op === 'shared-live') {
+        store.set("session", value);
+      }
       return {text: value};
     });
     return shared;
@@ -42,6 +44,21 @@ function answer(source:string, args:unknown[], store:Store, storage:Storage, nat
   }
   // An answer that awaits background work: waits with the module.
   if (op === "await-saving") return saving.then(() => ({text:"after " + lastError}));
+  if (op === 'await-saving-native' || op === 'await-shared-native') {
+    return (async (): Promise<{ text: string }> => {
+      await (op === 'await-shared-native' ? shared : saving);
+      const result = native.call({ value });
+      store.set('session', value);
+      return { text: String(result.text) };
+    })();
+  }
+  if (op === 'await-saving-file') {
+    return (async (): Promise<{ text: string }> => {
+      await saving;
+      await storage.fs.atomicWriteFile(storage.fs.directories.data + '/resumed', bytes(value));
+      return { text: value };
+    })();
+  }
   // 258 writes at once: one in flight, 256 waiting, the 258th refused.
   if (op === "flood") {
     const codes: Promise<string>[] = [];

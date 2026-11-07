@@ -142,6 +142,7 @@ pub(crate) unsafe extern "C" fn host_door(
                     // The bake links no module. The prelude throws storage's
                     // `code: 'bake'` refusal for it (LLP 1067 D4).
                     _ if state.baking => Err("bake".into()),
+                    _ if state.between_answers => Err(no_store("native.call")),
                     _ => Err(
                         "native storage is unavailable during bake or in an unconfigured host"
                             .into(),

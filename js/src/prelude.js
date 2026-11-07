@@ -1332,6 +1332,7 @@
     return rejected.trim();
   };
   global.__exact_let_go = function (failed, message) {
+    work.setTurn(null);
     // A let-go call's compression so failed is settled, and what is queued
     // behind it issued; the call keeps its other storage (LLP 1069.002
     // A1.5). Said so, and the caller delivers on.
@@ -1433,7 +1434,7 @@
   };
   // A background round delivers with the background current: what its
   // completion's reaction issues is the background's too.
-  global.__exact_enter_background = function () { currentCall = background; work.setTurn(null); };
+  global.__exact_enter_background = function (teardown) { currentCall = background; if (teardown) work.teardown(); else work.setTurn(null); };
   // A compression whose wait gave up, and whose right to write the waiter
   // took away (LLP 1069.002 A1.5): it can write nothing now, so it is
   // failed and the queue moves on. Any other operation whose wait ran out

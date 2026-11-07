@@ -158,6 +158,12 @@ impl Module {
         let deadline = std::time::Instant::now() + bound;
         self.read_background();
         self.host.between_answers = true;
+        if let Some(engine) = self.engine.as_mut() {
+            let _ = engine
+                .call("__exact_enter_background", ["teardown", "", ""])
+                .and_then(|_| engine.drain());
+        }
+        self.read_background();
         loop {
             let left = self.background.state.queued + self.background.state.in_flight;
             if left == 0 {
@@ -169,7 +175,7 @@ impl Module {
             };
             let delivered = session.wait_until(deadline)
                 && engine
-                    .call("__exact_enter_background", ["", "", ""])
+                    .call("__exact_enter_background", ["teardown", "", ""])
                     .is_ok()
                 && engine.deliver_storage_one().unwrap_or(false);
             let _ = engine.drain();
