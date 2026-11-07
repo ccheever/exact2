@@ -50,9 +50,10 @@ const UNTIL = 'clock until state <path> == <literal> within <ms> (the literal is
 // what has arrived, as an input's end does (`clock` with `land`: the `then`s of answers in, no timer fired), so a
 // protocol's later steps go on meanwhile: Excord's IDENTIFY is sent from a write's `then`, and READY answers it.
 export async function untilClock(s, spec) {
-  const m = /^until\s+state\s+(\S+)\s*==\s*(\S.*?)\s+within\s+(\d+)$/s.exec(spec.trim());
+  // The path as an authored test writes it too: a space before a dot (`rows.0 .body`, `grid.0 .1`) is dropped.
+  const m = /^until\s+state\s+(\S+(?:\s+\.\S+)*)\s*==\s*(\S.*?)\s+within\s+(\d+)$/s.exec(spec.trim());
   if (!m) throw new MalformedOperation(`${UNTIL}, not \`clock ${spec.trim()}\``);
-  const [, path, literal] = m, bound = Number(m[3]);
+  const path = m[1].replace(/\s+/g, ''), literal = m[2], bound = Number(m[3]);
   let want;
   try { want = JSON.parse(literal); } catch { /* refused below */ }
   if (want === undefined || (want !== null && typeof want === 'object') || (typeof want === 'number' && !Number.isFinite(want))) throw new MalformedOperation(`${UNTIL}: ${literal} is not one`);
