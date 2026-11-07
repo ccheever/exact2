@@ -120,13 +120,20 @@ struct RasterMetadata: Equatable, Sendable {
         CGImageSourceUpdateData(source, prefix as CFData, prefix.count == encodedBytes)
         // ImageIO answers nothing from a partial JPEG that carries a gain map
         // (an iPhone HDR export, an Android Ultra HDR photo), where it does for
-        // a plain one; its frame header says what the plan needs.
+        // a plain one, nor from any partial HEIF (an iPhone photo); the JPEG's
+        // frame header or the HEIF's `meta` box says what the plan needs.
         if prefix.count < encodedBytes,
-           (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])?[kCGImagePropertyPixelWidth] == nil,
-           let jpeg = jpegHeader(prefix) {
-            return try validated(width: jpeg.width, height: jpeg.height, orientation: jpeg.orientation,
-                                 encodedBytes: encodedBytes, headerBytes: prefix.count, deep: jpeg.depth > 8,
-                                 hdr: hasGainMap(source, prefix: prefix))
+           (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])?[kCGImagePropertyPixelWidth] == nil {
+            if let jpeg = jpegHeader(prefix) {
+                return try validated(width: jpeg.width, height: jpeg.height, orientation: jpeg.orientation,
+                                     encodedBytes: encodedBytes, headerBytes: prefix.count, deep: jpeg.depth > 8,
+                                     hdr: hasGainMap(source, prefix: prefix))
+            }
+            if let heif = heifHeader(prefix) {
+                return try validated(width: heif.width, height: heif.height, orientation: heif.orientation,
+                                     encodedBytes: encodedBytes, headerBytes: prefix.count, deep: heif.depth > 8,
+                                     hdr: heif.hdr || hasGainMap(source, prefix: prefix))
+            }
         }
         guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
@@ -253,6 +260,80 @@ func webpSize(_ data: Data) -> (Int, Int)? {
     default:
         return nil
     }
+}
+
+/// A HEIF's (HEIC, AVIF) primary image size, bits per channel, EXIF
+/// orientation and HDR transfer from its `meta` box (ISO/IEC 23008-12: `pitm`,
+/// and the `ispe`, `pixi`, `irot`, `imir` and `colr` properties `ipma` gives
+/// that item, its transforms in their order), or nil when the prefix is not
+/// one or ends before them. ImageIO reads a HEIF's size only from the whole
+/// file; an iPhone writes this box first.
+func heifHeader(_ data: Data) -> (width: Int, height: Int, depth: Int, orientation: Int, hdr: Bool)? {
+    let b = [UInt8](data)
+    func u16(_ i: Int) -> Int { Int(b[i]) << 8 | Int(b[i + 1]) }
+    func u32(_ i: Int) -> Int { u16(i) << 16 | u16(i + 2) }
+    /// The boxes in `range` (type, body, end), up to the first that runs past it.
+    func boxes(_ range: Range<Int>) -> [(type: String, body: Int, end: Int)] {
+        var found: [(type: String, body: Int, end: Int)] = [], i = range.lowerBound
+        while i + 8 <= range.upperBound {
+            let size = u32(i) == 0 ? range.upperBound - i : u32(i)
+            guard size >= 8, i + size <= range.upperBound else { break }
+            found.append((String(decoding: b[i + 4..<i + 8], as: UTF8.self), i + 8, i + size))
+            i += size
+        }
+        return found
+    }
+    let top = boxes(0..<b.count)
+    guard let ftyp = top.first, ftyp.type == "ftyp",
+          stride(from: ftyp.body + 8, to: ftyp.end - 3, by: 4).contains(where: { ["mif1", "msf1"].contains(String(decoding: b[$0..<$0 + 4], as: UTF8.self)) }),
+          let meta = top.first(where: { $0.type == "meta" }), meta.end - meta.body >= 4 else { return nil }
+    let parts = boxes(meta.body + 4..<meta.end)
+    guard let pitm = parts.first(where: { $0.type == "pitm" }), pitm.end - pitm.body >= 6, pitm.end - pitm.body >= (b[pitm.body] == 0 ? 6 : 8),
+          let iprp = parts.first(where: { $0.type == "iprp" }) else { return nil }
+    let primary = b[pitm.body] == 0 ? u16(pitm.body + 4) : u32(pitm.body + 4)
+    let inner = boxes(iprp.body..<iprp.end)
+    guard let ipco = inner.first(where: { $0.type == "ipco" }) else { return nil }
+    let properties = boxes(ipco.body..<ipco.end)
+    // The primary item's property indices (from 1), in order.
+    var indices: [Int] = []
+    for ipma in inner where ipma.type == "ipma" {
+        guard ipma.end - ipma.body >= 8 else { return nil }
+        let narrow = b[ipma.body] == 0, wide = b[ipma.body + 3] & 1 == 1
+        var i = ipma.body + 8
+        for _ in 0..<u32(ipma.body + 4) {
+            guard i + (narrow ? 3 : 5) <= ipma.end else { return nil }
+            let item = narrow ? u16(i) : u32(i), count = Int(b[i + (narrow ? 2 : 4)])
+            i += narrow ? 3 : 5
+            guard i + count * (wide ? 2 : 1) <= ipma.end else { return nil }
+            for _ in 0..<count {
+                if item == primary { indices.append(wide ? u16(i) & 0x7fff : Int(b[i]) & 0x7f) }
+                i += wide ? 2 : 1
+            }
+        }
+    }
+    var size: (Int, Int)?, depth = 8, hdr = false
+    // Stored to shown coordinates (y down), each transform applied after the last.
+    var m = (1, 0, 0, 1)
+    func then(_ t: (Int, Int, Int, Int)) { m = (t.0 * m.0 + t.1 * m.2, t.0 * m.1 + t.1 * m.3, t.2 * m.0 + t.3 * m.2, t.2 * m.1 + t.3 * m.3) }
+    for index in indices where index >= 1 && index <= properties.count {
+        let p = properties[index - 1], length = p.end - p.body
+        switch p.type {
+        case "ispe" where length >= 12: size = (u32(p.body + 4), u32(p.body + 8))
+        case "pixi" where length >= 6: depth = Int(b[p.body + 5])
+        // An `nclx` transfer (ITU-T H.273): 16 is PQ, 18 is HLG.
+        case "colr" where length >= 10 && String(decoding: b[p.body..<p.body + 4], as: UTF8.self) == "nclx": hdr = [16, 18].contains(u16(p.body + 6))
+        // `angle` times 90° anticlockwise.
+        case "irot" where length >= 1: for _ in 0..<Int(b[p.body] & 3) { then((0, 1, -1, 0)) }
+        // `axis` 0 swaps top and bottom, 1 left and right, as ImageIO writes and reads it.
+        case "imir" where length >= 1: then(b[p.body] & 1 == 0 ? (1, 0, 0, -1) : (-1, 0, 0, 1))
+        // A crop or a part of the image: ImageIO's size would differ.
+        case "clap", "rloc", "lsel": return nil
+        default: break
+        }
+    }
+    let exif = [(1, 0, 0, 1), (-1, 0, 0, 1), (-1, 0, 0, -1), (1, 0, 0, -1), (0, 1, 1, 0), (0, -1, 1, 0), (0, -1, -1, 0), (0, 1, -1, 0)]
+    guard let (width, height) = size, let orientation = exif.firstIndex(where: { $0 == m }) else { return nil }
+    return (width, height, depth, orientation + 1, hdr)
 }
 
 extension RasterMetadata {

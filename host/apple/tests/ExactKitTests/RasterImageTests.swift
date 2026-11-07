@@ -160,6 +160,29 @@ final class RasterImageTests: XCTestCase {
         XCTAssertEqual(image.naturalSize, CGSize(width: 60, height: 120))
         XCTAssertEqual(image.image.width, 15); XCTAssertEqual(image.image.height, 30)
     }
+    /// ImageIO answers a HEIF's size only from the whole file, so a photo
+    /// larger than the header limit is sized from its `meta` box: the same
+    /// size, orientation, depth and HDR as ImageIO reads from the whole file.
+    func testAHEIFPrefixIsSizedFromItsMetaBox() throws {
+        var files = try (1...8).map { try fixture(120, 60, type: "public.heic", orientation: $0) }
+        for name in [CGColorSpace.itur_2100_PQ, CGColorSpace.itur_2100_HLG] {
+            let ctx = try XCTUnwrap(CGContext(data: nil, width: 64, height: 32, bitsPerComponent: 16, bytesPerRow: 64 * 8,
+                space: try XCTUnwrap(CGColorSpace(name: name)), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder16Little.rawValue))
+            let bytes = NSMutableData()
+            let destination = try XCTUnwrap(CGImageDestinationCreateWithData(bytes, "public.heic" as CFString, 1, nil))
+            CGImageDestinationAddImage(destination, try XCTUnwrap(ctx.makeImage()), nil)
+            XCTAssertTrue(CGImageDestinationFinalize(destination))
+            files.append(bytes as Data)
+        }
+        for bytes in files {
+            let whole = try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count)
+            let prefix = try RasterMetadata.read(prefix: bytes.prefix(bytes.count - 1), encodedBytes: bytes.count)
+            XCTAssertEqual([prefix.sourceWidth, prefix.sourceHeight, prefix.orientation], [whole.sourceWidth, whole.sourceHeight, whole.orientation])
+            XCTAssertEqual([prefix.deep, prefix.hdr], [whole.deep, whole.hdr])
+        }
+        XCTAssertEqual(files.map { try? RasterMetadata.read(prefix: $0, encodedBytes: $0.count).orientation }, [1, 2, 3, 4, 5, 6, 7, 8, 1, 1])
+        XCTAssertEqual(files.suffix(2).map { try? RasterMetadata.read(prefix: $0, encodedBytes: $0.count).hdr }, [true, true])
+    }
     func testInputLimitsAndCheckedPlanningRejectBeforePixels() throws {
         let bytes = try fixture(40, 20)
         XCTAssertThrowsError(try RasterMetadata.read(prefix: bytes, encodedBytes: RasterMetadata.encodedLimit + 1))
