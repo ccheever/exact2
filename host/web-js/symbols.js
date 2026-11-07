@@ -13,7 +13,8 @@ import { After, PropHooks, Hooks, inflight, journal, clock, data, onEnd } from "
 // through `Hooks.image`) and those a binding gives one, each until the scope that built it ends. A set walked in
 // place of two document-wide queries a commit (LLP 1071.001 A7).
 const Images = new Set();
-const image = Hooks.image = e => { if (!Images.has(e)) { Images.add(e); onEnd(() => Images.delete(e)); } };
+const image = e => { if (!Images.has(e)) { Images.add(e); onEnd(() => Images.delete(e)); } };
+Hooks.image = e => { const s = e.getAttribute("data-symbol-source"); if (s?.startsWith("symbol:icon|") && !e.hasAttribute("data-symbol-path") && !e.hasAttribute("data-symbol-file")) draw(e, s.slice(7)); else image(e); };
 
 let Table = {}, All = null; // every role: not asked for, loading, or loaded (true)
 let Pending = false;

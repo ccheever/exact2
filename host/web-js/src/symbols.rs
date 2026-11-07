@@ -97,6 +97,15 @@ pub(crate) fn every() -> String {
     format!("export default {{{}}};", roles.join(","))
 }
 
+pub(crate) fn path_in_source(attrs: &mut Vec<(String, String)>) {
+    if attrs
+        .iter()
+        .any(|(k, v)| k == "data-symbol-source" && v.starts_with("symbol:icon|"))
+    {
+        attrs.retain(|(k, _)| k != "data-symbol-path");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::table;
