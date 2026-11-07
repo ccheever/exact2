@@ -244,16 +244,34 @@ private final class KeyboardCheck: NSObject, UINavigationControllerDelegate {
 }
 #endif
 
-private final class KeyboardModule: ExactModule {
+private final class DuoModule: ExactModule {
+    private let arrangements = DuoArrangements()
+    override func call(_ request: [String: Any]) throws -> [String: Any] {
+        guard request["op"] as? String == "arrangementSupport" else { throw ExactNativeRefusal("Duo Lab does not support this operation; use arrangementSupport") }
+        #if os(iOS)
+        if #available(iOS 27.1, *) { return ["available": true] }
+        #endif
+        return ["available": false]
+    }
+    override func element(_ value: ExactElement) {
+        arrangements.update(value)
+        #if os(iOS)
+        check.update(value)
+        #endif
+    }
+    override func elementEnded(_ value: ExactElement) {
+        arrangements.remove(value)
+        #if os(iOS)
+        check.remove(value)
+        #endif
+    }
     #if os(iOS)
     private lazy var check = KeyboardCheck(temporary: context.temporary)
     override func navigation(_ value: ExactNavigation) { check.install(value) }
     override func route(_ value: ExactRoute) { check.update(value) }
     override func routeEnded(_ value: ExactRoute) { check.remove(value) }
-    override func element(_ value: ExactElement) { check.update(value) }
-    override func elementEnded(_ value: ExactElement) { check.remove(value) }
     override func destroy() { check.stop() }
     #endif
 }
 
-let exactModule: ExactModule.Type = KeyboardModule.self
+let exactModule: ExactModule.Type = DuoModule.self

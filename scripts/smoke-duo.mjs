@@ -23,7 +23,7 @@
 // exits 0, the convention for a missing carrier. The device is turned by the
 // same helper (CoreDevice's orientation commands do not turn the Duo, LLP 1008
 // §9): the suite starts it upright, and the rotate, resize and web legs turn it.
-// `--only insets,keyboard-bar,lab,navigation,navigation-gestures,host-navigation,host,rotate,resize,web` runs the named legs; the keyboard checks
+// `--only insets,keyboard-bar,lab,arrangement,reading,navigation,navigation-gestures,host-navigation,host,rotate,resize,web` runs the named legs; the keyboard checks
 // run only when a probe shows a software keyboard on this simulator.
 import { spawn, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -656,7 +656,145 @@ async function suite({ open: openSession, check: record }, reset) {
     } catch (e) { check(false, `keyboard-bar: ${e.message}`); } finally { await s.close(); }
   }
 
-  // 3. Duo Lab's four screens.
+  if (leg('arrangement')) {
+    const s = await open({ host: 'ios', app: 'duo-lab' });
+    try {
+      where = 'arrangement';
+      await pose(s, 180);
+      await s.tap('tab-panes'); await settle(s);
+      const first = byTestId(await s.tree(), 'panes-workspace-pane')?.id;
+      const second = byTestId(await s.tree(), 'panes-activity-pane')?.id;
+      check(first != null && second != null, 'the Panes tab has both authored panes');
+      await s.type('panes-workspace-draft', 'Keep this draft'); await settle(s);
+      await s.type('panes-workspace-draft', { key: 'Enter' }); await settle(s);
+      await s.tap('panes-activity-increment'); await settle(s);
+      await s.tap('panes-workspace-pane', { wheel: [0, 220] });
+      await s.tap('panes-activity-pane', { wheel: [0, 120] }); await settle(s);
+      const scrolled = await s.layout();
+      check(['workspace', 'activity'].every(name => (box(scrolled, `panes-${name}-pane`)?.sy ?? 0) > 0), 'both panes begin the layout changes scrolled');
+      const retained = async (tag) => {
+        const tree = await s.tree();
+        check(byTestId(tree, 'panes-workspace-pane')?.id === first && byTestId(tree, 'panes-activity-pane')?.id === second, `${tag}: pane identities survive`);
+        check(byTestId(tree, 'panes-workspace-echo')?.props.text === 'Keep this draft', `${tag}: the draft survives`);
+        check(byTestId(tree, 'panes-activity-count')?.props.text === '1', `${tag}: the other pane's state survives`);
+      };
+      for (const mode of ['split', 'overlay', 'css', 'split']) {
+        where = `arrangement-${mode}`;
+        await s.tap(`panes-${mode}`); await settle(s);
+        const tree = await s.tree();
+        const label = mode === 'css' ? 'Authored responsive layout' : `UIKit ${mode === 'overlay' ? 'Overlay' : 'Split'}`;
+        check(byTestId(tree, 'panes-policy')?.props.text === label, `${where}: the active presentation is named`);
+        for (const choice of ['split', 'overlay', 'css']) {
+          check(byTestId(tree, `panes-${choice}`)?.props.accessibilityPressed === String(choice === mode), `${where}: ${choice} has the right selection state`);
+        }
+        await retained(where);
+        await eachPose(s, `arrangement-${mode}`, async ({ l }, tag, deg) => {
+          await retained(tag);
+          const a = box(l, 'panes-workspace-pane'), b = box(l, 'panes-activity-pane');
+          check(a?.w > 0 && a?.h > 0, `${tag}: the primary pane has space`);
+          // Detect scroll resets while allowing native bar insets to change with the pose
+          for (const [i, pane] of [a, b].entries()) {
+            if (pane?.w > 0 && pane?.h > 0) { check(pane.sy > 0, `${tag}: pane ${i + 1} stays scrolled`); }
+          }
+          if (folded(deg)) {
+            check(b?.w > 0 && b?.h > 0, `${tag}: the secondary pane has space on a fold`);
+            const segments = l.env['viewport-segments'];
+            if (segments?.length === 2 && a && b) {
+              const inside = (pane, segment) => {
+                const left = Math.max(0, pane.x), top = Math.max(0, pane.y);
+                const right = Math.min(l.viewport.w, pane.x + pane.w), bottom = Math.min(l.viewport.h, pane.y + pane.h);
+                return right > left && bottom > top && left >= segment[0] - 1 && top >= segment[1] - 1
+                  && right <= segment[0] + segment[2] + 1 && bottom <= segment[1] + segment[3] + 1;
+              };
+              check(segments.some(seg => inside(a, seg)) && segments.some(seg => inside(b, seg)), `${tag}: both visible panes stay clear of the fold`);
+            }
+          }
+        });
+      }
+      await s.tap('panes-workspace-pane', { wheel: [0, -10000] });
+      await s.tap('panes-activity-pane', { wheel: [0, -10000] }); await settle(s);
+      await s.tap('panes-workspace-pane', { wheel: [0, 500] }); await settle(s);
+      let layout = await s.layout();
+      const leftTop = box(layout, 'panes-workspace-pane')?.sy ?? 0;
+      const rightTop = box(layout, 'panes-activity-pane')?.sy ?? 0;
+      check(leftTop > 0 && rightTop === 0, 'each native pane scrolls independently');
+      await pose(s, 130);
+      layout = await s.layout();
+      check((box(layout, 'panes-workspace-pane')?.sy ?? 0) > 0, 'folding preserves the scrolled pane');
+      await s.tap('panes-next'); await settle(s);
+      check(byTestId(await s.tree(), 'screen-panes-next') != null, 'the arrangement leaves with its route');
+      for (const cancel of [true, false]) {
+        const { w, h } = box(await s.layout(), 'screen-panes-next'), distance = w * (cancel ? 0.3 : 0.7);
+        await s.tap('screen-panes-next', { drag: {
+          from: [w * 0.02, h * 0.5], dx: distance, dy: 0, over: 400, hold: 1500,
+          during: [async () => {
+            const state = await s.state();
+            check(state.navigation.transition.interactive && state.navigation.transition.phase === 'in-progress', 'UIKit owns Back while the arranged route is held');
+          }],
+          ...(cancel ? { path: [{ dx: -distance, dy: 0, over: 400 }] } : {}),
+        } });
+        await settle(s);
+        const state = await s.state();
+        check(state.navigation.url === (cancel ? '/panes/next' : '/panes'), `${cancel ? 'cancelled' : 'completed'} Back keeps the correct arranged route`);
+      }
+      await retained('arrangement-back');
+      await s.tap('panes-workspace-pane', { wheel: [0, -10000] }); await settle(s);
+      await s.tap('panes-workspace-clear'); await settle(s);
+      const dialog = byTestId(await s.tree(), 'panes-workspace-confirmation')?.id;
+      let confirmation = (await s.state()).navigation.popover;
+      check(confirmation?.kind === 'confirmation' && confirmation.phase === 'open' && confirmation.popover === dialog, 'the pane presents a native confirmation');
+      await pose(s, 180);
+      confirmation = (await s.state()).navigation.popover;
+      check(dialog != null && confirmation?.popover === dialog && confirmation.phase === 'open'
+        && byTestId(await s.tree(), 'panes-workspace-confirmation')?.id === dialog, 'folding preserves the open confirmation');
+      await s.tap('panes-workspace-cancel'); await settle(s);
+      await retained('arrangement-confirmation');
+    } catch (e) { check(false, `arrangement: ${e.message}`); } finally { await s.close(); }
+  }
+
+  if (leg('reading')) {
+    const gutter = (l, contentId, scrollId, tag) => {
+      const content = box(l, contentId), scroll = box(l, scrollId);
+      const left = Math.max(scroll?.x ?? 0, l.env['-exact-safe-area-corners-inset-left']);
+      const right = Math.min((scroll?.x ?? 0) + (scroll?.w ?? 0), l.viewport.w - l.env['-exact-safe-area-corners-inset-right']);
+      check(content && content.w > 0 && content.x >= left + 16 - 0.5
+        && content.x + content.w <= right - 16 + 0.5, `${tag}: ${contentId} keeps a gutter inside the safe region: ${JSON.stringify(content)} in ${left}…${right}`);
+      check(scroll?.rx === 0, `${tag}: ${scrollId} has no sideways range`);
+    };
+    for (const [tag, deg] of POSES) {
+      const s = await open({ host: 'ios', app: 'duo-lab' });
+      try {
+        where = `reading-${tag}`;
+        await pose(s, deg);
+        await s.tap('tab-images'); await settle(s);
+        const imageGutters = async (phase) => {
+          const l = await s.layout(), list = box(l, 'image-list');
+          const top = list?.port?.[1] ?? list?.y ?? 0, end = top + (list?.port?.[3] ?? list?.h ?? 0);
+          const row = l.nodes.find(n => n.testId?.startsWith('image-row-') && n.y >= top && n.y + n.h <= end);
+          check(row != null, `${phase}: an image row is visible`);
+          if (!row) { return; }
+          const id = row.testId.slice('image-row-'.length);
+          gutter(l, `image-${id}`, 'image-list', phase);
+          gutter(l, `image-caption-${id}`, 'image-list', phase);
+        };
+        await imageGutters(`${where}-images`);
+        await s.tap('image-list', { wheel: [0, 800] }); await settle(s);
+        await imageGutters(`${where}-images-scrolled`);
+        await s.tap('tab-reflow'); await settle(s);
+        gutter((await facts(s, where)).l, 'document', 'reflow-scroll', where);
+        // Open the route after choosing its pose to measure gutters independently of panel-switch navigation
+        await s.type('root', '/keyboard'); await settle(s);
+        await s.tap('keyboard-open-editor'); await settle(s);
+        await s.type('keyboard-editor', 'A sample draft'); await settle(s);
+        gutter(await s.layout(), 'keyboard-editor', 'keyboard-editor-scroll', where);
+        await s.back(); await settle(s);
+        await s.tap('keyboard-open-search'); await settle(s);
+        gutter(await s.layout(), 'keyboard-search-description', 'keyboard-search-scroll', where);
+      } catch (e) { check(false, `${where}: ${e.message}`); } finally { await s.close(); }
+    }
+  }
+
+  // 3. Duo Lab's authored fold, image, text and combination screens.
   if (leg('lab')) {
     const s = await open({ host: 'ios', app: 'duo-lab' });
     try {
