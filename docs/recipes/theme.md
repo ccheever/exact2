@@ -15,7 +15,7 @@ theme
   ink.on-brand = #ffffff  scheme=fixed
 
 icons
-  icon.play = icon(sf "play.fill")
+  icon.play = icon(sf "play.fill", svg "icons/play.svg")
 ```
 
 ```contract
@@ -52,10 +52,9 @@ component App
 - **`AccentColor`** is the app's tint: filled buttons, a plain button's text, the focus ring.
   A filled button's label stays white, so keep both sides at 3:1 under white: a pale dark
   side is warned (`tamber-contrast`).
-- **Icons** are an `icons` block: `sf` is what Apple draws; add `svg "icons/play.svg"`, a
-  one-colour file under `assets/`, for the other hosts. The web host every app has needs it
-  (`tamber-icon-missing`); with no SVG, write the role if there is one (`symbol:play-fill`, drawn
-  everywhere), else `symbol:sf/<name>`, blank on the web. A row draws `image "symbol:icon.play"`,
+- **Icons** are an `icons` block: `sf` is what Apple draws, `svg` (a one-colour file under
+  `assets/`) for the others. The web host every app has needs it (`tamber-icon-missing`); with
+  no SVG, write the role if there is one (`symbol:play-fill`, drawn everywhere), else `symbol:sf/<name>`, blank on the web. A row draws `image "symbol:icon.play"`,
   coloured by `color` and sized by its font ([symbols](symbols.md)).
 - **The scheme:** `setScheme("light" | "dark" | "system")` sets the app's (in its action, and a
   `mount` task for a kept one); `color-scheme`
