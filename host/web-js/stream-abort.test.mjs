@@ -97,3 +97,112 @@ export const restore = () => { Signal.any = any; };
     rmSync(app, { recursive: true, force: true });
   }
 });
+
+for (const name of ['rows', 'optionalRows']) {
+  test(`${name} preserve frozen row identity across pages`, async () => withRows(({ setRows, answer }) => {
+    const first = frozenRow('first'), second = frozenRow('second');
+    setRows([first, second]);
+    const initial = answer(name);
+    setRows([second, first]);
+    const reordered = answer(name);
+    expect(reordered[0]).toBe(initial[1]);
+    expect(reordered[1]).toBe(initial[0]);
+    if (name === 'optionalRows') {
+      setRows([null, first]);
+      const optional = answer(name);
+      expect(optional[0]).toBeNull();
+      expect(optional[1]).toBe(initial[0]);
+    }
+  }));
+}
+
+test('frozen containers recheck mutable children and getters', async () => withRows(({ setRows, answer }) => {
+  const mutable = Object.freeze({id:'mutable', parts:[{text:'before'}]});
+  setRows([mutable]);
+  const before = answer();
+  mutable.parts[0].text = 'after';
+  expect(answer()).toEqual([['mutable', [['after']]]]);
+  expect(before).toEqual([['mutable', [['before']]]]);
+  mutable.parts[0].extra = true;
+  expect(answer).toThrow('field `extra` is not in the shape');
+  let text = 'before';
+  const accessor = Object.freeze({id:'getter', parts:Object.freeze([Object.freeze({get text() { return text; }})])});
+  setRows([accessor]);
+  expect(answer()).toEqual([['getter', [['before']]]]);
+  text = 'after';
+  expect(answer()).toEqual([['getter', [['after']]]]);
+}));
+
+test('frozen cycles report shape errors and sparse arrays recheck inherited elements', async () => withRows(({ setRows, answer }) => {
+  const cyclic = {id:'cycle', parts:Object.freeze([])};
+  cyclic.unexpected = cyclic;
+  setRows([Object.freeze(cyclic)]);
+  expect(answer).toThrow('field `unexpected` is not in the shape');
+  const sparse = Object.freeze({id:'sparse', parts:Object.freeze(Array(1))});
+  const inherited = Object.getOwnPropertyDescriptor(Array.prototype, '0');
+  try {
+    Object.defineProperty(Array.prototype, '0', {value:Object.freeze({text:'before'}), configurable:true, writable:true});
+    setRows([sparse]);
+    expect(answer()).toEqual([['sparse', [['before']]]]);
+    Object.defineProperty(Array.prototype, '0', {value:Object.freeze({text:'after'}), configurable:true, writable:true});
+    expect(answer()).toEqual([['sparse', [['after']]]]);
+  } finally {
+    if (inherited) { Object.defineProperty(Array.prototype, '0', inherited); } else { delete Array.prototype[0]; }
+  }
+}));
+
+test('array validation follows JSON serialization rather than iteration', async () => withRows(({ setRows, answer }) => {
+  setRows([frozenRow('first')]);
+  answer();
+  const serializer = Object.getOwnPropertyDescriptor(Array.prototype, 'toJSON');
+  try {
+    Object.defineProperty(Array.prototype, 'toJSON', {value() { return [...this, {text:17}]; }, configurable:true});
+    expect(answer).toThrow('expected a string, got a number');
+  } finally {
+    if (serializer) { Object.defineProperty(Array.prototype, 'toJSON', serializer); } else { delete Array.prototype.toJSON; }
+  }
+  let iterableText = 17;
+  const parts = [Object.freeze({text:'indexed'})];
+  Object.defineProperty(parts, Symbol.iterator, {value:function* () { yield {text:iterableText}; }});
+  setRows([Object.freeze({id:'iterator', parts:Object.freeze(parts)})]);
+  expect(answer()).toEqual([['iterator', [['indexed']]]]);
+  iterableText = false;
+  expect(answer()).toEqual([['iterator', [['indexed']]]]);
+}));
+
+test('frozen proxies cannot bypass serialization or revocation checks', async () => withRows(({ setRows, answer }) => {
+  let invalid = false;
+  const child = new Proxy(Object.freeze({text:'stable'}), {
+    get(target, key, receiver) {
+      return key === 'toJSON' && invalid ? () => ({text:17}) : Reflect.get(target, key, receiver);
+    },
+  });
+  setRows([Object.freeze({id:'proxy', parts:Object.freeze([child])})]);
+  expect(answer()).toEqual([['proxy', [['stable']]]]);
+  invalid = true;
+  expect(answer).toThrow('expected a string, got a number');
+  const revocable = Proxy.revocable(Object.freeze({text:'revocable'}), {});
+  setRows([Object.freeze({id:'revocable', parts:Object.freeze([revocable.proxy])})]);
+  answer();
+  revocable.revoke();
+  expect(answer).toThrow();
+}));
+
+async function withRows(check) {
+  const directory = runtime('exact-ts-rows-');
+  writeFileSync(resolve(directory, 'ts-data.js'), readFileSync(resolve(root, 'host/web-js/ts-data.js'), 'utf8')
+    .replace("'__APP_TS__'", "'./app.js'").replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', ''));
+  writeFileSync(resolve(directory, 'names.js'), "const row = {id:'s', parts:['[', {text:'s'}]}; export const sourceTypes = {rows:[[], ['[', row]], optionalRows:[[], ['[', ['?', row]]]}\n");
+  writeFileSync(resolve(directory, 'app.js'), "export const appId='test.rows'; let rows=[]; export const setRows=value=>{rows=value;}; export const answer=()=>rows;\n");
+  try {
+    const { setRows } = await import(at(directory, 'app.js'));
+    const { install } = await import(at(directory, 'ts-data.js'));
+    const data = { q:[] };
+    install(data);
+    await check({ setRows, answer:(name = 'rows') => data.answer(name, [], new Map()).v });
+  } finally { rmSync(directory, { recursive:true, force:true }); }
+}
+
+function frozenRow(id) {
+  return Object.freeze({id, parts:Object.freeze([Object.freeze({text:id})])});
+}

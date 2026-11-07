@@ -28,10 +28,12 @@ __AUTH_IMPORT__
 // record or list that converts to what it did is that array itself, so the
 // runtime compares and shape-checks an unchanged row as an identity (the Rust
 // runner keeps an equal answer's old object and re-checks only the list items
-// that are new, runner/src/conform.rs).
+// that are new, runner/src/conform.rs). A frozen data tree keeps its converted
+// value when paging moves it to a different array index.
 const same = (a, b) => a === b ? a !== 0 || 1 / a === 1 / b : a !== a && b !== b;
 const LEAF = [v => v == null ? null : v, v => v == null ? null : v, true];
 const made = new WeakMap();
+const frozenTrees = new WeakSet();
 function converters(t) {
   if (!t || typeof t === 'string') return LEAF;
   let c = made.get(t);
@@ -55,7 +57,7 @@ function converters(t) {
       }
       return out ?? o;
     };
-    return c;
+    return cacheFrozenConversion(c);
   }
   const k = Object.keys(t), n = k.length, subs = k.map(f => converters(t[f]));
   const leaves = subs.map(s => s[2] === true);
@@ -77,7 +79,52 @@ function converters(t) {
     }
     return out ?? o;
   };
-  return c;
+  return cacheFrozenConversion(c);
+}
+function cacheFrozenConversion(converter) {
+  const convert = converter[1], converted = new WeakMap();
+  converter[1] = (value, previous) => {
+    if (value === null || typeof value !== 'object' || !isFrozenData(value)) {
+      return convert(value, previous);
+    }
+    if (converted.has(value)) { return converted.get(value); }
+    const result = convert(value, previous);
+    converted.set(value, result);
+    return result;
+  };
+  return converter;
+}
+// Recheck prototypes because freezing data leaves inherited serialization mutable
+function isFrozenData(value) {
+  if (Object.hasOwn(Object.prototype, 'toJSON') || Object.hasOwn(Array.prototype, 'toJSON')
+      || Object.getPrototypeOf(Array.prototype) !== Object.prototype) {
+    return false;
+  }
+  return isFrozenTree(value, new WeakSet());
+}
+function isFrozenTree(value, visiting) {
+  if (value === null || typeof value !== 'object') { return typeof value !== 'function'; }
+  if (frozenTrees.has(value)) { return true; }
+  const prototype = Object.getPrototypeOf(value);
+  if (!Object.isFrozen(value) || (prototype !== null && prototype !== Object.prototype && prototype !== Array.prototype)
+      || visiting.has(value)) {
+    return false;
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  // Reject holes because frozen arrays can still read mutable inherited elements
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      if (!Object.hasOwn(descriptors, i)) { return false; }
+    }
+  }
+  visiting.add(value);
+  try {
+    for (const descriptor of Object.values(descriptors)) {
+      if (!Object.hasOwn(descriptor, 'value') || !isFrozenTree(descriptor.value, visiting)) { return false; }
+    }
+  } finally { visiting.delete(value); }
+  frozenTrees.add(value);
+  return true;
 }
 // An answer is checked as Hermes checks it (js/value's `decode_tree`, over
 // the prelude's `JSON.stringify`): each declared field present, none
@@ -101,7 +148,7 @@ function outside(v, t) {
   if (Array.isArray(t) && t[0] === '?') return v === null ? null : outside(v, t[1]);
   if (Array.isArray(t)) {
     if (!Array.isArray(v)) return `expected an array, got ${kind(v)}`;
-    for (const x of v) { const e = outside(x, t[1]); if (e) return e; }
+    for (let i = 0; i < v.length; i++) { const e = outside(v[i], t[1]); if (e) return e; }
     return null;
   }
   if (v === null || typeof v !== 'object' || Array.isArray(v)) return `expected an object, got ${kind(v)}`;
@@ -114,6 +161,7 @@ function outside(v, t) {
   for (const key of Object.keys(v)) if (!Object.hasOwn(t, key) && !omitted(v[key]) && (extra === null || key < extra)) extra = key;
   return extra === null ? null : `field \`${extra}\` is not in the shape`;
 }
+// Revalidate every answer: freezing a proxy does not freeze its serialization behavior
 const checked = (name, v, t) => {
   const e = outside(v, t);
   if (e) throw Object.assign(new Error(`\`${name}\` answered outside its shape: ${e}`), { kind: 'Unavailable', [Shaped]: true });
