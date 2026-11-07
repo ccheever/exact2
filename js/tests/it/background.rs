@@ -103,6 +103,27 @@ fn read_file(root: &Root, name: &str) -> String {
     std::fs::read_to_string(root.0.join("data").join(name)).unwrap_or_default()
 }
 
+#[test]
+fn unloading_finishes_a_live_chain_already_readied_by_background_storage() {
+    let root = Root::new();
+    let mut m = root.module();
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
+    m.activate().unwrap();
+    assert!(matches!(
+        m.answer(&mut s, "work", &args("save", "background"))
+            .unwrap(),
+        Answer::Now(_)
+    ));
+    assert!(matches!(
+        m.answer(&mut s, "work", &args("await-saving-file", "live"))
+            .unwrap(),
+        Answer::Later(_)
+    ));
+    rounds(&mut m, &s);
+    m.unload();
+    assert_eq!(read_file(&root, "resumed"), "live");
+}
+
 /// The runner and a host's loop over it, counting what ran: storage
 /// continuation rounds (a 204 from the store's wait) and every other.
 struct Host {

@@ -95,3 +95,58 @@ fn native_later_without_a_handler_answers_now() {
     );
     assert_eq!(finish(&mut m, &mut s, &a, answer), "now:quick");
 }
+
+#[test]
+fn an_answer_resumes_in_its_own_turn_after_other_storage() {
+    struct Native;
+    impl exact_js::NativeModule for Native {
+        fn configure_storage(&mut self, _: exact_js::NativeStorage) -> Result<(), String> {
+            Ok(())
+        }
+        fn call(&mut self, request: &serde_json::Value) -> Result<serde_json::Value, String> {
+            Ok(serde_json::json!({"text": request["value"]}))
+        }
+    }
+    let root = Root::new();
+    let mut m = root.module().with_native(|_| Box::new(Native));
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
+    m.activate().unwrap();
+    assert!(matches!(
+        m.answer(&mut s, "work", &args("save", "background"))
+            .unwrap(),
+        Answer::Now(_)
+    ));
+    let a = args("await-saving-native", "live answer");
+    let answer = m.answer(&mut s, "work", &a).unwrap();
+    assert!(matches!(answer, Answer::Later(_)));
+    assert_eq!(finish(&mut m, &mut s, &a, answer), "live answer");
+    assert_eq!(s.get("session"), Some("live answer"));
+
+    let root = Root::new();
+    let mut m = root.module().with_native(|_| Box::new(Native));
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
+    m.activate().unwrap();
+    let owner_args = args("file", "owner");
+    let owner = m.answer(&mut s, "work", &owner_args).unwrap();
+    let shared_args = args("letgo-shared", "shared");
+    let shared = m.answer(&mut s, "work", &shared_args).unwrap();
+    assert!(matches!(shared, Answer::Later(r) if r.continuation.is_none()));
+    let live_args = args("await-shared-native", "live answer");
+    let live = m.answer(&mut s, "work", &live_args).unwrap();
+    let shared = m
+        .parse(&mut s, "work", &shared_args, super::storage::response(""))
+        .unwrap();
+    let Answer::Later(shared) = shared else {
+        panic!("the shared write waits behind the owner's write")
+    };
+    m.discard(shared.continuation.unwrap());
+    let done = super::background::drive(
+        &mut m,
+        &mut s,
+        vec![(owner_args, owner), (live_args, live)],
+        |_, _| unreachable!(),
+    );
+    assert_eq!(done.len(), 2);
+    assert!(done.iter().any(|text| text == "live answer"));
+    assert_eq!(s.get("session"), Some("live answer"));
+}
