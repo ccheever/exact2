@@ -129,7 +129,6 @@ test('the app root exposes the three workspace tab panels to the native containe
 
 test('expanded routes put native headers first and ordinary inspector columns below the bar', () => {
   const route = expandedWorkspaceRoute();
-  console.log("ROUTE_FULL", JSON.stringify(route).slice(0,10000));
   // Home owns its toolbar through the native HomeChrome component. It is not
   // a direct Contract header, so UIKit must not try to project it as one.
   for (const name of ['thread', 'threadFiles', 'threadFile', 'threadReview', 'newTask', 'newTaskDraft', 'settings', 'settingsAppearance', 'connect']) {
