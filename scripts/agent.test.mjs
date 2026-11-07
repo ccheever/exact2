@@ -211,6 +211,26 @@ test('a press while a contact is held is refused before it reaches the carrier',
   assert.deepEqual(calls.map(c => c[1]), ['press']);
 });
 
+// A row below the screen at the largest text size: `tap avatar at 22 6` was refused, unrevealed, "a press at is outside the viewport".
+test('a press at a point out of view scrolls its view in first; a point still out is refused, named', async () => {
+  const drive = async (box, to, opts) => {
+    const calls = [], carrier = { host: 'web', browser: 'chrome', launchFacts: launchFacts({}), reset() {},
+      async ask(req) { return req.op === 'layout' ? { nodes: [{ id: 1, ...box }], viewport: { w: 420, h: 900 } } : req.op === 'clock' ? { clock: 0 } : { nodes: [{ id: 1, props: { testId: 'a' }, depth: 0 }] }; },
+      async input(id, kind, o) { calls.push([kind, o.at]); return { at: [0, 0] }; },
+      async reveal() { calls.push(['reveal']); const from = box.y; box.y = to; return { scrolled: true, from, to }; } };
+    const s = await open({ reuse: carrier });
+    s.landed = async r => r;
+    return [await s.tap('a', opts).catch(e => e.message), calls];
+  };
+  const [pressed, calls] = await drive({ x: 10, y: 1000, w: 44, h: 44 }, 400, { at: [22, 6] });
+  assert.deepEqual([pressed.scrolled, calls], [{ from: 1000, to: 400 }, [['reveal'], ['press', [22, 6]]]]);
+  // A view taller than the viewport, its point still below after the reveal; a wheel, which reveals nothing.
+  assert.deepEqual(await drive({ x: 10, y: 1000, w: 44, h: 2000 }, -550, { at: [22, 1500] }),
+    ["a press at 22 1500 lands at (32, 950), outside the 420×900 viewport after the view scrolled in: scroll the point into view first, or name one nearer the view's middle", [['reveal']]]);
+  assert.deepEqual(await drive({ x: 10, y: 1000, w: 44, h: 44 }, 400, { at: [22, 6], wheel: [0, 100] }),
+    ["wheel at 22 6 lands at (32, 1006), outside the 420×900 viewport: scroll the point into view first, or name one nearer the view's middle", []]);
+});
+
 // A game's canvas is `testId="world"`, and the web and Apple hosts add a `world` summary list to the app's record: `state world`
 // asks the engine (`world: true`, as `tree` does), never the record whose `world` section the name would otherwise read.
 test('state of a world\'s view asks its engine, not the record\'s world summary', async () => {
