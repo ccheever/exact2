@@ -42,8 +42,8 @@ component App
 ```
 
 - **A role if the platform has one, a token if it is the brand** (`color="ink"`, or
-  `color="var(--ink)"`; `tamber import css tokens.css` writes a stylesheet's). `contract vocab
-  -exact-label` answers a role. From data, a `fn` names the token:
+  `color="var(--ink)"`; `tamber import css tokens.css` writes a stylesheet's).
+  `contract vocab color` lists the roles. From data, a `fn` names the token:
   `` fn tint(t: string): string = `type-${t}` ``.
 - **`light-dark(light, dark)`** gives a token both schemes. One colour on purpose (an ink on
   the brand's fill, a ground under media) says `scheme=fixed`; an unmarked one is warned once,
