@@ -45,16 +45,16 @@ export function homeChromeView(args: unknown[]) {
 
 // @ref examples/t3-code/mobile/docs/1130.002-design-system-parity.spec.md#user-preference-and-accessibility-scaling
 export function settingsRoot(args: unknown[]) {
-  const [serialized, systemScheme, rows, safeBottom, routeKey, selection, , projectRouteKey, compactRoot, visitToken] = args;
+  const [serialized, systemScheme, rows, safeBottom, routeKey, selection, , projectRouteKey, compactRoot, visitToken, query] = args;
   const preferences = normalizeMobilePreferences(serialized);
   const appearance = resolveMobileAppearance(preferences, str(systemScheme));
   const scope = settingsScope(rows, selection, preferences.projectGroupingMode);
   return { visitToken: str(visitToken), root: settingsRootView({ ...mobileAccountSettings(), savedEnvironmentCount: arr(rows).length,
     enabledRoutes: ['SettingsThreads', 'SettingsProjectOverview', 'SettingsEnvironments', 'SettingsAppearance', 'SettingsKeyboard', 'SettingsFollowUp', 'SettingsOrganization', 'SettingsArchive', 'SettingsProviderAccounts', 'SettingsScheduledTasks', 'SettingsUsage', 'SettingsAbout', ...Object.keys(MOBILE_SERVER_ROUTES)],
-    scope, preferences, scheme: appearance.scheme, themeId: appearance.themeId, safeBottom: Number(safeBottom) || 0 }),
+    scope, preferences, scheme: appearance.scheme, themeId: appearance.themeId, safeBottom: Number(safeBottom) || 0, query: str(query) }),
     // Settings is a workspace tab on both compact and split layouts. The root
     // has no Close or Back control; switching tabs is its dismissal affordance.
-    header: JSON.stringify({ ...obj(JSON.parse(settingsHeaderConfiguration(str(routeKey), false, scope, str(visitToken)))), close: false, back: false, compactRoot: false }),
+    header: JSON.stringify({ ...obj(JSON.parse(settingsHeaderConfiguration(str(routeKey), false, scope, str(visitToken), true, str(query)))), close: false, back: false, compactRoot: false }),
     projectHeader: JSON.stringify({ ...obj(JSON.parse(settingsHeaderConfiguration(str(projectRouteKey), false, scope, str(visitToken)))), back: false }),
     environmentIds: JSON.stringify(scope.selected.map(environment => environment.environmentId)),
     serverScope: JSON.stringify({ environmentIds: scope.scoped.map(environment => environment.environmentId),
@@ -81,6 +81,7 @@ export function settingsScopeEvent(args: unknown[]) {
   const permitted = event?.kind === 'all' && event.value === ''
     || event?.kind === 'environment' && availableEnvironmentIds.includes(event.value)
     || event?.kind === 'project' && (event.value === '' || arr(header.projects).some(project => project.id === event.value))
+    || event?.kind === 'search' && header.search === true
     || event?.kind === 'close' && header.close === true && event.value === ''
     || event?.kind === 'back' && header.back === true && event.value === '';
   if (!event || !permitted || !str(visitToken) || event.visitToken !== visitToken || event.requestRoute !== routeKey

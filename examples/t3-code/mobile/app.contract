@@ -305,8 +305,9 @@ component App
         informationQuery = ""
       nav = push(nav, location)
   state settingsVisits = [SettingsVisit(visitToken="", selection=SettingsSelection(allEnvironments=true, environmentIds=[""].slice(0, 0), projectKey=""))].slice(0, 0)
+  state settingsQuery = ""
   derive settingsVisit = settingsVisitOwner(workspaceEntries, `${top(nav).id}`)
-  resource settingsData = settingsRoot(preferences.serialized, viewport.prefersColorScheme, data.environments, layout.safeBottom, settingsVisit.routeKey, settingsVisitSelection(settingsVisits, settingsVisit.visitToken), data.revision, `${top(nav).id}`, not workspace.usesSplitView, settingsVisit.visitToken) as shape SettingsView
+  resource settingsData = settingsRoot(preferences.serialized, viewport.prefersColorScheme, data.environments, layout.safeBottom, settingsVisit.routeKey, settingsVisitSelection(settingsVisits, settingsVisit.visitToken), data.revision, `${top(nav).id}`, not workspace.usesSplitView, settingsVisit.visitToken, settingsQuery) as shape SettingsView
   resource settingsAppearance = settingsAppearance(preferences.serialized, viewport.prefersColorScheme, preferences.ready, layout.safeBottom) as shape SettingsAppearanceData
   resource settingsChoice = settingsChoices(top(nav).params.settingsChoice, preferences.serialized, preferences.ready) as shape SettingsChoicesData
   resource threadPreferences = threadPreferences(top(nav).name == "settingsThreads", settingsData.serverScope, preferences.serialized, preferences.ready, data.revision) as shape ThreadPreferencesData
@@ -430,7 +431,8 @@ component App
   action settingsHeaderEvent(value: string)
     send settingsEvent = settingsScopeEvent(value, (top(nav).name == "settings" ? settingsData.header : top(nav).name == "settingsScheduledTasks" ? scheduledHeader.configuration : top(nav).name == "settingsThreads" or top(nav).name == "settingsProjectOverview" ? settingsData.projectHeader : ""), settingsVisit.visitToken, `${top(nav).id}`)
   action didSettingsEvent
-    let event = settingsEventPlan(settingsVisits, settingsEvent, workspaceEntries, `${top(nav).id}`)
+    let event = settingsEventPlan(settingsVisits, settingsEvent, workspaceEntries, `${top(nav).id}`, settingsQuery)
+    settingsQuery = event.query
     settingsVisits = event.records
     if event.close
       match settingsEvent

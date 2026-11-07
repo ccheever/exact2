@@ -286,6 +286,7 @@ export interface SettingsRootInput {
   scope: ReturnType<typeof mobileSettingsScope>;
   preferences: MobilePreferences;
   scheme: string; themeId: string; safeBottom?: number;
+  query?: string;
   cloudConfigured?: boolean;
   accountLoaded?: boolean; signedIn?: boolean; accountLabel?: string;
 }
@@ -300,41 +301,69 @@ export function settingsRootView(input: SettingsRootInput) {
     row('SettingsEnvironments', 'desktopcomputer', 'Environments', `${input.savedEnvironmentCount}`),
     ...(input.cloudConfigured ? [row('SettingsNotifications', 'bell.badge', 'Notifications')] : []),
   ];
+  const sections = [
+    { title: 'Connections', rows: connections },
+    { title: 'Interface', rows: [row('SettingsAppearance', 'paintbrush', 'Appearance'), row('SettingsKeyboard', 'keyboard', 'Keyboard')] },
+    { title: 'Automations', rows: [row('SettingsScheduledTasks', 'clock', 'Scheduled tasks')] },
+    { title: 'Projects & threads', rows: [
+      ...(input.scope.selection.projectKey ? [row('SettingsProjectOverview', 'folder', 'Overview', input.scope.projectLabel)] : []),
+      row('SettingsOrganization', 'folder', 'Organization'), row('SettingsThreads', 'text.bubble', 'Thread behavior'),
+      row('SettingsFollowUp', 'arrow.turn.left.up', 'Follow-ups'), row('SettingsArchive', 'archivebox', 'Archived Threads')] },
+    { title: 'Server settings', rows: [row('SettingsProviderAccounts', 'person.crop.circle', 'Provider accounts', '', noTargets),
+      row('SettingsEnvironmentNewThreads', 'text.bubble', 'New threads', '', noTargets),
+      row('SettingsEnvironmentSourceControl', 'arrow.triangle.branch', 'Source control', '', noTargets),
+      row('SettingsEnvironmentAgentBehavior', 'text.alignleft', 'Agent behavior', '', noTargets),
+      row('SettingsEnvironmentMaintenance', 'arrow.clockwise', 'Maintenance', '', noTargets)] },
+    { title: 'App', rows: [row('SettingsUsage', 'chart.bar.xaxis', 'Usage'), row('SettingsAbout', 'info.circle', 'About T3 Code')] },
+  ];
+  const query = normalizeSettingsQuery(input.query ?? '');
+  const filteredSections = query === '' ? sections : sections.flatMap(section => {
+    const sectionMatches = query.split(' ').every(term => normalizeSettingsQuery(section.title).includes(term));
+    const rows = sectionMatches ? section.rows : section.rows.filter(item => {
+      const terms = [item.target, item.label, item.value, ...(SETTINGS_SEARCH_TERMS[item.target] ?? [])];
+      const haystack = normalizeSettingsQuery(terms.join(' '));
+      return query.split(' ').every(term => haystack.includes(term));
+    });
+    return rows.length > 0 ? [{ ...section, rows }] : [];
+  });
   return { bottom: Math.max(input.safeBottom ?? 0, 18) + 18,
     colors: settingsColors(input.scheme, input.themeId), roles: mobileTextRoles(input.preferences.baseFontSize),
-    sections: [
-      { title: 'Connections', rows: connections },
-      { title: 'Interface', rows: [row('SettingsAppearance', 'paintbrush', 'Appearance'), row('SettingsKeyboard', 'keyboard', 'Keyboard')] },
-      { title: 'Automations', rows: [row('SettingsScheduledTasks', 'clock', 'Scheduled tasks')] },
-      { title: 'Projects & threads', rows: [
-        ...(input.scope.selection.projectKey ? [row('SettingsProjectOverview', 'folder', 'Overview', input.scope.projectLabel)] : []),
-        row('SettingsOrganization', 'folder', 'Organization'), row('SettingsThreads', 'text.bubble', 'Thread behavior'),
-        row('SettingsFollowUp', 'arrow.turn.left.up', 'Follow-ups'), row('SettingsArchive', 'archivebox', 'Archived Threads')] },
-      { title: 'Server settings', rows: [row('SettingsProviderAccounts', 'person.crop.circle', 'Provider accounts', '', noTargets),
-        row('SettingsEnvironmentNewThreads', 'text.bubble', 'New threads', '', noTargets),
-        row('SettingsEnvironmentSourceControl', 'arrow.triangle.branch', 'Source control', '', noTargets),
-        row('SettingsEnvironmentAgentBehavior', 'text.alignleft', 'Agent behavior', '', noTargets),
-        row('SettingsEnvironmentMaintenance', 'arrow.clockwise', 'Maintenance', '', noTargets)] },
-      { title: 'App', rows: [row('SettingsUsage', 'chart.bar.xaxis', 'Usage'), row('SettingsAbout', 'info.circle', 'About T3 Code')] },
-    ],
+    sections: filteredSections,
   };
 }
-export function settingsHeaderConfiguration(routeKey: string, compact: boolean, scope: ReturnType<typeof mobileSettingsScope>, visitToken: string) {
+const SETTINGS_SEARCH_TERMS: Record<string, readonly string[]> = {
+  SettingsEnvironments: ['servers', 'connections', 'pair', 'remote', 'add environment'],
+  SettingsAppearance: ['theme', 'dark mode', 'light mode', 'colors', 'font size', 'text size'],
+  SettingsKeyboard: ['return key', 'send message', 'new line', 'hardware keyboard'],
+  SettingsScheduledTasks: ['automations', 'schedule', 'cron', 'recurring'],
+  SettingsOrganization: ['project grouping', 'group projects', 'sidebar', 'organization'],
+  SettingsThreads: ['new threads', 'permissions', 'streaming', 'browser access', 'thread behavior'],
+  SettingsFollowUp: ['follow-ups', 'queue', 'steer'],
+  SettingsArchive: ['archive', 'archived', 'restore', 'unarchive'],
+  SettingsProviderAccounts: ['provider accounts', 'codex', 'claude', 'cursor', 'login', 'auth'],
+  SettingsEnvironmentSourceControl: ['git', 'pull requests', 'co-authors', 'default branch'],
+  SettingsEnvironmentMaintenance: ['updates', 'restart', 'manage environments'],
+  SettingsAbout: ['version', 'diagnostics', 'cache', 'legal', 'privacy', 'terms', 'open source licenses'],
+};
+function normalizeSettingsQuery(value: string): string {
+  return value.toLocaleLowerCase().trim().replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ');
+}
+export function settingsHeaderConfiguration(routeKey: string, compact: boolean, scope: ReturnType<typeof mobileSettingsScope>, visitToken: string, search = false, query = '') {
   const symbols: Record<string, string> = { server: 'server.rack', cloud: 'cloud', linux: 'terminal', desktop: 'desktopcomputer', laptop: 'laptopcomputer', 'mac-mini': 'macmini', 'mac-studio': 'macstudio' };
-  return JSON.stringify({ routeKey, visitToken, close: compact, back: !compact, filtered: scope.filtered,
+  return JSON.stringify({ routeKey, visitToken, close: compact, back: !compact, search, query, filtered: scope.filtered,
     all: scope.selection.environmentIds === null, selectedCount: scope.selected.length, projectKey: scope.selection.projectKey,
     projectLabel: !scope.selection.projectKey ? 'All projects' : scope.projects.find(project => project.key === scope.selection.projectKey)?.title ?? 'Unavailable project',
     environments: scope.available.map(environment => ({ id: environment.environmentId, label: environment.label,
       subtitle: environment.origin, symbol: symbols[environment.machine] || 'desktopcomputer', selected: scope.selected.some(target => target.environmentId === environment.environmentId) })),
     projects: scope.projects.map(project => ({ id: project.key, label: project.title, selected: project.key === scope.selection.projectKey })) });
 }
-export function decodeSettingsHeaderEvent(text: string): { kind: 'all' | 'environment' | 'project' | 'close' | 'back'; value: string; visitToken: string; requestRoute: string } | null {
+export function decodeSettingsHeaderEvent(text: string): { kind: 'all' | 'environment' | 'project' | 'close' | 'back' | 'search'; value: string; visitToken: string; requestRoute: string } | null {
   let object: unknown;
   try { object = JSON.parse(text); } catch { return null; }
   if (!object || typeof object !== 'object') return null;
   const event = object as Record<string, unknown>;
   if (typeof event.value !== 'string' || typeof event.visitToken !== 'string' || !event.visitToken
     || typeof event.requestRoute !== 'string' || !event.requestRoute) return null;
-  return event.kind === 'all' || event.kind === 'environment' || event.kind === 'project' || event.kind === 'close' || event.kind === 'back'
+  return event.kind === 'all' || event.kind === 'environment' || event.kind === 'project' || event.kind === 'close' || event.kind === 'back' || event.kind === 'search'
     ? { kind: event.kind, value: event.value, visitToken: event.visitToken, requestRoute: event.requestRoute } : null;
 }

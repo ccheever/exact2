@@ -163,3 +163,18 @@ test('Settings header admission refuses stale physical routes, logical visits an
  expect(obj(JSON.parse(unavailable.projectHeader))).toMatchObject({projectKey,projectLabel:'Unavailable project',all:false});
  expect(obj(JSON.parse(unavailable.serverScope)).environmentIds).toEqual([]);
 });
+
+test('Settings search filters rows and stays owned by the native header visit', () => {
+  scopeTransport();
+  const rows = environmentRows();
+  const data = answer('settingsRoot', ['{}', 'light', rows, 0, '1', allSelection(), 0, '1', false, 'root:1', 'appearance']);
+  const root = obj(data.root);
+  const sections = root.sections as Obj[];
+  expect(sections).toHaveLength(1);
+  expect(sections[0]?.title).toBe('Interface');
+  expect((sections[0]?.rows as Obj[]).map(row => row.label)).toEqual(['Appearance']);
+  expect(obj(JSON.parse(data.header))).toMatchObject({ search: true, query: 'appearance', close: false, back: false });
+  expect(scopeOperation('search', 'keyboard', data.header, 'root:1', '1')).toMatchObject({
+    kind: 'search', value: 'keyboard', visitToken: 'root:1', requestRoute: '1',
+  });
+});
