@@ -212,6 +212,53 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertTrue(list.isHidden, "the restarted tablist is hidden: its tabs do not draw at the window's origin")
     }
 
+    /// A tablist built again after launch over the same panels (the fixture
+    /// keys it by its build) is the tab bar's as the first was: covered, hidden
+    /// by the host and no tab bar of its own, while the tabs keep their stacks.
+    func testATablistBuiltAgainOverTheSamePanelsIsTheTabBars() throws {
+        guard hostedWindowScene() != nil else { throw missing("scene", "the tab container adopts its replacement in a window") }
+        let session = try fixture("rebuilt-tablist")
+        let navigation = session.presenter.navigation
+        let old = try node(session, "tabs")
+        XCTAssertTrue(navigation.adopts(tablist: old))
+        let stacks = try XCTUnwrap(navigation.tabController?.viewControllers)
+        // Pressed as its handler is (the button may be on a tab not shown).
+        session.apply(session.runtime.press(try node(session, "tabs-rebuilt").id, now: session.now()))
+        until("the tablist is built again") { (try? self.node(session, "tabs")).map { $0.id != old.id } == true }
+        let list = try node(session, "tabs")
+        until("the tab bar takes the new tablist's place") { navigation.adopts(tablist: list) && navigation.delivered[list.id] == .whole }
+        XCTAssertTrue(list.isHidden, "its tabs do not draw over the bar")
+        XCTAssertFalse(list.subviews.contains { $0 is UITabBar || $0 is UISegmentedControl }, "it is not a bar of its own")
+        let controllers = try XCTUnwrap(navigation.tabController?.viewControllers)
+        XCTAssertTrue(controllers.count == stacks.count && zip(controllers, stacks).allSatisfy { $0 === $1 }, "the tabs keep their stacks")
+    }
+
+    func testAnAppOwnedContainerSelectsThroughARebuiltTablist() throws {
+        guard hostedWindowScene() != nil else { throw missing("scene", "the app's container selects tabs in its window") }
+        setenv("EXACT_FIXTURE_CONTAINER", "app", 1)
+        defer { unsetenv("EXACT_FIXTURE_CONTAINER"); NativeViews.uninstallTable() }
+        let session = try fixture("rebuilt-owned-tabs", module: true)
+        let navigation = session.presenter.navigation
+        until("the app's container holds the tabs") { navigation.tabController == nil && navigation.tabOwner != nil }
+        let owner = try XCTUnwrap(navigation.tabOwner)
+        let stacks = navigation.tabPanels.compactMap { navigation.tabNavigations[$0] }
+        XCTAssertEqual(stacks.count, 2)
+        let second = try XCTUnwrap(stacks.dropFirst().first)
+        let old = try node(session, "tabs").id
+        session.apply(session.runtime.press(try node(session, "tabs-rebuilt").id, now: session.now()))
+        until("the app's container adopts the replacement") {
+            (try? self.node(session, "tabs")).map { $0.id != old && navigation.adopts(tablist: $0) } == true
+        }
+        XCTAssertTrue(navigation.tabOwner === owner)
+        let control = try XCTUnwrap(owner.view.subviews.compactMap { $0 as? UISegmentedControl }.first)
+        control.selectedSegmentIndex = 1
+        for case let target as NSObject in control.allTargets {
+            for name in control.actions(forTarget: target, forControlEvent: .valueChanged) ?? [] { target.perform(Selector(name), with: control) }
+        }
+        until("the rebuilt tab's handler selects Second") { navigation.primaryNavigation === second }
+        XCTAssertTrue(stacks.allSatisfy { $0.parent === owner }, "the app keeps its existing stacks")
+    }
+
     /// A style that drops the tablist's `accent-color` (here one sent by
     /// hand, which replaces the whole style) as the bar hides: the bar's
     /// tint, whose fallback was the bar's own tint, recursed until the

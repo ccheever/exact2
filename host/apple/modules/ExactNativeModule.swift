@@ -805,7 +805,7 @@ public final class ExactTabContents {
     public var onSelect: ((Int) -> Void)?
     /// False once Exact retired the container: `select` then does nothing.
     public internal(set) var isLive = true
-    let tabNodes: [UInt32]
+    var tabNodes: [UInt32]
     weak var hatches: ExactHatches?
     init(tabs: [ExactTab], selected: Int, tabNodes: [UInt32], hatches: ExactHatches) {
         self.tabs = tabs; self.selected = selected; self.tabNodes = tabNodes; self.hatches = hatches
@@ -1188,9 +1188,14 @@ private let moduleTabs: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsafe
 /// container the app owns, retained once for the host, or nil.
 private let moduleTabContainer: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UnsafeMutableRawPointer?>?, UInt32) -> UnsafeMutableRawPointer? = { raw, json, length, controllers, count in
     #if os(iOS) || os(tvOS)
-    guard let m = module(raw), let hatches = m.hatches, let json, let controllers,
+    guard let m = module(raw), let hatches = m.hatches, let json,
           let object = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: Int(length))) as? [String: Any],
-          let names = object["names"] as? [String], let nodes = object["nodes"] as? [NSNumber], names.count == Int(count) else { return nil }
+          let nodes = object["nodes"] as? [NSNumber] else { return nil }
+    if object["refresh"] as? Bool == true {
+        if let contents = hatches.contents, contents.isLive, contents.tabs.count == nodes.count { contents.tabNodes = nodes.map(\.uint32Value) }
+        return nil
+    }
+    guard let controllers, let names = object["names"] as? [String], names.count == Int(count), nodes.count == names.count else { return nil }
     let shown = (0..<Int(count)).compactMap { controllers[$0].map { Unmanaged<UIViewController>.fromOpaque($0).takeUnretainedValue() } }
     guard shown.count == names.count else { return nil }
     let tabs = zip(names, shown).map { ExactTab(name: $0, shown: $1, hatches: hatches) }
