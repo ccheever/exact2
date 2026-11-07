@@ -610,7 +610,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         // the horizontal bar on phones and the vertical system rail on Duo.
         makeHeaderSearch(route)
         let keys = ["threads", "pullRequests", "usage", "settings"]
-        let labels = ["Chats", "PRs", "Usage", "Settings"]
+        let labels = ["Chats", "Pull Requests", "Usage", "Settings"]
         let symbols = [["text.bubble", "bubble.left"], ["arrow.triangle.pull", "arrow.triangle.branch"], ["chart.bar.xaxis", "chart.bar"], ["gearshape"]]
         let controller = T3SystemTabController()
         let children = keys.map { _ in T3TabPlaceholderController() }
