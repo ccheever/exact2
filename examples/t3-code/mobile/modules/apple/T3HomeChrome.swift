@@ -218,8 +218,11 @@ private extension UIViewController {
 }
 
 private enum T3TabIcon {
-    static func image(_ image: UIImage?) -> UIImage? {
-        guard let image else { return nil }
+    /// Some SF Symbol names are introduced in a later OS symbol set than the
+    /// host app's deployment target. Keep Expo's preferred glyph first, then
+    /// use a stable equivalent so a tab never degrades to a title-only item.
+    static func image(_ names: [String]) -> UIImage? {
+        guard let image = names.lazy.compactMap({ UIImage(systemName: $0) }).first else { return nil }
         let canvas = CGSize(width: 28, height: 28)
         let scale = min(24 / image.size.width, 24 / image.size.height)
         let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
@@ -505,7 +508,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private func makeSidebarTabs(_ route: ExactRoute) {
         let keys = ["threads", "pullRequests", "usage", "settings"]
         let labels = ["Chats", "Pull Requests", "Usage", "Settings"]
-        let symbols = ["text.bubble", "arrow.triangle.branch", "chart.bar.xaxis", "gearshape"]
+        let symbols = [["text.bubble", "bubble.left"], ["arrow.triangle.pull", "arrow.triangle.branch"], ["chart.bar.xaxis", "chart.bar"], ["gearshape"]]
         let bar = UITabBar()
         bar.translatesAutoresizingMaskIntoConstraints = false
         bar.accessibilityIdentifier = "workspace-sidebar-tab-bar"
@@ -515,7 +518,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         bar.backgroundColor = .clear
         bar.isTranslucent = true
         bar.items = keys.enumerated().map { index, key in
-            let item = UITabBarItem(title: nil, image: UIImage(systemName: symbols[index]), selectedImage: index == 0 ? UIImage(systemName: "text.bubble.fill") : nil)
+            let item = UITabBarItem(title: nil, image: T3TabIcon.image(symbols[index]), selectedImage: index == 0 ? T3TabIcon.image(["text.bubble.fill", "bubble.left.fill", "bubble.left"]) : nil)
             item.accessibilityLabel = labels[index]
             item.accessibilityIdentifier = "workspace-sidebar-tab-\(key)"
             return item
@@ -541,7 +544,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         makeHeaderSearch(route)
         let keys = ["threads", "pullRequests", "usage", "settings"]
         let labels = ["Chats", "PRs", "Usage", "Settings"]
-        let symbols = ["text.bubble", "arrow.triangle.branch", "chart.bar.xaxis", "gearshape"]
+        let symbols = [["text.bubble", "bubble.left"], ["arrow.triangle.pull", "arrow.triangle.branch"], ["chart.bar.xaxis", "chart.bar"], ["gearshape"]]
         let controller = T3SystemTabController()
         let children = keys.map { _ in T3TabPlaceholderController() }
         controller.viewControllers = children
@@ -551,10 +554,10 @@ private final class T3HomeChromeView: ExactNativeInstance {
         controller.tabBar.unselectedItemTintColor = .secondaryLabel
         for (index, item) in (controller.tabBar.items ?? []).enumerated() where index < keys.count {
             item.title = nil
-            item.image = T3TabIcon.image(UIImage(systemName: symbols[index]))
+            item.image = T3TabIcon.image(symbols[index])
             item.accessibilityLabel = labels[index]
             item.accessibilityIdentifier = "workspace-tab-\(keys[index])"
-            if index == 0 { item.selectedImage = T3TabIcon.image(UIImage(systemName: "text.bubble.fill")) }
+            if index == 0 { item.selectedImage = T3TabIcon.image(["text.bubble.fill", "bubble.left.fill", "bubble.left"]) }
         }
         controller.selectedIndex = 0
         let delegate = T3SystemTabDelegate(keys: keys) { [weak self] key in self?.emit("tab", key) }
