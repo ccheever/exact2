@@ -249,6 +249,15 @@ export function report(runs, trees, host) {
   return out.join('\n');
 }
 
+/** The screen the observation `obs` read, captured at `path`: its pixels, as the device drew them. A capture kept (`keep`)
+ *  for a person or an agent to look at is written a pixel a point, as `agent`'s are: a third of an iPhone's pixels each way. */
+export async function capture(s, obs, path, { keep = false } = {}) {
+  const taken = await s.carrier.screenshot(path, obs.capture?.window === true); // iOS observes in the window's points: a sheet is not in the viewport's picture
+  const png = decodePng(readFileSync(path));
+  if (keep && taken?.scale > 1) writeFileSync(path, encodePng(shrink(png, Math.round(png.width / taken.scale), Math.round(png.height / taken.scale))));
+  return png;
+}
+
 /** `check [light|dark|both]` on a session: the host's observation and a capture under each scheme asked, judged; the scheme is put back.
  *  `shots(viewport, scheme)` names a file to keep each capture in (verify's), else they go with the check. A finding an
  *  entry of `accept` (app.json `verify.accept`) takes is the run's `accepted`, each with its line and the entry, not a finding. */
@@ -265,14 +274,10 @@ export async function checkOp(s, args = [], { shots, accept = [] } = {}) {
     for (const scheme of asked) {
       let obs = first;
       if (scheme !== first.scheme || preferred) { await s.prefer({ 'prefers-color-scheme': scheme }); preferred = scheme; obs = await s.op({ op: 'check' }); }
-      const path = shots?.(obs.viewport, scheme) ?? resolve(dir, `${scheme}.png`);
-      const taken = await s.carrier.screenshot(path, obs.capture?.window === true); // iOS observes in the window's points: a sheet is not in the viewport's picture
-      const png = decodePng(readFileSync(path));
+      const png = await capture(s, obs, shots?.(obs.viewport, scheme) ?? resolve(dir, `${scheme}.png`), { keep: !!shots });
       runs.push({ scheme: obs.scheme, asked: scheme, target: obs.target, viewport: obs.viewport, findings: judge(obs, png, { host: s.host === 'web' ? 'web' : 'ios' }), ...(obs.advice ? { advice: obs.advice } : {}) });
       // The tree as this scheme shows it: a view only one scheme shows is named, and accepted, by its own testId.
       trees.push(new Map(((await s.op({ op: 'tree' })).nodes ?? []).map((n) => [n.id, n])));
-      // A capture kept for a person or an agent to look at is a pixel a point once judged, as `agent`'s are: a third of an iPhone's pixels each way.
-      if (shots && taken?.scale > 1) writeFileSync(path, encodePng(shrink(png, Math.round(png.width / taken.scale), Math.round(png.height / taken.scale))));
     }
   } finally {
     if (preferred && preferred !== first.scheme) await s.prefer({ 'prefers-color-scheme': first.scheme }).catch(() => {});

@@ -17,8 +17,8 @@
 // it is a finding only when a saved value came back different (`savedChanges`: a `persist` state, a field showing what the app kept).
 // A native host's cold launch is `/` (LLP 1038 §7), so iOS has no such reload to compare. A refusal
 // the host journaled during the run (`logs`: 'swipeContent … is refused: …') is shown first in the report (LLP 1116.010 D5). One capture of each screen is kept in
-// .exact/verify/ for milestones (four of the first screen: each width and scheme). It prints one short report
-// ending "verify: clean" or "verify: N problems" (`--json`: one object). Exit 1 when the build, a test, a launch
+// .exact/verify/ for milestones (four of the first screen: each width and scheme), and one of each page read at the
+// largest text size. It prints one short report ending "verify: clean" or "verify: N problems" (`--json`: one object). Exit 1 when the build, a test, a launch
 // or the relaunch fails; check's findings, the relaunch's, those at the largest text size and the compiler's warnings
 // (`contract build`'s, whether or not this run built) are counted in the last line but never fail it, since check reads the screen
 // by heuristics and some of either only advise; a warning that is information (`tamber-unreachable`) is said, not
@@ -469,12 +469,14 @@ export function warningsOfBuild(text, cwd = process.cwd()) {
   return [...lines];
 }
 
-/** A test's capture, by its number and the start of its name: `web-t2-the-items-survive-a-relaunch.png`. */
-export function shotName(host, index, name) {
+/** A capture's name: its host, its `tag` and the start of the test's `name`. */
+function captureName(host, tag, name) {
   let slug = '';
   for (const word of String(name).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)) { if (slug && slug.length + 1 + word.length > 28) break; slug = slug ? `${slug}-${word}` : word; }
-  return `${host}-t${index + 1}${slug ? `-${slug.slice(0, 28)}` : ''}.png`;
+  return `${host}-${tag}${slug ? `-${slug.slice(0, 28)}` : ''}.png`;
 }
+/** A test's capture, by its number and the start of its name: `web-t2-the-items-survive-a-relaunch.png`. */
+export const shotName = (host, index, name) => captureName(host, `t${index + 1}`, name);
 
 /** What a launch shows and holds, for the relaunch's comparison: the active screen's texts and field values, the
  * resources, and how many storage operations the data module has run. */
@@ -742,9 +744,10 @@ export async function fixedType(dir, host, accept = ACCEPT) {
 const contentSize = (udid, size) => spawnSync('xcrun', ['simctl', 'ui', udid, 'content_size', ...(size ? [size] : [])], { encoding: 'utf8' });
 
 /** The screen `s` shows, again at the largest text size: its findings of LARGE_KINDS as check words them with their remedy,
- * the app's `verify.accept` taken out, `{ screen, size, rootFontSize, lines, ms }`; or `{ screen, error }`. The simulator's
- * own size is put back after, and when the process ends first. Null on iOS with no simulator to set. */
-async function largestText(s, screen) {
+ * the app's `verify.accept` taken out, and a capture of each page it read, named by `shot(viewport, page)` (`largeShot`),
+ * `{ screen, size, rootFontSize, lines, shots, ms }`; or `{ screen, error }`. The simulator's own size is put back after,
+ * and when the process ends first. Null on iOS with no simulator to set. */
+export async function largestText(s, screen, shot) {
   const web = s.host === 'web', udid = s.carrier?.udid, was = web ? null : udid && contentSize(udid).stdout?.trim();
   if (!web && !was) return null;
   const started = Date.now(), body = async () => (await s.prefer({})).page?.['root-font-size'];
@@ -762,13 +765,14 @@ async function largestText(s, screen) {
       for (const end = Date.now() + 3000; (await body()) === before && Date.now() < end;) await new Promise((r) => setTimeout(r, 50));
     }
     await s.clock('settle');
-    const [{ judge, line, accepts }, tree] = await Promise.all([import('./agent-check.mjs'), s.op({ op: 'tree' })]);
-    const nodes = new Map((tree.nodes ?? []).map((n) => [n.id, n])), looked = new Set(), found = new Map();
+    const [{ capture, judge, line, accepts }, tree] = await Promise.all([import('./agent-check.mjs'), s.op({ op: 'tree' })]);
+    const nodes = new Map((tree.nodes ?? []).map((n) => [n.id, n])), looked = new Set(), found = new Map(), shots = [];
     let obs;
     // A screen at a time, as check reads one: the page is scrolled to the first node with a testId that no reading has
     // held yet, at most PAGES times (a list's rows off the screen have no cells to read).
     for (let page = 0; page < PAGES; page++) {
       obs = await s.op({ op: 'check' });
+      if (shot) { shots.push(shot(obs.viewport, page)); await capture(s, obs, shots.at(-1), { keep: true }); }
       for (const it of obs.items ?? []) looked.add(it.id).add(it.of);
       for (const f of judge(obs, null, { host: web ? 'web' : 'ios' })) if (LARGE_KINDS.has(f.kind) && !accepts(ACCEPT, f, nodes) && !found.has(`${f.kind} ${f.id}`)) found.set(`${f.kind} ${f.id}`, f);
       let moved = false;
@@ -781,10 +785,13 @@ async function largestText(s, screen) {
     }
     const parents = new Map((tree.nodes ?? []).flatMap((n) => (n.children ?? []).map((c) => [c, n.id])));
     const inRow = (id) => { for (let at = parents.get(id); at != null; at = parents.get(at)) if (nodes.get(at)?.type === 'List') return true; return false; };
-    return { screen, size: [obs.viewport.w, obs.viewport.h], rootFontSize: web ? LARGEST_PX : await body(), lines: [...found.values()].map((f) => line({ ...f, hint: largeRemedy(f, { inRow: inRow(f.id) || (f.of != null && inRow(f.of)) }) }, nodes)), ms: Date.now() - started };
+    return { screen, size: [obs.viewport.w, obs.viewport.h], rootFontSize: web ? LARGEST_PX : await body(), lines: [...found.values()].map((f) => line({ ...f, hint: largeRemedy(f, { inRow: inRow(f.id) || (f.of != null && inRow(f.of)) }) }, nodes)), shots, ms: Date.now() - started };
   } catch (e) { return { screen, error: e.message }; }
   finally { restore(); forget(); }
 }
+/** The capture of a screen's `page` at the largest text size, named after `path`, its capture at the normal size:
+ * `ios-t2-adds-a-card-largest.png`, and its second page `ios-t2-adds-a-card-largest-2.png`. */
+export const largeShot = (path, page) => path.replace(/\.png$/, `-largest${page ? `-${page + 1}` : ''}.png`);
 
 /** An iOS test end whose window the test sized (`size 1100x800`) is that window scaled to fit the phone (ExactViewIOS.swift):
  * its text is drawn smaller than its points, so neither the pixels behind a label nor a control's size is what a person
@@ -816,7 +823,7 @@ const testEnd = (host, shots, persisted) => async (s, t) => {
   if (host === 'ios') scaledEnd(runs, t.size);
   const refusals = await refusalsIn(s, t.expectedRefusals);
   const reloaded = await reloadEnd(s, t, persisted);
-  const large = await largestText(s, t.name);
+  const large = await largestText(s, t.name, (vp, page) => largeShot(path, page));
   // A web test runs on a page origin of its own (agent-test.mjs `launch`), and what it stored is that origin's: the relaunch opens it.
   const port = host === 'web' ? s.carrier?.port : undefined;
   return { keep: true, runs, shot: path, resources: facts.resources, ops: facts.ops, reload: t.reload, launch: t.launch, reached: t.reached, refusals, reloaded, large, ...(port ? { port } : {}) };
@@ -849,11 +856,12 @@ async function tests(host, app, shots) {
  * (a flashcard's Again and Got it, shown once the card turns) is no test's end, and its overflow went unreported
  * (flashcards, round 22). What the tests assert is not judged here. At most LARGE_TOUR_SCREENS screens, so a run
  * reports the same ones each time, and no more than LARGE_TOUR_MS. The `largestText` results, each screen named by the
- * line of the test it followed. On round 22's flashcards, notes and book-club (12 to 26 s without it) it added 1 to 11 s,
- * 6 on average; most on an app with its own server, whose tour runs after the rest. */
+ * line of the test it followed, as its captures in `shots` are (`web-line36-studies-the-deck-largest.png`). On round
+ * 22's flashcards, notes and book-club (12 to 26 s without it) it added 1 to 11 s, 6 on average; most on an app with its
+ * own server, whose tour runs after the rest. */
 const LARGE_TOUR_SCREENS = 12, LARGE_TOUR_MS = 40_000;
 const kindOf = (id) => String(id).replace(/\d+/g, '#');
-async function largeTour(app) {
+async function largeTour(app, shots) {
   const [{ runTests }, { authoredTests }] = await Promise.all([import('./agent-test.mjs'), import('./app.mjs')]);
   const shown = new Set(), read = [], started = Date.now();
   const spent = () => read.length >= LARGE_TOUR_SCREENS || Date.now() - started > LARGE_TOUR_MS;
@@ -863,7 +871,7 @@ async function largeTour(app) {
     const ids = (tree?.nodes ?? []).filter((n) => !n.inactive && n.props?.testId != null).map((n) => kindOf(n.props.testId));
     if (ids.every((id) => shown.has(id))) return;
     for (const id of ids) shown.add(id);
-    const r = await largestText(s, `line ${line} of ${quoted(name, 24)}`);
+    const r = await largestText(s, `line ${line} of ${quoted(name, 24)}`, (vp, page) => largeShot(resolve(shots, captureName('web', `line${line}`, name)), page));
     if (r && !r.error) read.push(r);
   };
   for (const file of authoredTests(app.dir)) {
@@ -898,7 +906,7 @@ async function checkAt(host, app, size, store, shots) {
     const runs = await checkHere(s, { screen: FIRST, shot: (vp, scheme) => resolve(shots, `${host}-${vp.w}x${vp.h}-${scheme}.png`), state });
     if (facts) Object.defineProperty(runs, 'seen', { value: facts });
     Object.defineProperty(runs, 'refusals', { value: await refusalsIn(s) });
-    if (host === 'ios' || size === WEB_SIZES[0]) Object.defineProperty(runs, 'large', { value: await largestText(s, FIRST) });
+    if (host === 'ios' || size === WEB_SIZES[0]) Object.defineProperty(runs, 'large', { value: await largestText(s, FIRST, (vp, page) => largeShot(resolve(shots, `${host}-${vp.w}x${vp.h}.png`), page)) });
     if (host === 'ios') Object.defineProperties(runs, { tall: { value: await tallContent(s) }, udid: { value: s.carrier?.udid ?? null } });
     return runs;
   } finally {
@@ -1089,7 +1097,7 @@ async function relaunch(host, app, test, fresh, shots) {
     const after = await seen(s, state);
     const path = resolve(shots, `${host}-relaunch.png`);
     const runs = await checkHere(s, { screen: RELAUNCH, sizes: host === 'web' ? [null, WEB_SIZES[1]] : [null], shot: (vp, scheme) => (scheme === 'light' && (host !== 'web' || vp.w === WEB_SIZES[0][0]) ? path : undefined) });
-    const refusals = await refusalsIn(s), large = await largestText(s, RELAUNCH);
+    const refusals = await refusalsIn(s), large = await largestText(s, RELAUNCH, (vp, page) => largeShot(path, page));
     return { test: test.name, ms, shot: path, runs, refusals, large, ...judgeRelaunch(test, fresh, after, { busy, failed: state.failed, heldBy: (state.pending ?? []).filter((p) => p.held).map((p) => p.name) }) };
   } finally {
     await s.close();
@@ -1281,9 +1289,11 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   }
   if (shots.length) {
     const place = (p) => { const r = relative(cwd, p); return r.startsWith('..') ? p : r || '.'; }, name = (p) => relative(resolve(p, '..'), p);
-    const first = shots.filter((p) => /^\w+-\d+x\d+-(light|dark)\.png$/.test(name(p))), ends = shots.filter((p) => /^\w+-t\d+[-.]/.test(name(p))), again = shots.filter((p) => /^\w+-relaunch\.png$/.test(name(p)));
+    // A capture at the largest text size is named after its screen's (`largeShot`), so the result that took it tells it apart.
+    const largest = new Set(large.flatMap((l) => l.shots ?? [])), big = shots.filter((p) => largest.has(p)), normal = shots.filter((p) => !largest.has(p));
+    const first = normal.filter((p) => /^\w+-\d+x\d+-(light|dark)\.png$/.test(name(p))), ends = normal.filter((p) => /^\w+-t\d+[-.]/.test(name(p))), again = normal.filter((p) => /^\w+-relaunch\.png$/.test(name(p)));
     out.push(`screenshots (${place(resolve(shots[0], '..'))}${copied ? `, copied to ${place(copied)}` : ''}): ${first.map(name).join(' ')}`);
-    const more = [ends.length && `test ends: ${ends.map(name).join(' ')}`, again.length && `relaunch: ${again.map(name).join(' ')}`, own.length && `its own: ${own.join(' ')}`].filter(Boolean);
+    const more = [ends.length && `test ends: ${ends.map(name).join(' ')}`, again.length && `relaunch: ${again.map(name).join(' ')}`, big.length && `largest text size: ${big.map(name).join(' ')}`, own.length && `its own: ${own.join(' ')}`].filter(Boolean);
     if (more.length) out.push(`  ${more.join('; ')}`);
   }
   // Windows: the drives above are headless (DejaVu Sans, no frame); the desktop's picture is one more, never counted.
@@ -1368,7 +1378,7 @@ async function deviceMain(argv, emitJSON, declined, ended) {
   try {
     // An app with a server opens its first screen before the tests write to it: an empty database's.
     if (running) { firsts = host === 'web' ? await Promise.all(WEB_SIZES.map(launch)) : [await launch(null, 0)]; tested = await tests(host, app, shots); }
-    else if (host === 'web') [tested, toured, ...firsts] = await Promise.all([tests(host, app, shots), largeTour(app), ...WEB_SIZES.map(launch)]);
+    else if (host === 'web') [tested, toured, ...firsts] = await Promise.all([tests(host, app, shots), largeTour(app, shots), ...WEB_SIZES.map(launch)]);
     else { tested = await tests(host, app, shots); firsts = [await launch(null, 0)]; }
     results = tested?.results ?? [];
     const fresh = firsts.find((runs) => runs.seen)?.seen ?? null;
@@ -1388,7 +1398,7 @@ async function deviceMain(argv, emitJSON, declined, ended) {
       })().catch((e) => ({ test: chosen.name, error: e.message }));
     }
     // An app's own server holds what the tests wrote by now: the tour, which writes again, goes last.
-    if (running && host === 'web') toured = await largeTour(app);
+    if (running && host === 'web') toured = await largeTour(app, shots);
     if (host === 'ios' && firsts.some((runs) => runs.tall)) {
       const key = await scrollKey(app, { udid: firsts.find((runs) => runs.udid)?.udid, server: owned ? server : null }).catch(() => null);
       scrolled = await scrolling(app, shots, { key, force: args.includes('--rescroll') });
@@ -1409,7 +1419,9 @@ async function deviceMain(argv, emitJSON, declined, ended) {
   const ends = results.flatMap((t) => (t.end?.error ? (t.failures.length ? [] : [{ size: null, label: `${quoted(t.name)} end`, error: t.end.error }]) : t.end?.runs ?? []));
   const checks = [...firsts.flat(), ...ends, ...(relaunched?.runs ?? [])];
   const compiler = await compiling;
-  const kept = [...new Set([...checks.map((c) => c.shot), relaunched?.shot, desktop?.shot])].filter((p) => p && existsSync(p));
+  const visited = [...firsts.map((runs) => runs.large), ...results.map((t) => t.end?.large), relaunched?.large].filter(Boolean);
+  const large = [...visited, ...tourNews(visited, toured)];
+  const kept = [...new Set([...checks.map((c) => c.shot), relaunched?.shot, desktop?.shot, ...large.flatMap((l) => l.shots ?? [])])].filter((p) => p && existsSync(p));
   // `--shots <dir>`: every capture of this run copied out, under its own name (LLP 1116.008 D2).
   // The screenshots a test took itself (its `screenshot` steps) come too, named by the test as the ends are.
   const own = [];
@@ -1426,8 +1438,6 @@ async function deviceMain(argv, emitJSON, declined, ended) {
   refusedAt(RELAUNCH, relaunched?.refusals);
   const refusedList = [...refused].map(([line, where]) => ({ line, where }));
   const reloads = results.filter((t) => t.end?.reloaded).map((t) => ({ test: t.name, ...t.end.reloaded }));
-  const visited = [...firsts.map((runs) => runs.large), ...results.map((t) => t.end?.large), relaunched?.large].filter(Boolean);
-  const large = [...visited, ...tourNews(visited, toured)];
   const fixed = await fixedType(app.dir, host);
   const findingsFile = resolve(shots, `${host}-findings.txt`), listed = relative(process.cwd(), findingsFile);
   const r = report({ host, built, compiler, server: serverSaid, tested, checks, relaunched, refused: refusedList, reloads, large, fixed, scrolled, desktop, shots: kept, copied: copyTo && resolve(copyTo), own, accept: ACCEPT, ms: Date.now() - started, listed: listed.startsWith('..') ? findingsFile : listed });

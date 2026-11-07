@@ -207,7 +207,7 @@ passing test left, and says whether its first screen shows what that test stored
 it built, the compiler's warnings (as contract build says them, built or not), the tests, check's findings (each
 once, naming the screens it was on), the relaunch, then "verify: clean" or "verify: N problems". A clean verify
 is done. One screenshot of each screen goes to .exact/verify/ (the first screen's per width and scheme, each
-test's named by the test, the relaunch's): look at them when the features work.
+test's named by the test, the relaunch's; each at the largest text size with -largest): look at them when the features work.
 Large    each of those screens again at the largest text size (ios: the simulator's, put back
          after; web: a 53 px root, iOS's body there, at 390x844, and the tests run again there
          to read up to 12 screens they pass through): what spills (past the edge, squeezed,
