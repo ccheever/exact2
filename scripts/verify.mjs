@@ -729,7 +729,9 @@ export async function fixedType(dir, host, accept = ACCEPT) {
     const source = readFileSync(file, 'utf8'), at = (f) => `${relative(dir, file)}:${f.line}`;
     for (const f of fixedSizesIn(source)) {
       const rem = Math.round(f.size / 16 * 4) / 4;
-      add('fixed-type', f.testId, `  fixed    ${at(f)} ${f.tag} font-size=${f.value}: stays ${f.size} ${unit} as Dynamic Type grows; a role (\`font="-exact-title1"\`) or a \`rem\` size ("${rem}rem") scales`);
+      // A box that cannot grow (a symbol in a round button) takes a role with a cap, as UIKit's `scaledFont(for:maximumPointSize:)`
+      // holds one; the compiler takes a role in `min()`, not a rem size.
+      add('fixed-type', f.testId, `  fixed    ${at(f)} ${f.tag} font-size=${f.value}: stays ${f.size} ${unit} as Dynamic Type grows; a role (\`font="-exact-title1"\`) or a \`rem\` size ("${rem}rem") scales; where its box cannot grow, a role with a cap scales up to it (\`font-size="min(-exact-title3, 24px)"\`)`);
     }
     for (const f of fixedSymbolsIn(source)) {
       const rem = Math.round(f.size / 16 * 4) / 4;
