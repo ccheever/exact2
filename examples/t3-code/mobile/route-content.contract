@@ -314,6 +314,10 @@ component MobileRouteContent
   // the composer and transcript inside the remaining width without changing
   // global safe-area or keyboard ownership.
   derive threadTrailingReservation = contentGeometryTrailingReservation(contentGeometry)
+  // The Duo system rail is reported as a route-local occlusion. Pairing is a
+  // normal scroll surface, so keep its form and submit control clear of that
+  // rail while preserving the authored safe-area padding elsewhere.
+  derive routeTrailingReservation = contentGeometryTrailingReservation(contentGeometry)
   derive threadContentWidth = max(0, workspace.contentSettledWidth - threadTrailingReservation)
   derive routeContentWidth = routeName == "settings" and workspace.usesSplitView ? viewport.width : workspace.contentSettledWidth
   derive threadBottomInset = composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)
@@ -604,7 +608,7 @@ component MobileRouteContent
         else
           scroll id=`scroll-${routeId}` flex=1 min-height=0 keyboardDismissMode="interactive"
             column padding-left=(routeName == "environmentDetail" ? 0 : routeName == "environments" ? "calc(17.5px + env(safe-area-inset-left))" : "calc(20px + env(safe-area-inset-left))")
-              padding-right=(routeName == "environmentDetail" ? 0 : routeName == "environments" ? "calc(17.5px + env(safe-area-inset-right))" : "calc(20px + env(safe-area-inset-right))")
+              padding-right=(routeName == "environmentDetail" ? 0 : routeName == "environments" ? "calc(17.5px + env(safe-area-inset-right))" : routeName == "connect" or routeName == "connections" ? `calc(20px + env(safe-area-inset-right) + ${routeTrailingReservation}px)` : "calc(20px + env(safe-area-inset-right))")
               padding-top=(routeName == "environmentDetail" ? 0 : routeName == "environments" ? 14 : 16)
               padding-bottom=36
               gap=(routeName == "connections" or routeName == "environments" ? 0 : 14)
