@@ -249,6 +249,35 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertTrue(field.isFirstResponder, "returning to authored containment keeps the same responder")
     }
 
+    func testAnArrangementPreservesNativeNavigationPolicies() throws {
+        guard #available(iOS 27.1, *) else { throw XCTSkip("arrangements require iOS 27.1") }
+        guard let scene = hostedWindowScene() else { throw missing("scene", "arranged routes need a window scene") }
+        let session = try fixture("arranged-policies", scene.coordinateSpace.bounds.size, plan: "EXACT_EDGE_EFFECT_PLAN")
+        let p = session.presenter
+        XCTAssertNil(Agent(session: session).tap(["id": Int(try node(session, "tab-panes").id)])["error"])
+        let root = try node(session, "arrangement")
+        let route = try XCTUnwrap(p.navigation.activeRoute)
+        XCTAssertTrue(root.isDescendant(of: route.view))
+        let navigation = try XCTUnwrap(route.navigationController)
+        let controller = UIArrangementViewController()
+        let policies: [(UIBarMinimizationSafeAreaAdjustment, UIBarMinimizationBehavior)] = [
+            (.automatic, .automatic), (.enabled, .onScrollDown), (.disabled, .never),
+        ]
+        for (safeArea, behavior) in policies {
+            route.navigationItem.navigationBarMinimization.safeAreaAdjustment = safeArea
+            route.navigationItem.navigationBarMinimization.minimizationBehavior = behavior
+            XCTAssertTrue(p.arrangements.set(root.id, controller: controller))
+            self.window?.layoutIfNeeded()
+            p.arrangements.sync()
+            p.navigation.prepareRoutes([route], in: navigation)
+            XCTAssertEqual(route.navigationItem.navigationBarMinimization.safeAreaAdjustment, safeArea)
+            XCTAssertEqual(route.navigationItem.navigationBarMinimization.minimizationBehavior, behavior)
+            XCTAssertTrue(p.arrangements.set(root.id, controller: nil))
+            XCTAssertEqual(route.navigationItem.navigationBarMinimization.safeAreaAdjustment, safeArea)
+            XCTAssertEqual(route.navigationItem.navigationBarMinimization.minimizationBehavior, behavior)
+        }
+    }
+
     func testArrangedPeersScrollUnderTheBarsWithTheirOwnInsets() throws {
         guard #available(iOS 27.1, *) else { throw XCTSkip("arrangements require iOS 27.1") }
         guard let scene = hostedWindowScene() else { throw missing("scene", "arranged peers use the fold-aware window scene") }
@@ -258,6 +287,7 @@ final class ContentOwnersIOSTests: XCTestCase {
         for (pane, scroll) in zip([first, second], scrolls) {
             XCTAssertEqual(scroll.contentInsetAdjustmentBehavior, .automatic)
             XCTAssertEqual(scroll.contentInset, .zero, "UIKit owns the inset; Exact adds no second copy")
+            XCTAssertFalse(scroll.topEdgeEffect.isHidden, "each pane keeps UIKit's scroll-edge effect")
             XCTAssertGreaterThan(scroll.adjustedContentInset.top, 0)
             XCTAssertEqual(scroll.adjustedContentInset.bottom, scroll.safeAreaInsets.bottom, accuracy: 1)
             XCTAssertEqual(pane.convert(pane.bounds, to: route.view).maxY, route.view.bounds.maxY, accuracy: 1)
@@ -276,21 +306,21 @@ final class ContentOwnersIOSTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(row.convert(row.bounds, to: route.view).minY, route.view.safeAreaInsets.top - 1)
         }
         XCTAssertTrue(route.contentScrollView(for: .top) === scrolls[0], "the authored navigationScroll remains the title authority")
-        XCTAssertEqual(route.navigationItem.navigationBarMinimization.safeAreaAdjustment, .disabled)
+        XCTAssertEqual(route.navigationItem.navigationBarMinimization.safeAreaAdjustment, .automatic)
         p.apply(wireBatch([["op": "props", "id": Int(second.id), "set": ["scrollTop": "1000000"]]]))
         XCTAssertEqual(scrolls[1].contentOffset.y, max(-scrolls[1].adjustedContentInset.top,
                        scrolls[1].contentSize.height + scrolls[1].adjustedContentInset.bottom - scrolls[1].bounds.height), accuracy: 1,
                        "an authored scroll reaches the end of a peer that does not own the title")
         p.apply(wireBatch([["op": "props", "id": Int(second.id), "set": ["scrollTop": "0"]]]))
         let rightRow = try node(session, "second-row-1")
-        let rightY = rightRow.convert(rightRow.bounds, to: route.view).minY
-        let rightInset = scrolls[1].adjustedContentInset.top
+        let rightPosition = rightRow.convert(rightRow.bounds, to: route.view).minY - scrolls[1].adjustedContentInset.top
         for top in [CGFloat(200), 0, 200, 0] {
             scrolls[0].setContentOffset(CGPoint(x: 0, y: top - first.scrollTopInset(scrolls[0])), animated: false)
             self.window?.layoutIfNeeded()
             until("native scrolling settles") { !Agent(session: session).nativeInFlight() }
-            XCTAssertEqual(rightRow.convert(rightRow.bounds, to: route.view).minY, rightY, accuracy: 1, "scrolling one peer leaves the other's content in place")
-            XCTAssertEqual(scrolls[1].adjustedContentInset.top, rightInset, accuracy: 1)
+            XCTAssertEqual(rightRow.convert(rightRow.bounds, to: route.view).minY - scrolls[1].adjustedContentInset.top,
+                           rightPosition, accuracy: 1, "the peer keeps its content position as UIKit changes the shared safe area")
+            XCTAssertEqual(scrolls[1].adjustedContentInset.top, scrolls[1].safeAreaInsets.top, accuracy: 1)
         }
         let top = scrolls[0].contentOffset.y + first.scrollTopInset(scrolls[0])
         scrolls[1].setContentOffset(CGPoint(x: 0, y: 160 - second.scrollTopInset(scrolls[1])), animated: false)
@@ -311,7 +341,7 @@ final class ContentOwnersIOSTests: XCTestCase {
             p.navigation.prepareRoutes([route], in: try XCTUnwrap(route.navigationController))
             XCTAssertTrue(route.contentScrollView(for: .top) === scroll, "the named pane actually becomes the title authority")
             XCTAssertTrue(scrolls.allSatisfy { $0.contentInsetAdjustmentBehavior == .automatic }, "changing title authority keeps both peer insets")
-            XCTAssertEqual(route.navigationItem.navigationBarMinimization.safeAreaAdjustment, .disabled, "projection preserves the native header policy")
+            XCTAssertEqual(route.navigationItem.navigationBarMinimization.safeAreaAdjustment, .automatic, "projection preserves UIKit's default policy")
         }
         let navigation = try XCTUnwrap(route.navigationController)
         _ = Agent(session: session).tap(["id": Int(try node(session, "tab-inline").id)])
