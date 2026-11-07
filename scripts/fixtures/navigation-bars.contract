@@ -24,7 +24,7 @@
 //   over a scroller that ends it, which reaches the sheet's bottom edge.
 //
 // Every one of those routes but `form` offers a button to each of the
-// others, and to the four below.
+// others, and to the routes below.
 //
 // LLP 1115.000 D11.1: the route's scroller is the bar's scroller with nothing
 // written (NavigationCollapseIOSTests). Four routes that scroll:
@@ -40,6 +40,9 @@
 //
 // LLP 1115.000 D11.3 (GroupedListIOSTests): `rows` is a grouped list. One
 // row pushes `detail` and stays selected under it; one presses and stays.
+// `rail` has a narrow, absolutely positioned header whose actions overflow
+// until UIKit lifts them into its bar. Its native container keeps its place,
+// in no scroll view, throughout projection (ContentOwnersIOSTests).
 routes nav
   start "/"
     detail "/detail"
@@ -57,6 +60,7 @@ routes nav
     named "/named"
     bare "/bare"
     rows "/rows"
+    rail "/rail"
 
 component NavigationBars
   state backs = 0
@@ -118,6 +122,17 @@ component NavigationBars
                   image "symbol:forward-chevron"
                 button press=stay testId="rows-stay"
                   text `Stayed ${stays}`
+          else if e.name == "rail"
+            header testId="header-rail" position="absolute" top=104 right=0 width=48
+              text "" role="heading" aria-level=2
+              button press=stay aria-label="Share" testId="rail-share"
+                image "symbol:share"
+              button popovertarget="rail-menu" aria-label="More options" testId="rail-more"
+                image "symbol:filter"
+            text `Actions ${stays}` testId="rail-actions" font-variant-numeric="tabular-nums"
+            column id="rail-menu" popover="auto" role="menu" aria-label="Actions"
+              button role="menuitem" press=stay popovertarget="rail-menu" popovertargetaction="hide" testId="rail-menu-stay"
+                text "Stay"
           else
             if e.name == "detail"
               header testId="header-detail" display="flex" align-items="center" padding="8px 16px"
@@ -136,7 +151,7 @@ component NavigationBars
               text `backs ${backs}` testId=`${e.name}-backs`
               button press=park testId=`${e.name}-park-owners`
                 text "Park retained owners"
-              for l in ["detail", "plain", "twin", "own", "viewer", "sheet", "titled", "form", "glass", "clear", "tall", "pair", "named", "bare", "rows"] key=l
+              for l in ["detail", "plain", "twin", "own", "viewer", "sheet", "titled", "form", "glass", "clear", "tall", "pair", "named", "bare", "rows", "rail"] key=l
                 button press=open(l) testId=`${e.name}-open-${l}`
                   text l
       for e in stack(nav).filter(x => x.name == "glass") key=e.id

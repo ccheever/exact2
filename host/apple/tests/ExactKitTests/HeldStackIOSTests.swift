@@ -286,6 +286,32 @@ final class HeldStackIOSTests: XCTestCase {
         XCTAssertEqual(navigation.presentedNavigations.count, 1, "the sheet stays up")
     }
 
+    func testADeferredHeaderProjectionKeepsTheTabContainerInItsViewport() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "a sheet presents only from a scene's window") }
+        let session = try fixture("held-rail"), p = session.presenter, navigation = p.navigation
+        let (tabs, held, root) = try held(session)
+        let allocation = tabs.view.convert(tabs.view.bounds, to: p.viewport)
+        UIView.setAnimationsEnabled(true)
+        defer { UIView.setAnimationsEnabled(false) }
+        try press(session, "open-sheet")
+        until("the sheet is presenting") { navigation.realizeWaits }
+        try press(session, "rail")
+        XCTAssertTrue(tabs.viewControllers?.first === held)
+        XCTAssertTrue(navigation.syncAfterTransitionArmed, "the header waits for a sync after the transition")
+        until("the deferred projection finishes") {
+            tabs.viewControllers?.first is UINavigationController && !navigation.syncAfterTransitionArmed && !navigation.inTransition
+                && (try? self.node(session, "held-header-rail"))?.isHidden == true
+        }
+        let nav = try XCTUnwrap(tabs.viewControllers?.first as? UINavigationController)
+        XCTAssertTrue(nav.viewControllers.first === root)
+        XCTAssertEqual(root.navigationItem.rightBarButtonItems?.count, 2)
+        XCTAssertEqual(tabs.view.convert(tabs.view.bounds, to: p.viewport), allocation)
+        XCTAssertFalse(sequence(first: tabs.view, next: { $0.superview }).contains { $0 is UIScrollView }, "no scroll view holds the tab container")
+        XCTAssertTrue(p.documentFixed && !p.viewport.isScrollEnabled, "the document stays in its mount")
+        XCTAssertEqual(p.viewport.contentOffset, .zero, "the deferred header leaves the page where it was")
+        XCTAssertEqual(navigation.presentedNavigations.count, 1, "the sheet stays up")
+    }
+
     /// The route's node waits in the window while its controller moves: with
     /// a sheet up over the tab, whose presentation makes the tab container
     /// inert, the field's focus is as it was and VoiceOver's element is told
