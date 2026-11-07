@@ -393,8 +393,16 @@ private final class T3HomeChromeView: ExactNativeInstance {
             attachedLayout = mode
             if glass { if #available(iOS 26.0, *) { makeGlassToolbar(route) } }
             else {
-                makeHeaderSearch(route)
-                if config.layout == "sidebar" { makeSidebarTabs(route) }
+                // iOS 27 gives the unfolded Duo a vertical system rail.
+                // Keep UIKit's rail on the window so its occlusion packet,
+                // hit targets and selected state remain one owner. Older
+                // split devices retain the app-owned footer bar.
+                if #available(iOS 26.0, *), config.layout == "sidebar" && route.controller.t3UsesVerticalSystemBar {
+                    makeSystemTabs(route)
+                } else {
+                    makeHeaderSearch(route)
+                    if config.layout == "sidebar" { makeSidebarTabs(route) }
+                }
             }
             // Native edits retain their text and caret across asynchronous root echoes.
             replaceQuery(query)
