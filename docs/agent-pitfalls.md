@@ -409,6 +409,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `Intl.NumberFormat` made at module load, keep what only a detail screen shows (its
   chart) out of the per-tick answer, and limit each tick's work to the rows that
   moved. (Round r21 watchlist, measured with the scroll-feel probe, 2026-10-26.)
+- **Scrolled up, a chat's messages showed through the composer under it.** Cause: a
+  virtualized `list` draws its rows past its bottom edge, under the views that follow
+  it, and a composer row with no background shows them; `check` reports each such text
+  as overlapping the composer. `overflow="hidden"` on the list is refused
+  (`lower-collection-flow`). Fix: give the bar after the list a background
+  (`background-color="-exact-background"`, which leaves the screen at rest as it was) or
+  a material (`backgroundMaterial="ultra-thin"`, as `apps/messages`'s composer bar has).
+  (A chat app on iOS 26.5, 2026-11-02.)
 
 ## Native presentation and navigation (iOS)
 
