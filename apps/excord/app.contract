@@ -227,7 +227,7 @@ component Excord
   // An ack changes the read state, not the history the window shows.
   mutation acked as shape Ack queue refreshes chan, categories, dms, guilds, rail then afterAck
   // The page the window names (`win.need`), one at a time.
-  mutation paged as shape Ack queue refreshes win, chan then afterPage
+  mutation paged as shape Ack queue refreshes chan then afterPage
   mutation beat as shape Ack
   // The clock moved on and the gateway asked again: a backoff's retry.
   mutation redialed as shape Ack refreshes gateway
@@ -417,15 +417,13 @@ component Excord
     pageAsked = pageKey
     send paged = loadPage(win.channel, win.need, win.cursor)
   action afterPage
+    // Refresh and restore in one commit to preserve the top message during a prepend
+    refresh win
     match paged
       case some(r)
         pageTries = r.ok ? 0 : pageTries + 1
-        // A collection at offset zero shows prepended rows. A transcript keeps
-        // the message being read, including when a slow page lands at that edge.
-        if r.ok and reading and pageAsked.startsWith(`${open}/before/`) and historyStart and target == "" and topKey != ""
-          target = topKey
-          targetBlock = "offset"
-          restoreOffset = topOffset
+        if r.ok and reading and pageAsked.startsWith(`${open}/before/`) and historyStart and target == "" and topKey != "" and keys.includes(topKey)
+          scrollIntoView("transcript", topKey, offset=topOffset, behavior="instant")
       case none
         pageTries = 0
   action retryHistory
