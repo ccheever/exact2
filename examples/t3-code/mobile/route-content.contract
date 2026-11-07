@@ -319,7 +319,7 @@ component MobileRouteContent
   // rail while preserving the authored safe-area padding elsewhere.
   derive routeTrailingReservation = contentGeometryTrailingReservation(contentGeometry)
   derive threadContentWidth = max(0, workspace.contentSettledWidth - threadTrailingReservation)
-  derive routeContentWidth = routeName == "settings" and workspace.usesSplitView ? viewport.width : workspace.contentSettledWidth
+  derive routeContentWidth = workspace.usesSplitView and (routeName == "settings" or routeName == "homeArrange" or routeName == "threadBrowser" or routeName == "threadDevices" or routeName == "settingsLegal") ? viewport.width : workspace.contentSettledWidth
   derive threadBottomInset = composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)
   derive threadCoveredBottom = threadGeometryOwner == threadGeometryKey ? threadMeasuredBottom : 0
   derive threadScrollToEndVisible = not threadEndFollowEnabled and threadData.loaded and not threadData.loading and threadData.error == "" and threadData.rows.length > 0

@@ -208,7 +208,7 @@ component PullRequests
           text (data.empty != "" ? data.empty : "No pull requests") role="heading" aria-level=3 font-weight=700 text-align="center"
           text (data.emptyDetail != "" ? data.emptyDetail : "Pull requests from every project in this workspace appear here.") margin-top=7 text-align="center"
       else
-        scroll flex=1 min-height=0 testId="pull-requests-list"
+        scroll id="pull-requests-list" flex=1 min-height=0 testId="pull-requests-list"
           for group in data.groups key=group.key
             column padding-left=16 padding-right=16 padding-top=12
               row align-items="center" padding-bottom=6
