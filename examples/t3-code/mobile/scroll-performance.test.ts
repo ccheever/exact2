@@ -139,3 +139,12 @@ test('Every route scroll owner names a rendered native scroll or list', () => {
   expect(root).toContain('name == "settingsScheduledBranch" ? "scheduled-branch-scroll"');
   expect(root).toContain('name == "settingsUsageAccount" ? "settings-usage-account-scroll"');
 });
+
+test('compact Home search stays attached while contract echoes a typed query', () => {
+  const chrome = appText('mobile/modules/apple/T3HomeChrome.swift');
+  expect(chrome).toContain('let active = searchController.isActive || item.searchController?.isActive == true');
+  expect(chrome).toContain('if active {');
+  expect(chrome).toContain('if item.searchController !== searchController { item.searchController = searchController }');
+  expect(chrome).toContain('} else {');
+  expect(chrome).toContain('searchController.isActive = true');
+});

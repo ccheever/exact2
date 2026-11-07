@@ -432,15 +432,23 @@ private final class T3HomeChromeView: ExactNativeInstance {
             // Exact does not expose react-native-screens' integratedButton
             // placement. Keep the affordance in the navigation bar and attach
             // UIKit's search controller only when the button is activated.
-            item.searchController = nil
-            let search = UIBarButtonItem(image: UIImage(systemName: "magnifyingglass"), primaryAction: UIAction { [weak route, weak searchController] _ in
-                guard let route, let searchController else { return }
-                route.controller.navigationItem.searchController = searchController
-                searchController.isActive = true
-            })
-            search.accessibilityLabel = "Search threads"
-            search.accessibilityIdentifier = "workspace-search"
-            installedRight.insert(search, at: 0)
+            // Contract echoes arrive for every keystroke. Do not detach an active
+            // controller while its text field owns first responder, or the first
+            // character closes search on compact iOS.
+            let active = searchController.isActive || item.searchController?.isActive == true
+            if active {
+                if item.searchController !== searchController { item.searchController = searchController }
+            } else {
+                item.searchController = nil
+                let search = UIBarButtonItem(image: UIImage(systemName: "magnifyingglass"), primaryAction: UIAction { [weak route, weak searchController] _ in
+                    guard let route, let searchController else { return }
+                    route.controller.navigationItem.searchController = searchController
+                    searchController.isActive = true
+                })
+                search.accessibilityLabel = "Search threads"
+                search.accessibilityIdentifier = "workspace-search"
+                installedRight.insert(search, at: 0)
+            }
         }
         item.rightBarButtonItems = installedRight
         if !glass && config.layout == "compact" {
