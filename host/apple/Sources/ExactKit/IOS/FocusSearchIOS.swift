@@ -97,6 +97,18 @@ final class Viewport: ScrollView {
 /// Bound focus search to a native route or modal presentation, as the
 /// document viewport does (LLP 1123 D2).
 final class PresentationMount: UIView {
+    /// A route mount is a host for its authored tree, not an authored control.
+    /// UIKit's default hit test returns the mount itself when the tree passes
+    /// a point through (for example, a retained route wrapper with
+    /// `pointer-events: none`). Returning that host made the navigation agent
+    /// report `PresentationMount covers its middle` and prevented the active
+    /// tab's descendants from receiving a touch. Keep descendants hittable,
+    /// but let an empty mount pass the point to the view below it.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        return hit === self ? nil : hit
+    }
+
     #if os(iOS)
     /// Relay a modal presentation's events to its logical ancestors (`MountRelay`).
     var relay: MountRelay?

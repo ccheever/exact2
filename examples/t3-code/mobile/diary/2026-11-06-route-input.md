@@ -9,9 +9,14 @@ target and Settings, Usage and pushed Back controls were unreachable.
 The route content row now restores `pointer-events: auto` only for the focused
 route. The inactive row remains inert while its stack is retained. Contract
 coverage and the mobile navigation tests pass; a fresh signed-device drive is
-still required when the device service is available.
+still required when the device service is available. A live drive also exposed
+an Exact host edge: component flattening leaves the authored route content beside
+the `mobile-route-*` node, so its empty `PresentationMount` must pass through a
+hit instead of returning itself. The iOS host now does that while preserving
+descendant hits.
 
 ## Checkpoints
 
 - Contract build: passed.
 - Route geometry, root navigation and scroll tests: passed.
+- Exact iOS host regression coverage: passed in the iOS XCTest lane.
