@@ -513,6 +513,24 @@ test('rustc unit dep-info written under another spelling of the same directory s
   } finally { rmSync(alias, { force: true }); rmSync(root, { recursive: true, force: true }); }
 });
 
+test('a target directory copied from another checkout names where it was built', async () => {
+  const { unitDepInfo } = await import('./app.mjs');
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-moved-dep-')));
+  try {
+    const first = resolve(root, 'first/target'), second = resolve(root, 'second/target'), src = resolve(root, 'registry/leaf/src/lib.rs');
+    const deps = resolve(second, 'debug/deps'), artifact = resolve(deps, 'libleaf-a11ce.rlib'), dep = resolve(deps, 'leaf-a11ce.d');
+    mkdirSync(deps, { recursive: true });
+    writeFileSync(artifact, 'unit');
+    const metadata = { target_directory: second, build_directory: second };
+    const message = { filenames: [artifact], executable: null, target: { name: 'leaf', src_path: src } };
+    writeFileSync(dep, `${resolve(root, 'other.d')}: ${src}\n`);
+    assert.throws(() => unitDepInfo(message, resolve(root, 'second'), metadata), /rebuild the stale Cargo unit/);
+    writeFileSync(dep, `${resolve(first, 'debug/deps/leaf-a11ce.d')}: ${src}\n`);
+    assert.throws(() => unitDepInfo(message, resolve(root, 'second'), metadata),
+      { message: `no matching rustc unit dep-info for leaf; searched target directory ${second}; ${second} was built at ${first}: delete it and build again` });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test.each([null, 'intermediate', 'output/intermediate'])('rustc unit dep-info accepts spaces and build directory %s', async split => {
   const { unitDepInfo } = await import('./app.mjs');
   const { spawnSync } = await import('node:child_process');
